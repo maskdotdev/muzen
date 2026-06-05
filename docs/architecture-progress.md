@@ -13,17 +13,19 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 9.7/10.**
+**Current score: 9.8/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
 adapters, provider materialization lives in Rust, and the RFC tracker has
 reviewable milestones with broad verification.
 
-The score is not higher yet because some Review Session orchestration and test
-code remain broader than ideal at their current size. The TypeScript and Python
-SDKs now both have clear factory, local adapter, remote adapter, mapping, and
-validation modules.
+The score is not higher yet mostly because the remaining evidence belongs in
+deployment CI: live Postgres, live provider materialization, and host-specific
+model/tool callback ergonomics. Local module shape is now strong: Rust owns the
+core, the Review Session tests are no longer embedded in the root module, and
+the TypeScript and Python SDKs both have clear factory, local adapter, remote
+adapter, mapping, and validation modules.
 
 The Runner Protocol schema now includes method-level payload references and a
 shared definition catalog consumed by Rust, TypeScript, and Python tests. This
@@ -61,17 +63,19 @@ only.
   review-flow modules.
 - The Python SDK has separate runner mapping, wire validation, error, and
   local/remote adapter modules.
+- The Review Session root implementation is separated from its test suite,
+  keeping orchestration navigation small while preserving focused coverage.
 - Remote HTTP routing is framework-neutral, with Axum as a concrete adapter.
 - Verification is broad: Rust tests, SDK tests, runner-backed tests, service
   builds, and RFC example checks.
 
 ## Main Friction
 
-1. **Review Session root module is too large.**
+1. **Review Session root module has been reduced to orchestration.**
    [src/review_session.rs](/Users/e464543/code/muzen/src/review_session.rs)
-   owns domain types, orchestration, conversions, helper functions, and a large
-   test suite. The module is important, but it is currently too hard to review
-   one behavior without scrolling through unrelated concepts.
+   now owns the public orchestration surface, while the large coverage suite
+   lives in `src/review_session/tests.rs`. Further reductions should be driven
+   by real behavioral changes rather than file-size cleanup.
 
 2. **Store implementations share one large file.**
    [src/review_session/store.rs](/Users/e464543/code/muzen/src/review_session/store.rs)
@@ -254,7 +258,7 @@ Expected score lift: **+0.3**.
 
 2. **Review Session split.**
    Move source/options/result/session domain groups into submodules without
-   changing public exports.
+   changing public exports. Test module extraction completed in `dd51c22`.
 
 3. **Store adapter split.**
    Separate store trait/records, in-memory adapter, Postgres adapter, and
@@ -293,6 +297,7 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | e07d4cc | 9.5 | Extract TypeScript local runner adapter from public factory module, completing the SDK local/remote split | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 488032e | 9.6 | Extract Python remote service adapter and unsupported-feature error from public/local client module | `python3 -m py_compile muzen/*.py`; `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 5d4f1bc | 9.7 | Extract Python local runner adapter from public factory/re-export module, completing Python SDK local/remote separation | `python3 -m py_compile muzen/*.py`; `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | dd51c22 | 9.8 | Move Review Session tests into a dedicated module, reducing the root module to public orchestration | `cargo fmt`; `cargo test review_session --lib` |
 
 ## Current Target
 
@@ -300,6 +305,5 @@ Target score after the next practical slices: **9.8/10**.
 
 The remaining 0.2 depends on production integration evidence that should happen
 in deployment CI: live Postgres, live provider materialization, and any future
-host-specific model/tool callback ergonomics. The main remaining local
-reviewability opportunity is trimming Review Session root tests/orchestration
-where doing so remains low risk.
+host-specific model/tool callback ergonomics. At this point, local refactors
+should be tied to concrete product changes rather than abstract score chasing.
