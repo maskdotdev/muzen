@@ -154,6 +154,7 @@ impl MuzenWorkspace {
             "github",
             event,
             mapped.action.as_deref(),
+            mapped.head_sha.as_deref(),
             delivery_id,
             options.into(),
         )
@@ -197,6 +198,7 @@ impl MuzenWorkspace {
             "gitlab",
             event,
             mapped.action.as_deref(),
+            mapped.head_sha.as_deref(),
             delivery_id,
             options.into(),
         )
@@ -208,6 +210,7 @@ impl MuzenWorkspace {
         provider: &str,
         event: &str,
         action: Option<&str>,
+        head_sha: Option<&str>,
         delivery_id: String,
         options: WebhookReviewOptions,
     ) -> Result<WebhookReviewDelivery, ReviewSessionError> {
@@ -228,7 +231,15 @@ impl MuzenWorkspace {
                 .metadata
                 .insert("webhook.action".to_string(), json!(action));
         }
-        let dedupe_key = review_options.dedupe.key_for_source(&source);
+        if let Some(head_sha) = head_sha
+            .map(str::trim)
+            .filter(|head_sha| !head_sha.is_empty())
+        {
+            review_options
+                .metadata
+                .insert("source.headSha".to_string(), json!(head_sha));
+        }
+        let dedupe_key = review_options.dedupe_key(&source);
         let was_deduped = if let Some(key) = &dedupe_key {
             self.store.get_by_dedupe_key(key)?.is_some()
         } else {
@@ -253,6 +264,7 @@ impl MuzenWorkspace {
 pub struct WebhookMappedSource {
     pub source: ReviewSource,
     pub action: Option<String>,
+    pub head_sha: Option<String>,
 }
 
 pub fn verify_github_webhook_signature(
@@ -315,9 +327,16 @@ pub fn map_github_webhook_source(
         .get("action")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let head_sha = payload
+        .get("pull_request")
+        .and_then(|pull_request| pull_request.get("head"))
+        .and_then(|head| head.get("sha"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Ok(Some(WebhookMappedSource {
         source: ReviewSource::github_pull_request(owner, repo, number)?,
         action,
+        head_sha,
     }))
 }
 
@@ -366,9 +385,20 @@ pub fn map_gitlab_webhook_source(
         .get("action")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let head_sha = attributes
+        .get("last_commit")
+        .and_then(|last_commit| last_commit.get("id"))
+        .or_else(|| {
+            payload
+                .get("last_commit")
+                .and_then(|last_commit| last_commit.get("id"))
+        })
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Ok(Some(WebhookMappedSource {
         source: ReviewSource::gitlab_merge_request(owner, repo, number)?,
         action,
+        head_sha,
     }))
 }
 

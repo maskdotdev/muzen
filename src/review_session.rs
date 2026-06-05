@@ -953,7 +953,7 @@ impl ReviewOptions {
     }
 
     fn dedupe_key(&self, source: &ReviewSource) -> Option<String> {
-        self.dedupe.key_for_source(source)
+        self.dedupe.key_for_source(source, &self.metadata)
     }
 }
 
@@ -973,11 +973,26 @@ impl Default for DedupePolicy {
 }
 
 impl DedupePolicy {
-    fn key_for_source(&self, source: &ReviewSource) -> Option<String> {
+    fn key_for_source(
+        &self,
+        source: &ReviewSource,
+        metadata: &BTreeMap<String, Value>,
+    ) -> Option<String> {
         match self {
             Self::None => None,
             Self::Source => Some(format!("source:{}", source.source_key())),
-            Self::SourceHead => Some(format!("source-head:{}", source.source_key())),
+            Self::SourceHead => {
+                let source_key = source.source_key();
+                let head_sha = metadata
+                    .get("source.headSha")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|head_sha| !head_sha.is_empty());
+                Some(match head_sha {
+                    Some(head_sha) => format!("source-head:{source_key}@{head_sha}"),
+                    None => format!("source-head:{source_key}"),
+                })
+            }
             Self::Key(key) => Some(format!("key:{key}")),
         }
     }
@@ -2908,7 +2923,10 @@ mod tests {
                 "full_name": "maskdotdev/heimdaal"
             },
             "pull_request": {
-                "number": 123
+                "number": 123,
+                "head": {
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
             }
         })
         .to_string();
@@ -2945,7 +2963,10 @@ mod tests {
                 "full_name": "maskdotdev/heimdaal"
             },
             "pull_request": {
-                "number": 123
+                "number": 123,
+                "head": {
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
             }
         })
         .to_string();
@@ -3005,6 +3026,10 @@ mod tests {
             record.options.metadata["webhook.deliveryId"],
             json!("delivery-1")
         );
+        assert_eq!(
+            record.options.metadata["source.headSha"],
+            json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
         match second {
             WebhookReviewDelivery::ReviewDeduped {
                 review: deduped,
@@ -3015,6 +3040,82 @@ mod tests {
             }
             delivery => panic!("expected review_deduped, got {delivery:?}"),
         }
+    }
+
+    #[test]
+    fn github_webhook_source_head_dedupe_includes_head_sha() {
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store.clone()).workspace("acme");
+        let options = WebhookReviewOptions::new(ReviewOptions {
+            dedupe: DedupePolicy::SourceHead,
+            ..ReviewOptions::default()
+        });
+        let headers = WebhookHeaders::from([
+            ("X-GitHub-Event", "pull_request"),
+            ("X-GitHub-Delivery", "delivery-1"),
+        ]);
+        let body_for = |sha: &str| {
+            json!({
+                "action": "synchronize",
+                "repository": {
+                    "full_name": "maskdotdev/heimdaal"
+                },
+                "pull_request": {
+                    "number": 123,
+                    "head": {
+                        "sha": sha
+                    }
+                }
+            })
+            .to_string()
+        };
+
+        let first = workspace
+            .handle_github_webhook(
+                &headers,
+                body_for("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_bytes(),
+                None,
+                options.clone(),
+            )
+            .unwrap();
+        let duplicate = workspace
+            .handle_github_webhook(
+                &headers,
+                body_for("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_bytes(),
+                None,
+                options.clone(),
+            )
+            .unwrap();
+        let changed_head = workspace
+            .handle_github_webhook(
+                &headers,
+                body_for("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").as_bytes(),
+                None,
+                options,
+            )
+            .unwrap();
+
+        assert!(matches!(first, WebhookReviewDelivery::ReviewCreated { .. }));
+        assert!(matches!(
+            duplicate,
+            WebhookReviewDelivery::ReviewDeduped { .. }
+        ));
+        assert!(matches!(
+            changed_head,
+            WebhookReviewDelivery::ReviewCreated { .. }
+        ));
+        assert!(store
+            .get_by_dedupe_key(
+                "source-head:github:maskdotdev/heimdaal#123@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_by_dedupe_key(
+                "source-head:github:maskdotdev/heimdaal#123@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -3095,7 +3196,10 @@ mod tests {
             "object_kind": "merge_request",
             "object_attributes": {
                 "iid": 42,
-                "action": "update"
+                "action": "update",
+                "last_commit": {
+                    "id": "cccccccccccccccccccccccccccccccccccccccc"
+                }
             },
             "project": {
                 "path_with_namespace": "platform/reviews/heimdaal"
@@ -3138,6 +3242,10 @@ mod tests {
         );
         assert_eq!(record.options.metadata["webhook.provider"], json!("gitlab"));
         assert_eq!(record.options.metadata["webhook.action"], json!("update"));
+        assert_eq!(
+            record.options.metadata["source.headSha"],
+            json!("cccccccccccccccccccccccccccccccccccccccc")
+        );
     }
 
     #[test]

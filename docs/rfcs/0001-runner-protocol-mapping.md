@@ -89,8 +89,9 @@ remains a local preview/test implementation.
 
 ## Known Gaps
 
-- `source-head` dedupe currently uses the stable source key until source
-  resolution can capture provider head revisions.
+- Webhook-scheduled `source-head` dedupe captures provider head revisions from
+  GitHub/GitLab payloads. Direct provider reviews still fall back to the stable
+  source key unless the caller supplies known head metadata.
 - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
   now exist around the core remote HTTP contract. `muzen-service` uses Postgres
   stores when `DATABASE_URL` is set.

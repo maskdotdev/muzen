@@ -230,6 +230,8 @@ Exit criteria:
   - [x] `source`,
   - [x] `source-head`,
   - [x] application-defined key.
+- [x] Capture GitHub/GitLab webhook head SHAs in safe metadata so
+  webhook-scheduled `source-head` dedupe keys include provider head revisions.
 - [x] Implement durable cancellation.
 - [x] Implement worker claim and lease semantics.
 - [x] Implement retry policy and backoff.
@@ -374,6 +376,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 3ec971d | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 8d87462 | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 779cade | Rust GitHub/GitLab provider source materialization and SDK source forwarding | `cargo fmt --check`; `cargo test runner::materialize --lib`; `cargo test runner::tests --lib`; `cargo test review_session --lib`; `cargo test`; `cargo build --bin muzen-runner`; `npm test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Provider webhook head-SHA metadata for `source-head` dedupe | `cargo fmt --check`; `cargo test review_session::tests::github_webhook_source_head_dedupe_includes_head_sha --lib`; `cargo test review_session --lib` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -390,6 +393,10 @@ Record every milestone with the commands that were run.
   runner `run.start` materialization for GitHub pull requests and GitLab merge
   requests. The runner uses temporary Git checkouts, provider auth headers from
   environment tokens, provider base URL routing, and changed-file inference.
+- GitHub/GitLab webhook scheduling captures provider head SHAs in safe metadata
+  so `source-head` dedupe keys distinguish new commits for the same pull/merge
+  request. Direct provider reviews still fall back to stable source-key dedupe
+  unless the caller supplies known head metadata.
 - The Rust `MuzenWorkspace` facade now has explicit queued scheduling and a
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
