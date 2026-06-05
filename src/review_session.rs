@@ -20,12 +20,17 @@ use crate::runner::{
 use crate::util::timestamp_utc;
 
 mod config;
+mod http;
 mod profiles;
 mod store;
 mod webhooks;
 mod worker;
 
 pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
+pub use http::{
+    ReviewHttpResponse, ReviewSseFrame, ReviewSseStream, CONTENT_TYPE_EVENT_STREAM,
+    CONTENT_TYPE_JSON, HTTP_STATUS_ACCEPTED, HTTP_STATUS_OK,
+};
 pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
     ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
@@ -67,6 +72,8 @@ pub enum ReviewSessionError {
     Profile(String),
     #[error("webhook error: {0}")]
     Webhook(String),
+    #[error("review HTTP response error: {0}")]
+    Http(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1428,6 +1435,31 @@ pub enum ReviewEventType {
 }
 
 impl ReviewEventType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SessionCreated => "session.created",
+            Self::SessionQueued => "session.queued",
+            Self::SessionClaimed => "session.claimed",
+            Self::SessionStarted => "session.started",
+            Self::SourceResolved => "source.resolved",
+            Self::ScopeInferred => "scope.inferred",
+            Self::ScopeOverridden => "scope.overridden",
+            Self::RepoMaterialized => "repo.materialized",
+            Self::PlanCreated => "plan.created",
+            Self::AgentStarted => "agent.started",
+            Self::AgentCompleted => "agent.completed",
+            Self::ToolStarted => "tool.started",
+            Self::ToolCompleted => "tool.completed",
+            Self::FindingCreated => "finding.created",
+            Self::FindingUpdated => "finding.updated",
+            Self::ReviewResultCreated => "review.result_created",
+            Self::SessionCompleted => "session.completed",
+            Self::SessionFailed => "session.failed",
+            Self::SessionCancelled => "session.cancelled",
+            Self::RunnerEvent => "runner.event",
+        }
+    }
+
     fn from_internal(event: &InternalReviewEvent) -> Self {
         match event {
             InternalReviewEvent::RunStarted { .. } => Self::SessionStarted,
@@ -2561,6 +2593,61 @@ mod tests {
     }
 
     #[test]
+    fn review_events_response_replays_json_from_store() {
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store).workspace("acme");
+        let review = workspace
+            .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+            .unwrap();
+
+        let response = workspace.review_events_response(review.id(), None).unwrap();
+        let payload: Value = serde_json::from_str(&response.body).unwrap();
+
+        assert_eq!(response.status_code, HTTP_STATUS_OK);
+        assert_eq!(response.header("Content-Type"), Some(CONTENT_TYPE_JSON));
+        assert_eq!(payload["events"][0]["cursor"], json!("1"));
+        assert_eq!(payload["events"][0]["type"], json!("session.queued"));
+        assert_eq!(
+            payload["events"][0]["reviewId"],
+            json!(review.id().as_str())
+        );
+
+        let after_response = workspace
+            .review_events_response(review.id(), Some("1"))
+            .unwrap();
+        let after_payload: Value = serde_json::from_str(&after_response.body).unwrap();
+
+        assert_eq!(after_payload["events"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn review_events_sse_response_renders_service_side_event_stream() {
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store).workspace("acme");
+        let review = workspace
+            .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+            .unwrap();
+
+        let response = workspace
+            .review_events_sse_response(review.id(), None)
+            .unwrap();
+
+        assert_eq!(response.status_code, HTTP_STATUS_OK);
+        assert_eq!(
+            response.header("Content-Type"),
+            Some(CONTENT_TYPE_EVENT_STREAM)
+        );
+        assert_eq!(response.header("Cache-Control"), Some("no-cache"));
+        assert_eq!(response.header("X-Accel-Buffering"), Some("no"));
+        assert!(response.body.contains("id: 1\n"));
+        assert!(response.body.contains("event: session.queued\n"));
+        assert!(response.body.contains(
+            "data: {\"cursor\":\"1\",\"type\":\"session.queued\",\"reviewId\":\"review-1\""
+        ));
+        assert!(response.body.ends_with("\n\n"));
+    }
+
+    #[test]
     fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
         let store = Arc::new(InMemoryReviewSessionStore::default());
         let workspace = Muzen::with_store(store.clone()).workspace("acme");
@@ -2591,6 +2678,19 @@ mod tests {
         let second = workspace
             .handle_github_webhook(&headers, body.as_bytes(), Some("secret"), options)
             .unwrap();
+        let first_response = first.http_response().unwrap();
+        let second_response = second.http_response().unwrap();
+        let first_response_body: Value = serde_json::from_str(&first_response.body).unwrap();
+        let second_response_body: Value = serde_json::from_str(&second_response.body).unwrap();
+
+        assert_eq!(first_response.status_code, HTTP_STATUS_ACCEPTED);
+        assert_eq!(
+            first_response.header("Content-Type"),
+            Some(CONTENT_TYPE_JSON)
+        );
+        assert_eq!(first_response_body["type"], json!("review_created"));
+        assert_eq!(second_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(second_response_body["type"], json!("review_deduped"));
 
         let review = match first {
             WebhookReviewDelivery::ReviewCreated {
