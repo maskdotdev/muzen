@@ -13,7 +13,7 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 9.0/10.**
+**Current score: 9.1/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
@@ -270,6 +270,7 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | 3d63ebd | 8.8 | Extract Postgres Review Session store adapter and SQL mapping from shared store contract module | `cargo fmt --check`; `cargo test review_session --lib`; `cargo build --lib` |
 | 2026-06-05 | 0234c89 | 8.9 | Extract TypeScript runner mapping and runner wire guards from SDK orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 405b9c3 | 9.0 | Extract TypeScript SDK wire-response validation and unwrap helpers from SDK orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | pending | 9.1 | Extract Python SDK runner mapping and runner wire conversion helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 
 ## Current Target
 
