@@ -12,9 +12,9 @@ handle, and lets workers own execution, leases, retries, cancellation, event
 persistence, and final results.
 
 The local `createMuzen()` runner preview remains an inline compatibility bridge
-for local repository smoke tests until provider source materialization and the
-durable SDK service-boundary switch are complete. This exception is scoped to
-the preview runner path and must not shape the production API vocabulary.
+until the durable SDK service-boundary switch is complete. This exception is
+scoped to the preview runner path and must not shape the production API
+vocabulary.
 
 ## API Contract
 
@@ -26,8 +26,8 @@ the preview runner path and must not shape the production API vocabulary.
   for durable workspace scheduling.
 - Rust `MuzenWorkspace::review(...)` and SDK local `createMuzen().review(...)`
   remain preview conveniences for inline local repository execution.
-- Provider-backed local `createMuzen().review("github:...")` remains
-  unsupported until provider materialization exists.
+- Provider-backed local `createMuzen().review("github:...")` is resolved by
+  Rust runner provider materialization before inline preview execution.
 - Webhook paths schedule durable reviews through Rust core, including the local
   TypeScript preview facade through `webhook.github.handle` and
   `webhook.gitlab.handle`.
@@ -46,7 +46,7 @@ execution to queued durable execution when all of these are true:
 3. Workspace profile persistence exists for model/provider records and
    secret-reference snapshots. Implemented by `PostgresWorkspaceProfileStore`.
 4. Provider source materialization exists for GitHub and GitLab pull/merge
-   requests.
+   requests. Implemented by Rust runner provider materialization.
 5. SDK `review.wait()`, `events()`, `eventsResponse()`, `cancel()`,
    `refresh()`, `readArtifact()`, and `exportArtifacts()` all operate through
    the durable service boundary.
@@ -58,9 +58,9 @@ labeling preview gaps directly.
 ## Rationale
 
 Switching the local preview immediately would produce queued reviews that cannot
-materialize provider sources or complete without a production service boundary.
-That would make the first-contact SDK API look durable while leaving
-`review.wait()` weak or misleading.
+complete without a production service boundary. That would make the
+first-contact SDK API look durable while leaving `review.wait()` weak or
+misleading.
 
 Keeping the production path durable-first and the local path explicitly
 preview-only preserves the intended developer experience without hiding current

@@ -54,7 +54,7 @@ change must update the fixture and the SDK mapping intentionally.
 | --- | --- | --- | --- |
 | `createMuzen()` / `Client.create()` | `runner.handshake` | Implemented | Negotiates `muzen.runner.v1` and validates runner availability. |
 | local `muzen.review(...)` | `run.start` | Implemented | Local sources map to `repo`, `changedFiles`, `sessions`, and `limits`. |
-| provider `muzen.review(...)` | none yet | Pending | GitHub/GitLab sources parse into descriptors, but provider materialization is not implemented. |
+| provider `muzen.review(...)` | `run.start` | Implemented | GitHub/GitLab sources map to a Rust-owned `source` descriptor. The runner materializes pull/merge request refs into temporary Git checkouts, uses `GITHUB_TOKEN`/`GITLAB_TOKEN` auth headers when present, supports provider base URL routing, and infers changed files from the provider ref. |
 | `ReviewSession.subscribe(...)` | `event.review` | Implemented | Current SDK previews replay events recorded during the local runner execution. |
 | `ReviewSession.events(...)` | `event.review` | Implemented | Current previews replay recorded events; durable replay cursors are now modeled in the Rust store boundary. |
 | `ReviewSession.wait(...)` | `run.start` result / `run.result` | Implemented | Local runner execution is synchronous today; durable scheduling will make this wait on persisted terminal state. |
@@ -89,11 +89,10 @@ remains a local preview/test implementation.
 
 ## Known Gaps
 
-- Provider source materialization is not mapped to runner inputs yet.
 - `source-head` dedupe currently uses the stable source key until source
   resolution can capture provider head revisions.
-- Active cancellation, leases, retry policy, and backoff require worker-owned
-  durable sessions.
 - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
   now exist around the core remote HTTP contract. `muzen-service` uses Postgres
   stores when `DATABASE_URL` is set.
+- A live provider materialization smoke test should run in deployment CI with
+  real provider credentials and network access.

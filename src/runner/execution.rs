@@ -15,6 +15,7 @@ use crate::reviewer::{
 use super::adapters::{
     CallbackReviewModel, CallbackReviewTool, DeterministicRunnerModel, StreamingRunnerEventSink,
 };
+use super::materialize::materialize_run_source;
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
@@ -39,9 +40,15 @@ pub(crate) fn execute_run_start(
         }
     }
     let run_id = params.run_id.unwrap_or_else(|| "muzen-run".to_string());
-    let repo_root = params.repo;
-    let target_path = select_target_path(&repo_root, &params.changed_files)?;
-    let changed_files = changed_file_specs(&repo_root, &params.changed_files, &target_path);
+    let materialized = materialize_run_source(
+        params.repo.as_deref(),
+        params.source.as_ref(),
+        &params.changed_files,
+        params.source_provider.as_ref(),
+    )?;
+    let repo_root = materialized.repo_root().to_path_buf();
+    let target_path = select_target_path(&repo_root, materialized.changed_files())?;
+    let changed_files = changed_file_specs(&repo_root, materialized.changed_files(), &target_path);
     let change = ChangeSpec::local("sdk-run", "head", changed_files);
     let max_file_bytes = params
         .limits

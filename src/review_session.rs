@@ -13,9 +13,9 @@ use crate::reviewer::{
     ReviewEvent as InternalReviewEvent, ReviewEventRecord as InternalReviewEventRecord,
 };
 use crate::runner::{
-    execute_run_start, RunAgentBudgetParams, RunLimitParams, RunSessionParams, RunStartParams,
-    RunnerArtifact, RunnerArtifactView, RunnerFinding, RunnerRunResult, RunnerSnapshotSummary,
-    RUNNER_PROTOCOL_VERSION,
+    execute_run_start, RunAgentBudgetParams, RunLimitParams, RunSessionParams,
+    RunSourceProviderParams, RunStartParams, RunnerArtifact, RunnerArtifactView, RunnerFinding,
+    RunnerRunResult, RunnerSnapshotSummary, RUNNER_PROTOCOL_VERSION,
 };
 use crate::util::timestamp_utc;
 
@@ -58,8 +58,6 @@ pub use worker::{ReviewWorker, ReviewWorkerRun};
 pub enum ReviewSessionError {
     #[error("invalid review source `{input}`: {reason}")]
     InvalidSource { input: String, reason: String },
-    #[error("review source `{source_key}` cannot run through the local runner until provider materialization exists")]
-    UnsupportedSourceForLocalRunner { source_key: String },
     #[error("review session id cannot be empty")]
     EmptyReviewSessionId,
     #[error("runner failed to execute review session: {0}")]
@@ -878,16 +876,15 @@ impl CreateReviewSessionInput {
         self,
         review_id: &ReviewSessionId,
     ) -> Result<RunStartParams, ReviewSessionError> {
-        let Some(repo) = self.source.local_repo() else {
-            return Err(ReviewSessionError::UnsupportedSourceForLocalRunner {
-                source_key: self.source.source_key(),
-            });
-        };
         let changed_files = self.source.runner_changed_files(&self.options.scope);
+        let repo = self.source.local_repo().map(Path::to_path_buf);
+        let source_provider = self.options.runner_source_provider();
         Ok(RunStartParams {
             protocol_version: Some(RUNNER_PROTOCOL_VERSION.to_string()),
             run_id: Some(review_id.as_str().to_string()),
-            repo: repo.to_path_buf(),
+            repo,
+            source: Some(self.source),
+            source_provider,
             changed_files,
             sessions: self.options.runner_sessions(),
             limits: self.options.limits.map(ReviewLimits::into_runner_limits),
@@ -942,6 +939,17 @@ impl ReviewOptions {
             .iter()
             .map(|session| session.to_runner_session(self.model.as_deref()))
             .collect()
+    }
+
+    fn runner_source_provider(&self) -> Option<RunSourceProviderParams> {
+        self.config_snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .routing
+                .get("provider.baseUrl")
+                .map(|base_url| RunSourceProviderParams {
+                    base_url: Some(base_url.clone()),
+                })
+        })
     }
 
     fn dedupe_key(&self, source: &ReviewSource) -> Option<String> {
@@ -1667,7 +1675,11 @@ mod tests {
             Some(RUNNER_PROTOCOL_VERSION)
         );
         assert_eq!(start.run_id.as_deref(), Some("review-1"));
-        assert_eq!(start.repo, PathBuf::from("."));
+        assert_eq!(start.repo.as_deref(), Some(Path::new(".")));
+        assert_eq!(
+            start.source,
+            Some(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        );
         assert_eq!(start.changed_files, vec!["Cargo.toml"]);
         assert_eq!(start.sessions.len(), 1);
         assert_eq!(start.sessions[0].id, "security");
@@ -1685,16 +1697,18 @@ mod tests {
     }
 
     #[test]
-    fn keeps_provider_sources_out_of_local_runner_start() {
+    fn maps_provider_source_to_runner_materialization_params() {
         let input = CreateReviewSessionInput::new("github:maskdotdev/heimdaal#123").unwrap();
         let review_id = ReviewSessionId::new("review-1").unwrap();
 
-        let error = input.into_runner_start(&review_id).unwrap_err();
+        let start = input.into_runner_start(&review_id).unwrap();
 
-        assert!(matches!(
-            error,
-            ReviewSessionError::UnsupportedSourceForLocalRunner { .. }
-        ));
+        assert_eq!(start.repo, None);
+        assert_eq!(
+            start.source,
+            Some(ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap())
+        );
+        assert!(start.changed_files.is_empty());
     }
 
     #[test]
@@ -2445,11 +2459,12 @@ mod tests {
     }
 
     #[test]
-    fn review_worker_records_final_failure_for_unsupported_source() {
+    fn review_worker_records_final_failure_for_execution_error() {
         let store = Arc::new(InMemoryReviewSessionStore::default());
         let workspace = Muzen::with_store(store.clone()).workspace("acme");
+        let repo = tempfile::tempdir().expect("temp repo");
         let review = workspace
-            .schedule_review("github:maskdotdev/heimdaal#123")
+            .schedule_review(ReviewSource::local(repo.path()))
             .unwrap();
         let worker = ReviewWorker::new(
             "worker-a",
@@ -2476,7 +2491,7 @@ mod tests {
         assert!(record
             .last_error
             .as_deref()
-            .is_some_and(|error| error.contains("cannot run through the local runner")));
+            .is_some_and(|error| error.contains("repo has no obvious text file to review")));
         assert_eq!(
             record.events.last().map(|event| event.event_type),
             Some(ReviewEventType::SessionFailed)

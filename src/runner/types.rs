@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::contracts::Role;
-use crate::review_session::{HostConfiguration, ReviewWorkerRun, WebhookReviewOptions};
+use crate::review_session::{
+    HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
+};
 use crate::reviewer::artifacts::ArtifactView;
 
 fn default_role() -> Role {
@@ -33,7 +35,12 @@ pub struct RunStartParams {
     pub protocol_version: Option<String>,
     #[serde(default)]
     pub run_id: Option<String>,
-    pub repo: PathBuf,
+    #[serde(default)]
+    pub repo: Option<PathBuf>,
+    #[serde(default)]
+    pub source: Option<ReviewSource>,
+    #[serde(default)]
+    pub source_provider: Option<RunSourceProviderParams>,
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
@@ -44,6 +51,13 @@ pub struct RunStartParams {
     pub model: Option<RunModelParams>,
     #[serde(default)]
     pub tools: Vec<RunToolParams>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunSourceProviderParams {
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

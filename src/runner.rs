@@ -4,6 +4,7 @@ pub const RUNNER_NAME: &str = "muzen-runner";
 mod adapters;
 mod cli;
 mod execution;
+mod materialize;
 mod protocol;
 mod schema;
 mod session;

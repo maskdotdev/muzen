@@ -14,8 +14,9 @@ from muzen import (
     create_webhook_response,
     create_muzen_client,
     local,
+    parse_review_source,
 )
-from muzen.client import MuzenUnsupportedFeatureError
+from muzen.client import _to_runner_start_params
 
 
 @unittest.skipUnless(os.environ.get("MUZEN_RUNNER_PATH"), "MUZEN_RUNNER_PATH is not set")
@@ -60,9 +61,22 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("session.completed", replayed)
             self.assertEqual((await review.refresh()).id, review.id)
 
-    async def test_provider_sources_wait_for_materialization(self) -> None:
-        with self.assertRaises(MuzenUnsupportedFeatureError):
-            await self.client.review("github:maskdotdev/heimdaal#123")
+    async def test_provider_sources_are_forwarded_to_rust_runner(self) -> None:
+        source = parse_review_source("github:maskdotdev/heimdaal#123")
+
+        params = _to_runner_start_params("review-1", source, ReviewOptions())
+
+        self.assertNotIn("repo", params)
+        self.assertEqual(
+            params["source"],
+            {
+                "type": "github_pull_request",
+                "owner": "maskdotdev",
+                "repo": "heimdaal",
+                "number": 123,
+            },
+        )
+        self.assertEqual(params["changedFiles"], [])
 
 
 class RemoteClientTests(unittest.IsolatedAsyncioTestCase):

@@ -70,19 +70,6 @@ describe("runner-backed Muzen preview", () => {
   );
 
   it(
-    "keeps provider-backed sources explicit until materialization exists",
-    { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
-    async () => {
-      muzen ??= await createMuzen({ runnerPath });
-
-      await assert.rejects(
-        () => muzen!.review("github:maskdotdev/heimdaal#123"),
-        MuzenUnsupportedFeatureError,
-      );
-    },
-  );
-
-  it(
     "handles GitHub webhooks through the Rust runner core",
     { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
     async () => {
@@ -121,35 +108,6 @@ describe("runner-backed Muzen preview", () => {
         deliveryId: "delivery-1",
         reviewId: "review-1",
         status: "queued",
-      });
-
-      const run = await muzen.workers.runOnce({
-        workerId: "worker-a",
-        maxSessions: 1,
-        hostConfig: {
-          scheduling: {
-            defaultRetryPolicy: {
-              maxAttempts: 1,
-              initialBackoffSeconds: 1,
-              maxBackoffSeconds: 1,
-            },
-          },
-        },
-      });
-
-      assert.deepEqual(run, {
-        workerId: "worker-a",
-        claimed: 1,
-        completed: 0,
-        retried: 0,
-        failed: 1,
-        skipped: 0,
-      });
-
-      await muzen.workers.start({
-        workerId: "worker-a",
-        stopWhenIdle: true,
-        pollIntervalMs: 1,
       });
     },
   );

@@ -45,6 +45,8 @@ pressure, and commit-sized milestones.
   `worker.runOnce` for SDK facades that must delegate core behavior to Rust.
 - [x] Runner emits `event.review`, `event.runtime`, `run.finished`, and
   `run.failed` notifications.
+- [x] Runner materializes GitHub/GitLab provider sources into temporary Git
+  checkouts with token-safe auth headers and changed-file inference.
 - [x] Protocol fixtures exist under `fixtures/`.
 - [x] Rust core exposes a public SDK-facing review-session module.
 - [x] Rust core models review sources, review sessions, events, results,
@@ -63,6 +65,8 @@ pressure, and commit-sized milestones.
   Rust worker protocol.
 - [x] Source string shorthand parses into typed source descriptors.
 - [x] Typed source builders exist for GitHub and GitLab.
+- [x] Provider-backed local SDK reviews forward source descriptors to Rust
+  runner materialization.
 - [x] Workspace-owned profile APIs exist.
 - [x] Webhook helpers exist.
 - [x] Rust core exposes framework-agnostic HTTP/SSE response helpers for review
@@ -303,6 +307,34 @@ Exit criteria:
 - Apps can receive webhook events, schedule durable reviews, and stream review
   events to clients.
 
+## Phase 11: Provider Source Materialization
+
+- [x] Extend runner `run.start` so it can accept either a local `repo` path or
+  a Rust-owned `ReviewSource` descriptor.
+- [x] Materialize GitHub pull request refs with
+  `refs/pull/{number}/head`.
+- [x] Materialize GitLab merge request refs with
+  `refs/merge-requests/{number}/head`.
+- [x] Use `GITHUB_TOKEN` and `GITLAB_TOKEN` through Git extraheader
+  environment configuration instead of embedding tokens in clone URLs.
+- [x] Pass workspace provider `baseUrl` routing into the runner without
+  storing raw provider credentials.
+- [x] Infer changed files from the provider head against the provider default
+  branch when available, while allowing explicit scope overrides.
+- [x] Keep temporary provider checkouts scoped to one runner execution.
+- [x] Update TypeScript and Python local SDKs to forward provider source
+  descriptors to Rust instead of rejecting them in language code.
+- [x] Add deterministic provider checkout planning and local bare-repo
+  materialization tests without requiring live provider network access.
+
+Exit criteria:
+
+- Local `createMuzen().review("github:owner/repo#number")` and
+  `createMuzen().review("gitlab:namespace/repo!number")` reach Rust runner
+  materialization instead of failing in the SDK.
+- Worker execution of webhook-scheduled provider sources uses the same Rust
+  materialization path.
+
 ## Verification Ledger
 
 Record every milestone with the commands that were run.
@@ -341,6 +373,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 3ec971d | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 8d87462 | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Rust GitHub/GitLab provider source materialization and SDK source forwarding | `cargo fmt --check`; `cargo test runner::materialize --lib`; `cargo test runner::tests --lib`; `cargo test review_session --lib`; `cargo test`; `cargo build --bin muzen-runner`; `npm test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -351,11 +384,12 @@ Record every milestone with the commands that were run.
   a placeholder.
 - Local inline-worker behavior is decided in
   `docs/rfcs/0001-durable-happy-path-decision.md`: production/remote paths are
-  durable-first; local inline execution remains preview-only until provider
-  materialization and the durable SDK service-boundary switch are complete.
-- Provider sources currently parse into stable Rust descriptors but return an
-  explicit unsupported error when converted to the local runner start params;
-  provider materialization belongs in the durable source-resolution phase.
+  durable-first; local inline execution remains preview-only until the durable
+  SDK service-boundary switch is complete.
+- Provider sources now parse into stable Rust descriptors and flow through
+  runner `run.start` materialization for GitHub pull requests and GitLab merge
+  requests. The runner uses temporary Git checkouts, provider auth headers from
+  environment tokens, provider base URL routing, and changed-file inference.
 - The Rust `MuzenWorkspace` facade now has explicit queued scheduling and a
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
@@ -401,11 +435,14 @@ Record every milestone with the commands that were run.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
 - Production worker deployment can use the Postgres-backed durable store through
-  `muzen-service`; provider materialization remains the main blocker for local
-  provider-source execution.
+  `muzen-service`; local provider-source execution now reaches Rust provider
+  materialization.
 - The current verification compiles and exercises the Postgres store wiring
   through Rust tests and service builds. A live Postgres integration run should
   be part of deployment CI where `DATABASE_URL` is available.
+- The provider materialization verification uses deterministic local Git remote
+  tests. A live GitHub/GitLab provider smoke run should be part of deployment CI
+  where provider tokens and network access are available.
 
 ## Notes For Reviewers
 

@@ -606,19 +606,18 @@ def _to_runner_start_params(
     source: ReviewSource,
     options: ReviewOptions,
 ) -> Dict[str, Any]:
-    if source.type != "local":
-        raise MuzenUnsupportedFeatureError(
-            f"review source {source_key(source)} requires provider materialization, which is not implemented in this preview"
-        )
-    changed_files = options.scope_files or source.changed_files
-    return {
+    changed_files = options.scope_files or (source.changed_files if source.type == "local" else [])
+    payload = {
         "protocolVersion": "muzen.runner.v1",
         "runId": review_id,
-        "repo": source.repo,
+        "source": _source_to_remote(source),
         "changedFiles": changed_files,
         "sessions": [_session_to_runner(session, options.model) for session in options.sessions],
         "limits": _limits_to_runner(options.limits),
     }
+    if source.type == "local":
+        payload["repo"] = source.repo
+    return payload
 
 
 def _session_to_runner(session: Any, default_model: Optional[str]) -> Dict[str, Any]:

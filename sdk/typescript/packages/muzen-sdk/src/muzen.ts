@@ -896,16 +896,12 @@ function toRunnerStartParams(
   source: ReviewSource,
   options: ReviewOptions,
 ): unknown {
-  if (source.type !== "local") {
-    throw new MuzenUnsupportedFeatureError(
-      `review source ${sourceKey(source)} requires provider materialization, which is not implemented in this preview`,
-    );
-  }
-  const changedFiles = options.scope?.files ?? source.changedFiles ?? [];
-  return {
+  const changedFiles =
+    options.scope?.files ?? (source.type === "local" ? source.changedFiles ?? [] : []);
+  const params: Record<string, unknown> = {
     protocolVersion: "muzen.runner.v1",
     runId: reviewId,
-    repo: source.repo,
+    source,
     changedFiles,
     sessions: (options.sessions ?? []).map((session) => ({
       id: session.id,
@@ -917,6 +913,10 @@ function toRunnerStartParams(
     })),
     limits: mapReviewLimits(options.limits),
   };
+  if (source.type === "local") {
+    params.repo = source.repo;
+  }
+  return params;
 }
 
 function mapReviewLimits(limits: ReviewLimits | undefined): unknown {

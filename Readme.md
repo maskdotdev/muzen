@@ -95,6 +95,9 @@ Implemented now:
   results, artifacts, workspace profiles, and provider webhooks.
 - Rust Axum HTTP service adapter and `muzen-service` binary around the core
   router.
+- Rust GitHub/GitLab provider materialization for pull/merge request sources,
+  including temporary Git checkouts, token-safe auth headers, provider base URL
+  routing, and changed-file inference.
 - TypeScript SDK local preview over `muzen-runner`.
 - TypeScript local webhook request facade:
   `createMuzen(...).webhooks.github.response(request)`.
@@ -109,10 +112,6 @@ Implemented now:
 - Python SDK local preview over `muzen-runner`.
 - Python remote client preview with review and workspace profile APIs.
 - Python framework-neutral webhook delivery response helpers.
-
-Still in progress:
-
-- GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
 
 ## Local Preview
 

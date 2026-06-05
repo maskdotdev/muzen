@@ -86,8 +86,9 @@ completed:
   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
 - `muzen-service` can use Postgres-backed durable review-session and workspace
   profile stores when `DATABASE_URL` is set;
-- provider materialization for local provider sources remains future production
-  work.
+- provider-backed review sources are forwarded to Rust runner core, which
+  materializes GitHub/GitLab pull/merge request refs into temporary Git
+  checkouts with token-safe auth headers and changed-file inference.
 
 See the repository root README and
 `docs/rfcs/0001-implementation-progress.md` for the full RFC implementation
