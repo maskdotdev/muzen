@@ -24,24 +24,31 @@ from .runner_mapping import (
 )
 from .sources import parse_review_source
 from .types import (
-    ModelProfile,
     ModelProfileInput,
-    ProviderProfile,
     ProviderProfileInput,
     ReviewCancelOptions,
-    ReviewCoverage,
     ReviewEvent,
     ReviewArtifact,
     ReviewArtifactExport,
     ReviewArtifactExportOptions,
     ReviewArtifactReadOptions,
-    ReviewFinding,
     ReviewOptions,
     ReviewResult,
     ReviewSessionSnapshot,
     ReviewSource,
     ReviewSourceLike,
     ReviewStatus,
+)
+from .wire_validation import (
+    _unwrap_artifact_export,
+    _unwrap_model_profile,
+    _unwrap_model_profiles,
+    _unwrap_optional_review_result,
+    _unwrap_provider_profile,
+    _unwrap_provider_profiles,
+    _unwrap_review_artifact,
+    _unwrap_review_events,
+    _unwrap_review_snapshot,
 )
 
 RemoteTransport = Callable[
@@ -665,158 +672,6 @@ def _provider_profile_input_to_remote(input: ProviderProfileInput) -> Dict[str, 
         "baseUrl": input.base_url,
         "routing": input.routing,
     }
-
-
-def _unwrap_review_snapshot(value: Any) -> ReviewSessionSnapshot:
-    snapshot = value.get("review") if isinstance(value, dict) and isinstance(value.get("review"), dict) else value
-    if not isinstance(snapshot, dict):
-        raise RuntimeError("Muzen remote returned an invalid review session snapshot")
-    return ReviewSessionSnapshot(
-        id=snapshot["id"],
-        status=_map_runner_status(snapshot["status"]),
-        source=_remote_source(snapshot["source"]),
-        result=_unwrap_optional_review_result(snapshot.get("result")),
-    )
-
-
-def _unwrap_optional_review_result(value: Any) -> Optional[ReviewResult]:
-    if value is None:
-        return None
-    result = value.get("result") if isinstance(value, dict) and "result" in value else value
-    if result is None:
-        return None
-    if not isinstance(result, dict):
-        raise RuntimeError("Muzen remote returned an invalid review result")
-    return _remote_result(result)
-
-
-def _unwrap_review_events(value: Any) -> List[ReviewEvent]:
-    events = value.get("events") if isinstance(value, dict) and isinstance(value.get("events"), list) else value
-    if not isinstance(events, list):
-        raise RuntimeError("Muzen remote returned invalid review events")
-    return [
-        ReviewEvent(
-            cursor=str(event["cursor"]),
-            type=event["type"],
-            review_id=event["reviewId"],
-            timestamp_utc=event["timestampUtc"],
-            payload=event.get("payload"),
-        )
-        for event in events
-    ]
-
-
-def _unwrap_review_artifact(value: Any) -> ReviewArtifact:
-    artifact = value.get("artifact") if isinstance(value, dict) and isinstance(value.get("artifact"), dict) else value
-    if not isinstance(artifact, dict):
-        raise RuntimeError("Muzen remote returned an invalid review artifact")
-    return _map_runner_artifact(artifact)
-
-
-def _unwrap_artifact_export(value: Any) -> ReviewArtifactExport:
-    if not isinstance(value, dict):
-        raise RuntimeError("Muzen remote returned an invalid artifact export")
-    return ReviewArtifactExport(
-        view=value.get("view", "redacted"),
-        artifact_count=value.get("artifactCount", 0),
-        total_bytes=value.get("totalBytes", 0),
-        artifacts=[
-            _map_runner_artifact(artifact)
-            for artifact in value.get("artifacts", [])
-            if isinstance(artifact, dict)
-        ],
-    )
-
-
-def _unwrap_model_profile(value: Any) -> ModelProfile:
-    profile = value.get("profile") if isinstance(value, dict) and isinstance(value.get("profile"), dict) else value
-    if not isinstance(profile, dict):
-        raise RuntimeError("Muzen remote returned an invalid model profile")
-    return ModelProfile(
-        workspace_id=profile["workspaceId"],
-        name=profile["name"],
-        version=profile["version"],
-        provider=profile["provider"],
-        model=profile["model"],
-        secret_ref=profile.get("secretRef"),
-        base_url=profile.get("baseUrl"),
-        routing=profile.get("routing") or {},
-        updated_at_utc=profile.get("updatedAtUtc", ""),
-    )
-
-
-def _unwrap_model_profiles(value: Any) -> List[ModelProfile]:
-    profiles = value.get("profiles") if isinstance(value, dict) and isinstance(value.get("profiles"), list) else value
-    if not isinstance(profiles, list):
-        raise RuntimeError("Muzen remote returned invalid model profiles")
-    return [_unwrap_model_profile(profile) for profile in profiles]
-
-
-def _unwrap_provider_profile(value: Any) -> ProviderProfile:
-    profile = value.get("profile") if isinstance(value, dict) and isinstance(value.get("profile"), dict) else value
-    if not isinstance(profile, dict):
-        raise RuntimeError("Muzen remote returned an invalid provider profile")
-    return ProviderProfile(
-        workspace_id=profile["workspaceId"],
-        name=profile["name"],
-        version=profile["version"],
-        provider=profile["provider"],
-        secret_ref=profile.get("secretRef"),
-        base_url=profile.get("baseUrl"),
-        routing=profile.get("routing") or {},
-        updated_at_utc=profile.get("updatedAtUtc", ""),
-    )
-
-
-def _unwrap_provider_profiles(value: Any) -> List[ProviderProfile]:
-    profiles = value.get("profiles") if isinstance(value, dict) and isinstance(value.get("profiles"), list) else value
-    if not isinstance(profiles, list):
-        raise RuntimeError("Muzen remote returned invalid provider profiles")
-    return [_unwrap_provider_profile(profile) for profile in profiles]
-
-
-def _remote_source(value: Dict[str, Any]) -> ReviewSource:
-    if value["type"] == "local":
-        return ReviewSource(
-            type="local",
-            repo=value["repo"],
-            changed_files=value.get("changedFiles", []),
-        )
-    return ReviewSource(
-        type=value["type"],
-        owner=value.get("owner"),
-        repo=value["repo"],
-        number=value.get("number"),
-    )
-
-
-def _remote_result(value: Dict[str, Any]) -> ReviewResult:
-    return ReviewResult(
-        review_id=value["reviewId"],
-        session_id=value["sessionId"],
-        status=_map_runner_status(value["status"]),
-        conclusion=value["conclusion"],
-        summary=value["summary"],
-        findings=[
-            ReviewFinding(
-                id=finding.get("id", ""),
-                severity=finding.get("severity", "info"),
-                category=finding.get("category", "other"),
-                title=finding.get("title", ""),
-                message=finding.get("message", ""),
-                location=finding.get("location"),
-                suggested_fix=finding.get("suggestedFix"),
-                confidence=finding.get("confidence"),
-            )
-            for finding in value.get("findings", [])
-        ],
-        coverage=ReviewCoverage(
-            files_considered=value.get("coverage", {}).get("filesConsidered", 0),
-            files_reviewed=value.get("coverage", {}).get("filesReviewed", 0),
-            files_skipped=value.get("coverage", {}).get("filesSkipped", 0),
-        ),
-        metadata=value.get("metadata") or {},
-    )
 
 
 def _http_json(
