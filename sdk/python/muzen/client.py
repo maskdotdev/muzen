@@ -14,6 +14,10 @@ from .types import (
     ReviewCoverage,
     ReviewEvent,
     ReviewEventType,
+    ReviewArtifact,
+    ReviewArtifactExport,
+    ReviewArtifactExportOptions,
+    ReviewArtifactReadOptions,
     ReviewFinding,
     ReviewLimits,
     ReviewOptions,
@@ -182,6 +186,52 @@ class ReviewSession:
         self.status = self._result.status
         return self._result
 
+    async def read_artifact(
+        self,
+        artifact_id: str,
+        options: Optional[ReviewArtifactReadOptions] = None,
+    ) -> ReviewArtifact:
+        options = options or ReviewArtifactReadOptions()
+        result = await self._runner.request(
+            "artifact.read",
+            {
+                "runId": self.id,
+                "artifactId": artifact_id,
+                "view": options.view,
+            },
+        )
+        if not isinstance(result, dict) or not isinstance(result.get("artifact"), dict):
+            raise RuntimeError("muzen-runner returned an invalid artifact read result")
+        return _map_runner_artifact(result["artifact"])
+
+    async def export_artifacts(
+        self,
+        options: Optional[ReviewArtifactExportOptions] = None,
+    ) -> ReviewArtifactExport:
+        options = options or ReviewArtifactExportOptions()
+        result = await self._runner.request(
+            "artifact.export",
+            {
+                "runId": self.id,
+                "artifactIds": options.artifact_ids,
+                "view": options.view,
+                "maxArtifacts": options.max_artifacts,
+                "maxBytes": options.max_bytes,
+            },
+        )
+        if not isinstance(result, dict):
+            raise RuntimeError("muzen-runner returned an invalid artifact export result")
+        return ReviewArtifactExport(
+            view=result.get("view", options.view),
+            artifact_count=result.get("artifactCount", 0),
+            total_bytes=result.get("totalBytes", 0),
+            artifacts=[
+                _map_runner_artifact(artifact)
+                for artifact in result.get("artifacts", [])
+                if isinstance(artifact, dict)
+            ],
+        )
+
     async def cancel(
         self,
         reason: Optional[Union[str, ReviewCancelOptions]] = None,
@@ -341,6 +391,15 @@ def _map_runner_finding(value: Dict[str, Any]) -> ReviewFinding:
         category="other",
         title=value.get("title", ""),
         message=value.get("claim", ""),
+    )
+
+
+def _map_runner_artifact(value: Dict[str, Any]) -> ReviewArtifact:
+    return ReviewArtifact(
+        artifact_id=value.get("artifactId", ""),
+        bytes=value.get("bytes", 0),
+        content_hash=value.get("contentHash", ""),
+        content=value.get("content", ""),
     )
 
 

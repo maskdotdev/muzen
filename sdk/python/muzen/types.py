@@ -46,6 +46,8 @@ ReviewEventType = Literal[
     "runner.event",
 ]
 
+ReviewArtifactView = Literal["redacted", "raw"]
+
 
 @dataclass(frozen=True)
 class ReviewSource:
@@ -149,6 +151,35 @@ class ReviewEvent:
 @dataclass(frozen=True)
 class ReviewCancelOptions:
     reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ReviewArtifactReadOptions:
+    view: ReviewArtifactView = "redacted"
+
+
+@dataclass(frozen=True)
+class ReviewArtifactExportOptions:
+    view: ReviewArtifactView = "redacted"
+    artifact_ids: List[str] = field(default_factory=list)
+    max_artifacts: Optional[int] = None
+    max_bytes: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ReviewArtifact:
+    artifact_id: str
+    bytes: int
+    content_hash: str
+    content: str
+
+
+@dataclass(frozen=True)
+class ReviewArtifactExport:
+    view: ReviewArtifactView
+    artifact_count: int
+    total_bytes: int
+    artifacts: List[ReviewArtifact]
 
 
 @dataclass(frozen=True)

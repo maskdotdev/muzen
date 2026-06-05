@@ -48,12 +48,17 @@ describe("runner-backed Muzen preview", () => {
         },
       );
       const result = await review.wait();
+      const artifacts = await review.exportArtifacts();
+      const artifact = await review.readArtifact(artifacts.artifacts[0].artifactId);
       const replayed: string[] = [];
       review.subscribe((event) => replayed.push(event.type));
 
       assert.equal(review.status, "completed");
       assert.equal(result.status, "completed");
       assert.match(result.summary, /Review completed/);
+      assert.ok(artifacts.artifactCount > 0);
+      assert.equal(artifact.artifactId, artifacts.artifacts[0].artifactId);
+      assert.ok(artifact.content.length > 0);
       assert.ok(replayed.includes("session.completed"));
       assert.equal((await review.refresh()).id, review.id);
     },

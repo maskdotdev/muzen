@@ -35,12 +35,17 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 ),
             )
             result = await review.wait()
+            artifacts = await review.export_artifacts()
+            artifact = await review.read_artifact(artifacts.artifacts[0].artifact_id)
             replayed = []
             review.subscribe(lambda event: replayed.append(event.type))
 
             self.assertEqual(review.status, "completed")
             self.assertEqual(result.status, "completed")
             self.assertIn("Review completed", result.summary)
+            self.assertGreater(artifacts.artifact_count, 0)
+            self.assertEqual(artifact.artifact_id, artifacts.artifacts[0].artifact_id)
+            self.assertGreater(len(artifact.content), 0)
             self.assertIn("session.completed", replayed)
             self.assertEqual((await review.refresh()).id, review.id)
 

@@ -13,7 +13,8 @@ use crate::reviewer::{
 };
 use crate::runner::{
     execute_run_start, RunAgentBudgetParams, RunLimitParams, RunSessionParams, RunStartParams,
-    RunnerFinding, RunnerRunResult, RunnerSnapshotSummary, RUNNER_PROTOCOL_VERSION,
+    RunnerArtifact, RunnerArtifactView, RunnerFinding, RunnerRunResult, RunnerSnapshotSummary,
+    RUNNER_PROTOCOL_VERSION,
 };
 use crate::util::timestamp_utc;
 
@@ -29,6 +30,13 @@ pub enum ReviewSessionError {
     Runner(String),
     #[error("review session `{review_id}` has no final result yet")]
     ResultUnavailable { review_id: ReviewSessionId },
+    #[error("unknown artifact id `{artifact_id}` for review session `{review_id}`")]
+    UnknownArtifactId {
+        review_id: ReviewSessionId,
+        artifact_id: String,
+    },
+    #[error("artifact export limit exceeded: {kind}")]
+    ArtifactLimitExceeded { kind: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,6 +276,8 @@ pub struct ReviewSession {
     source: ReviewSource,
     events: Vec<ReviewEvent>,
     result: Option<ReviewResult>,
+    redacted_artifacts: Vec<ReviewArtifact>,
+    raw_artifacts: Vec<ReviewArtifact>,
 }
 
 impl ReviewSession {
@@ -286,12 +296,26 @@ impl ReviewSession {
             .into_iter()
             .map(ReviewEvent::from_internal_record)
             .collect();
+        let redacted_artifacts = executed
+            .stored
+            .artifacts(RunnerArtifactView::Redacted)
+            .iter()
+            .map(ReviewArtifact::from_runner_artifact)
+            .collect();
+        let raw_artifacts = executed
+            .stored
+            .artifacts(RunnerArtifactView::Raw)
+            .iter()
+            .map(ReviewArtifact::from_runner_artifact)
+            .collect();
         Ok(Self {
             id,
             status,
             source,
             events,
             result: Some(result),
+            redacted_artifacts,
+            raw_artifacts,
         })
     }
 
@@ -333,6 +357,62 @@ impl ReviewSession {
         self.result.as_ref()
     }
 
+    pub fn read_artifact(
+        &self,
+        artifact_id: &str,
+        options: ReviewArtifactReadOptions,
+    ) -> Result<ReviewArtifact, ReviewSessionError> {
+        self.artifacts_for_view(options.view)
+            .iter()
+            .find(|artifact| artifact.artifact_id == artifact_id)
+            .cloned()
+            .ok_or_else(|| ReviewSessionError::UnknownArtifactId {
+                review_id: self.id.clone(),
+                artifact_id: artifact_id.to_string(),
+            })
+    }
+
+    pub fn export_artifacts(
+        &self,
+        options: ReviewArtifactExportOptions,
+    ) -> Result<ReviewArtifactExport, ReviewSessionError> {
+        let mut artifacts = self.artifacts_for_view(options.view).to_vec();
+        if !options.artifact_ids.is_empty() {
+            artifacts.retain(|artifact| {
+                options
+                    .artifact_ids
+                    .iter()
+                    .any(|artifact_id| artifact_id == &artifact.artifact_id)
+            });
+        }
+        let total_bytes = artifacts
+            .iter()
+            .map(|artifact| artifact.bytes)
+            .sum::<usize>();
+        if options
+            .max_artifacts
+            .is_some_and(|max_artifacts| artifacts.len() > max_artifacts)
+        {
+            return Err(ReviewSessionError::ArtifactLimitExceeded {
+                kind: "artifact_count".to_string(),
+            });
+        }
+        if options
+            .max_bytes
+            .is_some_and(|max_bytes| total_bytes > max_bytes)
+        {
+            return Err(ReviewSessionError::ArtifactLimitExceeded {
+                kind: "artifact_bytes".to_string(),
+            });
+        }
+        Ok(ReviewArtifactExport {
+            view: options.view,
+            artifact_count: artifacts.len(),
+            total_bytes,
+            artifacts,
+        })
+    }
+
     pub fn cancel(
         &mut self,
         options: impl Into<ReviewCancelOptions>,
@@ -358,6 +438,13 @@ impl ReviewSession {
             status: self.status,
             source: self.source.clone(),
             result: self.result.clone(),
+        }
+    }
+
+    fn artifacts_for_view(&self, view: ReviewArtifactView) -> &[ReviewArtifact] {
+        match view {
+            ReviewArtifactView::Redacted => &self.redacted_artifacts,
+            ReviewArtifactView::Raw => &self.raw_artifacts,
         }
     }
 }
@@ -646,6 +733,77 @@ impl From<String> for ReviewCancelOptions {
 impl From<&str> for ReviewCancelOptions {
     fn from(reason: &str) -> Self {
         Self::new(reason)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewArtifactView {
+    Redacted,
+    Raw,
+}
+
+impl Default for ReviewArtifactView {
+    fn default() -> Self {
+        Self::Redacted
+    }
+}
+
+impl From<ReviewArtifactView> for RunnerArtifactView {
+    fn from(value: ReviewArtifactView) -> Self {
+        match value {
+            ReviewArtifactView::Redacted => Self::Redacted,
+            ReviewArtifactView::Raw => Self::Raw,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewArtifactReadOptions {
+    #[serde(default)]
+    pub view: ReviewArtifactView,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewArtifactExportOptions {
+    #[serde(default)]
+    pub view: ReviewArtifactView,
+    #[serde(default)]
+    pub artifact_ids: Vec<String>,
+    #[serde(default)]
+    pub max_artifacts: Option<usize>,
+    #[serde(default)]
+    pub max_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewArtifactExport {
+    pub view: ReviewArtifactView,
+    pub artifact_count: usize,
+    pub total_bytes: usize,
+    pub artifacts: Vec<ReviewArtifact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewArtifact {
+    pub artifact_id: String,
+    pub bytes: usize,
+    pub content_hash: String,
+    pub content: String,
+}
+
+impl ReviewArtifact {
+    fn from_runner_artifact(artifact: &RunnerArtifact) -> Self {
+        Self {
+            artifact_id: artifact.artifact_id.clone(),
+            bytes: artifact.bytes,
+            content_hash: artifact.content_hash.clone(),
+            content: artifact.content.clone(),
+        }
     }
 }
 
@@ -1235,5 +1393,59 @@ mod tests {
         assert_eq!(snapshot.id.as_str(), "review-1");
         assert_eq!(snapshot.status, ReviewStatus::Completed);
         assert!(snapshot.result.is_some());
+    }
+
+    #[test]
+    fn review_exports_and_reads_redacted_artifacts() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        let review = Muzen::new()
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["Cargo.toml"],
+            ))
+            .unwrap();
+
+        let exported = review
+            .export_artifacts(ReviewArtifactExportOptions::default())
+            .unwrap();
+        let artifact = review
+            .read_artifact(
+                &exported.artifacts[0].artifact_id,
+                ReviewArtifactReadOptions::default(),
+            )
+            .unwrap();
+
+        assert!(exported.artifact_count > 0);
+        assert_eq!(artifact.artifact_id, exported.artifacts[0].artifact_id);
+        assert!(!artifact.content.is_empty());
+    }
+
+    #[test]
+    fn review_artifact_export_enforces_limits() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let review = Muzen::new()
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+
+        let error = review
+            .export_artifacts(ReviewArtifactExportOptions {
+                max_artifacts: Some(0),
+                ..ReviewArtifactExportOptions::default()
+            })
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ReviewSessionError::ArtifactLimitExceeded { .. }
+        ));
     }
 }

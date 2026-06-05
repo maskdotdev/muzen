@@ -18,6 +18,10 @@ import type {
   ReviewCancelOptions,
   ReviewEvent,
   ReviewEventType,
+  ReviewArtifact,
+  ReviewArtifactExport,
+  ReviewArtifactExportOptions,
+  ReviewArtifactReadOptions,
   ReviewFinding,
   ReviewLimits,
   ReviewOptions,
@@ -239,6 +243,42 @@ class RunnerBackedReviewSession implements ReviewSession {
     this.currentResult = mapRunnerResult(this.id, this.source, runnerResult);
     this.currentStatus = this.currentResult.status;
     return this.currentResult;
+  }
+
+  async readArtifact(
+    artifactId: string,
+    options: ReviewArtifactReadOptions = {},
+  ): Promise<ReviewArtifact> {
+    const result = await this.runner.request("artifact.read", {
+      runId: this.id,
+      artifactId,
+      view: options.view ?? "redacted",
+    });
+    if (!isRunnerArtifactReadResult(result)) {
+      throw new Error("muzen-runner returned an invalid artifact read result");
+    }
+    return mapRunnerArtifact(result.artifact);
+  }
+
+  async exportArtifacts(
+    options: ReviewArtifactExportOptions = {},
+  ): Promise<ReviewArtifactExport> {
+    const result = await this.runner.request("artifact.export", {
+      runId: this.id,
+      artifactIds: options.artifactIds ?? [],
+      view: options.view ?? "redacted",
+      maxArtifacts: options.maxArtifacts,
+      maxBytes: options.maxBytes,
+    });
+    if (!isRunnerArtifactExportResult(result)) {
+      throw new Error("muzen-runner returned an invalid artifact export result");
+    }
+    return {
+      view: result.view,
+      artifactCount: result.artifactCount,
+      totalBytes: result.totalBytes,
+      artifacts: result.artifacts.map(mapRunnerArtifact),
+    };
   }
 
   async cancel(reason?: string | ReviewCancelOptions): Promise<void> {
@@ -558,6 +598,36 @@ interface RunnerStatusResult {
   status: string;
 }
 
+interface RunnerArtifact {
+  artifactId: string;
+  bytes: number;
+  contentHash: string;
+  content: string;
+}
+
+interface RunnerArtifactReadResult {
+  runId: string;
+  view: "redacted" | "raw";
+  artifact: RunnerArtifact;
+}
+
+interface RunnerArtifactExportResult {
+  runId: string;
+  view: "redacted" | "raw";
+  artifactCount: number;
+  totalBytes: number;
+  artifacts: RunnerArtifact[];
+}
+
+function mapRunnerArtifact(artifact: RunnerArtifact): ReviewArtifact {
+  return {
+    artifactId: artifact.artifactId,
+    bytes: artifact.bytes,
+    contentHash: artifact.contentHash,
+    content: artifact.content,
+  };
+}
+
 function isRunnerReviewEventRecord(value: unknown): value is RunnerReviewEventRecord {
   return (
     isRecord(value) &&
@@ -583,6 +653,37 @@ function isRunnerStatusResult(value: unknown): value is RunnerStatusResult {
     isRecord(value) &&
     typeof value.runId === "string" &&
     typeof value.status === "string"
+  );
+}
+
+function isRunnerArtifactReadResult(value: unknown): value is RunnerArtifactReadResult {
+  return (
+    isRecord(value) &&
+    typeof value.runId === "string" &&
+    (value.view === "redacted" || value.view === "raw") &&
+    isRunnerArtifact(value.artifact)
+  );
+}
+
+function isRunnerArtifactExportResult(value: unknown): value is RunnerArtifactExportResult {
+  return (
+    isRecord(value) &&
+    typeof value.runId === "string" &&
+    (value.view === "redacted" || value.view === "raw") &&
+    typeof value.artifactCount === "number" &&
+    typeof value.totalBytes === "number" &&
+    Array.isArray(value.artifacts) &&
+    value.artifacts.every(isRunnerArtifact)
+  );
+}
+
+function isRunnerArtifact(value: unknown): value is RunnerArtifact {
+  return (
+    isRecord(value) &&
+    typeof value.artifactId === "string" &&
+    typeof value.bytes === "number" &&
+    typeof value.contentHash === "string" &&
+    typeof value.content === "string"
   );
 }
 

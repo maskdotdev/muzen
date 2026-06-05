@@ -162,7 +162,7 @@ Exit criteria:
 - [x] Implement local repository source support for SDK smoke tests.
 - [x] Map friendly `ReviewOptions` into runner `RunStartParams`.
 - [x] Normalize review result shape from runner result shape.
-- [ ] Provide compatibility helpers for artifact read/export after final result.
+- [x] Provide compatibility helpers for artifact read/export after final result.
 
 Exit criteria:
 
@@ -262,6 +262,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | efaa992 | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
 | 2026-06-05 | 79d1ce6 | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 | 2026-06-05 | docs-examples | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
+| 2026-06-05 | artifact-helpers | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 
 ## Open Decisions
 

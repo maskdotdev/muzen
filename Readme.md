@@ -65,6 +65,9 @@ const result = await review.wait();
 console.log(result.conclusion);
 console.log(result.summary);
 
+const artifacts = await review.exportArtifacts();
+console.log(artifacts.artifactCount);
+
 await muzen.close();
 ```
 
@@ -97,6 +100,9 @@ async def main() -> None:
         result = await review.wait()
         print(result.conclusion)
         print(result.summary)
+
+        artifacts = await review.export_artifacts()
+        print(artifacts.artifact_count)
     finally:
         await client.close()
 

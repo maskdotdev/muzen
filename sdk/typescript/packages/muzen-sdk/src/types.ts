@@ -177,6 +177,33 @@ export interface ReviewCancelOptions {
   reason?: string;
 }
 
+export type ReviewArtifactView = "redacted" | "raw";
+
+export interface ReviewArtifactReadOptions {
+  view?: ReviewArtifactView;
+}
+
+export interface ReviewArtifactExportOptions {
+  view?: ReviewArtifactView;
+  artifactIds?: string[];
+  maxArtifacts?: number;
+  maxBytes?: number;
+}
+
+export interface ReviewArtifactExport {
+  view: ReviewArtifactView;
+  artifactCount: number;
+  totalBytes: number;
+  artifacts: ReviewArtifact[];
+}
+
+export interface ReviewArtifact {
+  artifactId: string;
+  bytes: number;
+  contentHash: string;
+  content: string;
+}
+
 export interface CreateMuzenOptions {
   runnerPath?: string;
   runnerArgs?: string[];
@@ -231,6 +258,13 @@ export interface ReviewSession {
     signal?: AbortSignal;
   }): Promise<ReviewResult>;
   result(): Promise<ReviewResult | undefined>;
+  readArtifact(
+    artifactId: string,
+    options?: ReviewArtifactReadOptions,
+  ): Promise<ReviewArtifact>;
+  exportArtifacts(
+    options?: ReviewArtifactExportOptions,
+  ): Promise<ReviewArtifactExport>;
   cancel(reason?: string | ReviewCancelOptions): Promise<void>;
   refresh(): Promise<ReviewSessionSnapshot>;
 }
