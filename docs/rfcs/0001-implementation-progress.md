@@ -319,7 +319,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
 | 2026-06-05 | fe46e8c | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
-| 2026-06-05 | pending | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
