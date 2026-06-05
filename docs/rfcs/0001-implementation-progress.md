@@ -293,7 +293,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | a3384a6 | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
 | 2026-06-05 | f42dbb6 | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
 | 2026-06-05 | 71ea9e9 | Python remote client and workspace review/model/provider profile APIs | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests` |
-| 2026-06-05 | pending | Docs/examples verification harness for RFC 0001 | `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | 6b51700 | Docs/examples verification harness for RFC 0001 | `scripts/verify-rfc-0001-examples.sh` |
 
 ## Open Decisions
 
