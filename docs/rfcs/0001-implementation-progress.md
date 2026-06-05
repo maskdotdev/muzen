@@ -285,7 +285,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | b7f1abc | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | cc1c12c | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | f524c73 | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | pending | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
