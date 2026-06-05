@@ -13,6 +13,7 @@ cap-std = "3.4.5"
 clap = { version = "4.5.51", features = ["derive"] }
 dashmap = "6.1.0"
 futures = "0.3.31"
+hmac = "0.12.1"
 ignore = "0.4.25"
 libc = "0.2.177"
 memchr = "2.7.6"
@@ -24,6 +25,7 @@ regex = "1.12.2"
 reqwest = { version = "0.12.26", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+sha2 = "0.10.9"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7.17"

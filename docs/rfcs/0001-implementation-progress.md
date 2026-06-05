@@ -58,7 +58,7 @@ pressure, and commit-sized milestones.
 - [x] Source string shorthand parses into typed source descriptors.
 - [x] Typed source builders exist for GitHub and GitLab.
 - [ ] Workspace-owned profile APIs exist.
-- [ ] Webhook helpers exist.
+- [x] Webhook helpers exist.
 - [ ] Developer docs and examples run against the implementation.
 
 ## Phase 1: Progress Control And Contract Alignment
@@ -251,9 +251,11 @@ Exit criteria:
 
 ## Phase 10: Webhooks And Remote Mode
 
-- [ ] Implement GitHub webhook verification and source mapping.
-- [ ] Implement GitLab webhook verification and source mapping.
+- [x] Implement GitHub webhook verification and source mapping.
+- [x] Implement GitLab webhook verification and source mapping.
 - [ ] Implement webhook response helpers.
+  - [x] Add Rust delivery JSON response body helper.
+  - [ ] Add framework-facing SDK response helpers.
 - [ ] Define remote HTTP API contract.
 - [ ] Implement `createMuzenClient({ baseUrl })`.
 - [ ] Add SSE event response support.
@@ -283,6 +285,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | b7f1abc | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | cc1c12c | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | f524c73 | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | pending | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -312,6 +315,10 @@ Record every milestone with the commands that were run.
 - Durable records, events, and results have redaction coverage around profile
   secret references. Log-specific redaction coverage should be added with the
   log persistence boundary.
+- Rust webhook helpers verify GitHub HMAC-SHA256 signatures and GitLab webhook
+  tokens, map supported pull/merge request events to review sources, schedule
+  queued workspace reviews, and return delivery JSON bodies. SDK framework
+  response helpers remain open.
 
 ## Notes For Reviewers
 
