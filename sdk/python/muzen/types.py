@@ -47,6 +47,8 @@ ReviewEventType = Literal[
 ]
 
 ReviewArtifactView = Literal["redacted", "raw"]
+ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
+SourceProviderKind = Literal["github", "gitlab"]
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,48 @@ class ReviewLimits:
     max_active_sessions: Optional[int] = None
     max_file_bytes: Optional[int] = None
     max_search_matches: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ModelProfileInput:
+    provider: ModelProviderKind
+    model: str
+    secret_ref: Optional[str] = None
+    base_url: Optional[str] = None
+    routing: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProviderProfileInput:
+    provider: SourceProviderKind
+    secret_ref: Optional[str] = None
+    base_url: Optional[str] = None
+    routing: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ModelProfile:
+    workspace_id: str
+    name: str
+    version: str
+    provider: ModelProviderKind
+    model: str
+    secret_ref: Optional[str] = None
+    base_url: Optional[str] = None
+    routing: Dict[str, str] = field(default_factory=dict)
+    updated_at_utc: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderProfile:
+    workspace_id: str
+    name: str
+    version: str
+    provider: SourceProviderKind
+    secret_ref: Optional[str] = None
+    base_url: Optional[str] = None
+    routing: Dict[str, str] = field(default_factory=dict)
+    updated_at_utc: str = ""
 
 
 @dataclass(frozen=True)

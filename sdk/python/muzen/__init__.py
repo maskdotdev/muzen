@@ -1,6 +1,11 @@
-from .client import Client, create_muzen
+from .client import Client, RemoteClient, create_muzen, create_muzen_client
 from .sources import github, gitlab, local, parse_review_source, source_key
 from .types import (
+    ModelProfile,
+    ModelProfileInput,
+    ModelProviderKind,
+    ProviderProfile,
+    ProviderProfileInput,
     ReviewAgentBudget,
     ReviewAgentSession,
     ReviewArtifact,
@@ -17,10 +22,17 @@ from .types import (
     ReviewResult,
     ReviewSessionSnapshot,
     ReviewSource,
+    SourceProviderKind,
 )
 
 __all__ = [
     "Client",
+    "ModelProfile",
+    "ModelProfileInput",
+    "ModelProviderKind",
+    "ProviderProfile",
+    "ProviderProfileInput",
+    "RemoteClient",
     "ReviewAgentBudget",
     "ReviewAgentSession",
     "ReviewArtifact",
@@ -37,7 +49,9 @@ __all__ = [
     "ReviewResult",
     "ReviewSessionSnapshot",
     "ReviewSource",
+    "SourceProviderKind",
     "create_muzen",
+    "create_muzen_client",
     "github",
     "gitlab",
     "local",

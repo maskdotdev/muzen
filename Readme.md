@@ -150,6 +150,48 @@ Runnable examples:
 - `examples/python/basic_review.py`
 - `examples/python/notebook-review/notebook_review.ipynb`
 
+Remote client preview:
+
+```py
+import os
+
+from muzen import (
+    ModelProfileInput,
+    ProviderProfileInput,
+    ReviewOptions,
+    create_muzen_client,
+)
+
+muzen = create_muzen_client(
+    base_url="https://muzen.example",
+    token=os.environ.get("MUZEN_TOKEN"),
+)
+
+workspace = muzen.workspace("acme")
+
+await workspace.models.set(
+    "default",
+    ModelProfileInput(
+        provider="openai_compatible",
+        model="gpt-5",
+        secret_ref="vault://workspaces/acme/models/default",
+    ),
+)
+
+await workspace.providers.set(
+    "github",
+    ProviderProfileInput(
+        provider="github",
+        secret_ref="vault://workspaces/acme/providers/github",
+    ),
+)
+
+review = await workspace.review(
+    "github:maskdotdev/heimdaal#123",
+    ReviewOptions(model="default"),
+)
+```
+
 ## RFC Progress
 
 The implementation ledger lives at
@@ -167,6 +209,7 @@ Current completed slices:
 - TypeScript SDK preview over stdio JSON-RPC.
 - TypeScript remote client preview with workspace profile APIs.
 - Python SDK preview over stdio JSON-RPC.
+- Python remote client preview with workspace profile APIs.
 
 Major open slices:
 

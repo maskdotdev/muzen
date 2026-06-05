@@ -3,7 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from muzen import Client, ReviewAgentSession, ReviewOptions, local
+from muzen import (
+    Client,
+    ModelProfileInput,
+    ProviderProfileInput,
+    ReviewAgentSession,
+    ReviewOptions,
+    create_muzen_client,
+    local,
+)
 from muzen.client import MuzenUnsupportedFeatureError
 
 
@@ -52,6 +60,135 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_provider_sources_wait_for_materialization(self) -> None:
         with self.assertRaises(MuzenUnsupportedFeatureError):
             await self.client.review("github:maskdotdev/heimdaal#123")
+
+
+class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remote_workspace_profiles_and_review_contract(self) -> None:
+        requests = []
+
+        def transport(method, path, body, headers):
+            requests.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "body": body,
+                    "authorization": headers.get("Authorization"),
+                }
+            )
+            model_profile = {
+                "workspaceId": "acme",
+                "name": "default",
+                "version": "1",
+                "provider": "openai_compatible",
+                "model": "gpt-5",
+                "secretRef": "vault://workspaces/acme/models/default",
+                "baseUrl": "https://models.example.test",
+                "routing": {"region": "us-east"},
+                "updatedAtUtc": "1780620000.000000000Z",
+            }
+            provider_profile = {
+                "workspaceId": "acme",
+                "name": "github",
+                "version": "1",
+                "provider": "github",
+                "secretRef": "vault://workspaces/acme/providers/github",
+                "baseUrl": "https://api.github.com",
+                "routing": {"installation": "123"},
+                "updatedAtUtc": "1780620000.000000000Z",
+            }
+            if path == "/v1/workspaces/acme/models/default" and method == "PUT":
+                return {"profile": model_profile}
+            if path == "/v1/workspaces/acme/models/default" and method == "GET":
+                return model_profile
+            if path == "/v1/workspaces/acme/models":
+                return {"profiles": [model_profile]}
+            if path == "/v1/workspaces/acme/providers/github" and method == "PUT":
+                return {"profile": provider_profile}
+            if path == "/v1/workspaces/acme/providers/github" and method == "GET":
+                return provider_profile
+            if path == "/v1/workspaces/acme/providers":
+                return {"profiles": [provider_profile]}
+            if path == "/v1/workspaces/acme/reviews" and method == "POST":
+                return {
+                    "review": {
+                        "id": "review-workspace-1",
+                        "status": "queued",
+                        "source": body["source"],
+                    }
+                }
+            if path == "/v1/reviews/review-workspace-1/result":
+                return {
+                    "result": {
+                        "reviewId": "review-workspace-1",
+                        "sessionId": "review-workspace-1",
+                        "status": "completed",
+                        "conclusion": "approved",
+                        "summary": "Remote review completed.",
+                        "findings": [],
+                        "coverage": {
+                            "filesConsidered": 1,
+                            "filesReviewed": 1,
+                            "filesSkipped": 0,
+                        },
+                    }
+                }
+            raise AssertionError(f"unexpected request {method} {path}")
+
+        workspace = create_muzen_client(
+            base_url="https://muzen.example",
+            token="test-token",
+            transport=transport,
+        ).workspace("acme")
+
+        model = await workspace.models.set(
+            "default",
+            ModelProfileInput(
+                provider="openai_compatible",
+                model="gpt-5",
+                secret_ref="vault://workspaces/acme/models/default",
+                base_url="https://models.example.test",
+                routing={"region": "us-east"},
+            ),
+        )
+        loaded_model = await workspace.models.get("default")
+        models = await workspace.models.list()
+        provider = await workspace.providers.set(
+            "github",
+            ProviderProfileInput(
+                provider="github",
+                secret_ref="vault://workspaces/acme/providers/github",
+                base_url="https://api.github.com",
+                routing={"installation": "123"},
+            ),
+        )
+        loaded_provider = await workspace.providers.get("github")
+        providers = await workspace.providers.list()
+        review = await workspace.review("github:maskdotdev/heimdaal#123", ReviewOptions(model="default"))
+        result = await review.wait(timeout="1s")
+
+        self.assertEqual(workspace.id, "acme")
+        self.assertEqual(model.model, "gpt-5")
+        self.assertEqual(loaded_model.secret_ref, "vault://workspaces/acme/models/default")
+        self.assertEqual(len(models), 1)
+        self.assertEqual(provider.provider, "github")
+        self.assertEqual(loaded_provider.secret_ref, "vault://workspaces/acme/providers/github")
+        self.assertEqual(len(providers), 1)
+        self.assertEqual(review.id, "review-workspace-1")
+        self.assertEqual(result.conclusion, "approved")
+        self.assertEqual(requests[0]["authorization"], "Bearer test-token")
+        self.assertEqual(
+            [request["path"] for request in requests],
+            [
+                "/v1/workspaces/acme/models/default",
+                "/v1/workspaces/acme/models/default",
+                "/v1/workspaces/acme/models",
+                "/v1/workspaces/acme/providers/github",
+                "/v1/workspaces/acme/providers/github",
+                "/v1/workspaces/acme/providers",
+                "/v1/workspaces/acme/reviews",
+                "/v1/reviews/review-workspace-1/result",
+            ],
+        )
 
 
 if __name__ == "__main__":
