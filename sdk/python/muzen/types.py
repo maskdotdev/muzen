@@ -49,6 +49,7 @@ ReviewEventType = Literal[
 ReviewArtifactView = Literal["redacted", "raw"]
 ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
 SourceProviderKind = Literal["github", "gitlab"]
+WebhookDeliveryType = Literal["review_created", "review_deduped", "ignored"]
 
 
 @dataclass(frozen=True)
@@ -232,3 +233,19 @@ class ReviewSessionSnapshot:
     status: ReviewStatus
     source: ReviewSource
     result: Optional[ReviewResult] = None
+
+
+@dataclass(frozen=True)
+class WebhookDelivery:
+    type: WebhookDeliveryType
+    delivery_id: Optional[str] = None
+    review_id: Optional[str] = None
+    status: Optional[ReviewStatus] = None
+    reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class WebhookHttpResponse:
+    status_code: int
+    headers: Dict[str, str]
+    body: str

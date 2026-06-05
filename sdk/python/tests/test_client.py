@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -8,7 +9,9 @@ from muzen import (
     ModelProfileInput,
     ProviderProfileInput,
     ReviewAgentSession,
+    WebhookDelivery,
     ReviewOptions,
+    create_webhook_response,
     create_muzen_client,
     local,
 )
@@ -189,6 +192,49 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 "/v1/reviews/review-workspace-1/result",
             ],
         )
+
+
+class WebhookResponseTests(unittest.TestCase):
+    def test_create_webhook_response_returns_framework_neutral_http_response(self) -> None:
+        response = create_webhook_response(
+            WebhookDelivery(
+                type="review_created",
+                delivery_id="delivery-1",
+                review_id="review-1",
+                status="queued",
+            ),
+            headers={"X-Muzen-Test": "yes"},
+        )
+        deduped = create_webhook_response(
+            {
+                "type": "review_deduped",
+                "deliveryId": "delivery-1",
+                "reviewId": "review-1",
+                "status": "queued",
+            }
+        )
+        ignored = create_webhook_response(
+            {
+                "type": "ignored",
+                "deliveryId": "delivery-2",
+                "reason": "unsupported event",
+            }
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.headers["Content-Type"], "application/json")
+        self.assertEqual(response.headers["X-Muzen-Test"], "yes")
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "type": "review_created",
+                "deliveryId": "delivery-1",
+                "reviewId": "review-1",
+                "status": "queued",
+            },
+        )
+        self.assertEqual(deduped.status_code, 200)
+        self.assertEqual(ignored.status_code, 202)
 
 
 if __name__ == "__main__":

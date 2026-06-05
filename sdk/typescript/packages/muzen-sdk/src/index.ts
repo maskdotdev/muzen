@@ -12,6 +12,13 @@ export {
   parseReviewSource,
   sourceKey,
 } from "./sources.js";
+export {
+  createWebhookHttpResponse,
+  createWebhookResponse,
+  webhookDeliveryStatus,
+  WEBHOOK_STATUS_ACCEPTED,
+  WEBHOOK_STATUS_OK,
+} from "./webhooks.js";
 export type {
   CreateMuzenClientOptions,
   CreateMuzenOptions,
@@ -56,3 +63,11 @@ export type {
   SourceProviderKind,
   WorkspaceProfileCollection,
 } from "./types.js";
+export type {
+  WebhookDelivery,
+  WebhookHttpResponse,
+  WebhookIgnoredDelivery,
+  WebhookResponseOptions,
+  WebhookReviewCreatedDelivery,
+  WebhookReviewDedupedDelivery,
+} from "./webhooks.js";

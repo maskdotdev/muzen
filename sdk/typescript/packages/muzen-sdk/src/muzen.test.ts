@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  createWebhookHttpResponse,
+  createWebhookResponse,
   createMuzen,
   createMuzenClient,
   local,
@@ -357,5 +359,42 @@ describe("remote Muzen client", () => {
       "/v1/workspaces/acme/providers",
       "/v1/workspaces/acme/reviews",
     ]);
+  });
+});
+
+describe("webhook response helpers", () => {
+  it("creates framework-facing JSON responses for webhook deliveries", async () => {
+    const created = {
+      type: "review_created" as const,
+      deliveryId: "delivery-1",
+      reviewId: "review-1",
+      status: "queued" as const,
+    };
+    const deduped = {
+      type: "review_deduped" as const,
+      deliveryId: "delivery-1",
+      reviewId: "review-1",
+      status: "queued" as const,
+    };
+    const ignored = {
+      type: "ignored" as const,
+      deliveryId: "delivery-2",
+      reason: "unsupported event",
+    };
+
+    const createdHttp = createWebhookHttpResponse(created, {
+      headers: { "X-Muzen-Test": "yes" },
+    });
+    const dedupedResponse = createWebhookResponse(deduped);
+    const ignoredResponse = createWebhookResponse(ignored);
+
+    assert.equal(createdHttp.statusCode, 202);
+    assert.equal(createdHttp.headers["content-type"], "application/json");
+    assert.equal(createdHttp.headers["x-muzen-test"], "yes");
+    assert.deepEqual(JSON.parse(createdHttp.body), created);
+    assert.equal(dedupedResponse.status, 200);
+    assert.deepEqual(await dedupedResponse.json(), deduped);
+    assert.equal(ignoredResponse.status, 202);
+    assert.deepEqual(await ignoredResponse.json(), ignored);
   });
 });
