@@ -227,7 +227,7 @@ Exit criteria:
   - [x] provider profile limits.
 - [x] Wire Rust workspace scheduling to queued durable records and a worker
   execution loop.
-- [ ] Decide when `workspace.review(...)` and language SDK happy paths should
+- [x] Decide when `workspace.review(...)` and language SDK happy paths should
   switch from inline preview execution to queued durable execution.
 
 Exit criteria:
@@ -307,6 +307,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 4b3ce54 | README aligned to the intended production SDK flow while labeling preview gaps | Documentation-only commit |
 | 2026-06-05 | ea15ecc | TypeScript remote webhook request facade and HTTP contract routes | `npm test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | dbb980d | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
 
 ## Open Decisions
 
@@ -316,13 +317,18 @@ Record every milestone with the commands that were run.
 - Should `createMuzenClient()` ship as a placeholder before HTTP transport, or
   wait until remote mode exists?
 - How much local inline-worker behavior should `createMuzen()` own before the
-  durable store exists?
+  durable store exists? Decision recorded in
+  `docs/rfcs/0001-durable-happy-path-decision.md`: production/remote paths are
+  durable-first; local inline execution remains preview-only until the embedded
+  Rust host/router, production store, profile persistence, provider
+  materialization, and durable SDK handles are all available.
 - Provider sources currently parse into stable Rust descriptors but return an
   explicit unsupported error when converted to the local runner start params;
   provider materialization belongs in the durable source-resolution phase.
 - The Rust `MuzenWorkspace` facade now has explicit queued scheduling and a
   worker execution loop. The default `review(...)` happy path still executes
-  local reviews synchronously for preview compatibility.
+  local reviews synchronously for preview compatibility; production service
+  paths should use durable queued scheduling.
 - The store boundary has an in-memory implementation for local execution,
   tests, durable cancellation, worker claims, leases, retries, and workspace
   claim limits. A production database implementation with transactional

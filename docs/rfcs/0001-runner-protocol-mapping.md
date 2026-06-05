@@ -64,6 +64,8 @@ change must update the fixture and the SDK mapping intentionally.
 | `ReviewSession.readArtifact(...)` | `artifact.read` | Implemented | Defaults to redacted artifact view. |
 | `ReviewSession.exportArtifacts(...)` | `artifact.export` | Implemented | Defaults to redacted artifact view and supports export limits. |
 | source text reads | `snapshot.readText` | Runner implemented | Not yet exposed as a happy-path SDK helper. |
+| local `muzen.webhooks.github.response(request)` | `webhook.github.handle` | Implemented | Verifies GitHub signatures and schedules a durable queued review through Rust core. |
+| local `muzen.webhooks.gitlab.response(request)` | `webhook.gitlab.handle` | Implemented | Verifies GitLab tokens and schedules a durable queued review through Rust core. |
 | custom model callbacks | `model.complete` | Runner implemented | SDK callback ergonomics remain future work. |
 | custom tool callbacks | `tool.execute` | Runner implemented | SDK callback ergonomics remain future work. |
 
@@ -90,7 +92,7 @@ The in-memory store is not a production durability substitute.
   resolution can capture provider head revisions.
 - Active cancellation, leases, retry policy, and backoff require worker-owned
   durable sessions.
-- `createMuzenClient({ baseUrl })` needs a remote HTTP transport.
-- Webhook helpers need provider verification and source mapping.
-- Workspace-owned BYOK profile APIs need persistent profile records and secret
-  references.
+- A bound Rust HTTP server/router is still needed around the core remote HTTP
+  contract.
+- Workspace-owned BYOK profile APIs need production persistent profile records
+  and secret references.
