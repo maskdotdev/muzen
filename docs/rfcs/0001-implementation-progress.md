@@ -62,10 +62,10 @@ pressure, and commit-sized milestones.
 ## Phase 1: Progress Control And Contract Alignment
 
 - [x] Create this progress tracker.
-- [ ] Audit runner schema against RFC method needs.
-- [ ] Document the temporary mapping from durable review-session API to current
+- [x] Audit runner schema against RFC method needs.
+- [x] Document the temporary mapping from durable review-session API to current
   runner `run.*` protocol methods.
-- [ ] Add protocol drift checks where missing.
+- [x] Add protocol drift checks where missing.
 
 Exit criteria:
 
@@ -261,9 +261,10 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 5fd89a5 | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | efaa992 | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
 | 2026-06-05 | 79d1ce6 | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
-| 2026-06-05 | docs-examples | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
-| 2026-06-05 | artifact-helpers | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
-| 2026-06-05 | store-boundary | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | f12ea0b | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
+| 2026-06-05 | 4643441 | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
+| 2026-06-05 | c9fbbc6 | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | protocol-mapping | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
 
 ## Open Decisions
 
