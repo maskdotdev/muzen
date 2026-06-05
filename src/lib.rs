@@ -3,6 +3,7 @@ pub mod cli;
 pub mod review_session;
 pub mod reviewer;
 pub mod runner;
+pub mod service;
 
 pub(crate) mod bench;
 pub(crate) mod contracts;

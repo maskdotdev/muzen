@@ -85,7 +85,7 @@ completed:
 - local worker execution is exposed through `muzen.workers.runOnce()` and
   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
 - production database persistence, provider materialization for local provider
-  sources, and a concrete Rust HTTP listener/framework adapter remain future
+  sources, and production store wiring for the Rust service remain future
   production work.
 
 See the repository root README and

@@ -19,6 +19,11 @@ framework. Concrete hosts are responsible for adapting framework request and
 response types, authenticating callers, resolving webhook secrets, and choosing
 the production session/profile stores.
 
+The repository also ships an Axum adapter and `muzen-service` binary. The
+service binds the core router to a real HTTP listener and resolves webhook
+secrets from environment variables. It currently uses the in-memory Rust stores;
+production deployments still need database-backed session and profile stores.
+
 ## Create Review
 
 `POST /v1/reviews`

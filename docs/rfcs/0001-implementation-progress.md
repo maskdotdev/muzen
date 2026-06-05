@@ -67,6 +67,8 @@ pressure, and commit-sized milestones.
   events and webhook deliveries.
 - [x] Rust core exposes a framework-neutral remote HTTP router for the
   documented review, event, artifact, webhook, and workspace profile routes.
+- [x] Rust exposes a concrete Axum HTTP service adapter and `muzen-service`
+  binary around the core router.
 - [x] Developer docs and examples run against the implementation.
 
 ## Phase 1: Progress Control And Contract Alignment
@@ -285,6 +287,11 @@ Exit criteria:
   - [x] Route workspace review scheduling and model/provider profile APIs.
   - [x] Route GitHub/GitLab webhooks through Rust-owned verification and source
     mapping.
+- [x] Implement a concrete Rust HTTP listener/framework adapter around the core
+  router.
+  - [x] Add an Axum adapter that maps HTTP requests/responses to
+    `ReviewHttpRequest` and `ReviewHttpResponse`.
+  - [x] Add a `muzen-service` binary with webhook secret env resolution.
 
 Exit criteria:
 
@@ -327,6 +334,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
 | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -384,8 +392,9 @@ Record every milestone with the commands that were run.
   resume, wait for, cancel, replay events for, stream events for, and read/export
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
-  review, event, artifact, webhook, and workspace profile routes. A concrete
-  Rust HTTP listener/framework adapter remains open.
+  review, event, artifact, webhook, and workspace profile routes. The
+  `muzen-service` binary binds that router through an Axum HTTP adapter.
+  Production service deployment still needs database-backed stores.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
 - Production worker deployment still depends on a database-backed durable store

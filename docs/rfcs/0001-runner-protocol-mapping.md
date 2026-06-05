@@ -93,7 +93,8 @@ The in-memory store is not a production durability substitute.
   resolution can capture provider head revisions.
 - Active cancellation, leases, retry policy, and backoff require worker-owned
   durable sessions.
-- A framework-neutral Rust HTTP router now exists around the core remote HTTP
-  contract; a concrete listener/framework adapter remains future host work.
+- A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
+  now exist around the core remote HTTP contract; production deployments still
+  need database-backed stores.
 - Workspace-owned BYOK profile APIs need production persistent profile records
   and secret references.

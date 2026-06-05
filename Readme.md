@@ -91,6 +91,8 @@ Implemented now:
   delivery JSON, and framework-agnostic HTTP/SSE response helpers.
 - Rust framework-neutral remote HTTP router for review creation, events,
   results, artifacts, workspace profiles, and provider webhooks.
+- Rust Axum HTTP service adapter and `muzen-service` binary around the core
+  router.
 - TypeScript SDK local preview over `muzen-runner`.
 - TypeScript local webhook request facade:
   `createMuzen(...).webhooks.github.response(request)`.
@@ -110,7 +112,6 @@ Still in progress:
 
 - Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
-- A concrete Rust HTTP listener/framework adapter around the core router.
 
 ## Local Preview
 
