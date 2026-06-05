@@ -13,7 +13,7 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 9.2/10.**
+**Current score: 9.3/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
@@ -25,6 +25,11 @@ modules are shallow at their current size: their interfaces expose many
 concepts at once, while routing, mapping, persistence, execution, and language
 adapter behavior are still concentrated in large files. The architecture works,
 but a reviewer has to hold too much in memory to understand one change.
+
+The Runner Protocol schema now includes method-level payload references and a
+shared definition catalog consumed by Rust, TypeScript, and Python tests. This
+turns the runner fixture into a real wire contract instead of method metadata
+only.
 
 ## Score Rubric
 
@@ -50,6 +55,8 @@ but a reviewer has to hold too much in memory to understand one change.
 - Workspace profile persistence also has two real adapters.
 - Provider materialization has a narrow Rust runner module with deterministic
   local Git tests.
+- The Runner Protocol fixture includes request, response, callback, and
+  notification payload definitions that both SDK test suites read directly.
 - Remote HTTP routing is framework-neutral, with Axum as a concrete adapter.
 - Verification is broad: Rust tests, SDK tests, runner-backed tests, service
   builds, and RFC example checks.
@@ -79,10 +86,11 @@ but a reviewer has to hold too much in memory to understand one change.
    [sdk/python/muzen/client.py](/Users/e464543/code/muzen/sdk/python/muzen/client.py)
    has similar locality pressure, though at a smaller scale.
 
-5. **Runner protocol schema is metadata-only.**
-   The schema fixture guards method drift, but request/response payload shapes
-   are still enforced mostly by Rust/SDK tests rather than a single wire-schema
-   module.
+5. **Runner protocol contract is explicit but hand-maintained.**
+   The schema fixture now guards method drift and payload shape drift, but the
+   definition catalog is still manually curated. That is acceptable for the
+   current protocol size, but future growth may justify generated schema
+   support.
 
 6. **Architecture vocabulary was implicit.**
    There was no `CONTEXT.md`, so domain terms like Review Session, Review
@@ -254,8 +262,8 @@ Expected score lift: **+0.3**.
    Mirror the SDK adapter separation once TypeScript shape is stable.
 
 6. **Wire contract deepening.**
-   Add payload shape metadata to runner schema fixtures and ensure Rust/SDK
-   tests use it.
+   Done in `575d728`: payload shape metadata is in the runner schema fixture
+   and Rust, TypeScript, and Python tests all consume the same contract.
 
 ## Progress Ledger
 
@@ -272,6 +280,7 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | 405b9c3 | 9.0 | Extract TypeScript SDK wire-response validation and unwrap helpers from SDK orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | c195f93 | 9.1 | Extract Python SDK runner mapping and runner wire conversion helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 974a66e | 9.2 | Extract Python SDK remote wire-response validation and unwrap helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | 575d728 | 9.3 | Add first-class Runner Protocol payload definitions and shared SDK fixture checks | `cargo fmt --check`; `cargo test runner --lib`; `cargo build --lib`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset); `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 
 ## Current Target
 
