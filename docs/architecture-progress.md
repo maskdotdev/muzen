@@ -261,7 +261,7 @@ Expected score lift: **+0.3**.
 
 | Date | Commit | Score | Scope | Verification |
 | ---- | ------ | ----- | ----- | ------------ |
-| 2026-06-05 | pending | 8.2 | Architecture baseline tracker and domain vocabulary | Documentation-only commit |
+| 2026-06-05 | e3fad31 | 8.2 | Architecture baseline tracker and domain vocabulary | Documentation-only commit |
 
 ## Current Target
 
