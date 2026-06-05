@@ -66,6 +66,7 @@ change must update the fixture and the SDK mapping intentionally.
 | source text reads | `snapshot.readText` | Runner implemented | Not yet exposed as a happy-path SDK helper. |
 | local `muzen.webhooks.github.response(request)` | `webhook.github.handle` | Implemented | Verifies GitHub signatures and schedules a durable queued review through Rust core. |
 | local `muzen.webhooks.gitlab.response(request)` | `webhook.gitlab.handle` | Implemented | Verifies GitLab tokens and schedules a durable queued review through Rust core. |
+| local `muzen.workers.runOnce()` / `muzen.workers.start()` | `worker.runOnce` | Implemented | TypeScript worker ergonomics call Rust `ReviewWorker`; `start()` loops over Rust-owned claim/execute cycles. |
 | custom model callbacks | `model.complete` | Runner implemented | SDK callback ergonomics remain future work. |
 | custom tool callbacks | `tool.execute` | Runner implemented | SDK callback ergonomics remain future work. |
 

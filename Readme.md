@@ -94,6 +94,9 @@ Implemented now:
 - TypeScript SDK local preview over `muzen-runner`.
 - TypeScript local webhook request facade:
   `createMuzen(...).webhooks.github.response(request)`.
+- TypeScript local worker facade:
+  `createMuzen(...).workers.runOnce()` and `createMuzen(...).workers.start()`,
+  backed by the Rust worker protocol.
 - TypeScript remote client preview with review, workspace profile, event,
   result, cancellation, and artifact APIs.
 - TypeScript framework-facing webhook delivery response helpers.
@@ -107,7 +110,6 @@ Still in progress:
 
 - Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
-- The high-level TypeScript worker facade: `muzen.workers.start()`.
 - A concrete Rust HTTP listener/framework adapter around the core router.
 
 ## Local Preview

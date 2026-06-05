@@ -16,7 +16,8 @@ use super::transport::{InteractiveTransport, RunnerCallbackTransport};
 use super::types::{
     ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunLookupParams, RunStartParams,
     RunStatusResult, RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerHandshakeParams,
-    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams,
+    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams,
+    WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::review_session::{Muzen, WebhookHeaders};
@@ -120,7 +121,8 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
         | "artifact.export"
         | "snapshot.readText"
         | "webhook.github.handle"
-        | "webhook.gitlab.handle" => JsonRpcResponse::error(
+        | "webhook.gitlab.handle"
+        | "worker.runOnce" => JsonRpcResponse::error(
             request.id,
             JsonRpcError::not_implemented(format!(
                 "{} requires the stateful stdio session in {}",
@@ -235,6 +237,7 @@ impl RunnerStdioSession {
             "snapshot.readText" => self.handle_snapshot_read_text(request),
             "webhook.github.handle" => self.handle_webhook(request, "github"),
             "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
+            "worker.runOnce" => self.handle_worker_run_once(request),
             _ => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::method_not_found(format!("unknown method {}", request.method)),
@@ -331,6 +334,7 @@ impl RunnerStdioSession {
             "snapshot.readText" => self.handle_snapshot_read_text(request),
             "webhook.github.handle" => self.handle_webhook(request, "github"),
             "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
+            "worker.runOnce" => self.handle_worker_run_once(request),
             _ => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::method_not_found(format!("unknown method {}", request.method)),
@@ -510,6 +514,25 @@ impl RunnerStdioSession {
             Err(error) => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_params(error.to_string()),
+            )),
+        }
+    }
+
+    fn handle_worker_run_once(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<WorkerRunOnceParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let worker_id = params.worker_id().to_string();
+        let worker = self.muzen.worker(worker_id.clone(), params.host_config);
+        match worker.run_once(params.max_sessions) {
+            Ok(run) => Ok(JsonRpcResponse::success(
+                request.id,
+                json!(WorkerRunOnceResult::from_run(worker_id, run)),
+            )),
+            Err(error) => Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::runner_error(error.to_string()),
             )),
         }
     }

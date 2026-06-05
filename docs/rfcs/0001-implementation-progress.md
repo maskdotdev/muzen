@@ -41,6 +41,8 @@ pressure, and commit-sized milestones.
 - [x] Runner supports `runner.handshake`, `runner.check`,
   `runner.schema.export`, `run.start`, `run.cancel`, `run.status`,
   `run.result`, `artifact.read`, `artifact.export`, and `snapshot.readText`.
+- [x] Runner supports `webhook.github.handle`, `webhook.gitlab.handle`, and
+  `worker.runOnce` for SDK facades that must delegate core behavior to Rust.
 - [x] Runner emits `event.review`, `event.runtime`, `run.finished`, and
   `run.failed` notifications.
 - [x] Protocol fixtures exist under `fixtures/`.
@@ -55,6 +57,8 @@ pressure, and commit-sized milestones.
 - [x] `createMuzen()` works end to end against `muzen-runner`.
 - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
   `result`, `cancel`, and `refresh`.
+- [x] `Muzen.workers` TypeScript facade supports `runOnce` and `start` over the
+  Rust worker protocol.
 - [x] Source string shorthand parses into typed source descriptors.
 - [x] Typed source builders exist for GitHub and GitLab.
 - [x] Workspace-owned profile APIs exist.
@@ -231,6 +235,8 @@ Exit criteria:
   execution loop.
 - [x] Decide when `workspace.review(...)` and language SDK happy paths should
   switch from inline preview execution to queued durable execution.
+- [x] Expose TypeScript `muzen.workers.runOnce()` and `muzen.workers.start()`
+  over Rust-owned worker execution.
 
 Exit criteria:
 
@@ -320,6 +326,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | fe46e8c | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
 | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -364,6 +371,10 @@ Record every milestone with the commands that were run.
   local TypeScript SDK now calls Rust runner webhook protocol methods for
   `createMuzen().webhooks.github.response(request)`, keeping provider webhook
   verification and review scheduling in Rust.
+- TypeScript `createMuzen(...).workers.runOnce()` and
+  `createMuzen(...).workers.start()` now call the Rust runner `worker.runOnce`
+  protocol method, so SDK worker ergonomics remain a facade over Rust
+  `ReviewWorker` core.
 - TypeScript event and Python notebook examples are present. The
   `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
   TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,
@@ -377,8 +388,9 @@ Record every milestone with the commands that were run.
   Rust HTTP listener/framework adapter remains open.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
-- The high-level `muzen.workers.start()` SDK facade remains future production
-  API work on top of the Rust `ReviewWorker` core and durable service boundary.
+- Production worker deployment still depends on a database-backed durable store
+  and concrete service/host wiring, but the high-level TypeScript
+  `muzen.workers.start()` API is now present over Rust worker execution.
 
 ## Notes For Reviewers
 

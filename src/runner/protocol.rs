@@ -16,6 +16,7 @@ pub(crate) fn stateful_method(method: &str) -> bool {
             | "snapshot.readText"
             | "webhook.github.handle"
             | "webhook.gitlab.handle"
+            | "worker.runOnce"
     )
 }
 

@@ -5,11 +5,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::contracts::Role;
-use crate::review_session::WebhookReviewOptions;
+use crate::review_session::{HostConfiguration, ReviewWorkerRun, WebhookReviewOptions};
 use crate::reviewer::artifacts::ArtifactView;
 
 fn default_role() -> Role {
     Role::Generalist
+}
+
+fn default_worker_max_sessions() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -146,6 +150,47 @@ pub struct WebhookHandleParams {
     pub secret: Option<String>,
     #[serde(default)]
     pub options: WebhookReviewOptions,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerRunOnceParams {
+    #[serde(default)]
+    pub worker_id: Option<String>,
+    #[serde(default = "default_worker_max_sessions")]
+    pub max_sessions: usize,
+    #[serde(default)]
+    pub host_config: HostConfiguration,
+}
+
+impl WorkerRunOnceParams {
+    pub fn worker_id(&self) -> &str {
+        self.worker_id.as_deref().unwrap_or("worker-stdio")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerRunOnceResult {
+    pub worker_id: String,
+    pub claimed: usize,
+    pub completed: usize,
+    pub retried: usize,
+    pub failed: usize,
+    pub skipped: usize,
+}
+
+impl WorkerRunOnceResult {
+    pub fn from_run(worker_id: impl Into<String>, run: ReviewWorkerRun) -> Self {
+        Self {
+            worker_id: worker_id.into(),
+            claimed: run.claimed,
+            completed: run.completed,
+            retried: run.retried,
+            failed: run.failed,
+            skipped: run.skipped,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

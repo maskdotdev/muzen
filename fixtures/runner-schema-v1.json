@@ -73,6 +73,12 @@
       "direction": "sdk_to_runner",
       "status": "implemented",
       "summary": "Verify and schedule a GitLab webhook delivery."
+    },
+    {
+      "method": "worker.runOnce",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Claim and execute ready durable review sessions through the Rust worker."
     }
   ],
   "callbacks": [

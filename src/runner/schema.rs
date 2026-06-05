@@ -23,6 +23,7 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "snapshot.readText".to_string(),
                 "webhook.github.handle".to_string(),
                 "webhook.gitlab.handle".to_string(),
+                "worker.runOnce".to_string(),
                 "model.complete".to_string(),
                 "tool.execute".to_string(),
                 "event.review".to_string(),
@@ -74,6 +75,10 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
             implemented(
                 "webhook.gitlab.handle",
                 "Verify and schedule a GitLab webhook delivery.",
+            ),
+            implemented(
+                "worker.runOnce",
+                "Claim and execute ready durable review sessions through the Rust worker.",
             ),
         ],
         callbacks: vec![

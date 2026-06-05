@@ -348,6 +348,14 @@ impl Muzen {
         Ok(review)
     }
 
+    pub fn worker(
+        &self,
+        worker_id: impl Into<String>,
+        host_config: HostConfiguration,
+    ) -> ReviewWorker {
+        ReviewWorker::new(worker_id, self.store.clone(), host_config)
+    }
+
     pub fn create_review_session(
         &self,
         input: CreateReviewSessionInput,

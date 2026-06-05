@@ -122,6 +122,35 @@ describe("runner-backed Muzen preview", () => {
         reviewId: "review-1",
         status: "queued",
       });
+
+      const run = await muzen.workers.runOnce({
+        workerId: "worker-a",
+        maxSessions: 1,
+        hostConfig: {
+          scheduling: {
+            defaultRetryPolicy: {
+              maxAttempts: 1,
+              initialBackoffSeconds: 1,
+              maxBackoffSeconds: 1,
+            },
+          },
+        },
+      });
+
+      assert.deepEqual(run, {
+        workerId: "worker-a",
+        claimed: 1,
+        completed: 0,
+        retried: 0,
+        failed: 1,
+        skipped: 0,
+      });
+
+      await muzen.workers.start({
+        workerId: "worker-a",
+        stopWhenIdle: true,
+        pollIntervalMs: 1,
+      });
     },
   );
 });
@@ -469,6 +498,18 @@ describe("remote Muzen client", () => {
         body: '{"action":"opened"}',
       },
     ]);
+  });
+
+  it("keeps remote worker execution service-owned", async () => {
+    const remote = createMuzenClient({
+      baseUrl: "https://muzen.example",
+      fetch: async () => Response.json({}),
+    });
+
+    await assert.rejects(
+      () => remote.workers.runOnce(),
+      MuzenUnsupportedFeatureError,
+    );
   });
 });
 

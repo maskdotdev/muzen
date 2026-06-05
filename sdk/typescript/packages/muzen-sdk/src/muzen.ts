@@ -14,9 +14,14 @@ import type {
   CreateMuzenOptions,
   CreateReviewSessionInput,
   CreateReviewSessionResult,
+  HostConfiguration,
   ModelProfile,
   ModelProfileInput,
   Muzen,
+  MuzenWorkerRun,
+  MuzenWorkerRunOnceOptions,
+  MuzenWorkers,
+  MuzenWorkerStartOptions,
   MuzenWebhookHandler,
   MuzenWebhookProvider,
   MuzenWebhooks,
@@ -83,6 +88,7 @@ class RemoteMuzen implements Muzen {
   private readonly baseUrl: URL;
   private readonly fetch: typeof globalThis.fetch;
   readonly webhooks: MuzenWebhooks;
+  readonly workers: MuzenWorkers;
 
   constructor(private readonly options: CreateMuzenClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
@@ -93,6 +99,9 @@ class RemoteMuzen implements Muzen {
       );
     }
     this.webhooks = new RemoteMuzenWebhooks(this);
+    this.workers = new UnsupportedMuzenWorkers(
+      "remote workers are managed by the Muzen service; run workers from a host process created with createMuzen()",
+    );
   }
 
   async review(
@@ -484,9 +493,11 @@ class RemoteReviewSession implements ReviewSession {
 class RunnerBackedMuzen implements Muzen {
   private readonly sessions = new Map<string, RunnerBackedReviewSession>();
   readonly webhooks: MuzenWebhooks;
+  readonly workers: MuzenWorkers;
 
   constructor(private readonly runner: RunnerStdioClient) {
     this.webhooks = new RunnerBackedMuzenWebhooks(runner);
+    this.workers = new RunnerBackedMuzenWorkers(runner);
   }
 
   async review(
@@ -621,6 +632,55 @@ class RunnerBackedMuzenWebhookHandler implements MuzenWebhookHandler {
       status: result.statusCode,
       headers: result.headers,
     });
+  }
+}
+
+class RunnerBackedMuzenWorkers implements MuzenWorkers {
+  constructor(private readonly runner: RunnerStdioClient) {}
+
+  async runOnce(
+    options: MuzenWorkerRunOnceOptions = {},
+  ): Promise<MuzenWorkerRun> {
+    throwIfAborted(options.signal);
+    const run = unwrapWorkerRun(
+      await this.runner.request("worker.runOnce", {
+        workerId: options.workerId,
+        maxSessions: options.maxSessions ?? 1,
+        hostConfig: options.hostConfig ?? {},
+      }),
+    );
+    throwIfAborted(options.signal);
+    return run;
+  }
+
+  async start(options: MuzenWorkerStartOptions = {}): Promise<void> {
+    validateWorkerQueues(options.queues);
+    const maxSessions = options.maxSessions ?? options.concurrency ?? 1;
+    const pollIntervalMs = options.pollIntervalMs ?? 1_000;
+    while (true) {
+      const run = await this.runOnce({
+        workerId: options.workerId,
+        maxSessions,
+        hostConfig: workerHostConfig(options),
+        signal: options.signal,
+      });
+      if (options.stopWhenIdle && run.claimed === 0) {
+        return;
+      }
+      await delay(pollIntervalMs, options.signal);
+    }
+  }
+}
+
+class UnsupportedMuzenWorkers implements MuzenWorkers {
+  constructor(private readonly message: string) {}
+
+  runOnce(_options: MuzenWorkerRunOnceOptions = {}): Promise<MuzenWorkerRun> {
+    return Promise.reject(new MuzenUnsupportedFeatureError(this.message));
+  }
+
+  start(_options: MuzenWorkerStartOptions = {}): Promise<void> {
+    return Promise.reject(new MuzenUnsupportedFeatureError(this.message));
   }
 }
 
@@ -1053,6 +1113,35 @@ function webhookSecret(
   return process.env.GITLAB_WEBHOOK_TOKEN ?? process.env.GITLAB_WEBHOOK_SECRET;
 }
 
+function validateWorkerQueues(queues: string[] | undefined): void {
+  if (!queues) {
+    return;
+  }
+  for (const queue of queues) {
+    if (queue !== "reviews") {
+      throw new MuzenUnsupportedFeatureError(
+        `unsupported Muzen worker queue: ${queue}`,
+      );
+    }
+  }
+}
+
+function workerHostConfig(options: MuzenWorkerStartOptions): HostConfiguration {
+  const hostConfig: HostConfiguration = {
+    ...(options.hostConfig ?? {}),
+  };
+  if (options.concurrency !== undefined) {
+    hostConfig.scheduling = {
+      ...(hostConfig.scheduling ?? {}),
+      concurrency: {
+        ...(hostConfig.scheduling?.concurrency ?? {}),
+        maxRunningGlobal: options.concurrency,
+      },
+    };
+  }
+  return hostConfig;
+}
+
 function parseTimeoutMs(timeout: string | number | undefined): number | undefined {
   if (timeout === undefined) {
     return undefined;
@@ -1121,6 +1210,31 @@ function unwrapReviewSnapshot(value: unknown): ReviewSessionSnapshot {
     throw new Error("Muzen remote returned an invalid review session snapshot");
   }
   return snapshot;
+}
+
+function unwrapWorkerRun(value: unknown): MuzenWorkerRun {
+  if (!isRecord(value)) {
+    throw new Error("invalid worker run response from muzen-runner");
+  }
+  const run = value as Record<string, unknown>;
+  if (
+    typeof run.workerId !== "string" ||
+    typeof run.claimed !== "number" ||
+    typeof run.completed !== "number" ||
+    typeof run.retried !== "number" ||
+    typeof run.failed !== "number" ||
+    typeof run.skipped !== "number"
+  ) {
+    throw new Error("invalid worker run response from muzen-runner");
+  }
+  return {
+    workerId: run.workerId,
+    claimed: run.claimed,
+    completed: run.completed,
+    retried: run.retried,
+    failed: run.failed,
+    skipped: run.skipped,
+  };
 }
 
 function unwrapOptionalReviewResult(value: unknown): ReviewResult | undefined {

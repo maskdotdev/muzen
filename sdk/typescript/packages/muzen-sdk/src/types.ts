@@ -307,8 +307,62 @@ export interface MuzenWebhooks {
   readonly gitlab: MuzenWebhookHandler;
 }
 
+export interface ReviewRetryPolicy {
+  maxAttempts: number;
+  initialBackoffSeconds: number;
+  maxBackoffSeconds: number;
+}
+
+export interface ReviewWorkerConcurrencyLimits {
+  maxRunningGlobal?: number;
+  maxRunningPerWorkspace?: number;
+  maxRunningPerUser?: number;
+  maxRunningPerModelProfile?: number;
+  maxRunningPerProviderProfile?: number;
+}
+
+export interface HostSchedulingConfiguration {
+  leaseSeconds?: number;
+  defaultRetryPolicy?: ReviewRetryPolicy;
+  concurrency?: ReviewWorkerConcurrencyLimits;
+  fairness?: "fifo" | "round_robin_by_workspace";
+}
+
+export interface HostConfiguration {
+  scheduling?: HostSchedulingConfiguration;
+}
+
+export interface MuzenWorkerRun {
+  workerId: string;
+  claimed: number;
+  completed: number;
+  retried: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface MuzenWorkerRunOnceOptions {
+  workerId?: string;
+  maxSessions?: number;
+  hostConfig?: HostConfiguration;
+  signal?: AbortSignal;
+}
+
+export interface MuzenWorkerStartOptions extends MuzenWorkerRunOnceOptions {
+  queues?: string[];
+  concurrency?: number;
+  pollIntervalMs?: number;
+  stopWhenIdle?: boolean;
+}
+
+export interface MuzenWorkers {
+  runOnce(options?: MuzenWorkerRunOnceOptions): Promise<MuzenWorkerRun>;
+  start(options?: MuzenWorkerStartOptions): Promise<void>;
+}
+
 export interface Muzen {
   readonly webhooks: MuzenWebhooks;
+  readonly workers: MuzenWorkers;
   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
   workspace(id: string): MuzenWorkspace;
   resumeReview(id: string): Promise<ReviewSession>;

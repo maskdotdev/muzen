@@ -121,6 +121,11 @@ mod tests {
             .iter()
             .any(|method| method.method == "webhook.github.handle"
                 && method.status == RunnerMethodStatus::Implemented));
+        assert!(schema
+            .requests
+            .iter()
+            .any(|method| method.method == "worker.runOnce"
+                && method.status == RunnerMethodStatus::Implemented));
     }
 
     #[test]
@@ -378,6 +383,34 @@ mod tests {
         assert_eq!(body["type"], json!("review_created"));
         assert_eq!(body["deliveryId"], json!("delivery-1"));
         assert_eq!(body["status"], json!("queued"));
+
+        let worker_frames = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "worker.runOnce",
+                "params": {
+                    "workerId": "worker-a",
+                    "maxSessions": 1,
+                    "hostConfig": {
+                        "scheduling": {
+                            "defaultRetryPolicy": {
+                                "maxAttempts": 1,
+                                "initialBackoffSeconds": 1,
+                                "maxBackoffSeconds": 1
+                            }
+                        }
+                    }
+                }
+            }),
+        );
+        let worker_result = worker_frames[0]["result"].as_object().expect("result");
+
+        assert_eq!(worker_result["workerId"], json!("worker-a"));
+        assert_eq!(worker_result["claimed"], json!(1));
+        assert_eq!(worker_result["failed"], json!(1));
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::{
     CreateReviewSessionInput, HostConfiguration, ReviewAttemptFailure, ReviewSession,
     ReviewSessionError, ReviewSessionStore, ReviewStatus,
@@ -108,7 +110,8 @@ impl ReviewWorker {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewWorkerRun {
     pub claimed: usize,
     pub completed: usize,

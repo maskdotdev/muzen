@@ -82,9 +82,11 @@ completed:
   APIs are implemented against the documented HTTP contract;
 - local and remote webhook response facades are implemented for GitHub and
   GitLab;
+- local worker execution is exposed through `muzen.workers.runOnce()` and
+  `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
 - production database persistence, provider materialization for local provider
-  sources, a concrete Rust HTTP listener/framework adapter, and the high-level
-  `muzen.workers.start()` facade remain future production work.
+  sources, and a concrete Rust HTTP listener/framework adapter remain future
+  production work.
 
 See the repository root README and
 `docs/rfcs/0001-implementation-progress.md` for the full RFC implementation
