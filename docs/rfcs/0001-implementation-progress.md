@@ -310,15 +310,14 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
 | 2026-06-05 | fe46e8c | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
-## Open Decisions
+## Resolved Decisions And Remaining Production Work
 
-- Should `ReviewSession.subscribe()` default to replay-and-follow or live-only?
-  RFC recommendation is replay-and-follow.
-- Should model profiles use named objects, arrays, or both?
-- Should `createMuzenClient()` ship as a placeholder before HTTP transport, or
-  wait until remote mode exists?
-- How much local inline-worker behavior should `createMuzen()` own before the
-  durable store exists? Decision recorded in
+- `ReviewSession.subscribe()` defaults to replay-and-follow in the SDK previews.
+- Model/provider profiles use named workspace-owned records with `set`, `get`,
+  and `list` APIs.
+- `createMuzenClient({ baseUrl })` ships as the remote client transport, not as
+  a placeholder.
+- Local inline-worker behavior is decided in
   `docs/rfcs/0001-durable-happy-path-decision.md`: production/remote paths are
   durable-first; local inline execution remains preview-only until the embedded
   Rust host/router, production store, profile persistence, provider
@@ -366,6 +365,8 @@ Record every milestone with the commands that were run.
   remains open.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
+- The high-level `muzen.workers.start()` SDK facade remains future production
+  API work on top of the Rust `ReviewWorker` core and durable service boundary.
 
 ## Notes For Reviewers
 
