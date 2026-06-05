@@ -557,7 +557,7 @@ class RunnerBackedMuzen implements Muzen {
     const existing = this.sessions.get(id);
     if (!existing) {
       throw new MuzenUnsupportedFeatureError(
-        "resumeReview currently supports sessions created by this SDK process; durable session lookup is not implemented yet",
+        "local resumeReview is process-local for createMuzen(); use createMuzenClient({ baseUrl }).resumeReview(id) for durable review lookup",
       );
     }
     return existing;

@@ -139,7 +139,7 @@ class Client:
             return self._sessions[review_id]
         except KeyError as error:
             raise MuzenUnsupportedFeatureError(
-                "resume_review currently supports sessions created by this SDK process; durable session lookup is not implemented yet"
+                "local resume_review is process-local for Client.create(); use create_muzen_client(base_url=...).resume_review(review_id) for durable review lookup"
             ) from error
 
     async def close(self) -> None:
