@@ -271,7 +271,7 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | 0234c89 | 8.9 | Extract TypeScript runner mapping and runner wire guards from SDK orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 405b9c3 | 9.0 | Extract TypeScript SDK wire-response validation and unwrap helpers from SDK orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | c195f93 | 9.1 | Extract Python SDK runner mapping and runner wire conversion helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
-| 2026-06-05 | pending | 9.2 | Extract Python SDK remote wire-response validation and unwrap helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | 974a66e | 9.2 | Extract Python SDK remote wire-response validation and unwrap helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 
 ## Current Target
 
