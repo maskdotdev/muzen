@@ -187,13 +187,13 @@ Exit criteria:
 
 ## Phase 7: Examples And Docs
 
-- [ ] Add `examples/typescript/basic-review`.
+- [x] Add `examples/typescript/basic-review`.
 - [ ] Add `examples/typescript/events`.
-- [ ] Add `examples/python/basic-review`.
+- [x] Add `examples/python/basic-review`.
 - [ ] Add `examples/python/notebook-review`.
-- [ ] Update `Readme.md` so examples are accurate for implemented preview
+- [x] Update `Readme.md` so examples are accurate for implemented preview
   behavior.
-- [ ] Document unsupported preview areas without exposing internals as the main
+- [x] Document unsupported preview areas without exposing internals as the main
   mental model.
 
 Exit criteria:
@@ -260,7 +260,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 6be8151 | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 5fd89a5 | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | efaa992 | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
-| 2026-06-05 | python-preview | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
+| 2026-06-05 | 79d1ce6 | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
+| 2026-06-05 | docs-examples | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
 
 ## Open Decisions
 
