@@ -10,7 +10,8 @@ use super::{
     ReviewSessionError, ReviewSessionId, ReviewSource, ReviewStatus,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewSessionRecord {
     pub id: ReviewSessionId,
     pub workspace_id: Option<String>,

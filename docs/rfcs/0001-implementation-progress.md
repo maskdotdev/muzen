@@ -241,7 +241,8 @@ Exit criteria:
 - [x] Capture effective config snapshots when scheduling workspace reviews.
 - [x] Store only secret references and non-secret routing metadata in review
   session records.
-- [ ] Add complete redaction tests for records, events, logs, and results.
+- [x] Add redaction tests for durable records, events, and results.
+- [ ] Add log redaction tests when review-session log persistence exists.
 
 Exit criteria:
 
@@ -280,7 +281,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | e939764 | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
 | 2026-06-05 | 20f556f | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | b7f1abc | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | pending | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | cc1c12c | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | pending | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -307,6 +309,9 @@ Record every milestone with the commands that were run.
   fairness strategy, and global/workspace/user/model/provider concurrency
   limits. Production persistence still needs to enforce the same contract
   transactionally.
+- Durable records, events, and results have redaction coverage around profile
+  secret references. Log-specific redaction coverage should be added with the
+  log persistence boundary.
 
 ## Notes For Reviewers
 

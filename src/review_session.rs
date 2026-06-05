@@ -2512,6 +2512,47 @@ mod tests {
     }
 
     #[test]
+    fn durable_record_events_and_result_serialize_without_raw_profile_secret() {
+        let raw_secret = "sk-live-raw-secret";
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let muzen = Muzen::with_store(store.clone());
+        let workspace = muzen.workspace("acme");
+        workspace
+            .set_model_profile(
+                "default",
+                ModelProfileInput {
+                    provider: ModelProviderKind::OpenaiCompatible,
+                    model: "gpt-5".to_string(),
+                    secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
+                    base_url: Some("https://models.example.test".to_string()),
+                    routing: BTreeMap::new(),
+                },
+            )
+            .unwrap();
+        let review = workspace
+            .schedule_review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        ReviewWorker::new("worker-a", store.clone(), HostConfiguration::default())
+            .run_once(1)
+            .unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+        let record_json = serde_json::to_string(&record).unwrap();
+        let events_json = serde_json::to_string(&record.events).unwrap();
+        let result_json = serde_json::to_string(&record.result).unwrap();
+
+        assert!(record_json.contains("vault://workspaces/acme/models/default"));
+        for serialized in [record_json, events_json, result_json] {
+            assert!(!serialized.contains(raw_secret));
+            assert!(!serialized.contains("apiKey"));
+        }
+    }
+
+    #[test]
     fn workspace_effective_snapshot_includes_source_provider_profile() {
         let workspace = Muzen::new().workspace("acme");
         workspace
