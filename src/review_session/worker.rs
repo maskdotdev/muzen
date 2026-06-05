@@ -72,13 +72,15 @@ impl ReviewWorker {
                 Ok(session) => {
                     let result = session.wait()?;
                     let status = session.status();
+                    let (events, redacted_artifacts, raw_artifacts) =
+                        session.persisted_execution_parts();
                     let updated = self.store.write_execution_result(
                         session.id(),
                         status,
                         result,
-                        session.events.clone(),
-                        session.redacted_artifacts.clone(),
-                        session.raw_artifacts.clone(),
+                        events,
+                        redacted_artifacts,
+                        raw_artifacts,
                     )?;
                     match updated.status {
                         ReviewStatus::Completed => run.completed += 1,
