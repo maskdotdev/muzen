@@ -37,8 +37,9 @@ pub use profiles::{
 };
 pub use store::{
     InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
-    ReviewLeaseExtension, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore,
-    ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
+    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
+    ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
 };
 pub use webhooks::{
     github_webhook_signature, map_github_webhook_source, map_gitlab_webhook_source,
@@ -654,6 +655,7 @@ impl ReviewSession {
             options: self.options.clone(),
             result: self.result.clone(),
             events: self.events.clone(),
+            logs: Vec::new(),
             redacted_artifacts: self.redacted_artifacts.clone(),
             raw_artifacts: self.raw_artifacts.clone(),
             config_snapshot: self.config_snapshot.clone(),
@@ -2593,6 +2595,55 @@ mod tests {
     }
 
     #[test]
+    fn review_session_logs_are_redacted_before_persistence() {
+        let raw_secret = "sk-live-raw-secret";
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store.clone()).workspace("acme");
+        let review = workspace
+            .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+            .unwrap();
+
+        store
+            .append_logs(
+                review.id(),
+                vec![ReviewLogEntry::new(
+                    review.id().clone(),
+                    ReviewLogStream::Worker,
+                    format!("resolved credential {raw_secret} for model call"),
+                )
+                .with_metadata("apiKey", json!(raw_secret))
+                .with_metadata(
+                    "nested",
+                    json!({
+                        "authorization": format!("Bearer {raw_secret}"),
+                        "safe": format!("prefix-{raw_secret}-suffix")
+                    }),
+                )],
+                ReviewLogRedactionPolicy::new([raw_secret]),
+            )
+            .unwrap();
+        let logs = store.logs_after(review.id(), None).unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+        let logs_json = serde_json::to_string(&logs).unwrap();
+        let record_json = serde_json::to_string(&record).unwrap();
+
+        assert_eq!(logs[0].cursor, "1");
+        assert_eq!(logs[0].review_id, review.id().clone());
+        assert!(logs_json.contains("[redacted]"));
+        assert!(!logs_json.contains(raw_secret));
+        assert!(!record_json.contains(raw_secret));
+        assert_eq!(logs[0].metadata["apiKey"], json!("[redacted]"));
+        assert_eq!(
+            logs[0].metadata["nested"]["authorization"],
+            json!("[redacted]")
+        );
+        assert_eq!(
+            logs[0].metadata["nested"]["safe"],
+            json!("prefix-[redacted]-suffix")
+        );
+    }
+
+    #[test]
     fn review_events_response_replays_json_from_store() {
         let store = Arc::new(InMemoryReviewSessionStore::default());
         let workspace = Muzen::with_store(store).workspace("acme");
@@ -2943,6 +2994,7 @@ mod tests {
             options: ReviewOptions::default(),
             result: None,
             events: Vec::new(),
+            logs: Vec::new(),
             redacted_artifacts: Vec::new(),
             raw_artifacts: Vec::new(),
             config_snapshot: None,

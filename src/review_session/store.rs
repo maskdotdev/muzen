@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Map, Value};
 
 use super::{
     ReviewArtifact, ReviewCancelOptions, ReviewEvent, ReviewEventType, ReviewResult,
@@ -21,6 +21,8 @@ pub struct ReviewSessionRecord {
     pub options: super::ReviewOptions,
     pub result: Option<ReviewResult>,
     pub events: Vec<ReviewEvent>,
+    #[serde(default)]
+    pub logs: Vec<ReviewLogEntry>,
     pub redacted_artifacts: Vec<ReviewArtifact>,
     pub raw_artifacts: Vec<ReviewArtifact>,
     pub config_snapshot: Option<super::EffectiveConfigSnapshot>,
@@ -50,6 +52,142 @@ pub struct ReviewCancellationRecord {
     #[serde(default)]
     pub reason: Option<String>,
     pub cancelled_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewLogEntry {
+    pub cursor: String,
+    pub review_id: ReviewSessionId,
+    pub timestamp_utc: String,
+    pub stream: ReviewLogStream,
+    pub message: String,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+impl ReviewLogEntry {
+    pub fn new(
+        review_id: ReviewSessionId,
+        stream: ReviewLogStream,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            cursor: String::new(),
+            review_id,
+            timestamp_utc: crate::util::timestamp_utc(),
+            stream,
+            message: message.into(),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.metadata.insert(key.into(), value);
+        self
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewLogStream {
+    System,
+    Worker,
+    Agent,
+    ToolStdout,
+    ToolStderr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewLogRedactionPolicy {
+    pub secrets: Vec<String>,
+    pub sensitive_keys: Vec<String>,
+}
+
+impl ReviewLogRedactionPolicy {
+    pub fn new(secrets: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            secrets: secrets
+                .into_iter()
+                .map(Into::into)
+                .filter(|secret: &String| !secret.is_empty())
+                .collect(),
+            ..Self::default()
+        }
+    }
+
+    pub fn redact_entry(&self, mut entry: ReviewLogEntry) -> ReviewLogEntry {
+        entry.message = self.redact_string(&entry.message);
+        entry.metadata = entry
+            .metadata
+            .into_iter()
+            .map(|(key, value)| {
+                let redacted = if self.is_sensitive_key(&key) {
+                    Value::String("[redacted]".to_string())
+                } else {
+                    self.redact_value(value)
+                };
+                (key, redacted)
+            })
+            .collect();
+        entry
+    }
+
+    fn redact_value(&self, value: Value) -> Value {
+        match value {
+            Value::String(value) => Value::String(self.redact_string(&value)),
+            Value::Array(values) => Value::Array(
+                values
+                    .into_iter()
+                    .map(|value| self.redact_value(value))
+                    .collect(),
+            ),
+            Value::Object(values) => {
+                let mut redacted = Map::new();
+                for (key, value) in values {
+                    let value = if self.is_sensitive_key(&key) {
+                        Value::String("[redacted]".to_string())
+                    } else {
+                        self.redact_value(value)
+                    };
+                    redacted.insert(key, value);
+                }
+                Value::Object(redacted)
+            }
+            value => value,
+        }
+    }
+
+    fn redact_string(&self, value: &str) -> String {
+        let mut redacted = value.to_string();
+        for secret in &self.secrets {
+            redacted = redacted.replace(secret, "[redacted]");
+        }
+        redacted
+    }
+
+    fn is_sensitive_key(&self, key: &str) -> bool {
+        let normalized = normalize_sensitive_key(key);
+        self.sensitive_keys
+            .iter()
+            .any(|sensitive| normalize_sensitive_key(sensitive) == normalized)
+    }
+}
+
+impl Default for ReviewLogRedactionPolicy {
+    fn default() -> Self {
+        Self {
+            secrets: Vec::new(),
+            sensitive_keys: vec![
+                "apiKey".to_string(),
+                "api_key".to_string(),
+                "token".to_string(),
+                "accessToken".to_string(),
+                "authorization".to_string(),
+                "secret".to_string(),
+            ],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,6 +315,19 @@ pub trait ReviewSessionStore: Send + Sync {
         after: Option<&str>,
     ) -> Result<Vec<ReviewEvent>, ReviewSessionError>;
 
+    fn append_logs(
+        &self,
+        id: &ReviewSessionId,
+        logs: Vec<ReviewLogEntry>,
+        redaction: ReviewLogRedactionPolicy,
+    ) -> Result<(), ReviewSessionError>;
+
+    fn logs_after(
+        &self,
+        id: &ReviewSessionId,
+        after: Option<&str>,
+    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError>;
+
     fn write_result(
         &self,
         id: &ReviewSessionId,
@@ -290,6 +441,52 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
             })
             .map_or(0, |index| index + 1);
         Ok(record.events[start..].to_vec())
+    }
+
+    fn append_logs(
+        &self,
+        id: &ReviewSessionId,
+        logs: Vec<ReviewLogEntry>,
+        redaction: ReviewLogRedactionPolicy,
+    ) -> Result<(), ReviewSessionError> {
+        let mut state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get_mut(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        let start = record.logs.len();
+        let review_id = record.id.clone();
+        let rebased = logs
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut log)| {
+                log.cursor = (start + index + 1).to_string();
+                log.review_id = review_id.clone();
+                if log.timestamp_utc.trim().is_empty() {
+                    log.timestamp_utc = crate::util::timestamp_utc();
+                }
+                redaction.redact_entry(log)
+            })
+            .collect::<Vec<_>>();
+        record.logs.extend(rebased);
+        record.updated_at_utc = crate::util::timestamp_utc();
+        Ok(())
+    }
+
+    fn logs_after(
+        &self,
+        id: &ReviewSessionId,
+        after: Option<&str>,
+    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
+        let state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        let start = after
+            .and_then(|cursor| record.logs.iter().position(|log| log.cursor == cursor))
+            .map_or(0, |index| index + 1);
+        Ok(record.logs[start..].to_vec())
     }
 
     fn write_result(
@@ -693,6 +890,13 @@ fn retry_backoff_seconds(policy: ReviewRetryPolicy, attempt: u32) -> u64 {
     let shift = attempt.saturating_sub(1).min(31);
     let multiplier = 1_u64.checked_shl(shift).unwrap_or(u64::MAX);
     initial.saturating_mul(multiplier).min(max)
+}
+
+fn normalize_sensitive_key(key: &str) -> String {
+    key.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn current_unix_seconds() -> u64 {

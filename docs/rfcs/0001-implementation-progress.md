@@ -245,7 +245,7 @@ Exit criteria:
 - [x] Store only secret references and non-secret routing metadata in review
   session records.
 - [x] Add redaction tests for durable records, events, and results.
-- [ ] Add log redaction tests when review-session log persistence exists.
+- [x] Add log redaction tests when review-session log persistence exists.
 
 Exit criteria:
 
@@ -308,6 +308,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | ea15ecc | TypeScript remote webhook request facade and HTTP contract routes | `npm test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | dbb980d | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
+| 2026-06-05 | pending | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Open Decisions
 
@@ -339,9 +340,10 @@ Record every milestone with the commands that were run.
   fairness strategy, and global/workspace/user/model/provider concurrency
   limits. Production persistence still needs to enforce the same contract
   transactionally.
-- Durable records, events, and results have redaction coverage around profile
-  secret references. Log-specific redaction coverage should be added with the
-  log persistence boundary.
+- Durable records, events, results, and review-session logs have redaction
+  coverage around profile secret references and raw secret values. The
+  in-memory store redacts configured secret values and sensitive metadata keys
+  before retaining log entries.
 - Rust webhook helpers verify GitHub HMAC-SHA256 signatures and GitLab webhook
   tokens, map supported pull/merge request events to review sources, schedule
   queued workspace reviews, and return delivery JSON bodies plus
