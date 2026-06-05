@@ -78,6 +78,34 @@ Runnable examples:
 - `examples/typescript/basic-review`
 - `examples/typescript/events`
 
+Remote client preview:
+
+```ts
+import { createMuzenClient } from "@muzen/sdk";
+
+const muzen = createMuzenClient({
+  baseUrl: "https://muzen.example",
+  token: process.env.MUZEN_TOKEN,
+});
+
+const workspace = muzen.workspace("acme");
+
+await workspace.models.set("default", {
+  provider: "openai_compatible",
+  model: "gpt-5",
+  secretRef: "vault://workspaces/acme/models/default",
+});
+
+await workspace.providers.set("github", {
+  provider: "github",
+  secretRef: "vault://workspaces/acme/providers/github",
+});
+
+const review = await workspace.review("github:maskdotdev/heimdaal#123", {
+  model: "default",
+});
+```
+
 ## Python Preview
 
 ```sh
@@ -137,6 +165,7 @@ Current completed slices:
   secret-reference-only config snapshots.
 - Rust GitHub/GitLab webhook verification and source mapping helpers.
 - TypeScript SDK preview over stdio JSON-RPC.
+- TypeScript remote client preview with workspace profile APIs.
 - Python SDK preview over stdio JSON-RPC.
 
 Major open slices:

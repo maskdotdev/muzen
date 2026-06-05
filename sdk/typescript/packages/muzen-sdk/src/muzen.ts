@@ -14,7 +14,12 @@ import type {
   CreateMuzenOptions,
   CreateReviewSessionInput,
   CreateReviewSessionResult,
+  ModelProfile,
+  ModelProfileInput,
   Muzen,
+  MuzenWorkspace,
+  ProviderProfile,
+  ProviderProfileInput,
   ReviewCancelOptions,
   ReviewEvent,
   ReviewEventType,
@@ -31,6 +36,7 @@ import type {
   ReviewSource,
   ReviewSourceLike,
   ReviewStatus,
+  WorkspaceProfileCollection,
 } from "./types.js";
 
 export async function createMuzen(
@@ -88,6 +94,10 @@ class RemoteMuzen implements Muzen {
     options: ReviewOptions = {},
   ): Promise<ReviewSession> {
     return this.createReviewSession({ source: sourceLike, options });
+  }
+
+  workspace(id: string): MuzenWorkspace {
+    return new RemoteWorkspace(this, id);
   }
 
   async createReviewSession(input: {
@@ -156,6 +166,90 @@ class RemoteMuzen implements Muzen {
       );
     }
     return response;
+  }
+}
+
+class RemoteWorkspace implements MuzenWorkspace {
+  readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
+  readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
+
+  constructor(
+    private readonly client: RemoteMuzen,
+    readonly id: string,
+  ) {
+    this.models = new RemoteWorkspaceProfileCollection(
+      client,
+      id,
+      "models",
+      unwrapModelProfile,
+      unwrapModelProfiles,
+    );
+    this.providers = new RemoteWorkspaceProfileCollection(
+      client,
+      id,
+      "providers",
+      unwrapProviderProfile,
+      unwrapProviderProfiles,
+    );
+  }
+
+  async review(
+    sourceLike: ReviewSourceLike,
+    options: ReviewOptions = {},
+  ): Promise<ReviewSession> {
+    const source = parseReviewSource(sourceLike);
+    const response = await this.client.requestJson(
+      `/v1/workspaces/${encodeURIComponent(this.id)}/reviews`,
+      {
+        method: "POST",
+        body: {
+          source,
+          options,
+        },
+      },
+    );
+    return new RemoteReviewSession(this.client, unwrapReviewSnapshot(response));
+  }
+}
+
+class RemoteWorkspaceProfileCollection<Input, Profile>
+  implements WorkspaceProfileCollection<Input, Profile>
+{
+  constructor(
+    private readonly client: RemoteMuzen,
+    private readonly workspaceId: string,
+    private readonly kind: "models" | "providers",
+    private readonly unwrapOne: (value: unknown) => Profile,
+    private readonly unwrapMany: (value: unknown) => Profile[],
+  ) {}
+
+  async set(name: string, input: Input): Promise<Profile> {
+    return this.unwrapOne(
+      await this.client.requestJson(this.profilePath(name), {
+        method: "PUT",
+        body: input,
+      }),
+    );
+  }
+
+  async get(name: string): Promise<Profile | undefined> {
+    const response = await this.client.requestJson(this.profilePath(name));
+    if (response === undefined || response === null) {
+      return undefined;
+    }
+    return this.unwrapOne(response);
+  }
+
+  async list(): Promise<Profile[]> {
+    return this.unwrapMany(await this.client.requestJson(this.collectionPath()));
+  }
+
+  private collectionPath(): string {
+    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/${this.kind}`;
+  }
+
+  private profilePath(name: string): string {
+    return `${this.collectionPath()}/${encodeURIComponent(name)}`;
   }
 }
 
@@ -355,6 +449,10 @@ class RunnerBackedMuzen implements Muzen {
     return this.createReviewSession({ source: sourceLike, options });
   }
 
+  workspace(id: string): MuzenWorkspace {
+    return new RunnerBackedWorkspace(this, id);
+  }
+
   async createReviewSession(input: {
     source: ReviewSourceLike;
     options?: ReviewOptions;
@@ -409,6 +507,53 @@ class RunnerBackedMuzen implements Muzen {
 
   async close(): Promise<void> {
     await this.runner.close();
+  }
+}
+
+class RunnerBackedWorkspace implements MuzenWorkspace {
+  readonly models = new UnsupportedWorkspaceProfileCollection<
+    ModelProfileInput,
+    ModelProfile
+  >("model");
+  readonly providers = new UnsupportedWorkspaceProfileCollection<
+    ProviderProfileInput,
+    ProviderProfile
+  >("provider");
+
+  constructor(
+    private readonly muzen: Muzen,
+    readonly id: string,
+  ) {}
+
+  review(
+    source: ReviewSourceLike,
+    options?: ReviewOptions,
+  ): Promise<ReviewSession> {
+    return this.muzen.review(source, options);
+  }
+}
+
+class UnsupportedWorkspaceProfileCollection<Input, Profile>
+  implements WorkspaceProfileCollection<Input, Profile>
+{
+  constructor(private readonly kind: string) {}
+
+  set(_name: string, _input: Input): Promise<Profile> {
+    return Promise.reject(this.error());
+  }
+
+  get(_name: string): Promise<Profile | undefined> {
+    return Promise.reject(this.error());
+  }
+
+  list(): Promise<Profile[]> {
+    return Promise.reject(this.error());
+  }
+
+  private error(): MuzenUnsupportedFeatureError {
+    return new MuzenUnsupportedFeatureError(
+      `workspace ${this.kind} profiles require remote workspace storage; createMuzen() only supports local runner review execution in this preview`,
+    );
   }
 }
 
@@ -903,6 +1048,38 @@ function unwrapReviewArtifactExport(value: unknown): ReviewArtifactExport {
   return value;
 }
 
+function unwrapModelProfile(value: unknown): ModelProfile {
+  const profile = isRecord(value) && isRecord(value.profile) ? value.profile : value;
+  if (!isModelProfile(profile)) {
+    throw new Error("Muzen remote returned an invalid model profile");
+  }
+  return profile;
+}
+
+function unwrapModelProfiles(value: unknown): ModelProfile[] {
+  const profiles = isRecord(value) && Array.isArray(value.profiles) ? value.profiles : value;
+  if (!Array.isArray(profiles) || !profiles.every(isModelProfile)) {
+    throw new Error("Muzen remote returned invalid model profiles");
+  }
+  return profiles;
+}
+
+function unwrapProviderProfile(value: unknown): ProviderProfile {
+  const profile = isRecord(value) && isRecord(value.profile) ? value.profile : value;
+  if (!isProviderProfile(profile)) {
+    throw new Error("Muzen remote returned an invalid provider profile");
+  }
+  return profile;
+}
+
+function unwrapProviderProfiles(value: unknown): ProviderProfile[] {
+  const profiles = isRecord(value) && Array.isArray(value.profiles) ? value.profiles : value;
+  if (!Array.isArray(profiles) || !profiles.every(isProviderProfile)) {
+    throw new Error("Muzen remote returned invalid provider profiles");
+  }
+  return profiles;
+}
+
 function isReviewSessionSnapshot(value: unknown): value is ReviewSessionSnapshot {
   return (
     isRecord(value) &&
@@ -977,6 +1154,41 @@ function isReviewStatus(value: unknown): value is ReviewStatus {
     value === "failed" ||
     value === "cancelled"
   );
+}
+
+function isModelProfile(value: unknown): value is ModelProfile {
+  return (
+    isRecord(value) &&
+    typeof value.workspaceId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.version === "string" &&
+    isModelProviderKind(value.provider) &&
+    typeof value.model === "string" &&
+    typeof value.updatedAtUtc === "string"
+  );
+}
+
+function isProviderProfile(value: unknown): value is ProviderProfile {
+  return (
+    isRecord(value) &&
+    typeof value.workspaceId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.version === "string" &&
+    isSourceProviderKind(value.provider) &&
+    typeof value.updatedAtUtc === "string"
+  );
+}
+
+function isModelProviderKind(value: unknown): value is ModelProfile["provider"] {
+  return (
+    value === "openai" ||
+    value === "anthropic" ||
+    value === "openai_compatible"
+  );
+}
+
+function isSourceProviderKind(value: unknown): value is ProviderProfile["provider"] {
+  return value === "github" || value === "gitlab";
 }
 
 interface RunnerReviewEventRecord {

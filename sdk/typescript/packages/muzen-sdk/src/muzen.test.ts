@@ -229,4 +229,133 @@ describe("remote Muzen client", () => {
       "/v1/reviews/review-remote-1",
     ]);
   });
+
+  it("manages workspace profiles through the preview HTTP contract", async () => {
+    const requests: Array<{
+      method: string;
+      path: string;
+      body?: unknown;
+    }> = [];
+    const modelProfile = {
+      workspaceId: "acme",
+      name: "default",
+      version: "1",
+      provider: "openai_compatible",
+      model: "gpt-5",
+      secretRef: "vault://workspaces/acme/models/default",
+      baseUrl: "https://models.example.test",
+      routing: { region: "us-east" },
+      updatedAtUtc: "1780620000.000000000Z",
+    };
+    const providerProfile = {
+      workspaceId: "acme",
+      name: "github",
+      version: "1",
+      provider: "github",
+      secretRef: "vault://workspaces/acme/providers/github",
+      baseUrl: "https://api.github.com",
+      routing: { installation: "123" },
+      updatedAtUtc: "1780620000.000000000Z",
+    };
+    const fetchMock: typeof fetch = async (input, init = {}) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const method = init.method ?? "GET";
+      const body =
+        typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+      requests.push({
+        method,
+        path: `${url.pathname}${url.search}`,
+        body,
+      });
+      if (
+        url.pathname === "/v1/workspaces/acme/models/default" &&
+        method === "PUT"
+      ) {
+        return Response.json({ profile: modelProfile });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/models/default" &&
+        method === "GET"
+      ) {
+        return Response.json(modelProfile);
+      }
+      if (url.pathname === "/v1/workspaces/acme/models") {
+        return Response.json({ profiles: [modelProfile] });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/providers/github" &&
+        method === "PUT"
+      ) {
+        return Response.json({ profile: providerProfile });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/providers/github" &&
+        method === "GET"
+      ) {
+        return Response.json(providerProfile);
+      }
+      if (url.pathname === "/v1/workspaces/acme/providers") {
+        return Response.json({ profiles: [providerProfile] });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/reviews" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          review: {
+            id: "review-workspace-1",
+            status: "queued",
+            source: body.source,
+          },
+        });
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    };
+    const workspace = createMuzenClient({
+      baseUrl: "https://muzen.example",
+      fetch: fetchMock,
+    }).workspace("acme");
+
+    const savedModel = await workspace.models.set("default", {
+      provider: "openai_compatible",
+      model: "gpt-5",
+      secretRef: "vault://workspaces/acme/models/default",
+      baseUrl: "https://models.example.test",
+      routing: { region: "us-east" },
+    });
+    const loadedModel = await workspace.models.get("default");
+    const modelProfiles = await workspace.models.list();
+    const savedProvider = await workspace.providers.set("github", {
+      provider: "github",
+      secretRef: "vault://workspaces/acme/providers/github",
+      baseUrl: "https://api.github.com",
+      routing: { installation: "123" },
+    });
+    const loadedProvider = await workspace.providers.get("github");
+    const providerProfiles = await workspace.providers.list();
+    const review = await workspace.review("github:maskdotdev/heimdaal#123", {
+      model: "default",
+    });
+
+    assert.equal(workspace.id, "acme");
+    assert.equal(savedModel.model, "gpt-5");
+    assert.equal(loadedModel?.secretRef, "vault://workspaces/acme/models/default");
+    assert.equal(modelProfiles.length, 1);
+    assert.equal(savedProvider.provider, "github");
+    assert.equal(
+      loadedProvider?.secretRef,
+      "vault://workspaces/acme/providers/github",
+    );
+    assert.equal(providerProfiles.length, 1);
+    assert.equal(review.id, "review-workspace-1");
+    assert.deepEqual(requests.map((request) => request.path), [
+      "/v1/workspaces/acme/models/default",
+      "/v1/workspaces/acme/models/default",
+      "/v1/workspaces/acme/models",
+      "/v1/workspaces/acme/providers/github",
+      "/v1/workspaces/acme/providers/github",
+      "/v1/workspaces/acme/providers",
+      "/v1/workspaces/acme/reviews",
+    ]);
+  });
 });

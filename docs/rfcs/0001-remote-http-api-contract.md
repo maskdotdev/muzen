@@ -139,6 +139,110 @@ Request:
 
 Returns `ReviewArtifactExport`.
 
+## Workspace Reviews
+
+`POST /v1/workspaces/{workspaceId}/reviews`
+
+Request and response shapes match `POST /v1/reviews`, but the host schedules
+the review in the named workspace and captures workspace-owned model/provider
+profile snapshots.
+
+## Workspace Model Profiles
+
+`PUT /v1/workspaces/{workspaceId}/models/{name}`
+
+Request:
+
+```json
+{
+  "provider": "openai_compatible",
+  "model": "gpt-5",
+  "secretRef": "vault://workspaces/acme/models/default",
+  "baseUrl": "https://models.example.test",
+  "routing": {
+    "region": "us-east"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "profile": {
+    "workspaceId": "acme",
+    "name": "default",
+    "version": "1",
+    "provider": "openai_compatible",
+    "model": "gpt-5",
+    "secretRef": "vault://workspaces/acme/models/default",
+    "baseUrl": "https://models.example.test",
+    "routing": {
+      "region": "us-east"
+    },
+    "updatedAtUtc": "1780620000.000000000Z"
+  }
+}
+```
+
+The response MAY also be the profile object directly.
+
+`GET /v1/workspaces/{workspaceId}/models/{name}`
+
+Returns `{ "profile": ModelProfile }`, `ModelProfile` directly, or
+`204 No Content` when absent.
+
+`GET /v1/workspaces/{workspaceId}/models`
+
+Returns `{ "profiles": ModelProfile[] }` or the array directly.
+
+## Workspace Provider Profiles
+
+`PUT /v1/workspaces/{workspaceId}/providers/{name}`
+
+Request:
+
+```json
+{
+  "provider": "github",
+  "secretRef": "vault://workspaces/acme/providers/github",
+  "baseUrl": "https://api.github.com",
+  "routing": {
+    "installation": "123"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "profile": {
+    "workspaceId": "acme",
+    "name": "github",
+    "version": "1",
+    "provider": "github",
+    "secretRef": "vault://workspaces/acme/providers/github",
+    "baseUrl": "https://api.github.com",
+    "routing": {
+      "installation": "123"
+    },
+    "updatedAtUtc": "1780620000.000000000Z"
+  }
+}
+```
+
+The response MAY also be the profile object directly.
+
+`GET /v1/workspaces/{workspaceId}/providers/{name}`
+
+Returns `{ "profile": ProviderProfile }`, `ProviderProfile` directly, or
+`204 No Content` when absent.
+
+`GET /v1/workspaces/{workspaceId}/providers`
+
+Returns `{ "profiles": ProviderProfile[] }` or the array directly.
+
 ## Webhooks
 
 Framework-facing SDK webhook helpers should verify provider signatures/tokens,

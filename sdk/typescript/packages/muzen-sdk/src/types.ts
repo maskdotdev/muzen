@@ -88,6 +88,64 @@ export interface ReviewLimits {
   maxSearchMatches?: number;
 }
 
+export type ModelProviderKind =
+  | "openai"
+  | "anthropic"
+  | "openai_compatible";
+
+export type SourceProviderKind = "github" | "gitlab";
+
+export interface ModelProfileInput {
+  provider: ModelProviderKind;
+  model: string;
+  secretRef?: string;
+  baseUrl?: string;
+  routing?: Record<string, string>;
+}
+
+export interface ProviderProfileInput {
+  provider: SourceProviderKind;
+  secretRef?: string;
+  baseUrl?: string;
+  routing?: Record<string, string>;
+}
+
+export interface ModelProfile {
+  workspaceId: string;
+  name: string;
+  version: string;
+  provider: ModelProviderKind;
+  model: string;
+  secretRef?: string;
+  baseUrl?: string;
+  routing?: Record<string, string>;
+  updatedAtUtc: string;
+}
+
+export interface ProviderProfile {
+  workspaceId: string;
+  name: string;
+  version: string;
+  provider: SourceProviderKind;
+  secretRef?: string;
+  baseUrl?: string;
+  routing?: Record<string, string>;
+  updatedAtUtc: string;
+}
+
+export interface WorkspaceProfileCollection<Input, Profile> {
+  set(name: string, input: Input): Promise<Profile>;
+  get(name: string): Promise<Profile | undefined>;
+  list(): Promise<Profile[]>;
+}
+
+export interface MuzenWorkspace {
+  readonly id: string;
+  readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
+  readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
+  review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
+}
+
 export interface ReviewSessionSnapshot {
   id: string;
   status: ReviewStatus;
@@ -230,6 +288,7 @@ export interface CreateReviewSessionResult {
 
 export interface Muzen {
   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
+  workspace(id: string): MuzenWorkspace;
   resumeReview(id: string): Promise<ReviewSession>;
   createReviewSession(input: {
     source: ReviewSourceLike;
