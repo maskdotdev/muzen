@@ -273,7 +273,7 @@ pub(crate) struct RunBudgetsV1 {
     pub(crate) rss_limit_mb: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentBudget {
     pub max_turns: usize,

@@ -44,10 +44,10 @@ pressure, and commit-sized milestones.
 - [x] Runner emits `event.review`, `event.runtime`, `run.finished`, and
   `run.failed` notifications.
 - [x] Protocol fixtures exist under `fixtures/`.
-- [ ] Rust core exposes a public SDK-facing review-session module.
-- [ ] Rust core models review sources, review sessions, events, results,
+- [x] Rust core exposes a public SDK-facing review-session module.
+- [x] Rust core models review sources, review sessions, events, results,
   cancellation, and session snapshots using product nouns.
-- [ ] Rust core maps review-session semantics onto runner execution without
+- [x] Rust core maps review-session semantics onto runner execution without
   leaking runner internals into SDK contracts.
 - [ ] SDK-first `@muzen/sdk` package exists.
 - [ ] `createMuzen()` works end to end against `muzen-runner`.
@@ -75,28 +75,28 @@ Exit criteria:
 
 ## Phase 2: Rust Core Review Session API
 
-- [ ] Add a Rust `review_session` module for SDK-facing core types and
+- [x] Add a Rust `review_session` module for SDK-facing core types and
   behavior.
-- [ ] Define Rust core types for:
-  - [ ] `ReviewSource`,
-  - [ ] `ReviewSourceLike` parsing inputs,
-  - [ ] `ReviewOptions`,
-  - [ ] `ReviewSessionId`,
-  - [ ] `ReviewStatus`,
-  - [ ] `ReviewSessionSnapshot`,
-  - [ ] `ReviewResult`,
-  - [ ] `ReviewFinding`,
-  - [ ] `ReviewEvent`.
-- [ ] Implement source string parsing:
-  - [ ] `github:owner/repo#123`,
-  - [ ] `gitlab:owner/repo!123`,
-  - [ ] local repository source descriptors for smoke tests.
-- [ ] Add Rust constructors/builders that express the RFC nouns without
+- [x] Define Rust core types for:
+  - [x] `ReviewSource`,
+  - [x] `ReviewSourceLike` parsing inputs,
+  - [x] `ReviewOptions`,
+  - [x] `ReviewSessionId`,
+  - [x] `ReviewStatus`,
+  - [x] `ReviewSessionSnapshot`,
+  - [x] `ReviewResult`,
+  - [x] `ReviewFinding`,
+  - [x] `ReviewEvent`.
+- [x] Implement source string parsing:
+  - [x] `github:owner/repo#123`,
+  - [x] `gitlab:owner/repo!123`,
+  - [x] local repository source descriptors for smoke tests.
+- [x] Add Rust constructors/builders that express the RFC nouns without
   requiring TypeScript first.
-- [ ] Add conversion from Rust review-session request types into runner
+- [x] Add conversion from Rust review-session request types into runner
   `RunStartParams`.
-- [ ] Add conversion from runner `RunnerRunResult` into Rust `ReviewResult`.
-- [ ] Add unit tests for source parsing, result conversion, and secret-safe
+- [x] Add conversion from runner `RunnerRunResult` into Rust `ReviewResult`.
+- [x] Add unit tests for source parsing, result conversion, and secret-safe
   serialization.
 
 Exit criteria:
@@ -255,7 +255,8 @@ Record every milestone with the commands that were run.
 
 | Date | Commit | Scope | Verification |
 | ---- | ------ | ----- | ------------ |
-| 2026-06-05 | pending | Progress tracker baseline | pending |
+| 2026-06-05 | 8f98757 | Progress tracker baseline | Documentation-only commit |
+| 2026-06-05 | core-contracts | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -266,6 +267,9 @@ Record every milestone with the commands that were run.
   wait until remote mode exists?
 - How much local inline-worker behavior should `createMuzen()` own before the
   durable store exists?
+- Provider sources currently parse into stable Rust descriptors but return an
+  explicit unsupported error when converted to the local runner start params;
+  provider materialization belongs in the durable source-resolution phase.
 
 ## Notes For Reviewers
 
