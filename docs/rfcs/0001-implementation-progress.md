@@ -340,7 +340,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 3ec971d | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
-| 2026-06-05 | pending | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | 8d87462 | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
