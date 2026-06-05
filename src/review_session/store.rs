@@ -17,6 +17,7 @@ pub struct ReviewSessionRecord {
     pub user_id: Option<String>,
     pub status: ReviewStatus,
     pub source: ReviewSource,
+    pub options: super::ReviewOptions,
     pub result: Option<ReviewResult>,
     pub events: Vec<ReviewEvent>,
     pub redacted_artifacts: Vec<ReviewArtifact>,
@@ -182,6 +183,16 @@ pub trait ReviewSessionStore: Send + Sync {
         result: ReviewResult,
     ) -> Result<(), ReviewSessionError>;
 
+    fn write_execution_result(
+        &self,
+        id: &ReviewSessionId,
+        status: ReviewStatus,
+        result: ReviewResult,
+        events: Vec<ReviewEvent>,
+        redacted_artifacts: Vec<ReviewArtifact>,
+        raw_artifacts: Vec<ReviewArtifact>,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError>;
+
     fn request_cancellation(
         &self,
         id: &ReviewSessionId,
@@ -296,6 +307,31 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         record.lease = None;
         record.updated_at_utc = crate::util::timestamp_utc();
         Ok(())
+    }
+
+    fn write_execution_result(
+        &self,
+        id: &ReviewSessionId,
+        status: ReviewStatus,
+        result: ReviewResult,
+        events: Vec<ReviewEvent>,
+        redacted_artifacts: Vec<ReviewArtifact>,
+        raw_artifacts: Vec<ReviewArtifact>,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
+        let mut state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get_mut(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        let rebased_events = rebase_events(record, events);
+        record.status = status;
+        record.result = Some(result);
+        record.events.extend(rebased_events);
+        record.redacted_artifacts = redacted_artifacts;
+        record.raw_artifacts = raw_artifacts;
+        record.lease = None;
+        record.updated_at_utc = crate::util::timestamp_utc();
+        Ok(record.clone())
     }
 
     fn request_cancellation(
@@ -635,6 +671,19 @@ fn append_record_event(
         timestamp_utc,
         payload,
     });
+}
+
+fn rebase_events(record: &ReviewSessionRecord, events: Vec<ReviewEvent>) -> Vec<ReviewEvent> {
+    let mut next_cursor = record.events.len();
+    events
+        .into_iter()
+        .map(|mut event| {
+            next_cursor += 1;
+            event.cursor = next_cursor.to_string();
+            event.review_id = record.id.clone();
+            event
+        })
+        .collect()
 }
 
 fn retry_backoff_seconds(policy: ReviewRetryPolicy, attempt: u32) -> u64 {

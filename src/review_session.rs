@@ -22,6 +22,7 @@ use crate::util::timestamp_utc;
 mod config;
 mod profiles;
 mod store;
+mod worker;
 
 pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
 pub use profiles::{
@@ -33,6 +34,7 @@ pub use store::{
     ReviewLeaseExtension, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore,
     ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
 };
+pub use worker::{ReviewWorker, ReviewWorkerRun};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReviewSessionError {
@@ -385,6 +387,34 @@ impl MuzenWorkspace {
         Ok(review)
     }
 
+    pub fn schedule_review(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        self.schedule_review_with_options(source, ReviewOptions::default())
+    }
+
+    pub fn schedule_review_with_options(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+        mut options: ReviewOptions,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        let source = source.into().resolve()?;
+        options.config_snapshot =
+            Some(self.effective_config_snapshot(&source, options.model.as_deref())?);
+        let input = CreateReviewSessionInput { source, options };
+        let dedupe_key = input.options.dedupe_key(&input.source);
+        if let Some(dedupe_key) = &dedupe_key {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+                return Ok(ReviewSession::from_record(record));
+            }
+        }
+        let review = ReviewSession::queued(self.next_review_id(), input);
+        self.store
+            .insert(review.to_record(dedupe_key, Some(self.id.clone())))?;
+        Ok(review)
+    }
+
     pub fn effective_config_snapshot(
         &self,
         source: &ReviewSource,
@@ -500,6 +530,7 @@ pub struct ReviewSession {
     id: ReviewSessionId,
     status: ReviewStatus,
     source: ReviewSource,
+    options: ReviewOptions,
     user_id: Option<String>,
     events: Vec<ReviewEvent>,
     result: Option<ReviewResult>,
@@ -514,6 +545,7 @@ impl ReviewSession {
         input: CreateReviewSessionInput,
     ) -> Result<Self, ReviewSessionError> {
         let source = input.source.clone();
+        let options = input.options.clone();
         let config_snapshot = input.options.config_snapshot.clone();
         let user_id = input.options.user_id.clone();
         let start = input.into_runner_start(&id)?;
@@ -542,6 +574,7 @@ impl ReviewSession {
             id,
             status,
             source,
+            options,
             user_id,
             events,
             result: Some(result),
@@ -551,11 +584,38 @@ impl ReviewSession {
         })
     }
 
+    fn queued(id: ReviewSessionId, input: CreateReviewSessionInput) -> Self {
+        let source = input.source;
+        let options = input.options;
+        let user_id = options.user_id.clone();
+        let config_snapshot = options.config_snapshot.clone();
+        let now = timestamp_utc();
+        Self {
+            id: id.clone(),
+            status: ReviewStatus::Queued,
+            source,
+            options,
+            user_id,
+            events: vec![ReviewEvent {
+                cursor: "1".to_string(),
+                event_type: ReviewEventType::SessionQueued,
+                review_id: id,
+                timestamp_utc: now,
+                payload: json!({}),
+            }],
+            result: None,
+            redacted_artifacts: Vec::new(),
+            raw_artifacts: Vec::new(),
+            config_snapshot,
+        }
+    }
+
     fn from_record(record: ReviewSessionRecord) -> Self {
         Self {
             id: record.id,
             status: record.status,
             source: record.source,
+            options: record.options,
             user_id: record.user_id,
             events: record.events,
             result: record.result,
@@ -576,6 +636,7 @@ impl ReviewSession {
             user_id: self.user_id.clone(),
             status: self.status,
             source: self.source.clone(),
+            options: self.options.clone(),
             result: self.result.clone(),
             events: self.events.clone(),
             redacted_artifacts: self.redacted_artifacts.clone(),
@@ -2224,6 +2285,123 @@ mod tests {
     }
 
     #[test]
+    fn workspace_schedule_review_persists_queued_record_with_options() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store.clone()).workspace("acme");
+
+        let review = workspace
+            .schedule_review_with_options(
+                ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
+                ReviewOptions {
+                    user_id: Some("user-a".to_string()),
+                    dedupe: DedupePolicy::Source,
+                    ..ReviewOptions::default()
+                },
+            )
+            .unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+
+        assert_eq!(review.status(), ReviewStatus::Queued);
+        assert!(matches!(
+            review.wait().unwrap_err(),
+            ReviewSessionError::ResultUnavailable { .. }
+        ));
+        assert_eq!(record.workspace_id.as_deref(), Some("acme"));
+        assert_eq!(record.user_id.as_deref(), Some("user-a"));
+        assert_eq!(record.options.user_id.as_deref(), Some("user-a"));
+        assert_eq!(record.status, ReviewStatus::Queued);
+        assert!(record.result.is_none());
+        assert_eq!(
+            record.events.first().map(|event| event.event_type),
+            Some(ReviewEventType::SessionQueued)
+        );
+    }
+
+    #[test]
+    fn review_worker_executes_claimed_local_review_and_persists_result() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store.clone()).workspace("acme");
+        let review = workspace
+            .schedule_review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        let worker = ReviewWorker::new("worker-a", store.clone(), HostConfiguration::default());
+
+        let run = worker.run_once(1).unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+        let event_types = record
+            .events
+            .iter()
+            .map(|event| event.event_type)
+            .collect::<Vec<_>>();
+
+        assert_eq!(run.claimed, 1);
+        assert_eq!(run.completed, 1);
+        assert_eq!(record.status, ReviewStatus::Completed);
+        assert!(record.result.is_some());
+        assert!(!record.redacted_artifacts.is_empty());
+        assert!(record.lease.is_none());
+        assert!(event_types.contains(&ReviewEventType::SessionQueued));
+        assert!(event_types.contains(&ReviewEventType::SessionClaimed));
+        assert!(event_types.contains(&ReviewEventType::SessionCompleted));
+        assert_eq!(
+            record
+                .events
+                .iter()
+                .map(|event| event.cursor.clone())
+                .collect::<Vec<_>>(),
+            (1..=record.events.len())
+                .map(|cursor| cursor.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn review_worker_records_final_failure_for_unsupported_source() {
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let workspace = Muzen::with_store(store.clone()).workspace("acme");
+        let review = workspace
+            .schedule_review("github:maskdotdev/heimdaal#123")
+            .unwrap();
+        let worker = ReviewWorker::new(
+            "worker-a",
+            store.clone(),
+            HostConfiguration {
+                scheduling: HostSchedulingConfiguration {
+                    default_retry_policy: ReviewRetryPolicy {
+                        max_attempts: 1,
+                        initial_backoff_seconds: 1,
+                        max_backoff_seconds: 1,
+                    },
+                    ..HostSchedulingConfiguration::default()
+                },
+            },
+        );
+
+        let run = worker.run_once(1).unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+
+        assert_eq!(run.claimed, 1);
+        assert_eq!(run.failed, 1);
+        assert_eq!(record.status, ReviewStatus::Failed);
+        assert!(record.lease.is_none());
+        assert!(record
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("cannot run through the local runner")));
+        assert_eq!(
+            record.events.last().map(|event| event.event_type),
+            Some(ReviewEventType::SessionFailed)
+        );
+    }
+
+    #[test]
     fn workspace_profiles_set_get_list_and_version() {
         let workspace = Muzen::new().workspace("acme");
 
@@ -2390,6 +2568,7 @@ mod tests {
             user_id: None,
             status: ReviewStatus::Queued,
             source: ReviewSource::local("."),
+            options: ReviewOptions::default(),
             result: None,
             events: Vec::new(),
             redacted_artifacts: Vec::new(),

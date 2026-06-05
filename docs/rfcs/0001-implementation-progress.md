@@ -222,8 +222,10 @@ Exit criteria:
   - [x] user limits,
   - [x] model profile limits,
   - [x] provider profile limits.
-- [ ] Wire SDK-facing scheduling to queued durable records and a worker
+- [x] Wire Rust workspace scheduling to queued durable records and a worker
   execution loop.
+- [ ] Decide when `workspace.review(...)` and language SDK happy paths should
+  switch from inline preview execution to queued durable execution.
 
 Exit criteria:
 
@@ -277,7 +279,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 387629c | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
 | 2026-06-05 | e939764 | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
 | 2026-06-05 | 20f556f | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | pending | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | b7f1abc | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | pending | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -291,9 +294,9 @@ Record every milestone with the commands that were run.
 - Provider sources currently parse into stable Rust descriptors but return an
   explicit unsupported error when converted to the local runner start params;
   provider materialization belongs in the durable source-resolution phase.
-- The Rust `Muzen` facade currently executes local reviews synchronously through
-  the runner execution path. Durable queued scheduling and the worker execution
-  loop remain Phase 8 work.
+- The Rust `MuzenWorkspace` facade now has explicit queued scheduling and a
+  worker execution loop. The default `review(...)` happy path still executes
+  local reviews synchronously for preview compatibility.
 - The store boundary has an in-memory implementation for local execution,
   tests, durable cancellation, worker claims, leases, retries, and workspace
   claim limits. A production database implementation with transactional
