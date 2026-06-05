@@ -13,7 +13,7 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 8.2/10.**
+**Current score: 8.3/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
@@ -262,6 +262,7 @@ Expected score lift: **+0.3**.
 | Date | Commit | Score | Scope | Verification |
 | ---- | ------ | ----- | ----- | ------------ |
 | 2026-06-05 | e3fad31 | 8.2 | Architecture baseline tracker and domain vocabulary | Documentation-only commit |
+| 2026-06-05 | pending | 8.3 | Extract Review Source domain module from Review Session root | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test runner::materialize --lib` |
 
 ## Current Target
 

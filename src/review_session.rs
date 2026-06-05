@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -23,6 +22,7 @@ mod config;
 mod http;
 mod profiles;
 mod router;
+mod source;
 mod store;
 mod webhooks;
 mod worker;
@@ -41,6 +41,7 @@ pub use profiles::{
 pub use router::{
     ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
 };
+pub use source::{ReviewSource, ReviewSourceLike};
 pub use store::{
     InMemoryReviewSessionStore, PostgresReviewSessionStore, ReviewAttemptFailure,
     ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy,
@@ -79,190 +80,6 @@ pub enum ReviewSessionError {
     Webhook(String),
     #[error("review HTTP response error: {0}")]
     Http(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReviewSource {
-    Local {
-        repo: PathBuf,
-        #[serde(default)]
-        changed_files: Vec<String>,
-    },
-    GithubPullRequest {
-        owner: String,
-        repo: String,
-        number: u64,
-    },
-    GitlabMergeRequest {
-        owner: String,
-        repo: String,
-        number: u64,
-    },
-}
-
-impl ReviewSource {
-    pub fn local(repo: impl Into<PathBuf>) -> Self {
-        Self::Local {
-            repo: repo.into(),
-            changed_files: Vec::new(),
-        }
-    }
-
-    pub fn local_with_changed_files(
-        repo: impl Into<PathBuf>,
-        changed_files: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        Self::Local {
-            repo: repo.into(),
-            changed_files: changed_files.into_iter().map(Into::into).collect(),
-        }
-    }
-
-    pub fn github_pull_request(
-        owner: impl Into<String>,
-        repo: impl Into<String>,
-        number: u64,
-    ) -> Result<Self, ReviewSessionError> {
-        let owner = owner.into();
-        let repo = repo.into();
-        validate_repo_source_parts("github", &owner, &repo, number)?;
-        Ok(Self::GithubPullRequest {
-            owner,
-            repo,
-            number,
-        })
-    }
-
-    pub fn gitlab_merge_request(
-        owner: impl Into<String>,
-        repo: impl Into<String>,
-        number: u64,
-    ) -> Result<Self, ReviewSessionError> {
-        let owner = owner.into();
-        let repo = repo.into();
-        validate_repo_source_parts("gitlab", &owner, &repo, number)?;
-        Ok(Self::GitlabMergeRequest {
-            owner,
-            repo,
-            number,
-        })
-    }
-
-    pub fn source_key(&self) -> String {
-        match self {
-            Self::Local { repo, .. } => format!("local:{}", repo.display()),
-            Self::GithubPullRequest {
-                owner,
-                repo,
-                number,
-            } => format!("github:{owner}/{repo}#{number}"),
-            Self::GitlabMergeRequest {
-                owner,
-                repo,
-                number,
-            } => format!("gitlab:{owner}/{repo}!{number}"),
-        }
-    }
-
-    pub fn local_repo(&self) -> Option<&Path> {
-        match self {
-            Self::Local { repo, .. } => Some(repo.as_path()),
-            Self::GithubPullRequest { .. } | Self::GitlabMergeRequest { .. } => None,
-        }
-    }
-
-    fn runner_changed_files(&self, scope: &ReviewScope) -> Vec<String> {
-        if !scope.files.is_empty() {
-            return scope.files.clone();
-        }
-        match self {
-            Self::Local { changed_files, .. } => changed_files.clone(),
-            Self::GithubPullRequest { .. } | Self::GitlabMergeRequest { .. } => Vec::new(),
-        }
-    }
-}
-
-impl FromStr for ReviewSource {
-    type Err = ReviewSessionError;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if let Some(rest) = input.strip_prefix("github:") {
-            let (owner, repo, number) = parse_repo_change(input, rest, '#')?;
-            return Self::github_pull_request(owner, repo, number);
-        }
-        if let Some(rest) = input.strip_prefix("gitlab:") {
-            let (owner, repo, number) = parse_repo_change(input, rest, '!')?;
-            return Self::gitlab_merge_request(owner, repo, number);
-        }
-        if let Some(rest) = input.strip_prefix("local:") {
-            if rest.trim().is_empty() {
-                return Err(ReviewSessionError::InvalidSource {
-                    input: input.to_string(),
-                    reason: "local source path is empty".to_string(),
-                });
-            }
-            return Ok(Self::local(PathBuf::from(rest)));
-        }
-        Err(ReviewSessionError::InvalidSource {
-            input: input.to_string(),
-            reason: "expected github:owner/repo#number, gitlab:owner/repo!number, or local:path"
-                .to_string(),
-        })
-    }
-}
-
-impl std::fmt::Display for ReviewSource {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.source_key())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReviewSourceLike {
-    Source(ReviewSource),
-    Shorthand(String),
-    LocalPath(PathBuf),
-}
-
-impl ReviewSourceLike {
-    pub fn resolve(self) -> Result<ReviewSource, ReviewSessionError> {
-        match self {
-            Self::Source(source) => Ok(source),
-            Self::Shorthand(source) => ReviewSource::from_str(&source),
-            Self::LocalPath(path) => Ok(ReviewSource::local(path)),
-        }
-    }
-}
-
-impl From<ReviewSource> for ReviewSourceLike {
-    fn from(value: ReviewSource) -> Self {
-        Self::Source(value)
-    }
-}
-
-impl From<String> for ReviewSourceLike {
-    fn from(value: String) -> Self {
-        Self::Shorthand(value)
-    }
-}
-
-impl From<&str> for ReviewSourceLike {
-    fn from(value: &str) -> Self {
-        Self::Shorthand(value.to_string())
-    }
-}
-
-impl From<PathBuf> for ReviewSourceLike {
-    fn from(value: PathBuf) -> Self {
-        Self::LocalPath(value)
-    }
-}
-
-impl From<&Path> for ReviewSourceLike {
-    fn from(value: &Path) -> Self {
-        Self::LocalPath(value.to_path_buf())
-    }
 }
 
 #[derive(Clone)]
@@ -1552,59 +1369,6 @@ impl ReviewEventType {
     }
 }
 
-fn parse_repo_change(
-    input: &str,
-    rest: &str,
-    number_delimiter: char,
-) -> Result<(String, String, u64), ReviewSessionError> {
-    let Some((path, number)) = rest.rsplit_once(number_delimiter) else {
-        return Err(ReviewSessionError::InvalidSource {
-            input: input.to_string(),
-            reason: format!("missing `{number_delimiter}` review number delimiter"),
-        });
-    };
-    let Some((owner, repo)) = path.rsplit_once('/') else {
-        return Err(ReviewSessionError::InvalidSource {
-            input: input.to_string(),
-            reason: "missing owner/repo path".to_string(),
-        });
-    };
-    let number = number
-        .parse::<u64>()
-        .map_err(|_| ReviewSessionError::InvalidSource {
-            input: input.to_string(),
-            reason: "review number must be a positive integer".to_string(),
-        })?;
-    Ok((owner.to_string(), repo.to_string(), number))
-}
-
-fn validate_repo_source_parts(
-    provider: &str,
-    owner: &str,
-    repo: &str,
-    number: u64,
-) -> Result<(), ReviewSessionError> {
-    if owner.trim().is_empty() {
-        return Err(ReviewSessionError::InvalidSource {
-            input: provider.to_string(),
-            reason: "owner is empty".to_string(),
-        });
-    }
-    if repo.trim().is_empty() {
-        return Err(ReviewSessionError::InvalidSource {
-            input: provider.to_string(),
-            reason: "repo is empty".to_string(),
-        });
-    }
-    if number == 0 {
-        return Err(ReviewSessionError::InvalidSource {
-            input: provider.to_string(),
-            reason: "review number must be greater than zero".to_string(),
-        });
-    }
-    Ok(())
-}
-
 fn review_summary(summary: &crate::runner::RunnerRunSummary, findings: usize) -> String {
     format!(
         "Review completed {}/{} session(s), produced {} finding(s), used {} model call(s), {} tool call(s), and {} total token(s).",
@@ -1621,6 +1385,7 @@ fn review_summary(summary: &crate::runner::RunnerRunSummary, findings: usize) ->
 mod tests {
     use super::*;
     use crate::runner::{RunnerRunSummary, RunnerSnapshotSummary};
+    use std::str::FromStr;
 
     #[test]
     fn parses_github_source_shorthand() {
