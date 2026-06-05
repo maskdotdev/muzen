@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,9 +12,10 @@ use crate::reviewer::{
     ReviewEvent as InternalReviewEvent, ReviewEventRecord as InternalReviewEventRecord,
 };
 use crate::runner::{
-    RunAgentBudgetParams, RunLimitParams, RunSessionParams, RunStartParams, RunnerFinding,
-    RunnerRunResult, RunnerSnapshotSummary, RUNNER_PROTOCOL_VERSION,
+    execute_run_start, RunAgentBudgetParams, RunLimitParams, RunSessionParams, RunStartParams,
+    RunnerFinding, RunnerRunResult, RunnerSnapshotSummary, RUNNER_PROTOCOL_VERSION,
 };
+use crate::util::timestamp_utc;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReviewSessionError {
@@ -23,6 +25,10 @@ pub enum ReviewSessionError {
     UnsupportedSourceForLocalRunner { source_key: String },
     #[error("review session id cannot be empty")]
     EmptyReviewSessionId,
+    #[error("runner failed to execute review session: {0}")]
+    Runner(String),
+    #[error("review session `{review_id}` has no final result yet")]
+    ResultUnavailable { review_id: ReviewSessionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,6 +206,159 @@ impl From<&str> for ReviewSourceLike {
 impl From<PathBuf> for ReviewSourceLike {
     fn from(value: PathBuf) -> Self {
         Self::LocalPath(value)
+    }
+}
+
+impl From<&Path> for ReviewSourceLike {
+    fn from(value: &Path) -> Self {
+        Self::LocalPath(value.to_path_buf())
+    }
+}
+
+#[derive(Debug)]
+pub struct Muzen {
+    next_review_id: AtomicU64,
+}
+
+impl Muzen {
+    pub fn new() -> Self {
+        Self {
+            next_review_id: AtomicU64::new(1),
+        }
+    }
+
+    pub fn review(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        self.create_review_session(CreateReviewSessionInput::new(source)?)
+    }
+
+    pub fn review_with_options(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+        options: ReviewOptions,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        self.create_review_session(CreateReviewSessionInput::with_options(source, options)?)
+    }
+
+    pub fn create_review_session(
+        &self,
+        input: CreateReviewSessionInput,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        ReviewSession::execute_local(self.next_review_id(), input)
+    }
+
+    fn next_review_id(&self) -> ReviewSessionId {
+        let id = self.next_review_id.fetch_add(1, Ordering::SeqCst);
+        ReviewSessionId(format!("review-{id}"))
+    }
+}
+
+impl Default for Muzen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewSession {
+    id: ReviewSessionId,
+    status: ReviewStatus,
+    source: ReviewSource,
+    events: Vec<ReviewEvent>,
+    result: Option<ReviewResult>,
+}
+
+impl ReviewSession {
+    fn execute_local(
+        id: ReviewSessionId,
+        input: CreateReviewSessionInput,
+    ) -> Result<Self, ReviewSessionError> {
+        let source = input.source.clone();
+        let start = input.into_runner_start(&id)?;
+        let executed = execute_run_start(start, None)
+            .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
+        let result = ReviewResult::from_runner_result(id.clone(), &source, executed.result);
+        let status = result.status;
+        let events = executed
+            .events
+            .into_iter()
+            .map(ReviewEvent::from_internal_record)
+            .collect();
+        Ok(Self {
+            id,
+            status,
+            source,
+            events,
+            result: Some(result),
+        })
+    }
+
+    pub fn id(&self) -> &ReviewSessionId {
+        &self.id
+    }
+
+    pub fn status(&self) -> ReviewStatus {
+        self.status
+    }
+
+    pub fn source(&self) -> &ReviewSource {
+        &self.source
+    }
+
+    pub fn subscribe(&self, mut listener: impl FnMut(&ReviewEvent)) {
+        for event in &self.events {
+            listener(event);
+        }
+    }
+
+    pub fn events(&self) -> impl Iterator<Item = &ReviewEvent> {
+        self.events.iter()
+    }
+
+    pub fn event_records(&self) -> &[ReviewEvent] {
+        &self.events
+    }
+
+    pub fn wait(&self) -> Result<ReviewResult, ReviewSessionError> {
+        self.result
+            .clone()
+            .ok_or_else(|| ReviewSessionError::ResultUnavailable {
+                review_id: self.id.clone(),
+            })
+    }
+
+    pub fn result(&self) -> Option<&ReviewResult> {
+        self.result.as_ref()
+    }
+
+    pub fn cancel(
+        &mut self,
+        options: impl Into<ReviewCancelOptions>,
+    ) -> Result<(), ReviewSessionError> {
+        if self.status.is_terminal() {
+            return Ok(());
+        }
+        let options = options.into();
+        self.status = ReviewStatus::Cancelled;
+        self.events.push(ReviewEvent {
+            cursor: (self.events.len() + 1).to_string(),
+            event_type: ReviewEventType::SessionCancelled,
+            review_id: self.id.clone(),
+            timestamp_utc: timestamp_utc(),
+            payload: json!({ "reason": options.reason }),
+        });
+        Ok(())
+    }
+
+    pub fn refresh(&self) -> ReviewSessionSnapshot {
+        ReviewSessionSnapshot {
+            id: self.id.clone(),
+            status: self.status,
+            source: self.source.clone(),
+            result: self.result.clone(),
+        }
     }
 }
 
@@ -1010,5 +1169,71 @@ mod tests {
         assert!(serialized.contains("vault://models/default"));
         assert!(!serialized.contains("apiKey"));
         assert!(!serialized.contains("token"));
+    }
+
+    #[test]
+    fn muzen_executes_local_review_session_and_waits_for_result() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        let muzen = Muzen::new();
+
+        let review = muzen
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["Cargo.toml"],
+            ))
+            .unwrap();
+        let result = review.wait().unwrap();
+        let event_types = review
+            .events()
+            .map(|event| event.event_type)
+            .collect::<Vec<_>>();
+
+        assert_eq!(review.id().as_str(), "review-1");
+        assert_eq!(review.status(), ReviewStatus::Completed);
+        assert_eq!(result.status, ReviewStatus::Completed);
+        assert!(result.summary.contains("Review completed"));
+        assert!(event_types.contains(&ReviewEventType::SessionCompleted));
+    }
+
+    #[test]
+    fn review_subscribe_replays_recorded_events() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let muzen = Muzen::new();
+        let review = muzen
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        let mut replayed = Vec::new();
+
+        review.subscribe(|event| replayed.push(event.event_type));
+
+        assert_eq!(replayed.len(), review.event_records().len());
+        assert!(replayed.contains(&ReviewEventType::SessionStarted));
+    }
+
+    #[test]
+    fn review_refresh_returns_snapshot_without_runner_details() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let review = Muzen::new()
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+
+        let snapshot = review.refresh();
+
+        assert_eq!(snapshot.id.as_str(), "review-1");
+        assert_eq!(snapshot.status, ReviewStatus::Completed);
+        assert!(snapshot.result.is_some());
     }
 }

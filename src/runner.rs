@@ -12,6 +12,7 @@ mod transport;
 mod types;
 
 pub use cli::{main_entry, run_main, RunnerCli, RunnerCommand, RunnerSchemaCommand};
+pub(crate) use execution::execute_run_start;
 pub use protocol::{
     JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RunnerErrorData,
 };

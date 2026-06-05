@@ -107,15 +107,15 @@ Exit criteria:
 
 ## Phase 3: Rust Session Execution Facade
 
-- [ ] Add a Rust facade that can create a review session against the existing
+- [x] Add a Rust facade that can create a review session against the existing
   runner execution path.
-- [ ] Keep runner `run.*` protocol details out of public review-session types.
-- [ ] Represent review event records in SDK-facing product vocabulary.
-- [ ] Support `review.wait()` equivalent semantics in Rust core.
-- [ ] Support `review.result()` equivalent semantics in Rust core.
-- [ ] Support `review.cancel()` equivalent semantics where the current runner
+- [x] Keep runner `run.*` protocol details out of public review-session types.
+- [x] Represent review event records in SDK-facing product vocabulary.
+- [x] Support `review.wait()` equivalent semantics in Rust core.
+- [x] Support `review.result()` equivalent semantics in Rust core.
+- [x] Support `review.cancel()` equivalent semantics where the current runner
   can honor it.
-- [ ] Support `review.refresh()` equivalent semantics in Rust core.
+- [x] Support `review.refresh()` equivalent semantics in Rust core.
 
 Exit criteria:
 
@@ -256,7 +256,8 @@ Record every milestone with the commands that were run.
 | Date | Commit | Scope | Verification |
 | ---- | ------ | ----- | ------------ |
 | 2026-06-05 | 8f98757 | Progress tracker baseline | Documentation-only commit |
-| 2026-06-05 | core-contracts | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | 6be8151 | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | facade-local | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -270,6 +271,9 @@ Record every milestone with the commands that were run.
 - Provider sources currently parse into stable Rust descriptors but return an
   explicit unsupported error when converted to the local runner start params;
   provider materialization belongs in the durable source-resolution phase.
+- The Rust `Muzen` facade currently executes local reviews synchronously through
+  the runner execution path. Durable scheduling and asynchronous workers remain
+  Phase 8 work.
 
 ## Notes For Reviewers
 
