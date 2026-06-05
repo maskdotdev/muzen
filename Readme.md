@@ -93,6 +93,8 @@ Implemented now:
 - TypeScript remote client preview with review, workspace profile, event,
   result, cancellation, and artifact APIs.
 - TypeScript framework-facing webhook delivery response helpers.
+- TypeScript remote webhook request facade:
+  `createMuzenClient(...).webhooks.github.response(request)`.
 - Python SDK local preview over `muzen-runner`.
 - Python remote client preview with review and workspace profile APIs.
 - Python framework-neutral webhook delivery response helpers.
@@ -101,8 +103,8 @@ Still in progress:
 
 - Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
-- The high-level TypeScript webhook handler facade:
-  `muzen.webhooks.github.response(request)`.
+- The local/host TypeScript webhook handler facade:
+  `createMuzen().webhooks.github.response(request)`.
 - The high-level TypeScript worker facade: `muzen.workers.start()`.
 - A bound Rust web server/router around the core HTTP/SSE response primitives.
 

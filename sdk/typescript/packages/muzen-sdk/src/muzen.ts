@@ -17,6 +17,10 @@ import type {
   ModelProfile,
   ModelProfileInput,
   Muzen,
+  MuzenWebhookHandler,
+  MuzenWebhookProvider,
+  MuzenWebhooks,
+  MuzenWebhookResponseOptions,
   MuzenWorkspace,
   ProviderProfile,
   ProviderProfileInput,
@@ -78,6 +82,7 @@ export class MuzenUnsupportedFeatureError extends Error {
 class RemoteMuzen implements Muzen {
   private readonly baseUrl: URL;
   private readonly fetch: typeof globalThis.fetch;
+  readonly webhooks: MuzenWebhooks;
 
   constructor(private readonly options: CreateMuzenClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
@@ -87,6 +92,7 @@ class RemoteMuzen implements Muzen {
         "createMuzenClient({ baseUrl }) requires a fetch implementation",
       );
     }
+    this.webhooks = new RemoteMuzenWebhooks(this);
   }
 
   async review(
@@ -166,6 +172,44 @@ class RemoteMuzen implements Muzen {
       );
     }
     return response;
+  }
+}
+
+class RemoteMuzenWebhooks implements MuzenWebhooks {
+  readonly github: MuzenWebhookHandler;
+  readonly gitlab: MuzenWebhookHandler;
+
+  constructor(client: RemoteMuzen) {
+    this.github = new RemoteMuzenWebhookHandler(client, "github");
+    this.gitlab = new RemoteMuzenWebhookHandler(client, "gitlab");
+  }
+}
+
+class RemoteMuzenWebhookHandler implements MuzenWebhookHandler {
+  constructor(
+    private readonly client: RemoteMuzen,
+    private readonly provider: MuzenWebhookProvider,
+  ) {}
+
+  async response(
+    request: Request,
+    options: MuzenWebhookResponseOptions = {},
+  ): Promise<Response> {
+    if (request.method !== "POST") {
+      throw new MuzenUnsupportedFeatureError(
+        `Muzen ${this.provider} webhook handlers expect POST requests`,
+      );
+    }
+    const body = await request.arrayBuffer();
+    const path = options.workspaceId
+      ? `/v1/workspaces/${encodeURIComponent(options.workspaceId)}/webhooks/${this.provider}`
+      : `/v1/webhooks/${this.provider}`;
+    return this.client.rawRequest(path, {
+      method: "POST",
+      headers: request.headers,
+      body,
+      signal: options.signal ?? request.signal,
+    });
   }
 }
 
@@ -439,6 +483,7 @@ class RemoteReviewSession implements ReviewSession {
 
 class RunnerBackedMuzen implements Muzen {
   private readonly sessions = new Map<string, RunnerBackedReviewSession>();
+  readonly webhooks: MuzenWebhooks = new UnsupportedMuzenWebhooks();
 
   constructor(private readonly runner: RunnerStdioClient) {}
 
@@ -507,6 +552,23 @@ class RunnerBackedMuzen implements Muzen {
 
   async close(): Promise<void> {
     await this.runner.close();
+  }
+}
+
+class UnsupportedMuzenWebhooks implements MuzenWebhooks {
+  readonly github: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("github");
+  readonly gitlab: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("gitlab");
+}
+
+class UnsupportedMuzenWebhookHandler implements MuzenWebhookHandler {
+  constructor(private readonly provider: MuzenWebhookProvider) {}
+
+  response(_request: Request): Promise<Response> {
+    return Promise.reject(
+      new MuzenUnsupportedFeatureError(
+        `createMuzen().webhooks.${this.provider}.response(request) requires the production Rust host/router; the local runner preview cannot verify provider webhooks or schedule durable provider reviews`,
+      ),
+    );
   }
 }
 

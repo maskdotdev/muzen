@@ -147,6 +147,39 @@ Request and response shapes match `POST /v1/reviews`, but the host schedules
 the review in the named workspace and captures workspace-owned model/provider
 profile snapshots.
 
+## Webhooks
+
+`POST /v1/webhooks/github`
+
+`POST /v1/webhooks/gitlab`
+
+Hosts receive the original webhook request body and provider headers. The host
+MUST verify signatures/tokens in Rust core, map supported provider events to
+review sources, schedule a durable review, and return a webhook delivery body:
+
+```json
+{
+  "type": "review_created",
+  "deliveryId": "delivery-1",
+  "reviewId": "review-123",
+  "status": "queued"
+}
+```
+
+`review_deduped` responses use status `200 OK`; `review_created` and
+`ignored` responses use status `202 Accepted`.
+
+Hosts MAY also expose workspace-scoped webhook routes:
+
+`POST /v1/workspaces/{workspaceId}/webhooks/github`
+
+`POST /v1/workspaces/{workspaceId}/webhooks/gitlab`
+
+The TypeScript remote SDK forwards `muzen.webhooks.github.response(request)`
+and `muzen.webhooks.gitlab.response(request)` to these routes, preserving the
+raw body and provider headers. Passing `{ workspaceId }` selects the
+workspace-scoped route.
+
 ## Workspace Model Profiles
 
 `PUT /v1/workspaces/{workspaceId}/models/{name}`

@@ -286,7 +286,27 @@ export interface CreateReviewSessionResult {
   review: ReviewSession;
 }
 
+export type MuzenWebhookProvider = "github" | "gitlab";
+
+export interface MuzenWebhookResponseOptions {
+  workspaceId?: string;
+  signal?: AbortSignal;
+}
+
+export interface MuzenWebhookHandler {
+  response(
+    request: Request,
+    options?: MuzenWebhookResponseOptions,
+  ): Promise<Response>;
+}
+
+export interface MuzenWebhooks {
+  readonly github: MuzenWebhookHandler;
+  readonly gitlab: MuzenWebhookHandler;
+}
+
 export interface Muzen {
+  readonly webhooks: MuzenWebhooks;
   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
   workspace(id: string): MuzenWorkspace;
   resumeReview(id: string): Promise<ReviewSession>;

@@ -360,6 +360,72 @@ describe("remote Muzen client", () => {
       "/v1/workspaces/acme/reviews",
     ]);
   });
+
+  it("forwards webhook requests to the remote HTTP contract", async () => {
+    const requests: Array<{
+      method: string;
+      path: string;
+      authorization: string | null;
+      githubEvent: string | null;
+      body: string;
+    }> = [];
+    const fetchMock: typeof fetch = async (input, init = {}) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const headers = new Headers(init.headers);
+      const body = await new Response(init.body).text();
+      requests.push({
+        method: init.method ?? "GET",
+        path: `${url.pathname}${url.search}`,
+        authorization: headers.get("authorization"),
+        githubEvent: headers.get("x-github-event"),
+        body,
+      });
+      return Response.json(
+        {
+          type: "review_created",
+          deliveryId: "delivery-1",
+          reviewId: "review-1",
+          status: "queued",
+        },
+        { status: 202 },
+      );
+    };
+    const muzen = createMuzenClient({
+      baseUrl: "https://muzen.example",
+      token: "test-token",
+      fetch: fetchMock,
+    });
+    const request = new Request("https://app.example/webhooks/github", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "pull_request",
+        "X-GitHub-Delivery": "delivery-1",
+      },
+      body: JSON.stringify({ action: "opened" }),
+    });
+
+    const response = await muzen.webhooks.github.response(request, {
+      workspaceId: "acme",
+    });
+
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), {
+      type: "review_created",
+      deliveryId: "delivery-1",
+      reviewId: "review-1",
+      status: "queued",
+    });
+    assert.deepEqual(requests, [
+      {
+        method: "POST",
+        path: "/v1/workspaces/acme/webhooks/github",
+        authorization: "Bearer test-token",
+        githubEvent: "pull_request",
+        body: '{"action":"opened"}',
+      },
+    ]);
+  });
 });
 
 describe("webhook response helpers", () => {
