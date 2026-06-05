@@ -1,0 +1,2 @@
+class MuzenUnsupportedFeatureError(RuntimeError):
+    pass
