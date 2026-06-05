@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::contracts::Role;
 use crate::runner::{
