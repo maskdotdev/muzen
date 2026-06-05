@@ -59,6 +59,8 @@ pressure, and commit-sized milestones.
 - [x] Typed source builders exist for GitHub and GitLab.
 - [x] Workspace-owned profile APIs exist.
 - [x] Webhook helpers exist.
+- [x] Rust core exposes framework-agnostic HTTP/SSE response helpers for review
+  events and webhook deliveries.
 - [x] Developer docs and examples run against the implementation.
 
 ## Phase 1: Progress Control And Contract Alignment
@@ -256,12 +258,13 @@ Exit criteria:
 - [x] Implement GitLab webhook verification and source mapping.
 - [ ] Implement webhook response helpers.
   - [x] Add Rust delivery JSON response body helper.
+  - [x] Add Rust framework-agnostic HTTP response helper.
   - [ ] Add framework-facing SDK response helpers.
 - [x] Define remote HTTP API contract.
 - [x] Implement `createMuzenClient({ baseUrl })`.
-- [ ] Add SSE event response support.
+- [x] Add SSE event response support.
   - [x] Define SSE route contract and TypeScript remote `eventsResponse`.
-  - [ ] Implement service-side SSE route.
+  - [x] Implement service-side SSE route response helper in Rust.
 
 Exit criteria:
 
@@ -294,6 +297,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | f42dbb6 | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
 | 2026-06-05 | 71ea9e9 | Python remote client and workspace review/model/provider profile APIs | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests` |
 | 2026-06-05 | 6b51700 | Docs/examples verification harness for RFC 0001 | `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | d90e6f7 | Rust review HTTP/SSE response core for webhook deliveries and event replay/stream routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -325,8 +329,8 @@ Record every milestone with the commands that were run.
   log persistence boundary.
 - Rust webhook helpers verify GitHub HMAC-SHA256 signatures and GitLab webhook
   tokens, map supported pull/merge request events to review sources, schedule
-  queued workspace reviews, and return delivery JSON bodies. SDK framework
-  response helpers remain open.
+  queued workspace reviews, and return delivery JSON bodies plus
+  framework-agnostic HTTP responses. SDK framework response helpers remain open.
 - TypeScript event and Python notebook examples are present. The
   `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
   TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,
@@ -335,7 +339,8 @@ Record every milestone with the commands that were run.
   `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
   resume, wait for, cancel, replay events for, stream events for, and read/export
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
-  Service-side HTTP/SSE handlers remain open.
+  Rust core now exposes replay and SSE event responses; a bound web server/router
+  remains open.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
 
