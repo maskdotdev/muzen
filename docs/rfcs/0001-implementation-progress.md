@@ -49,12 +49,12 @@ pressure, and commit-sized milestones.
   cancellation, and session snapshots using product nouns.
 - [x] Rust core maps review-session semantics onto runner execution without
   leaking runner internals into SDK contracts.
-- [ ] SDK-first `@muzen/sdk` package exists.
-- [ ] `createMuzen()` works end to end against `muzen-runner`.
-- [ ] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
+- [x] SDK-first `@muzen/sdk` package exists.
+- [x] `createMuzen()` works end to end against `muzen-runner`.
+- [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
   `result`, `cancel`, and `refresh`.
-- [ ] Source string shorthand parses into typed source descriptors.
-- [ ] Typed source builders exist for GitHub and GitLab.
+- [x] Source string shorthand parses into typed source descriptors.
+- [x] Typed source builders exist for GitHub and GitLab.
 - [ ] Workspace-owned profile APIs exist.
 - [ ] Webhook helpers exist.
 - [ ] Developer docs and examples run against the implementation.
@@ -125,27 +125,27 @@ Exit criteria:
 
 ## Phase 4: TypeScript SDK Preview
 
-- [ ] Add `sdk/typescript/packages/muzen-sdk` package scaffold.
-- [ ] Define public SDK types for `Muzen`, `ReviewSession`, sources, options,
+- [x] Add `sdk/typescript/packages/muzen-sdk` package scaffold.
+- [x] Define public SDK types for `Muzen`, `ReviewSession`, sources, options,
   events, results, errors, and runner configuration.
-- [ ] Implement a runner stdio client with:
-  - [ ] handshake negotiation,
-  - [ ] request/response correlation,
-  - [ ] notification dispatch,
-  - [ ] typed protocol errors,
-  - [ ] graceful process shutdown.
-- [ ] Implement `createMuzen()`.
-- [ ] Implement `createMuzenClient()` as an explicit unsupported preview or
+- [x] Implement a runner stdio client with:
+  - [x] handshake negotiation,
+  - [x] request/response correlation,
+  - [x] notification dispatch,
+  - [x] typed protocol errors,
+  - [x] graceful process shutdown.
+- [x] Implement `createMuzen()`.
+- [x] Implement `createMuzenClient()` as an explicit unsupported preview or
   remote-client placeholder until HTTP transport exists.
-- [ ] Implement `createReviewSession()` as sugar over `createMuzen().review()`.
-- [ ] Implement `muzen.review(...)`.
-- [ ] Implement `muzen.resumeReview(...)` for locally known runner sessions.
-- [ ] Implement `ReviewSession.subscribe(...)`.
-- [ ] Implement `ReviewSession.events(...)`.
-- [ ] Implement `ReviewSession.wait(...)`.
-- [ ] Implement `ReviewSession.result(...)`.
-- [ ] Implement `ReviewSession.cancel(...)`.
-- [ ] Implement `ReviewSession.refresh(...)`.
+- [x] Implement `createReviewSession()` as sugar over `createMuzen().review()`.
+- [x] Implement `muzen.review(...)`.
+- [x] Implement `muzen.resumeReview(...)` for locally known runner sessions.
+- [x] Implement `ReviewSession.subscribe(...)`.
+- [x] Implement `ReviewSession.events(...)`.
+- [x] Implement `ReviewSession.wait(...)`.
+- [x] Implement `ReviewSession.result(...)`.
+- [x] Implement `ReviewSession.cancel(...)`.
+- [x] Implement `ReviewSession.refresh(...)`.
 
 Exit criteria:
 
@@ -154,14 +154,14 @@ Exit criteria:
 
 ## Phase 5: Source And Review API Ergonomics
 
-- [ ] Implement `github.pullRequest(...)`.
-- [ ] Implement `gitlab.mergeRequest(...)`.
-- [ ] Implement source string parsing:
-  - [ ] `github:owner/repo#123`,
-  - [ ] `gitlab:owner/repo!123`.
-- [ ] Implement local repository source support for SDK smoke tests.
-- [ ] Map friendly `ReviewOptions` into runner `RunStartParams`.
-- [ ] Normalize review result shape from runner result shape.
+- [x] Implement `github.pullRequest(...)`.
+- [x] Implement `gitlab.mergeRequest(...)`.
+- [x] Implement source string parsing:
+  - [x] `github:owner/repo#123`,
+  - [x] `gitlab:owner/repo!123`.
+- [x] Implement local repository source support for SDK smoke tests.
+- [x] Map friendly `ReviewOptions` into runner `RunStartParams`.
+- [x] Normalize review result shape from runner result shape.
 - [ ] Provide compatibility helpers for artifact read/export after final result.
 
 Exit criteria:
@@ -257,7 +257,8 @@ Record every milestone with the commands that were run.
 | ---- | ------ | ----- | ------------ |
 | 2026-06-05 | 8f98757 | Progress tracker baseline | Documentation-only commit |
 | 2026-06-05 | 6be8151 | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | facade-local | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | 5fd89a5 | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | typescript-preview | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
 
 ## Open Decisions
 
