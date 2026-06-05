@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -17,6 +18,10 @@ use crate::runner::{
     RUNNER_PROTOCOL_VERSION,
 };
 use crate::util::timestamp_utc;
+
+mod store;
+
+pub use store::{InMemoryReviewSessionStore, ReviewSessionRecord, ReviewSessionStore};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReviewSessionError {
@@ -37,6 +42,8 @@ pub enum ReviewSessionError {
     },
     #[error("artifact export limit exceeded: {kind}")]
     ArtifactLimitExceeded { kind: String },
+    #[error("review session store error: {0}")]
+    Store(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,15 +230,32 @@ impl From<&Path> for ReviewSourceLike {
     }
 }
 
-#[derive(Debug)]
 pub struct Muzen {
     next_review_id: AtomicU64,
+    store: Arc<dyn ReviewSessionStore>,
+}
+
+impl std::fmt::Debug for Muzen {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Muzen")
+            .field(
+                "next_review_id",
+                &self.next_review_id.load(Ordering::SeqCst),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Muzen {
     pub fn new() -> Self {
+        Self::with_store(Arc::new(InMemoryReviewSessionStore::default()))
+    }
+
+    pub fn with_store(store: Arc<dyn ReviewSessionStore>) -> Self {
         Self {
             next_review_id: AtomicU64::new(1),
+            store,
         }
     }
 
@@ -254,7 +278,15 @@ impl Muzen {
         &self,
         input: CreateReviewSessionInput,
     ) -> Result<ReviewSession, ReviewSessionError> {
-        ReviewSession::execute_local(self.next_review_id(), input)
+        let dedupe_key = input.options.dedupe_key(&input.source);
+        if let Some(dedupe_key) = &dedupe_key {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+                return Ok(ReviewSession::from_record(record));
+            }
+        }
+        let review = ReviewSession::execute_local(self.next_review_id(), input)?;
+        self.store.insert(review.to_record(dedupe_key))?;
+        Ok(review)
     }
 
     fn next_review_id(&self) -> ReviewSessionId {
@@ -317,6 +349,33 @@ impl ReviewSession {
             redacted_artifacts,
             raw_artifacts,
         })
+    }
+
+    fn from_record(record: ReviewSessionRecord) -> Self {
+        Self {
+            id: record.id,
+            status: record.status,
+            source: record.source,
+            events: record.events,
+            result: record.result,
+            redacted_artifacts: record.redacted_artifacts,
+            raw_artifacts: record.raw_artifacts,
+        }
+    }
+
+    fn to_record(&self, dedupe_key: Option<String>) -> ReviewSessionRecord {
+        ReviewSessionRecord {
+            id: self.id.clone(),
+            status: self.status,
+            source: self.source.clone(),
+            result: self.result.clone(),
+            events: self.events.clone(),
+            redacted_artifacts: self.redacted_artifacts.clone(),
+            raw_artifacts: self.raw_artifacts.clone(),
+            dedupe_key,
+            created_at_utc: timestamp_utc(),
+            updated_at_utc: timestamp_utc(),
+        }
     }
 
     pub fn id(&self) -> &ReviewSessionId {
@@ -541,6 +600,10 @@ impl ReviewOptions {
             .map(|session| session.to_runner_session(self.model.as_deref()))
             .collect()
     }
+
+    fn dedupe_key(&self, source: &ReviewSource) -> Option<String> {
+        self.dedupe.key_for_source(source)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -555,6 +618,17 @@ pub enum DedupePolicy {
 impl Default for DedupePolicy {
     fn default() -> Self {
         Self::None
+    }
+}
+
+impl DedupePolicy {
+    fn key_for_source(&self, source: &ReviewSource) -> Option<String> {
+        match self {
+            Self::None => None,
+            Self::Source => Some(format!("source:{}", source.source_key())),
+            Self::SourceHead => Some(format!("source-head:{}", source.source_key())),
+            Self::Key(key) => Some(format!("key:{key}")),
+        }
     }
 }
 
@@ -1447,5 +1521,100 @@ mod tests {
             error,
             ReviewSessionError::ArtifactLimitExceeded { .. }
         ));
+    }
+
+    #[test]
+    fn muzen_reuses_existing_session_for_source_dedupe() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let muzen = Muzen::with_store(store.clone());
+        let options = ReviewOptions {
+            dedupe: DedupePolicy::Source,
+            ..ReviewOptions::default()
+        };
+
+        let first = muzen
+            .review_with_options(
+                ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
+                options.clone(),
+            )
+            .unwrap();
+        let second = muzen
+            .review_with_options(
+                ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
+                options,
+            )
+            .unwrap();
+        let record = store.get(first.id()).unwrap().unwrap();
+        let expected_dedupe_key = format!("source:local:{}", repo.path().display());
+
+        assert_eq!(first.id(), second.id());
+        assert_eq!(
+            record.dedupe_key.as_deref(),
+            Some(expected_dedupe_key.as_str())
+        );
+    }
+
+    #[test]
+    fn review_store_persists_result_events_and_artifacts() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let review = Muzen::with_store(store.clone())
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["Cargo.toml"],
+            ))
+            .unwrap();
+        let first_cursor = review.event_records()[0].cursor.clone();
+
+        let record = store.get(review.id()).unwrap().unwrap();
+        let replayed = store
+            .events_after(review.id(), Some(&first_cursor))
+            .unwrap();
+
+        assert!(record.result.is_some());
+        assert!(!record.events.is_empty());
+        assert!(!record.redacted_artifacts.is_empty());
+        assert_eq!(replayed.len(), record.events.len() - 1);
+        assert_ne!(replayed[0].cursor, first_cursor);
+    }
+
+    #[test]
+    fn review_store_can_append_events_and_update_result() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let store = Arc::new(InMemoryReviewSessionStore::default());
+        let review = Muzen::with_store(store.clone())
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        let result = review.wait().unwrap();
+        let extra_event = ReviewEvent {
+            cursor: "manual-extra".to_string(),
+            event_type: ReviewEventType::RunnerEvent,
+            review_id: review.id().clone(),
+            timestamp_utc: timestamp_utc(),
+            payload: json!({"test": true}),
+        };
+
+        store
+            .append_events(review.id(), vec![extra_event.clone()])
+            .unwrap();
+        store
+            .write_result(review.id(), ReviewStatus::Completed, result)
+            .unwrap();
+        let record = store.get(review.id()).unwrap().unwrap();
+
+        assert_eq!(record.events.last(), Some(&extra_event));
+        assert_eq!(record.status, ReviewStatus::Completed);
+        assert!(record.result.is_some());
     }
 }

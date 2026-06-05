@@ -202,15 +202,15 @@ Exit criteria:
 
 ## Phase 8: Durable Session Store And Worker Semantics
 
-- [ ] Design durable session store boundary separate from runner stdio protocol.
-- [ ] Implement review session records.
-- [ ] Implement event persistence and replay cursors.
-- [ ] Implement result persistence separate from artifacts.
-- [ ] Implement dedupe policies:
-  - [ ] `none`,
-  - [ ] `source`,
-  - [ ] `source-head`,
-  - [ ] application-defined key.
+- [x] Design durable session store boundary separate from runner stdio protocol.
+- [x] Implement review session records.
+- [x] Implement event persistence and replay cursors.
+- [x] Implement result persistence separate from artifacts.
+- [x] Implement dedupe policies:
+  - [x] `none`,
+  - [x] `source`,
+  - [x] `source-head`,
+  - [x] application-defined key.
 - [ ] Implement durable cancellation.
 - [ ] Implement worker claim and lease semantics.
 - [ ] Implement retry policy and backoff.
@@ -263,6 +263,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 79d1ce6 | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 | 2026-06-05 | docs-examples | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
 | 2026-06-05 | artifact-helpers | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
+| 2026-06-05 | store-boundary | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -279,6 +280,9 @@ Record every milestone with the commands that were run.
 - The Rust `Muzen` facade currently executes local reviews synchronously through
   the runner execution path. Durable scheduling and asynchronous workers remain
   Phase 8 work.
+- The store boundary has an in-memory implementation for local execution and
+  tests. A production database implementation, worker claims, leases, retries,
+  and durable cancellation remain open.
 
 ## Notes For Reviewers
 
