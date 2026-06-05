@@ -290,6 +290,8 @@ export type MuzenWebhookProvider = "github" | "gitlab";
 
 export interface MuzenWebhookResponseOptions {
   workspaceId?: string;
+  secret?: string;
+  review?: ReviewOptions;
   signal?: AbortSignal;
 }
 

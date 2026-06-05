@@ -116,6 +116,11 @@ mod tests {
             .iter()
             .any(|method| method.method == "event.runtime"
                 && method.status == RunnerMethodStatus::Implemented));
+        assert!(schema
+            .requests
+            .iter()
+            .any(|method| method.method == "webhook.github.handle"
+                && method.status == RunnerMethodStatus::Implemented));
     }
 
     #[test]
@@ -320,6 +325,59 @@ mod tests {
         );
         assert_eq!(cancel[0]["result"]["status"], "completed");
         assert_eq!(cancel[0]["result"]["cancelled"], false);
+    }
+
+    #[test]
+    fn stdio_handles_github_webhook_through_rust_core() {
+        let mut session = RunnerStdioSession::default();
+        let mut writer = Vec::new();
+        let body = json!({
+            "action": "opened",
+            "repository": {
+                "full_name": "maskdotdev/heimdaal"
+            },
+            "pull_request": {
+                "number": 123
+            }
+        })
+        .to_string();
+        let signature =
+            crate::review_session::github_webhook_signature("secret", body.as_bytes()).unwrap();
+
+        let frames = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "webhook.github.handle",
+                "params": {
+                    "workspaceId": "acme",
+                    "headers": {
+                        "X-GitHub-Event": "pull_request",
+                        "X-GitHub-Delivery": "delivery-1",
+                        "X-Hub-Signature-256": signature
+                    },
+                    "body": body,
+                    "secret": "secret",
+                    "options": {
+                        "reviewOptions": {
+                            "dedupe": "source"
+                        }
+                    }
+                }
+            }),
+        );
+
+        let result = frames[0]["result"].as_object().expect("result");
+        let body: serde_json::Value =
+            serde_json::from_str(result["body"].as_str().expect("body")).unwrap();
+
+        assert_eq!(result["statusCode"], json!(202));
+        assert_eq!(result["headers"]["Content-Type"], json!("application/json"));
+        assert_eq!(body["type"], json!("review_created"));
+        assert_eq!(body["deliveryId"], json!("delivery-1"));
+        assert_eq!(body["status"], json!("queued"));
     }
 
     #[test]

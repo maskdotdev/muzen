@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::contracts::Role;
+use crate::review_session::WebhookReviewOptions;
 use crate::reviewer::artifacts::ArtifactView;
 
 fn default_role() -> Role {
@@ -130,6 +132,20 @@ pub struct SnapshotReadTextParams {
     pub path: String,
     #[serde(default)]
     pub max_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookHandleParams {
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    pub body: String,
+    #[serde(default)]
+    pub secret: Option<String>,
+    #[serde(default)]
+    pub options: WebhookReviewOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -16,9 +16,10 @@ use super::transport::{InteractiveTransport, RunnerCallbackTransport};
 use super::types::{
     ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunLookupParams, RunStartParams,
     RunStatusResult, RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerHandshakeParams,
-    RunnerSnapshotTextResult, SnapshotReadTextParams,
+    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams,
 };
 use super::RUNNER_PROTOCOL_VERSION;
+use crate::review_session::{Muzen, WebhookHeaders};
 
 pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<i32>
 where
@@ -111,8 +112,15 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
         }
         "runner.check" => JsonRpcResponse::success(request.id, json!(runner_check())),
         "runner.schema.export" => JsonRpcResponse::success(request.id, json!(protocol_schema())),
-        "run.start" | "run.cancel" | "run.status" | "run.result" | "artifact.read"
-        | "artifact.export" | "snapshot.readText" => JsonRpcResponse::error(
+        "run.start"
+        | "run.cancel"
+        | "run.status"
+        | "run.result"
+        | "artifact.read"
+        | "artifact.export"
+        | "snapshot.readText"
+        | "webhook.github.handle"
+        | "webhook.gitlab.handle" => JsonRpcResponse::error(
             request.id,
             JsonRpcError::not_implemented(format!(
                 "{} requires the stateful stdio session in {}",
@@ -129,6 +137,7 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
 #[derive(Default)]
 pub(crate) struct RunnerStdioSession {
     reports: BTreeMap<String, RunnerStoredRun>,
+    muzen: Muzen,
 }
 
 impl RunnerStdioSession {
@@ -224,6 +233,8 @@ impl RunnerStdioSession {
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
             "snapshot.readText" => self.handle_snapshot_read_text(request),
+            "webhook.github.handle" => self.handle_webhook(request, "github"),
+            "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
             _ => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::method_not_found(format!("unknown method {}", request.method)),
@@ -318,6 +329,8 @@ impl RunnerStdioSession {
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
             "snapshot.readText" => self.handle_snapshot_read_text(request),
+            "webhook.github.handle" => self.handle_webhook(request, "github"),
+            "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
             _ => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::method_not_found(format!("unknown method {}", request.method)),
@@ -460,6 +473,43 @@ impl RunnerStdioSession {
             Err(error) => Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::runner_error(error.to_string()),
+            )),
+        }
+    }
+
+    fn handle_webhook(&self, request: JsonRpcRequest, provider: &str) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<WebhookHandleParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let workspace = self.muzen.workspace(
+            params
+                .workspace_id
+                .as_deref()
+                .filter(|workspace_id| !workspace_id.trim().is_empty())
+                .unwrap_or("default"),
+        );
+        let headers = params.headers.into_iter().collect::<WebhookHeaders>();
+        let delivery = match provider {
+            "github" => workspace.handle_github_webhook(
+                &headers,
+                params.body.as_bytes(),
+                params.secret.as_deref(),
+                params.options,
+            ),
+            "gitlab" => workspace.handle_gitlab_webhook(
+                &headers,
+                params.body.as_bytes(),
+                params.secret.as_deref(),
+                params.options,
+            ),
+            _ => unreachable!("unsupported webhook provider"),
+        };
+        match delivery.and_then(|delivery| delivery.http_response()) {
+            Ok(response) => Ok(JsonRpcResponse::success(request.id, json!(response))),
+            Err(error) => Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_params(error.to_string()),
             )),
         }
     }

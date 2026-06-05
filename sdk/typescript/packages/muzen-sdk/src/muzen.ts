@@ -483,9 +483,11 @@ class RemoteReviewSession implements ReviewSession {
 
 class RunnerBackedMuzen implements Muzen {
   private readonly sessions = new Map<string, RunnerBackedReviewSession>();
-  readonly webhooks: MuzenWebhooks = new UnsupportedMuzenWebhooks();
+  readonly webhooks: MuzenWebhooks;
 
-  constructor(private readonly runner: RunnerStdioClient) {}
+  constructor(private readonly runner: RunnerStdioClient) {
+    this.webhooks = new RunnerBackedMuzenWebhooks(runner);
+  }
 
   async review(
     sourceLike: ReviewSourceLike,
@@ -555,23 +557,6 @@ class RunnerBackedMuzen implements Muzen {
   }
 }
 
-class UnsupportedMuzenWebhooks implements MuzenWebhooks {
-  readonly github: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("github");
-  readonly gitlab: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("gitlab");
-}
-
-class UnsupportedMuzenWebhookHandler implements MuzenWebhookHandler {
-  constructor(private readonly provider: MuzenWebhookProvider) {}
-
-  response(_request: Request): Promise<Response> {
-    return Promise.reject(
-      new MuzenUnsupportedFeatureError(
-        `createMuzen().webhooks.${this.provider}.response(request) requires the production Rust host/router; the local runner preview cannot verify provider webhooks or schedule durable provider reviews`,
-      ),
-    );
-  }
-}
-
 class RunnerBackedWorkspace implements MuzenWorkspace {
   readonly models = new UnsupportedWorkspaceProfileCollection<
     ModelProfileInput,
@@ -592,6 +577,50 @@ class RunnerBackedWorkspace implements MuzenWorkspace {
     options?: ReviewOptions,
   ): Promise<ReviewSession> {
     return this.muzen.review(source, options);
+  }
+}
+
+class RunnerBackedMuzenWebhooks implements MuzenWebhooks {
+  readonly github: MuzenWebhookHandler;
+  readonly gitlab: MuzenWebhookHandler;
+
+  constructor(runner: RunnerStdioClient) {
+    this.github = new RunnerBackedMuzenWebhookHandler(runner, "github");
+    this.gitlab = new RunnerBackedMuzenWebhookHandler(runner, "gitlab");
+  }
+}
+
+class RunnerBackedMuzenWebhookHandler implements MuzenWebhookHandler {
+  constructor(
+    private readonly runner: RunnerStdioClient,
+    private readonly provider: MuzenWebhookProvider,
+  ) {}
+
+  async response(
+    request: Request,
+    options: MuzenWebhookResponseOptions = {},
+  ): Promise<Response> {
+    if (request.method !== "POST") {
+      throw new MuzenUnsupportedFeatureError(
+        `Muzen ${this.provider} webhook handlers expect POST requests`,
+      );
+    }
+    throwIfAborted(options.signal ?? request.signal);
+    const result = unwrapWebhookHttpResponse(
+      await this.runner.request(`webhook.${this.provider}.handle`, {
+        workspaceId: options.workspaceId,
+        headers: headersToRecord(request.headers),
+        body: await request.text(),
+        secret: webhookSecret(this.provider, options.secret),
+        options: {
+          reviewOptions: options.review ?? {},
+        },
+      }),
+    );
+    return new Response(result.body, {
+      status: result.statusCode,
+      headers: result.headers,
+    });
   }
 }
 
@@ -1003,6 +1032,27 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   }
 }
 
+function headersToRecord(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
+function webhookSecret(
+  provider: MuzenWebhookProvider,
+  explicit: string | undefined,
+): string | undefined {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  if (provider === "github") {
+    return process.env.GITHUB_WEBHOOK_SECRET;
+  }
+  return process.env.GITLAB_WEBHOOK_TOKEN ?? process.env.GITLAB_WEBHOOK_SECRET;
+}
+
 function parseTimeoutMs(timeout: string | number | undefined): number | undefined {
   if (timeout === undefined) {
     return undefined;
@@ -1140,6 +1190,36 @@ function unwrapProviderProfiles(value: unknown): ProviderProfile[] {
     throw new Error("Muzen remote returned invalid provider profiles");
   }
   return profiles;
+}
+
+function unwrapWebhookHttpResponse(value: unknown): {
+  statusCode: number;
+  headers: Record<string, string>;
+  body: string;
+} {
+  if (
+    isRecord(value) &&
+    typeof value.statusCode === "number" &&
+    isRecord(value.headers) &&
+    typeof value.body === "string"
+  ) {
+    return {
+      statusCode: value.statusCode,
+      headers: stringRecord(value.headers),
+      body: value.body,
+    };
+  }
+  throw new Error("muzen-runner returned an invalid webhook response");
+}
+
+function stringRecord(value: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string") {
+      result[key] = item;
+    }
+  }
+  return result;
 }
 
 function isReviewSessionSnapshot(value: unknown): value is ReviewSessionSnapshot {

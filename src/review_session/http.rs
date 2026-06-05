@@ -11,7 +11,8 @@ pub const HTTP_STATUS_ACCEPTED: u16 = 202;
 pub const CONTENT_TYPE_JSON: &str = "application/json";
 pub const CONTENT_TYPE_EVENT_STREAM: &str = "text/event-stream";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewHttpResponse {
     pub status_code: u16,
     pub headers: BTreeMap<String, String>,

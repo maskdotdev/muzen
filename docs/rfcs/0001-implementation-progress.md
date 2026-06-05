@@ -260,10 +260,11 @@ Exit criteria:
   - [x] Add Rust delivery JSON response body helper.
   - [x] Add Rust framework-agnostic HTTP response helper.
   - [x] Add framework-facing SDK response helpers.
-- [ ] Implement high-level SDK webhook request handlers.
+- [x] Implement high-level SDK webhook request handlers.
   - [x] Add TypeScript remote `muzen.webhooks.github.response(request)` facade.
-  - [ ] Add local/host TypeScript `createMuzen().webhooks.github.response(request)`
-    facade once the Rust host/router exists.
+  - [x] Add local/host TypeScript
+    `createMuzen().webhooks.github.response(request)` facade over Rust runner
+    protocol.
 - [x] Define remote HTTP API contract.
 - [x] Implement `createMuzenClient({ baseUrl })`.
 - [x] Add SSE event response support.
@@ -305,6 +306,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 5378435 | TypeScript and Python webhook delivery response helpers | `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 4b3ce54 | README aligned to the intended production SDK flow while labeling preview gaps | Documentation-only commit |
 | 2026-06-05 | ea15ecc | TypeScript remote webhook request facade and HTTP contract routes | `npm test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Open Decisions
 
@@ -341,8 +343,9 @@ Record every milestone with the commands that were run.
   now turn webhook deliveries into framework-facing HTTP responses. The
   TypeScript remote client forwards
   `muzen.webhooks.github.response(request)` calls to the remote service. The
-  local `createMuzen().webhooks.github.response(request)` facade still depends
-  on a bound Rust host/router.
+  local TypeScript SDK now calls Rust runner webhook protocol methods for
+  `createMuzen().webhooks.github.response(request)`, keeping provider webhook
+  verification and review scheduling in Rust.
 - TypeScript event and Python notebook examples are present. The
   `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
   TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,

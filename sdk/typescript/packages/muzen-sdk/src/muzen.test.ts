@@ -1,5 +1,6 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -78,6 +79,49 @@ describe("runner-backed Muzen preview", () => {
         () => muzen!.review("github:maskdotdev/heimdaal#123"),
         MuzenUnsupportedFeatureError,
       );
+    },
+  );
+
+  it(
+    "handles GitHub webhooks through the Rust runner core",
+    { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
+    async () => {
+      muzen ??= await createMuzen({ runnerPath });
+      const body = JSON.stringify({
+        action: "opened",
+        repository: {
+          full_name: "maskdotdev/heimdaal",
+        },
+        pull_request: {
+          number: 123,
+        },
+      });
+      const signature = `sha256=${createHmac("sha256", "secret")
+        .update(body)
+        .digest("hex")}`;
+      const request = new Request("https://app.example/webhooks/github", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-GitHub-Event": "pull_request",
+          "X-GitHub-Delivery": "delivery-1",
+          "X-Hub-Signature-256": signature,
+        },
+        body,
+      });
+
+      const response = await muzen.webhooks.github.response(request, {
+        workspaceId: "acme",
+        secret: "secret",
+      });
+
+      assert.equal(response.status, 202);
+      assert.deepEqual(await response.json(), {
+        type: "review_created",
+        deliveryId: "delivery-1",
+        reviewId: "review-1",
+        status: "queued",
+      });
     },
   );
 });

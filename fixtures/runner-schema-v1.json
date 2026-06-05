@@ -61,6 +61,18 @@
       "direction": "sdk_to_runner",
       "status": "implemented",
       "summary": "Read captured snapshot text."
+    },
+    {
+      "method": "webhook.github.handle",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Verify and schedule a GitHub webhook delivery."
+    },
+    {
+      "method": "webhook.gitlab.handle",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Verify and schedule a GitLab webhook delivery."
     }
   ],
   "callbacks": [

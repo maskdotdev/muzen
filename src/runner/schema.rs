@@ -21,6 +21,8 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "artifact.read".to_string(),
                 "artifact.export".to_string(),
                 "snapshot.readText".to_string(),
+                "webhook.github.handle".to_string(),
+                "webhook.gitlab.handle".to_string(),
                 "model.complete".to_string(),
                 "tool.execute".to_string(),
                 "event.review".to_string(),
@@ -65,6 +67,14 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
             implemented("artifact.read", "Read one redacted or raw artifact."),
             implemented("artifact.export", "Export artifacts using a policy."),
             implemented("snapshot.readText", "Read captured snapshot text."),
+            implemented(
+                "webhook.github.handle",
+                "Verify and schedule a GitHub webhook delivery.",
+            ),
+            implemented(
+                "webhook.gitlab.handle",
+                "Verify and schedule a GitLab webhook delivery.",
+            ),
         ],
         callbacks: vec![
             implemented_runner_to_sdk(

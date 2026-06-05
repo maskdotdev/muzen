@@ -14,6 +14,8 @@ pub(crate) fn stateful_method(method: &str) -> bool {
             | "artifact.read"
             | "artifact.export"
             | "snapshot.readText"
+            | "webhook.github.handle"
+            | "webhook.gitlab.handle"
     )
 }
 

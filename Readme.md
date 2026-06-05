@@ -90,6 +90,8 @@ Implemented now:
 - Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
   delivery JSON, and framework-agnostic HTTP/SSE response helpers.
 - TypeScript SDK local preview over `muzen-runner`.
+- TypeScript local webhook request facade:
+  `createMuzen(...).webhooks.github.response(request)`.
 - TypeScript remote client preview with review, workspace profile, event,
   result, cancellation, and artifact APIs.
 - TypeScript framework-facing webhook delivery response helpers.
@@ -103,8 +105,6 @@ Still in progress:
 
 - Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
-- The local/host TypeScript webhook handler facade:
-  `createMuzen().webhooks.github.response(request)`.
 - The high-level TypeScript worker facade: `muzen.workers.start()`.
 - A bound Rust web server/router around the core HTTP/SSE response primitives.
 
