@@ -291,7 +291,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 56f1af7 | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
 | 2026-06-05 | a3384a6 | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
-| 2026-06-05 | pending | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
+| 2026-06-05 | f42dbb6 | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
 
 ## Open Decisions
 
