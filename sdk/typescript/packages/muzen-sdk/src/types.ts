@@ -214,6 +214,7 @@ export interface CreateMuzenOptions {
 export interface CreateMuzenClientOptions {
   baseUrl: string;
   token?: string;
+  fetch?: typeof fetch;
 }
 
 export interface CreateReviewSessionInput {

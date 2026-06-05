@@ -256,9 +256,11 @@ Exit criteria:
 - [ ] Implement webhook response helpers.
   - [x] Add Rust delivery JSON response body helper.
   - [ ] Add framework-facing SDK response helpers.
-- [ ] Define remote HTTP API contract.
-- [ ] Implement `createMuzenClient({ baseUrl })`.
+- [x] Define remote HTTP API contract.
+- [x] Implement `createMuzenClient({ baseUrl })`.
 - [ ] Add SSE event response support.
+  - [x] Define SSE route contract and TypeScript remote `eventsResponse`.
+  - [ ] Implement service-side SSE route.
 
 Exit criteria:
 
@@ -287,6 +289,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | f524c73 | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 56f1af7 | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
+| 2026-06-05 | pending | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
 
 ## Open Decisions
 
@@ -323,6 +326,11 @@ Record every milestone with the commands that were run.
 - TypeScript event and Python notebook examples are present. The TypeScript SDK
   package build/test passes; direct one-off example typechecking still needs an
   examples-level TypeScript project or package link.
+- The remote HTTP contract is documented in
+  `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
+  resume, wait for, cancel, replay events for, stream events for, and read/export
+  artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+  Service-side HTTP/SSE handlers remain open.
 
 ## Notes For Reviewers
 
