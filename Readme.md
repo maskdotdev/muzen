@@ -3,10 +3,12 @@
 Muzen is a Rust-first review-session runtime with TypeScript and Python SDK
 previews layered over the `muzen-runner` protocol.
 
-The current preview supports local repository reviews end to end. GitHub and
-GitLab source strings and typed builders parse into stable descriptors, but
-provider materialization, durable scheduling, workspaces, BYOK profile storage,
-webhooks, remote clients, and production workers are still tracked RFC work.
+The current preview supports local repository reviews end to end. Rust core
+also owns durable review records, worker claims/leases/retries, workspace
+profile records, effective config snapshots, and GitHub/GitLab webhook
+verification helpers. GitHub/GitLab provider materialization, production
+database persistence, remote clients, and framework-facing webhook/SSE helpers
+are still tracked RFC work.
 
 ## Build The Runner
 
@@ -71,6 +73,11 @@ console.log(artifacts.artifactCount);
 await muzen.close();
 ```
 
+Runnable examples:
+
+- `examples/typescript/basic-review`
+- `examples/typescript/events`
+
 ## Python Preview
 
 ```sh
@@ -110,6 +117,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Runnable examples:
+
+- `examples/python/basic_review.py`
+- `examples/python/notebook-review/notebook_review.ipynb`
+
 ## RFC Progress
 
 The implementation ledger lives at
@@ -119,14 +131,17 @@ Current completed slices:
 
 - Rust SDK-facing review-session contracts.
 - Rust local review-session execution facade over `muzen-runner`.
+- Rust durable session records, worker scheduling semantics, and queued worker
+  execution loop.
+- Rust workspace model/provider profiles, host scheduling configuration, and
+  secret-reference-only config snapshots.
+- Rust GitHub/GitLab webhook verification and source mapping helpers.
 - TypeScript SDK preview over stdio JSON-RPC.
 - Python SDK preview over stdio JSON-RPC.
 
 Major open slices:
 
-- Durable session store, replay cursors, workers, leases, retries, and
-  cancellation.
+- Production database persistence for durable sessions/profile records.
 - Provider source materialization for GitHub and GitLab.
-- Workspace-owned model/provider profiles and secret references.
-- Webhook helpers and remote HTTP client mode.
-- Artifact helper APIs and production examples.
+- Framework-facing webhook response helpers, remote HTTP client mode, and SSE
+  streaming.

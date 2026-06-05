@@ -180,7 +180,7 @@ Exit criteria:
 - [x] Implement Python process supervision for `muzen-runner`.
 - [x] Implement Python `Client.create()`.
 - [x] Implement Python review session event iteration and final result access.
-- [ ] Add a notebook-friendly basic review example.
+- [x] Add a notebook-friendly basic review example.
 
 Exit criteria:
 
@@ -190,9 +190,9 @@ Exit criteria:
 ## Phase 7: Examples And Docs
 
 - [x] Add `examples/typescript/basic-review`.
-- [ ] Add `examples/typescript/events`.
+- [x] Add `examples/typescript/events`.
 - [x] Add `examples/python/basic-review`.
-- [ ] Add `examples/python/notebook-review`.
+- [x] Add `examples/python/notebook-review`.
 - [x] Update `Readme.md` so examples are accurate for implemented preview
   behavior.
 - [x] Document unsupported preview areas without exposing internals as the main
@@ -286,6 +286,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | cc1c12c | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | f524c73 | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | pending | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
 
 ## Open Decisions
 
@@ -319,6 +320,9 @@ Record every milestone with the commands that were run.
   tokens, map supported pull/merge request events to review sources, schedule
   queued workspace reviews, and return delivery JSON bodies. SDK framework
   response helpers remain open.
+- TypeScript event and Python notebook examples are present. The TypeScript SDK
+  package build/test passes; direct one-off example typechecking still needs an
+  examples-level TypeScript project or package link.
 
 ## Notes For Reviewers
 
