@@ -59,7 +59,7 @@ change must update the fixture and the SDK mapping intentionally.
 | `ReviewSession.events(...)` | `event.review` | Implemented | Current previews replay recorded events; durable replay cursors are now modeled in the Rust store boundary. |
 | `ReviewSession.wait(...)` | `run.start` result / `run.result` | Implemented | Local runner execution is synchronous today; durable scheduling will make this wait on persisted terminal state. |
 | `ReviewSession.result(...)` | `run.result` | Implemented | Results are normalized into SDK-facing `ReviewResult`. |
-| `ReviewSession.cancel(...)` | `run.cancel` | Preview | The current runner can report terminal-state cancellation responses; durable active cancellation is pending. |
+| `ReviewSession.cancel(...)` | `run.cancel` / durable store cancellation | Partial | Durable review records preserve cancellation and reject late worker result overwrites. The local synchronous runner can still only report terminal-state cancellation responses. |
 | `ReviewSession.refresh(...)` | `run.status` | Implemented | Current SDK previews refresh runner-local sessions. |
 | `ReviewSession.readArtifact(...)` | `artifact.read` | Implemented | Defaults to redacted artifact view. |
 | `ReviewSession.exportArtifacts(...)` | `artifact.export` | Implemented | Defaults to redacted artifact view and supports export limits. |
@@ -92,6 +92,8 @@ remains a local preview/test implementation.
 - Webhook-scheduled `source-head` dedupe captures provider head revisions from
   GitHub/GitLab payloads. Direct provider reviews still fall back to the stable
   source key unless the caller supplies known head metadata.
+- Interrupting an already executing local synchronous `run.start` remains a
+  preview limitation; durable cancellation is preserved at the store boundary.
 - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
   now exist around the core remote HTTP contract. `muzen-service` uses Postgres
   stores when `DATABASE_URL` is set.

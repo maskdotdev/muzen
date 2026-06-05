@@ -2168,6 +2168,59 @@ mod tests {
     }
 
     #[test]
+    fn review_store_preserves_cancellation_against_late_execution_result() {
+        let store = InMemoryReviewSessionStore::default();
+        let review_id = ReviewSessionId::new("review-1").unwrap();
+        store
+            .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+            .unwrap();
+        store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+        store
+            .request_cancellation(&review_id, ReviewCancelOptions::new("superseded"))
+            .unwrap();
+        let late_result = ReviewResult {
+            review_id: review_id.clone(),
+            session_id: review_id.clone(),
+            status: ReviewStatus::Completed,
+            conclusion: ReviewConclusion::Approved,
+            summary: "late result".to_string(),
+            findings: Vec::new(),
+            coverage: ReviewCoverage {
+                files_considered: 0,
+                files_reviewed: 0,
+                files_skipped: 0,
+            },
+            metadata: BTreeMap::new(),
+        };
+
+        let updated = store
+            .write_execution_result(
+                &review_id,
+                ReviewStatus::Completed,
+                late_result,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+
+        assert_eq!(updated.status, ReviewStatus::Cancelled);
+        assert!(updated.result.is_none());
+        assert_eq!(
+            updated.events.last().map(|event| event.event_type),
+            Some(ReviewEventType::SessionCancelled)
+        );
+    }
+
+    #[test]
     fn review_store_records_retry_backoff_and_final_failure() {
         let store = InMemoryReviewSessionStore::default();
         let review_id = ReviewSessionId::new("review-1").unwrap();

@@ -72,7 +72,7 @@ impl ReviewWorker {
                 Ok(session) => {
                     let result = session.wait()?;
                     let status = session.status();
-                    self.store.write_execution_result(
+                    let updated = self.store.write_execution_result(
                         session.id(),
                         status,
                         result,
@@ -80,7 +80,7 @@ impl ReviewWorker {
                         session.redacted_artifacts.clone(),
                         session.raw_artifacts.clone(),
                     )?;
-                    match status {
+                    match updated.status {
                         ReviewStatus::Completed => run.completed += 1,
                         ReviewStatus::Failed | ReviewStatus::Cancelled => run.failed += 1,
                         ReviewStatus::Created | ReviewStatus::Queued | ReviewStatus::Running => {

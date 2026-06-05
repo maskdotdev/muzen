@@ -523,6 +523,9 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
             .sessions
             .get_mut(id.as_str())
             .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        if record.status.is_terminal() {
+            return Ok(record.clone());
+        }
         let rebased_events = rebase_events(record, events);
         record.status = status;
         record.result = Some(result);
@@ -889,6 +892,10 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         let mut client = self.lock_client()?;
         let mut transaction = client.transaction().map_err(postgres_store_error)?;
         let mut record = postgres_record_for_update(&mut transaction, id)?;
+        if record.status.is_terminal() {
+            transaction.commit().map_err(postgres_store_error)?;
+            return Ok(record);
+        }
         let rebased_events = rebase_events(&record, events);
         record.status = status;
         record.result = Some(result);

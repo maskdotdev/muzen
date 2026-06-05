@@ -233,6 +233,8 @@ Exit criteria:
 - [x] Capture GitHub/GitLab webhook head SHAs in safe metadata so
   webhook-scheduled `source-head` dedupe keys include provider head revisions.
 - [x] Implement durable cancellation.
+- [x] Preserve durable cancellation when a worker writes a late execution
+  result after cancellation was requested.
 - [x] Implement worker claim and lease semantics.
 - [x] Implement retry policy and backoff.
 - [x] Implement worker concurrency limits:
@@ -377,6 +379,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 8d87462 | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 779cade | Rust GitHub/GitLab provider source materialization and SDK source forwarding | `cargo fmt --check`; `cargo test runner::materialize --lib`; `cargo test runner::tests --lib`; `cargo test review_session --lib`; `cargo test`; `cargo build --bin muzen-runner`; `npm test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 7d3f093 | Provider webhook head-SHA metadata for `source-head` dedupe | `cargo fmt --check`; `cargo test review_session::tests::github_webhook_source_head_dedupe_includes_head_sha --lib`; `cargo test review_session --lib` |
+| 2026-06-05 | pending | Durable cancellation preservation against late worker result writes | `cargo fmt --check`; `cargo test review_session::tests::review_store_preserves_cancellation_against_late_execution_result --lib`; `cargo test review_session --lib` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -409,6 +412,10 @@ Record every milestone with the commands that were run.
 - Host scheduling configuration now defines lease defaults, retry defaults,
   fairness strategy, and global/workspace/user/model/provider concurrency
   limits. The Postgres store enforces worker claiming transactionally.
+- Durable cancellation clears leases, blocks later claims, and now preserves the
+  cancelled terminal state if a worker attempts to write a late execution
+  result after cancellation was requested. The local synchronous runner still
+  cannot interrupt an already executing `run.start`.
 - Durable records, events, results, and review-session logs have redaction
   coverage around profile secret references and raw secret values. The
   in-memory store redacts configured secret values and sensitive metadata keys
