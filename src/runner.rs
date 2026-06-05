@@ -26,6 +26,7 @@ pub(crate) use session::RunnerStdioSession;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::io::{Result as IoResult, Write};
     use std::sync::{Arc, Mutex};
 
@@ -127,6 +128,66 @@ mod tests {
             .iter()
             .any(|method| method.method == "worker.runOnce"
                 && method.status == RunnerMethodStatus::Implemented));
+    }
+
+    #[test]
+    fn schema_links_methods_to_payload_definitions() {
+        let schema = protocol_schema();
+        let definitions = schema
+            .definitions
+            .iter()
+            .map(|definition| definition.name.as_str())
+            .collect::<BTreeSet<_>>();
+
+        for method in schema
+            .requests
+            .iter()
+            .chain(schema.callbacks.iter())
+            .chain(schema.notifications.iter())
+        {
+            for payload in method.params.iter().chain(method.result.iter()) {
+                assert!(
+                    definitions.contains(payload.name.as_str()),
+                    "{} references missing payload definition {}",
+                    method.method,
+                    payload.name
+                );
+            }
+        }
+
+        let run_start = schema
+            .requests
+            .iter()
+            .find(|method| method.method == "run.start")
+            .expect("run.start schema");
+        assert_eq!(
+            run_start
+                .params
+                .as_ref()
+                .map(|payload| payload.name.as_str()),
+            Some("RunStartParams")
+        );
+        assert_eq!(
+            run_start
+                .result
+                .as_ref()
+                .map(|payload| payload.name.as_str()),
+            Some("RunnerRunResult")
+        );
+
+        let run_start_params = schema
+            .definitions
+            .iter()
+            .find(|definition| definition.name == "RunStartParams")
+            .expect("RunStartParams definition");
+        assert!(run_start_params
+            .fields
+            .iter()
+            .any(|field| field.name == "source" && field.value_type == "ReviewSource"));
+        assert!(run_start_params
+            .fields
+            .iter()
+            .any(|field| field.name == "changedFiles" && field.default.as_deref() == Some("[]")));
     }
 
     #[test]

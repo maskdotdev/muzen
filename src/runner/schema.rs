@@ -1,6 +1,7 @@
 use super::types::{
     RunnerCapabilities, RunnerCheckResult, RunnerHandshakeResult, RunnerMessageDirection,
-    RunnerMethodSchema, RunnerMethodStatus, RunnerProtocolSchema,
+    RunnerMethodSchema, RunnerMethodStatus, RunnerPayloadFieldSchema, RunnerPayloadRef,
+    RunnerPayloadSchema, RunnerPayloadShape, RunnerProtocolSchema,
 };
 use super::{RUNNER_NAME, RUNNER_PROTOCOL_VERSION};
 
@@ -100,6 +101,7 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
                 "Notify that a run failed before producing a report.",
             ),
         ],
+        definitions: payload_definitions(),
     }
 }
 
@@ -109,6 +111,8 @@ fn implemented(method: &'static str, summary: &'static str) -> RunnerMethodSchem
         direction: RunnerMessageDirection::SdkToRunner,
         status: RunnerMethodStatus::Implemented,
         summary: summary.to_string(),
+        params: method_params(method),
+        result: method_result(method),
     }
 }
 
@@ -118,5 +122,574 @@ fn implemented_runner_to_sdk(method: &'static str, summary: &'static str) -> Run
         direction: RunnerMessageDirection::RunnerToSdk,
         status: RunnerMethodStatus::Implemented,
         summary: summary.to_string(),
+        params: method_params(method),
+        result: method_result(method),
+    }
+}
+
+fn method_params(method: &str) -> Option<RunnerPayloadRef> {
+    match method {
+        "runner.handshake" => Some(payload_ref("RunnerHandshakeParams")),
+        "run.start" => Some(payload_ref("RunStartParams")),
+        "run.cancel" | "run.status" | "run.result" => Some(payload_ref("RunLookupParams")),
+        "artifact.read" => Some(payload_ref("ArtifactReadParams")),
+        "artifact.export" => Some(payload_ref("ArtifactExportParams")),
+        "snapshot.readText" => Some(payload_ref("SnapshotReadTextParams")),
+        "webhook.github.handle" | "webhook.gitlab.handle" => {
+            Some(payload_ref("WebhookHandleParams"))
+        }
+        "worker.runOnce" => Some(payload_ref("WorkerRunOnceParams")),
+        "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
+        "tool.execute" => Some(payload_ref("RunnerToolExecuteParams")),
+        "event.review" => Some(payload_ref("ReviewEventRecord")),
+        "event.runtime" => Some(payload_ref("RuntimeEventRecord")),
+        "run.finished" => Some(payload_ref("RunnerRunResult")),
+        "run.failed" => Some(payload_ref("RunFailedNotification")),
+        _ => None,
+    }
+}
+
+fn method_result(method: &str) -> Option<RunnerPayloadRef> {
+    match method {
+        "runner.handshake" => Some(payload_ref("RunnerHandshakeResult")),
+        "runner.check" => Some(payload_ref("RunnerCheckResult")),
+        "runner.schema.export" => Some(payload_ref("RunnerProtocolSchema")),
+        "run.start" | "run.result" => Some(payload_ref("RunnerRunResult")),
+        "run.cancel" => Some(payload_ref("RunCancelResult")),
+        "run.status" => Some(payload_ref("RunStatusResult")),
+        "artifact.read" => Some(payload_ref("RunnerArtifactReadResult")),
+        "artifact.export" => Some(payload_ref("RunnerArtifactExportResult")),
+        "snapshot.readText" => Some(payload_ref("RunnerSnapshotTextResult")),
+        "webhook.github.handle" | "webhook.gitlab.handle" => {
+            Some(payload_ref("ReviewHttpResponse"))
+        }
+        "worker.runOnce" => Some(payload_ref("WorkerRunOnceResult")),
+        "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
+        "tool.execute" => Some(payload_ref("RunnerToolExecuteResult")),
+        _ => None,
+    }
+}
+
+fn payload_definitions() -> Vec<RunnerPayloadSchema> {
+    vec![
+        object(
+            "RunnerHandshakeParams",
+            vec![
+                required("protocolVersion", "string"),
+                optional("clientName", "string"),
+                optional("clientVersion", "string"),
+            ],
+        ),
+        object(
+            "RunnerHandshakeResult",
+            vec![
+                required("protocolVersion", "string"),
+                required("runnerName", "string"),
+                required("runnerVersion", "string"),
+                required("capabilities", "RunnerCapabilities"),
+            ],
+        ),
+        object(
+            "RunnerCapabilities",
+            vec![
+                required("supportedMethods", "string[]"),
+                required("plannedMethods", "string[]"),
+                required("transports", "string[]"),
+            ],
+        ),
+        object(
+            "RunnerCheckResult",
+            vec![
+                required("ok", "boolean"),
+                required("protocolVersion", "string"),
+                required("runnerName", "string"),
+                required("runnerVersion", "string"),
+                required("rustPackage", "string"),
+            ],
+        ),
+        object(
+            "RunnerProtocolSchema",
+            vec![
+                required("schemaVersion", "string"),
+                required("transport", "string"),
+                required("requests", "RunnerMethodSchema[]"),
+                required("callbacks", "RunnerMethodSchema[]"),
+                required("notifications", "RunnerMethodSchema[]"),
+                required("definitions", "RunnerPayloadSchema[]"),
+            ],
+        ),
+        object(
+            "RunnerMethodSchema",
+            vec![
+                required("method", "string"),
+                required("direction", "RunnerMessageDirection"),
+                required("status", "RunnerMethodStatus"),
+                required("summary", "string"),
+                optional("params", "RunnerPayloadRef"),
+                optional("result", "RunnerPayloadRef"),
+            ],
+        ),
+        object("RunnerPayloadRef", vec![required("name", "string")]),
+        object(
+            "RunnerPayloadSchema",
+            vec![
+                required("name", "string"),
+                required("shape", "RunnerPayloadShape"),
+                defaulted("fields", "RunnerPayloadFieldSchema[]", "[]"),
+                defaulted("values", "string[]", "[]"),
+            ],
+        ),
+        object(
+            "RunnerPayloadFieldSchema",
+            vec![
+                required("name", "string"),
+                required("type", "string"),
+                required("required", "boolean"),
+                optional("default", "string"),
+            ],
+        ),
+        enum_definition(
+            "RunnerMessageDirection",
+            vec!["sdk_to_runner", "runner_to_sdk"],
+        ),
+        enum_definition("RunnerMethodStatus", vec!["implemented", "reserved"]),
+        enum_definition("RunnerPayloadShape", vec!["object", "enum"]),
+        object(
+            "RunStartParams",
+            vec![
+                optional("protocolVersion", "string"),
+                optional("runId", "string"),
+                optional("repo", "string"),
+                optional("source", "ReviewSource"),
+                optional("sourceProvider", "RunSourceProviderParams"),
+                defaulted("changedFiles", "string[]", "[]"),
+                defaulted("sessions", "RunSessionParams[]", "[]"),
+                optional("limits", "RunLimitParams"),
+                optional("model", "RunModelParams"),
+                defaulted("tools", "RunToolParams[]", "[]"),
+            ],
+        ),
+        object(
+            "ReviewSource",
+            vec![
+                required("type", "local | github_pull_request | gitlab_merge_request"),
+                required("repo", "string"),
+                defaulted("changedFiles", "string[]", "[]"),
+                optional("owner", "string"),
+                optional("number", "integer"),
+            ],
+        ),
+        object(
+            "RunSourceProviderParams",
+            vec![optional("baseUrl", "string")],
+        ),
+        object(
+            "RunModelParams",
+            vec![defaulted("callback", "boolean", "false")],
+        ),
+        object(
+            "RunToolParams",
+            vec![
+                required("id", "string"),
+                required("description", "string"),
+                required("parameters", "json"),
+                defaulted("cacheable", "boolean", "false"),
+            ],
+        ),
+        object(
+            "RunSessionParams",
+            vec![
+                required("id", "string"),
+                defaulted("role", "Role", "generalist"),
+                required("objective", "string"),
+                optional("cwd", "string"),
+                optional("modelProfileId", "string"),
+                optional("budget", "RunAgentBudgetParams"),
+            ],
+        ),
+        enum_definition(
+            "Role",
+            vec![
+                "generalist",
+                "security",
+                "performance",
+                "maintainability",
+                "correctness",
+                "architecture",
+                "validator",
+            ],
+        ),
+        object(
+            "RunAgentBudgetParams",
+            vec![
+                required("maxTurns", "integer"),
+                required("maxToolCalls", "integer"),
+                required("maxPromptTokens", "integer"),
+                required("maxOutputTokens", "integer"),
+            ],
+        ),
+        object(
+            "RunLimitParams",
+            vec![
+                optional("maxActiveSessions", "integer"),
+                optional("maxFileBytes", "integer"),
+                optional("maxSearchMatches", "integer"),
+            ],
+        ),
+        object("RunLookupParams", vec![required("runId", "string")]),
+        object(
+            "ArtifactReadParams",
+            vec![
+                required("runId", "string"),
+                required("artifactId", "string"),
+                defaulted("view", "RunnerArtifactView", "redacted"),
+            ],
+        ),
+        object(
+            "ArtifactExportParams",
+            vec![
+                required("runId", "string"),
+                defaulted("artifactIds", "string[]", "[]"),
+                defaulted("view", "RunnerArtifactView", "redacted"),
+                optional("maxArtifacts", "integer"),
+                optional("maxBytes", "integer"),
+            ],
+        ),
+        enum_definition("RunnerArtifactView", vec!["redacted", "raw"]),
+        object(
+            "SnapshotReadTextParams",
+            vec![
+                required("runId", "string"),
+                optional("snapshotId", "string"),
+                required("path", "string"),
+                optional("maxBytes", "integer"),
+            ],
+        ),
+        object(
+            "WebhookHandleParams",
+            vec![
+                optional("workspaceId", "string"),
+                defaulted("headers", "object<string,string>", "{}"),
+                required("body", "string"),
+                optional("secret", "string"),
+                defaulted("options", "WebhookReviewOptions", "{}"),
+            ],
+        ),
+        object(
+            "WebhookReviewOptions",
+            vec![defaulted("reviewOptions", "ReviewOptions", "{}")],
+        ),
+        object(
+            "WorkerRunOnceParams",
+            vec![
+                optional("workerId", "string"),
+                defaulted("maxSessions", "integer", "1"),
+                defaulted("hostConfig", "HostConfiguration", "{}"),
+            ],
+        ),
+        object(
+            "HostConfiguration",
+            vec![defaulted(
+                "scheduling",
+                "HostSchedulingConfiguration",
+                "default",
+            )],
+        ),
+        object(
+            "HostSchedulingConfiguration",
+            vec![
+                defaulted("leaseSeconds", "integer", "60"),
+                defaulted("defaultRetryPolicy", "ReviewRetryPolicy", "default"),
+                defaulted("concurrency", "ReviewWorkerConcurrencyLimits", "default"),
+                defaulted("fairness", "SchedulingFairnessStrategy", "fifo"),
+            ],
+        ),
+        enum_definition(
+            "SchedulingFairnessStrategy",
+            vec!["fifo", "round_robin_by_workspace"],
+        ),
+        object(
+            "ReviewRetryPolicy",
+            vec![
+                required("maxAttempts", "integer"),
+                required("initialBackoffSeconds", "integer"),
+                required("maxBackoffSeconds", "integer"),
+            ],
+        ),
+        object(
+            "ReviewWorkerConcurrencyLimits",
+            vec![
+                optional("maxRunningGlobal", "integer"),
+                optional("maxRunningPerWorkspace", "integer"),
+                optional("maxRunningPerUser", "integer"),
+                optional("maxRunningPerModelProfile", "integer"),
+                optional("maxRunningPerProviderProfile", "integer"),
+            ],
+        ),
+        object(
+            "WorkerRunOnceResult",
+            vec![
+                required("workerId", "string"),
+                required("claimed", "integer"),
+                required("completed", "integer"),
+                required("retried", "integer"),
+                required("failed", "integer"),
+                required("skipped", "integer"),
+            ],
+        ),
+        object(
+            "RunStatusResult",
+            vec![required("runId", "string"), required("status", "string")],
+        ),
+        object(
+            "RunCancelResult",
+            vec![
+                required("runId", "string"),
+                required("status", "string"),
+                required("cancelled", "boolean"),
+                required("reason", "string"),
+            ],
+        ),
+        object(
+            "RunnerRunResult",
+            vec![
+                required("protocolVersion", "string"),
+                required("runId", "string"),
+                required("status", "string"),
+                required("summary", "RunnerRunSummary"),
+                required("findings", "RunnerFinding[]"),
+                required("snapshots", "RunnerSnapshotSummary[]"),
+            ],
+        ),
+        object(
+            "RunnerRunSummary",
+            vec![
+                required("sessions", "integer"),
+                required("completedSessions", "integer"),
+                required("modelCalls", "integer"),
+                required("toolCalls", "integer"),
+                required("findings", "integer"),
+                required("publishableFindings", "integer"),
+                required("elapsedMs", "integer"),
+                required("inputTokens", "integer"),
+                required("outputTokens", "integer"),
+                required("totalTokens", "integer"),
+                required("artifacts", "integer"),
+                required("artifactBytes", "integer"),
+                required("snapshotCount", "integer"),
+            ],
+        ),
+        object(
+            "RunnerFinding",
+            vec![
+                required("id", "string"),
+                required("title", "string"),
+                required("claim", "string"),
+                required("evidenceCount", "integer"),
+                required("publishable", "boolean"),
+            ],
+        ),
+        object(
+            "RunnerSnapshotSummary",
+            vec![
+                required("snapshotId", "string"),
+                required("files", "integer"),
+                required("changedFiles", "integer"),
+                required("capturedFiles", "integer"),
+                required("capturedBytes", "integer"),
+            ],
+        ),
+        object(
+            "RunnerArtifact",
+            vec![
+                required("artifactId", "string"),
+                required("bytes", "integer"),
+                required("contentHash", "string"),
+                required("content", "string"),
+            ],
+        ),
+        object(
+            "RunnerArtifactReadResult",
+            vec![
+                required("runId", "string"),
+                required("view", "RunnerArtifactView"),
+                required("artifact", "RunnerArtifact"),
+            ],
+        ),
+        object(
+            "RunnerArtifactExportResult",
+            vec![
+                required("runId", "string"),
+                required("view", "RunnerArtifactView"),
+                required("artifactCount", "integer"),
+                required("totalBytes", "integer"),
+                required("artifacts", "RunnerArtifact[]"),
+            ],
+        ),
+        object(
+            "RunnerSnapshotTextResult",
+            vec![
+                required("runId", "string"),
+                required("snapshotId", "string"),
+                required("path", "string"),
+                required("contentHash", "string"),
+                required("bytes", "integer"),
+                required("truncated", "boolean"),
+                required("content", "string"),
+            ],
+        ),
+        object(
+            "ReviewHttpResponse",
+            vec![
+                required("statusCode", "integer"),
+                required("headers", "object<string,string>"),
+                required("body", "string"),
+            ],
+        ),
+        object(
+            "ReviewEventRecord",
+            vec![
+                required("seq", "integer"),
+                required("timestampUtc", "string"),
+                optional("runId", "string"),
+                optional("snapshotId", "string"),
+                optional("sessionId", "string"),
+                optional("turn", "integer"),
+                optional("toolCallId", "string"),
+                optional("artifactId", "string"),
+                optional("findingId", "string"),
+                required("event", "ReviewEvent"),
+            ],
+        ),
+        object(
+            "RuntimeEventRecord",
+            vec![
+                required("seq", "integer"),
+                required("timestampUtc", "string"),
+                required("context", "RuntimeEventContext"),
+                required("event", "RuntimeEvent"),
+            ],
+        ),
+        object(
+            "RunFailedNotification",
+            vec![required("error", "string"), required("kind", "string")],
+        ),
+        object(
+            "RunnerModelCompleteParams",
+            vec![
+                required("protocolVersion", "string"),
+                required("runId", "string"),
+                required("sessionId", "string"),
+                required("role", "Role"),
+                required("objective", "string"),
+                optional("snapshotId", "string"),
+                optional("modelProfileId", "string"),
+                required("turn", "integer"),
+                required("transcript", "json[]"),
+            ],
+        ),
+        object(
+            "RunnerModelCompleteResult",
+            vec![
+                optional("content", "string"),
+                defaulted("toolCalls", "RunnerModelToolCallResult[]", "[]"),
+                optional("usage", "RunnerTokenUsage"),
+            ],
+        ),
+        object(
+            "RunnerModelToolCallResult",
+            vec![
+                optional("callId", "string"),
+                required("toolId", "string"),
+                defaulted("arguments", "json", "null"),
+            ],
+        ),
+        object(
+            "RunnerTokenUsage",
+            vec![
+                required("inputTokens", "integer"),
+                required("outputTokens", "integer"),
+                required("totalTokens", "integer"),
+            ],
+        ),
+        object(
+            "RunnerToolExecuteParams",
+            vec![
+                required("protocolVersion", "string"),
+                required("runId", "string"),
+                required("sessionId", "string"),
+                required("turn", "integer"),
+                required("callId", "string"),
+                required("toolId", "string"),
+                required("snapshotId", "string"),
+                required("providerResources", "string[]"),
+                required("arguments", "json"),
+            ],
+        ),
+        object(
+            "RunnerToolExecuteResult",
+            vec![
+                optional("data", "json"),
+                optional("artifact", "RunnerToolArtifactResult"),
+            ],
+        ),
+        object(
+            "RunnerToolArtifactResult",
+            vec![required("key", "string"), required("content", "string")],
+        ),
+    ]
+}
+
+fn payload_ref(name: &'static str) -> RunnerPayloadRef {
+    RunnerPayloadRef {
+        name: name.to_string(),
+    }
+}
+
+fn object(name: &'static str, fields: Vec<RunnerPayloadFieldSchema>) -> RunnerPayloadSchema {
+    RunnerPayloadSchema {
+        name: name.to_string(),
+        shape: RunnerPayloadShape::Object,
+        fields,
+        values: Vec::new(),
+    }
+}
+
+fn enum_definition(name: &'static str, values: Vec<&'static str>) -> RunnerPayloadSchema {
+    RunnerPayloadSchema {
+        name: name.to_string(),
+        shape: RunnerPayloadShape::Enum,
+        fields: Vec::new(),
+        values: values.into_iter().map(str::to_string).collect(),
+    }
+}
+
+fn required(name: &'static str, value_type: &'static str) -> RunnerPayloadFieldSchema {
+    field(name, value_type, true, None)
+}
+
+fn optional(name: &'static str, value_type: &'static str) -> RunnerPayloadFieldSchema {
+    field(name, value_type, false, Some("null"))
+}
+
+fn defaulted(
+    name: &'static str,
+    value_type: &'static str,
+    default: &'static str,
+) -> RunnerPayloadFieldSchema {
+    field(name, value_type, false, Some(default))
+}
+
+fn field(
+    name: &'static str,
+    value_type: &'static str,
+    required: bool,
+    default: Option<&'static str>,
+) -> RunnerPayloadFieldSchema {
+    RunnerPayloadFieldSchema {
+        name: name.to_string(),
+        value_type: value_type.to_string(),
+        required,
+        default: default.map(str::to_string),
     }
 }

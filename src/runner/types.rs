@@ -370,6 +370,7 @@ pub struct RunnerProtocolSchema {
     pub requests: Vec<RunnerMethodSchema>,
     pub callbacks: Vec<RunnerMethodSchema>,
     pub notifications: Vec<RunnerMethodSchema>,
+    pub definitions: Vec<RunnerPayloadSchema>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -379,6 +380,45 @@ pub struct RunnerMethodSchema {
     pub direction: RunnerMessageDirection,
     pub status: RunnerMethodStatus,
     pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<RunnerPayloadRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<RunnerPayloadRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerPayloadRef {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerPayloadSchema {
+    pub name: String,
+    pub shape: RunnerPayloadShape,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<RunnerPayloadFieldSchema>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerPayloadFieldSchema {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub value_type: String,
+    pub required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunnerPayloadShape {
+    Object,
+    Enum,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

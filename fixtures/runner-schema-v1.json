@@ -6,79 +6,151 @@
       "method": "runner.handshake",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Negotiate protocol version and capabilities."
+      "summary": "Negotiate protocol version and capabilities.",
+      "params": {
+        "name": "RunnerHandshakeParams"
+      },
+      "result": {
+        "name": "RunnerHandshakeResult"
+      }
     },
     {
       "method": "runner.check",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Return local runner diagnostics."
+      "summary": "Return local runner diagnostics.",
+      "result": {
+        "name": "RunnerCheckResult"
+      }
     },
     {
       "method": "runner.schema.export",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Return protocol method metadata for SDK validation."
+      "summary": "Return protocol method metadata for SDK validation.",
+      "result": {
+        "name": "RunnerProtocolSchema"
+      }
     },
     {
       "method": "run.start",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Start a review run."
+      "summary": "Start a review run.",
+      "params": {
+        "name": "RunStartParams"
+      },
+      "result": {
+        "name": "RunnerRunResult"
+      }
     },
     {
       "method": "run.cancel",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Cancel an active review run."
+      "summary": "Cancel an active review run.",
+      "params": {
+        "name": "RunLookupParams"
+      },
+      "result": {
+        "name": "RunCancelResult"
+      }
     },
     {
       "method": "run.status",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Read active run status."
+      "summary": "Read active run status.",
+      "params": {
+        "name": "RunLookupParams"
+      },
+      "result": {
+        "name": "RunStatusResult"
+      }
     },
     {
       "method": "run.result",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Read final run report."
+      "summary": "Read final run report.",
+      "params": {
+        "name": "RunLookupParams"
+      },
+      "result": {
+        "name": "RunnerRunResult"
+      }
     },
     {
       "method": "artifact.read",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Read one redacted or raw artifact."
+      "summary": "Read one redacted or raw artifact.",
+      "params": {
+        "name": "ArtifactReadParams"
+      },
+      "result": {
+        "name": "RunnerArtifactReadResult"
+      }
     },
     {
       "method": "artifact.export",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Export artifacts using a policy."
+      "summary": "Export artifacts using a policy.",
+      "params": {
+        "name": "ArtifactExportParams"
+      },
+      "result": {
+        "name": "RunnerArtifactExportResult"
+      }
     },
     {
       "method": "snapshot.readText",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Read captured snapshot text."
+      "summary": "Read captured snapshot text.",
+      "params": {
+        "name": "SnapshotReadTextParams"
+      },
+      "result": {
+        "name": "RunnerSnapshotTextResult"
+      }
     },
     {
       "method": "webhook.github.handle",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Verify and schedule a GitHub webhook delivery."
+      "summary": "Verify and schedule a GitHub webhook delivery.",
+      "params": {
+        "name": "WebhookHandleParams"
+      },
+      "result": {
+        "name": "ReviewHttpResponse"
+      }
     },
     {
       "method": "webhook.gitlab.handle",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Verify and schedule a GitLab webhook delivery."
+      "summary": "Verify and schedule a GitLab webhook delivery.",
+      "params": {
+        "name": "WebhookHandleParams"
+      },
+      "result": {
+        "name": "ReviewHttpResponse"
+      }
     },
     {
       "method": "worker.runOnce",
       "direction": "sdk_to_runner",
       "status": "implemented",
-      "summary": "Claim and execute ready durable review sessions through the Rust worker."
+      "summary": "Claim and execute ready durable review sessions through the Rust worker.",
+      "params": {
+        "name": "WorkerRunOnceParams"
+      },
+      "result": {
+        "name": "WorkerRunOnceResult"
+      }
     }
   ],
   "callbacks": [
@@ -86,13 +158,25 @@
       "method": "model.complete",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Ask the SDK model adapter for one model turn."
+      "summary": "Ask the SDK model adapter for one model turn.",
+      "params": {
+        "name": "RunnerModelCompleteParams"
+      },
+      "result": {
+        "name": "RunnerModelCompleteResult"
+      }
     },
     {
       "method": "tool.execute",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Ask the SDK to execute a host custom tool."
+      "summary": "Ask the SDK to execute a host custom tool.",
+      "params": {
+        "name": "RunnerToolExecuteParams"
+      },
+      "result": {
+        "name": "RunnerToolExecuteResult"
+      }
     }
   ],
   "notifications": [
@@ -100,25 +184,1538 @@
       "method": "event.review",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Emit one host-facing review event."
+      "summary": "Emit one host-facing review event.",
+      "params": {
+        "name": "ReviewEventRecord"
+      }
     },
     {
       "method": "event.runtime",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Emit one advanced runtime event."
+      "summary": "Emit one advanced runtime event.",
+      "params": {
+        "name": "RuntimeEventRecord"
+      }
     },
     {
       "method": "run.finished",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Notify that a run reached a terminal state."
+      "summary": "Notify that a run reached a terminal state.",
+      "params": {
+        "name": "RunnerRunResult"
+      }
     },
     {
       "method": "run.failed",
       "direction": "runner_to_sdk",
       "status": "implemented",
-      "summary": "Notify that a run failed before producing a report."
+      "summary": "Notify that a run failed before producing a report.",
+      "params": {
+        "name": "RunFailedNotification"
+      }
+    }
+  ],
+  "definitions": [
+    {
+      "name": "RunnerHandshakeParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "clientName",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "clientVersion",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerHandshakeResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runnerName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runnerVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "capabilities",
+          "type": "RunnerCapabilities",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerCapabilities",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "supportedMethods",
+          "type": "string[]",
+          "required": true
+        },
+        {
+          "name": "plannedMethods",
+          "type": "string[]",
+          "required": true
+        },
+        {
+          "name": "transports",
+          "type": "string[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerCheckResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runnerName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runnerVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "rustPackage",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerProtocolSchema",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "schemaVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "transport",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "requests",
+          "type": "RunnerMethodSchema[]",
+          "required": true
+        },
+        {
+          "name": "callbacks",
+          "type": "RunnerMethodSchema[]",
+          "required": true
+        },
+        {
+          "name": "notifications",
+          "type": "RunnerMethodSchema[]",
+          "required": true
+        },
+        {
+          "name": "definitions",
+          "type": "RunnerPayloadSchema[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerMethodSchema",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "method",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "direction",
+          "type": "RunnerMessageDirection",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "RunnerMethodStatus",
+          "required": true
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "params",
+          "type": "RunnerPayloadRef",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "result",
+          "type": "RunnerPayloadRef",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerPayloadRef",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerPayloadSchema",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "shape",
+          "type": "RunnerPayloadShape",
+          "required": true
+        },
+        {
+          "name": "fields",
+          "type": "RunnerPayloadFieldSchema[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "values",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        }
+      ]
+    },
+    {
+      "name": "RunnerPayloadFieldSchema",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "required",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "default",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerMessageDirection",
+      "shape": "enum",
+      "values": [
+        "sdk_to_runner",
+        "runner_to_sdk"
+      ]
+    },
+    {
+      "name": "RunnerMethodStatus",
+      "shape": "enum",
+      "values": [
+        "implemented",
+        "reserved"
+      ]
+    },
+    {
+      "name": "RunnerPayloadShape",
+      "shape": "enum",
+      "values": [
+        "object",
+        "enum"
+      ]
+    },
+    {
+      "name": "RunStartParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "source",
+          "type": "ReviewSource",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "sourceProvider",
+          "type": "RunSourceProviderParams",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "changedFiles",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "sessions",
+          "type": "RunSessionParams[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "limits",
+          "type": "RunLimitParams",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "model",
+          "type": "RunModelParams",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "tools",
+          "type": "RunToolParams[]",
+          "required": false,
+          "default": "[]"
+        }
+      ]
+    },
+    {
+      "name": "ReviewSource",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "type",
+          "type": "local | github_pull_request | gitlab_merge_request",
+          "required": true
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "changedFiles",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "number",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunSourceProviderParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "baseUrl",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunModelParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "callback",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        }
+      ]
+    },
+    {
+      "name": "RunToolParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "parameters",
+          "type": "json",
+          "required": true
+        },
+        {
+          "name": "cacheable",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        }
+      ]
+    },
+    {
+      "name": "RunSessionParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "role",
+          "type": "Role",
+          "required": false,
+          "default": "generalist"
+        },
+        {
+          "name": "objective",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "cwd",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "modelProfileId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "budget",
+          "type": "RunAgentBudgetParams",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "Role",
+      "shape": "enum",
+      "values": [
+        "generalist",
+        "security",
+        "performance",
+        "maintainability",
+        "correctness",
+        "architecture",
+        "validator"
+      ]
+    },
+    {
+      "name": "RunAgentBudgetParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxTurns",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxToolCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxPromptTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxOutputTokens",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunLimitParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxActiveSessions",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxFileBytes",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxSearchMatches",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunLookupParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ArtifactReadParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "view",
+          "type": "RunnerArtifactView",
+          "required": false,
+          "default": "redacted"
+        }
+      ]
+    },
+    {
+      "name": "ArtifactExportParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "artifactIds",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "view",
+          "type": "RunnerArtifactView",
+          "required": false,
+          "default": "redacted"
+        },
+        {
+          "name": "maxArtifacts",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxBytes",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerArtifactView",
+      "shape": "enum",
+      "values": [
+        "redacted",
+        "raw"
+      ]
+    },
+    {
+      "name": "SnapshotReadTextParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "maxBytes",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "WebhookHandleParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "workspaceId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "headers",
+          "type": "object<string,string>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "secret",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "options",
+          "type": "WebhookReviewOptions",
+          "required": false,
+          "default": "{}"
+        }
+      ]
+    },
+    {
+      "name": "WebhookReviewOptions",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "reviewOptions",
+          "type": "ReviewOptions",
+          "required": false,
+          "default": "{}"
+        }
+      ]
+    },
+    {
+      "name": "WorkerRunOnceParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "workerId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxSessions",
+          "type": "integer",
+          "required": false,
+          "default": "1"
+        },
+        {
+          "name": "hostConfig",
+          "type": "HostConfiguration",
+          "required": false,
+          "default": "{}"
+        }
+      ]
+    },
+    {
+      "name": "HostConfiguration",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "scheduling",
+          "type": "HostSchedulingConfiguration",
+          "required": false,
+          "default": "default"
+        }
+      ]
+    },
+    {
+      "name": "HostSchedulingConfiguration",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "leaseSeconds",
+          "type": "integer",
+          "required": false,
+          "default": "60"
+        },
+        {
+          "name": "defaultRetryPolicy",
+          "type": "ReviewRetryPolicy",
+          "required": false,
+          "default": "default"
+        },
+        {
+          "name": "concurrency",
+          "type": "ReviewWorkerConcurrencyLimits",
+          "required": false,
+          "default": "default"
+        },
+        {
+          "name": "fairness",
+          "type": "SchedulingFairnessStrategy",
+          "required": false,
+          "default": "fifo"
+        }
+      ]
+    },
+    {
+      "name": "SchedulingFairnessStrategy",
+      "shape": "enum",
+      "values": [
+        "fifo",
+        "round_robin_by_workspace"
+      ]
+    },
+    {
+      "name": "ReviewRetryPolicy",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxAttempts",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "initialBackoffSeconds",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxBackoffSeconds",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ReviewWorkerConcurrencyLimits",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxRunningGlobal",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxRunningPerWorkspace",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxRunningPerUser",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxRunningPerModelProfile",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxRunningPerProviderProfile",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "WorkerRunOnceResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "workerId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "claimed",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "completed",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "retried",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "failed",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "skipped",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunStatusResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunCancelResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "cancelled",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerRunResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "summary",
+          "type": "RunnerRunSummary",
+          "required": true
+        },
+        {
+          "name": "findings",
+          "type": "RunnerFinding[]",
+          "required": true
+        },
+        {
+          "name": "snapshots",
+          "type": "RunnerSnapshotSummary[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerRunSummary",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "sessions",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "completedSessions",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "modelCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "toolCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "findings",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "publishableFindings",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "elapsedMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "inputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "outputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "totalTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "artifacts",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "artifactBytes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "snapshotCount",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerFinding",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "claim",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "evidenceCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "publishable",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerSnapshotSummary",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "files",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "changedFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "capturedFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "capturedBytes",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerArtifact",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "bytes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "contentHash",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerArtifactReadResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "view",
+          "type": "RunnerArtifactView",
+          "required": true
+        },
+        {
+          "name": "artifact",
+          "type": "RunnerArtifact",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerArtifactExportResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "view",
+          "type": "RunnerArtifactView",
+          "required": true
+        },
+        {
+          "name": "artifactCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "totalBytes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "artifacts",
+          "type": "RunnerArtifact[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerSnapshotTextResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "contentHash",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "bytes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "truncated",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ReviewHttpResponse",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "statusCode",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "headers",
+          "type": "object<string,string>",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ReviewEventRecord",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "seq",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "timestampUtc",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "turn",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "toolCallId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "findingId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "event",
+          "type": "ReviewEvent",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RuntimeEventRecord",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "seq",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "timestampUtc",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "context",
+          "type": "RuntimeEventContext",
+          "required": true
+        },
+        {
+          "name": "event",
+          "type": "RuntimeEvent",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunFailedNotification",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "error",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerModelCompleteParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "role",
+          "type": "Role",
+          "required": true
+        },
+        {
+          "name": "objective",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "modelProfileId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "turn",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "transcript",
+          "type": "json[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerModelCompleteResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "content",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "toolCalls",
+          "type": "RunnerModelToolCallResult[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "usage",
+          "type": "RunnerTokenUsage",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerModelToolCallResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "callId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "toolId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "arguments",
+          "type": "json",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerTokenUsage",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "inputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "outputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "totalTokens",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerToolExecuteParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "turn",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "callId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "toolId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "providerResources",
+          "type": "string[]",
+          "required": true
+        },
+        {
+          "name": "arguments",
+          "type": "json",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerToolExecuteResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "data",
+          "type": "json",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "artifact",
+          "type": "RunnerToolArtifactResult",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerToolArtifactResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "key",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true
+        }
+      ]
     }
   ]
 }
