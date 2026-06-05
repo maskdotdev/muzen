@@ -89,6 +89,8 @@ Implemented now:
   secret references instead of raw credentials.
 - Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
   delivery JSON, and framework-agnostic HTTP/SSE response helpers.
+- Rust framework-neutral remote HTTP router for review creation, events,
+  results, artifacts, workspace profiles, and provider webhooks.
 - TypeScript SDK local preview over `muzen-runner`.
 - TypeScript local webhook request facade:
   `createMuzen(...).webhooks.github.response(request)`.
@@ -106,7 +108,7 @@ Still in progress:
 - Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
 - The high-level TypeScript worker facade: `muzen.workers.start()`.
-- A bound Rust web server/router around the core HTTP/SSE response primitives.
+- A concrete Rust HTTP listener/framework adapter around the core router.
 
 ## Local Preview
 

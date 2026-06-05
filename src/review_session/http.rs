@@ -8,8 +8,13 @@ use super::{
 
 pub const HTTP_STATUS_OK: u16 = 200;
 pub const HTTP_STATUS_ACCEPTED: u16 = 202;
+pub const HTTP_STATUS_NO_CONTENT: u16 = 204;
+pub const HTTP_STATUS_BAD_REQUEST: u16 = 400;
+pub const HTTP_STATUS_NOT_FOUND: u16 = 404;
+pub const HTTP_STATUS_METHOD_NOT_ALLOWED: u16 = 405;
 pub const CONTENT_TYPE_JSON: &str = "application/json";
 pub const CONTENT_TYPE_EVENT_STREAM: &str = "text/event-stream";
+pub const CONTENT_TYPE_TEXT: &str = "text/plain; charset=utf-8";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +30,14 @@ impl ReviewHttpResponse {
             ReviewSessionError::Http(format!("failed to serialize JSON response: {error}"))
         })?;
         Ok(Self::with_body(status_code, CONTENT_TYPE_JSON, body))
+    }
+
+    pub fn empty(status_code: u16) -> Self {
+        Self {
+            status_code,
+            headers: BTreeMap::new(),
+            body: String::new(),
+        }
     }
 
     pub fn event_stream(stream: &ReviewSseStream) -> Self {
@@ -46,7 +59,7 @@ impl ReviewHttpResponse {
         self.headers.get(name).map(String::as_str)
     }
 
-    fn with_body(status_code: u16, content_type: &str, body: String) -> Self {
+    pub fn with_body(status_code: u16, content_type: &str, body: String) -> Self {
         let mut headers = BTreeMap::new();
         headers.insert("Content-Type".to_string(), content_type.to_string());
         Self {

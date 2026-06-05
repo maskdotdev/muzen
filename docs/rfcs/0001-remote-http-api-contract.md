@@ -10,6 +10,15 @@ friendly SDK surface.
 Clients may send `Authorization: Bearer <token>`. The host decides how tokens
 map to users, workspaces, and allowed profile access.
 
+## Rust Router Binding
+
+Rust core exposes a framework-neutral `ReviewHttpRouter` that accepts a
+`ReviewHttpRequest` and returns a `ReviewHttpResponse`. The router covers the
+contract routes below without depending on Axum, Actix, Hyper, or another
+framework. Concrete hosts are responsible for adapting framework request and
+response types, authenticating callers, resolving webhook secrets, and choosing
+the production session/profile stores.
+
 ## Create Review
 
 `POST /v1/reviews`

@@ -83,7 +83,7 @@ completed:
 - local and remote webhook response facades are implemented for GitHub and
   GitLab;
 - production database persistence, provider materialization for local provider
-  sources, a bound Rust web server/router, and the high-level
+  sources, a concrete Rust HTTP listener/framework adapter, and the high-level
   `muzen.workers.start()` facade remain future production work.
 
 See the repository root README and

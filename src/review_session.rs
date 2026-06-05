@@ -22,6 +22,7 @@ use crate::util::timestamp_utc;
 mod config;
 mod http;
 mod profiles;
+mod router;
 mod store;
 mod webhooks;
 mod worker;
@@ -29,11 +30,15 @@ mod worker;
 pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
 pub use http::{
     ReviewHttpResponse, ReviewSseFrame, ReviewSseStream, CONTENT_TYPE_EVENT_STREAM,
-    CONTENT_TYPE_JSON, HTTP_STATUS_ACCEPTED, HTTP_STATUS_OK,
+    CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT, HTTP_STATUS_ACCEPTED, HTTP_STATUS_BAD_REQUEST,
+    HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
 pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
     ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
+};
+pub use router::{
+    ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
 };
 pub use store::{
     InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
@@ -261,6 +266,7 @@ impl From<&Path> for ReviewSourceLike {
     }
 }
 
+#[derive(Clone)]
 pub struct Muzen {
     next_review_id: Arc<AtomicU64>,
     store: Arc<dyn ReviewSessionStore>,
@@ -315,6 +321,31 @@ impl Muzen {
         options: ReviewOptions,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.create_review_session(CreateReviewSessionInput::with_options(source, options)?)
+    }
+
+    pub fn schedule_review(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        self.schedule_review_with_options(source, ReviewOptions::default())
+    }
+
+    pub fn schedule_review_with_options(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+        options: ReviewOptions,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        let source = source.into().resolve()?;
+        let input = CreateReviewSessionInput { source, options };
+        let dedupe_key = input.options.dedupe_key(&input.source);
+        if let Some(dedupe_key) = &dedupe_key {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+                return Ok(ReviewSession::from_record(record));
+            }
+        }
+        let review = ReviewSession::queued(self.next_review_id(), input);
+        self.store.insert(review.to_record(dedupe_key, None))?;
+        Ok(review)
     }
 
     pub fn create_review_session(
@@ -2696,6 +2727,188 @@ mod tests {
             "data: {\"cursor\":\"1\",\"type\":\"session.queued\",\"reviewId\":\"review-1\""
         ));
         assert!(response.body.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn review_http_router_schedules_root_review_and_replays_events() {
+        let muzen = Muzen::new();
+        let router = ReviewHttpRouter::new(muzen.clone());
+        let create_request = ReviewHttpRequest::new("POST", "/v1/reviews")
+            .json(&json!({
+                "source": {
+                    "type": "local",
+                    "repo": ".",
+                    "changedFiles": ["Cargo.toml"]
+                },
+                "options": {
+                    "dedupe": "source"
+                }
+            }))
+            .unwrap();
+
+        let create_response = router.handle(create_request);
+        let create_body: Value = serde_json::from_str(&create_response.body).unwrap();
+        let get_response = router.handle(ReviewHttpRequest::new("GET", "/v1/reviews/review-1"));
+        let get_body: Value = serde_json::from_str(&get_response.body).unwrap();
+        let events_response = router.handle(ReviewHttpRequest::new(
+            "GET",
+            "/v1/reviews/review-1/events?after=1",
+        ));
+        let events_body: Value = serde_json::from_str(&events_response.body).unwrap();
+
+        assert_eq!(create_response.status_code, HTTP_STATUS_ACCEPTED);
+        assert_eq!(
+            create_response.header("Content-Type"),
+            Some(CONTENT_TYPE_JSON)
+        );
+        assert_eq!(create_body["review"]["id"], json!("review-1"));
+        assert_eq!(create_body["review"]["status"], json!("queued"));
+        assert_eq!(create_body["review"]["source"]["type"], json!("local"));
+        assert_eq!(get_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(get_body["review"]["id"], json!("review-1"));
+        assert_eq!(events_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(events_body["events"].as_array().unwrap().len(), 0);
+
+        let record = muzen
+            .store
+            .get(&ReviewSessionId::new("review-1").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.status, ReviewStatus::Queued);
+        assert!(record.result.is_none());
+    }
+
+    #[test]
+    fn review_http_router_serves_results_and_artifacts_from_store() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let muzen = Muzen::new();
+        let review = muzen
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        let router = ReviewHttpRouter::new(muzen);
+
+        let result_response = router.handle(ReviewHttpRequest::new(
+            "GET",
+            format!("/v1/reviews/{}/result", review.id()).as_str(),
+        ));
+        let export_response = router.handle(ReviewHttpRequest::new(
+            "POST",
+            format!("/v1/reviews/{}/artifacts/export", review.id()).as_str(),
+        ));
+        let result_body: Value = serde_json::from_str(&result_response.body).unwrap();
+        let export_body: Value = serde_json::from_str(&export_response.body).unwrap();
+        let artifact_id = export_body["artifacts"][0]["artifactId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let artifact_response = router.handle(ReviewHttpRequest::new(
+            "GET",
+            format!(
+                "/v1/reviews/{}/artifacts/{}?view=redacted",
+                review.id(),
+                artifact_id
+            )
+            .as_str(),
+        ));
+        let artifact_body: Value = serde_json::from_str(&artifact_response.body).unwrap();
+
+        assert_eq!(result_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(result_body["result"]["status"], json!("completed"));
+        assert_eq!(export_response.status_code, HTTP_STATUS_OK);
+        assert!(export_body["artifactCount"].as_u64().unwrap() > 0);
+        assert_eq!(artifact_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(artifact_body["artifact"]["artifactId"], json!(artifact_id));
+    }
+
+    #[test]
+    fn review_http_router_handles_workspace_profile_routes() {
+        let router = ReviewHttpRouter::new(Muzen::new());
+        let put_model = ReviewHttpRequest::new("PUT", "/v1/workspaces/acme/models/default")
+            .json(&ModelProfileInput {
+                provider: ModelProviderKind::OpenaiCompatible,
+                model: "gpt-5".to_string(),
+                secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
+                base_url: Some("https://models.example.test".to_string()),
+                routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
+            })
+            .unwrap();
+        let put_provider = ReviewHttpRequest::new("PUT", "/v1/workspaces/acme/providers/github")
+            .json(&ProviderProfileInput {
+                provider: SourceProviderKind::Github,
+                secret_ref: Some("vault://workspaces/acme/providers/github".to_string()),
+                base_url: Some("https://api.github.com".to_string()),
+                routing: BTreeMap::new(),
+            })
+            .unwrap();
+
+        let model_response = router.handle(put_model);
+        let provider_response = router.handle(put_provider);
+        let models_response =
+            router.handle(ReviewHttpRequest::new("GET", "/v1/workspaces/acme/models"));
+        let provider_body: Value = serde_json::from_str(&provider_response.body).unwrap();
+        let models_body: Value = serde_json::from_str(&models_response.body).unwrap();
+        let missing_response = router.handle(ReviewHttpRequest::new(
+            "GET",
+            "/v1/workspaces/acme/models/missing",
+        ));
+
+        assert_eq!(model_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(provider_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(
+            provider_body["profile"]["secretRef"],
+            json!("vault://workspaces/acme/providers/github")
+        );
+        assert_eq!(models_response.status_code, HTTP_STATUS_OK);
+        assert_eq!(models_body["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(missing_response.status_code, HTTP_STATUS_NO_CONTENT);
+        assert!(missing_response.body.is_empty());
+    }
+
+    #[test]
+    fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
+        let muzen = Muzen::new();
+        let router = ReviewHttpRouter::with_options(
+            muzen.clone(),
+            ReviewHttpRouterOptions {
+                github_webhook_secret: Some("secret".to_string()),
+                gitlab_webhook_secret: None,
+            },
+        );
+        let body = json!({
+            "action": "opened",
+            "repository": {
+                "full_name": "maskdotdev/heimdaal"
+            },
+            "pull_request": {
+                "number": 123
+            }
+        })
+        .to_string();
+        let signature = github_webhook_signature("secret", body.as_bytes()).unwrap();
+        let request = ReviewHttpRequest::new("POST", "/v1/workspaces/acme/webhooks/github")
+            .header("X-GitHub-Event", "pull_request")
+            .header("X-GitHub-Delivery", "delivery-1")
+            .header("X-Hub-Signature-256", signature)
+            .body(body.into_bytes());
+
+        let response = router.handle(request);
+        let response_body: Value = serde_json::from_str(&response.body).unwrap();
+        let record = muzen
+            .store
+            .get(&ReviewSessionId::new("review-1").unwrap())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.status_code, HTTP_STATUS_ACCEPTED);
+        assert_eq!(response_body["type"], json!("review_created"));
+        assert_eq!(response_body["deliveryId"], json!("delivery-1"));
+        assert_eq!(record.workspace_id.as_deref(), Some("acme"));
+        assert_eq!(record.status, ReviewStatus::Queued);
+        assert_eq!(record.options.metadata["webhook.provider"], json!("github"));
     }
 
     #[test]

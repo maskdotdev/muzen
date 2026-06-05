@@ -61,6 +61,8 @@ pressure, and commit-sized milestones.
 - [x] Webhook helpers exist.
 - [x] Rust core exposes framework-agnostic HTTP/SSE response helpers for review
   events and webhook deliveries.
+- [x] Rust core exposes a framework-neutral remote HTTP router for the
+  documented review, event, artifact, webhook, and workspace profile routes.
 - [x] Developer docs and examples run against the implementation.
 
 ## Phase 1: Progress Control And Contract Alignment
@@ -270,6 +272,13 @@ Exit criteria:
 - [x] Add SSE event response support.
   - [x] Define SSE route contract and TypeScript remote `eventsResponse`.
   - [x] Implement service-side SSE route response helper in Rust.
+- [x] Implement a Rust remote HTTP router over the core review-session
+  contract.
+  - [x] Route review creation, lookup, result, cancellation, event replay, SSE,
+    and artifact read/export requests.
+  - [x] Route workspace review scheduling and model/provider profile APIs.
+  - [x] Route GitHub/GitLab webhooks through Rust-owned verification and source
+    mapping.
 
 Exit criteria:
 
@@ -310,6 +319,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
 | 2026-06-05 | fe46e8c | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
+| 2026-06-05 | pending | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -362,8 +372,9 @@ Record every milestone with the commands that were run.
   `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
   resume, wait for, cancel, replay events for, stream events for, and read/export
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
-  Rust core now exposes replay and SSE event responses; a bound web server/router
-  remains open.
+  Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
+  review, event, artifact, webhook, and workspace profile routes. A concrete
+  Rust HTTP listener/framework adapter remains open.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
 - The high-level `muzen.workers.start()` SDK facade remains future production
