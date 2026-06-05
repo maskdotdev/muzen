@@ -59,7 +59,7 @@ pressure, and commit-sized milestones.
 - [x] Typed source builders exist for GitHub and GitLab.
 - [x] Workspace-owned profile APIs exist.
 - [x] Webhook helpers exist.
-- [ ] Developer docs and examples run against the implementation.
+- [x] Developer docs and examples run against the implementation.
 
 ## Phase 1: Progress Control And Contract Alignment
 
@@ -293,6 +293,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | a3384a6 | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
 | 2026-06-05 | f42dbb6 | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
 | 2026-06-05 | 71ea9e9 | Python remote client and workspace review/model/provider profile APIs | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests` |
+| 2026-06-05 | pending | Docs/examples verification harness for RFC 0001 | `scripts/verify-rfc-0001-examples.sh` |
 
 ## Open Decisions
 
@@ -326,9 +327,10 @@ Record every milestone with the commands that were run.
   tokens, map supported pull/merge request events to review sources, schedule
   queued workspace reviews, and return delivery JSON bodies. SDK framework
   response helpers remain open.
-- TypeScript event and Python notebook examples are present. The TypeScript SDK
-  package build/test passes; direct one-off example typechecking still needs an
-  examples-level TypeScript project or package link.
+- TypeScript event and Python notebook examples are present. The
+  `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
+  TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,
+  executes the Python basic review example, and validates the notebook JSON.
 - The remote HTTP contract is documented in
   `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
   resume, wait for, cancel, replay events for, stream events for, and read/export
