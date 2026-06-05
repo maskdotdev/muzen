@@ -13,7 +13,7 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 9.5/10.**
+**Current score: 9.6/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
@@ -21,11 +21,11 @@ adapters, provider materialization lives in Rust, and the RFC tracker has
 reviewable milestones with broad verification.
 
 The score is not higher yet because a few newer Review Session and Python SDK
-modules remain broad at their current size. The TypeScript SDK now has clear
-factory, local adapter, remote adapter, mapping, validation, unsupported-surface,
-and shared flow modules. Python SDK orchestration and some Review Session
-test/orchestration code still ask reviewers to hold several concepts in memory
-at once.
+modules remain broader than ideal at their current size. The TypeScript SDK now
+has clear factory, local adapter, remote adapter, mapping, validation,
+unsupported-surface, and shared flow modules. The Python SDK now has a separate
+remote service adapter, but local runner behavior still shares the public client
+module.
 
 The Runner Protocol schema now includes method-level payload references and a
 shared definition catalog consumed by Rust, TypeScript, and Python tests. This
@@ -61,6 +61,8 @@ only.
 - The TypeScript SDK has separate public factory, local runner adapter, remote
   service adapter, mapping, validation, unsupported-surface, and shared
   review-flow modules.
+- The Python SDK has separate runner mapping, wire validation, error, and
+  remote service adapter modules.
 - Remote HTTP routing is framework-neutral, with Axum as a concrete adapter.
 - Verification is broad: Rust tests, SDK tests, runner-backed tests, service
   builds, and RFC example checks.
@@ -86,9 +88,11 @@ only.
    validation live in their own helpers, and unsupported preview surfaces are
    isolated.
 
-4. **Python SDK mirrors the same concentration.**
+4. **Python SDK local runner behavior still shares the public client module.**
    [sdk/python/muzen/client.py](/Users/e464543/code/muzen/sdk/python/muzen/client.py)
-   has similar locality pressure, though at a smaller scale.
+   now delegates remote service behavior to `remote.py`, but still owns public
+   factories, local runner sessions, local workspace behavior, and unsupported
+   preview surfaces.
 
 5. **Runner protocol contract is explicit but hand-maintained.**
    The schema fixture now guards method drift and payload shape drift, but the
@@ -264,7 +268,8 @@ Expected score lift: **+0.3**.
    preview surfaces are separated.
 
 5. **Python SDK split.**
-   Mirror the SDK adapter separation once TypeScript shape is stable.
+   Remote service adapter extracted in `488032e`; a future local-runner adapter
+   extraction would complete symmetry with the TypeScript SDK.
 
 6. **Wire contract deepening.**
    Done in `575d728`: payload shape metadata is in the runner schema fixture
@@ -288,13 +293,14 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | 575d728 | 9.3 | Add first-class Runner Protocol payload definitions and shared SDK fixture checks | `cargo fmt --check`; `cargo test runner --lib`; `cargo build --lib`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset); `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | a011c35 | 9.4 | Extract TypeScript remote service adapter, shared review-flow helpers, unsupported preview surfaces, and SDK error type from public/local orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | e07d4cc | 9.5 | Extract TypeScript local runner adapter from public factory module, completing the SDK local/remote split | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | 488032e | 9.6 | Extract Python remote service adapter and unsupported-feature error from public/local client module | `python3 -m py_compile muzen/*.py`; `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 
 ## Current Target
 
-Target score after the next practical slices: **9.6/10**.
+Target score after the next practical slices: **9.7/10**.
 
-The remaining 0.4 depends on production integration evidence that should happen
+The remaining 0.3 depends on production integration evidence that should happen
 in deployment CI: live Postgres, live provider materialization, and any future
-host-specific model/tool callback ergonomics. Additional Python adapter
-separation can still improve review locality before that deployment evidence
+host-specific model/tool callback ergonomics. Extracting the Python local-runner
+adapter can still improve review locality before that deployment evidence
 exists.
