@@ -256,10 +256,12 @@ Exit criteria:
 
 - [x] Implement GitHub webhook verification and source mapping.
 - [x] Implement GitLab webhook verification and source mapping.
-- [ ] Implement webhook response helpers.
+- [x] Implement webhook response helpers.
   - [x] Add Rust delivery JSON response body helper.
   - [x] Add Rust framework-agnostic HTTP response helper.
-  - [ ] Add framework-facing SDK response helpers.
+  - [x] Add framework-facing SDK response helpers.
+- [ ] Implement high-level SDK webhook request handlers.
+  - [ ] Add TypeScript `muzen.webhooks.github.response(request)` facade.
 - [x] Define remote HTTP API contract.
 - [x] Implement `createMuzenClient({ baseUrl })`.
 - [x] Add SSE event response support.
@@ -298,6 +300,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 71ea9e9 | Python remote client and workspace review/model/provider profile APIs | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests` |
 | 2026-06-05 | 6b51700 | Docs/examples verification harness for RFC 0001 | `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | d90e6f7 | Rust review HTTP/SSE response core for webhook deliveries and event replay/stream routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | 5378435 | TypeScript and Python webhook delivery response helpers | `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | README aligned to the intended production SDK flow while labeling preview gaps | Documentation-only commit |
 
 ## Open Decisions
 
@@ -330,7 +334,9 @@ Record every milestone with the commands that were run.
 - Rust webhook helpers verify GitHub HMAC-SHA256 signatures and GitLab webhook
   tokens, map supported pull/merge request events to review sources, schedule
   queued workspace reviews, and return delivery JSON bodies plus
-  framework-agnostic HTTP responses. SDK framework response helpers remain open.
+  framework-agnostic HTTP responses. TypeScript and Python SDK response helpers
+  now turn webhook deliveries into framework-facing HTTP responses. The
+  high-level `muzen.webhooks.github.response(request)` SDK facade remains open.
 - TypeScript event and Python notebook examples are present. The
   `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
   TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,
