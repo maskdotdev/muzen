@@ -19,8 +19,13 @@ use crate::runner::{
 };
 use crate::util::timestamp_utc;
 
+mod profiles;
 mod store;
 
+pub use profiles::{
+    InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
+    ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
+};
 pub use store::{InMemoryReviewSessionStore, ReviewSessionRecord, ReviewSessionStore};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -44,6 +49,8 @@ pub enum ReviewSessionError {
     ArtifactLimitExceeded { kind: String },
     #[error("review session store error: {0}")]
     Store(String),
+    #[error("workspace profile error: {0}")]
+    Profile(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,8 +238,9 @@ impl From<&Path> for ReviewSourceLike {
 }
 
 pub struct Muzen {
-    next_review_id: AtomicU64,
+    next_review_id: Arc<AtomicU64>,
     store: Arc<dyn ReviewSessionStore>,
+    profile_store: Arc<dyn WorkspaceProfileStore>,
 }
 
 impl std::fmt::Debug for Muzen {
@@ -249,13 +257,24 @@ impl std::fmt::Debug for Muzen {
 
 impl Muzen {
     pub fn new() -> Self {
-        Self::with_store(Arc::new(InMemoryReviewSessionStore::default()))
+        Self::with_stores(
+            Arc::new(InMemoryReviewSessionStore::default()),
+            Arc::new(InMemoryWorkspaceProfileStore::default()),
+        )
     }
 
     pub fn with_store(store: Arc<dyn ReviewSessionStore>) -> Self {
+        Self::with_stores(store, Arc::new(InMemoryWorkspaceProfileStore::default()))
+    }
+
+    pub fn with_stores(
+        store: Arc<dyn ReviewSessionStore>,
+        profile_store: Arc<dyn WorkspaceProfileStore>,
+    ) -> Self {
         Self {
-            next_review_id: AtomicU64::new(1),
+            next_review_id: Arc::new(AtomicU64::new(1)),
             store,
+            profile_store,
         }
     }
 
@@ -289,6 +308,15 @@ impl Muzen {
         Ok(review)
     }
 
+    pub fn workspace(&self, id: impl Into<String>) -> MuzenWorkspace {
+        MuzenWorkspace {
+            id: id.into(),
+            next_review_id: self.next_review_id.clone(),
+            store: self.store.clone(),
+            profile_store: self.profile_store.clone(),
+        }
+    }
+
     fn next_review_id(&self) -> ReviewSessionId {
         let id = self.next_review_id.fetch_add(1, Ordering::SeqCst);
         ReviewSessionId(format!("review-{id}"))
@@ -301,6 +329,165 @@ impl Default for Muzen {
     }
 }
 
+#[derive(Clone)]
+pub struct MuzenWorkspace {
+    id: String,
+    next_review_id: Arc<AtomicU64>,
+    store: Arc<dyn ReviewSessionStore>,
+    profile_store: Arc<dyn WorkspaceProfileStore>,
+}
+
+impl std::fmt::Debug for MuzenWorkspace {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MuzenWorkspace")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl MuzenWorkspace {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn review(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        self.review_with_options(source, ReviewOptions::default())
+    }
+
+    pub fn review_with_options(
+        &self,
+        source: impl Into<ReviewSourceLike>,
+        mut options: ReviewOptions,
+    ) -> Result<ReviewSession, ReviewSessionError> {
+        let source = source.into().resolve()?;
+        options.config_snapshot =
+            Some(self.effective_config_snapshot(&source, options.model.as_deref())?);
+        let input = CreateReviewSessionInput { source, options };
+        let dedupe_key = input.options.dedupe_key(&input.source);
+        if let Some(dedupe_key) = &dedupe_key {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+                return Ok(ReviewSession::from_record(record));
+            }
+        }
+        let review = ReviewSession::execute_local(self.next_review_id(), input)?;
+        self.store.insert(review.to_record(dedupe_key))?;
+        Ok(review)
+    }
+
+    pub fn effective_config_snapshot(
+        &self,
+        source: &ReviewSource,
+        model: Option<&str>,
+    ) -> Result<EffectiveConfigSnapshot, ReviewSessionError> {
+        let model_profile = self
+            .selected_model_profile(model)?
+            .map(|profile| profile.version_ref());
+        let provider_profile = self
+            .source_provider_profile(source)?
+            .map(|profile| profile.version_ref());
+        let mut routing = BTreeMap::new();
+        if let Some(profile) = self.selected_model_profile(model)? {
+            routing.insert(
+                "model.provider".to_string(),
+                profile.provider.as_str().to_string(),
+            );
+            routing.insert("model.name".to_string(), profile.model);
+            if let Some(base_url) = profile.base_url {
+                routing.insert("model.baseUrl".to_string(), base_url);
+            }
+            for (key, value) in profile.routing {
+                routing.insert(format!("model.routing.{key}"), value);
+            }
+        }
+        if let Some(profile) = self.source_provider_profile(source)? {
+            routing.insert(
+                "provider.kind".to_string(),
+                profile.provider.as_str().to_string(),
+            );
+            if let Some(base_url) = profile.base_url {
+                routing.insert("provider.baseUrl".to_string(), base_url);
+            }
+            for (key, value) in profile.routing {
+                routing.insert(format!("provider.routing.{key}"), value);
+            }
+        }
+        Ok(EffectiveConfigSnapshot {
+            model_profile,
+            provider_profile,
+            routing,
+        })
+    }
+
+    pub fn set_model_profile(
+        &self,
+        name: impl Into<String>,
+        input: ModelProfileInput,
+    ) -> Result<ModelProfile, ReviewSessionError> {
+        self.profile_store
+            .set_model_profile(&self.id, name.into(), input)
+    }
+
+    pub fn get_model_profile(
+        &self,
+        name: &str,
+    ) -> Result<Option<ModelProfile>, ReviewSessionError> {
+        self.profile_store.get_model_profile(&self.id, name)
+    }
+
+    pub fn list_model_profiles(&self) -> Result<Vec<ModelProfile>, ReviewSessionError> {
+        self.profile_store.list_model_profiles(&self.id)
+    }
+
+    pub fn set_provider_profile(
+        &self,
+        name: impl Into<String>,
+        input: ProviderProfileInput,
+    ) -> Result<ProviderProfile, ReviewSessionError> {
+        self.profile_store
+            .set_provider_profile(&self.id, name.into(), input)
+    }
+
+    pub fn get_provider_profile(
+        &self,
+        name: &str,
+    ) -> Result<Option<ProviderProfile>, ReviewSessionError> {
+        self.profile_store.get_provider_profile(&self.id, name)
+    }
+
+    pub fn list_provider_profiles(&self) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
+        self.profile_store.list_provider_profiles(&self.id)
+    }
+
+    fn next_review_id(&self) -> ReviewSessionId {
+        let id = self.next_review_id.fetch_add(1, Ordering::SeqCst);
+        ReviewSessionId(format!("review-{id}"))
+    }
+
+    fn selected_model_profile(
+        &self,
+        model: Option<&str>,
+    ) -> Result<Option<ModelProfile>, ReviewSessionError> {
+        let name = model.unwrap_or("default");
+        self.profile_store.get_model_profile(&self.id, name)
+    }
+
+    fn source_provider_profile(
+        &self,
+        source: &ReviewSource,
+    ) -> Result<Option<ProviderProfile>, ReviewSessionError> {
+        let name = match source {
+            ReviewSource::GithubPullRequest { .. } => "github",
+            ReviewSource::GitlabMergeRequest { .. } => "gitlab",
+            ReviewSource::Local { .. } => return Ok(None),
+        };
+        self.profile_store.get_provider_profile(&self.id, name)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ReviewSession {
     id: ReviewSessionId,
@@ -310,6 +497,7 @@ pub struct ReviewSession {
     result: Option<ReviewResult>,
     redacted_artifacts: Vec<ReviewArtifact>,
     raw_artifacts: Vec<ReviewArtifact>,
+    config_snapshot: Option<EffectiveConfigSnapshot>,
 }
 
 impl ReviewSession {
@@ -318,6 +506,7 @@ impl ReviewSession {
         input: CreateReviewSessionInput,
     ) -> Result<Self, ReviewSessionError> {
         let source = input.source.clone();
+        let config_snapshot = input.options.config_snapshot.clone();
         let start = input.into_runner_start(&id)?;
         let executed = execute_run_start(start, None)
             .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
@@ -348,6 +537,7 @@ impl ReviewSession {
             result: Some(result),
             redacted_artifacts,
             raw_artifacts,
+            config_snapshot,
         })
     }
 
@@ -360,6 +550,7 @@ impl ReviewSession {
             result: record.result,
             redacted_artifacts: record.redacted_artifacts,
             raw_artifacts: record.raw_artifacts,
+            config_snapshot: record.config_snapshot,
         }
     }
 
@@ -372,6 +563,7 @@ impl ReviewSession {
             events: self.events.clone(),
             redacted_artifacts: self.redacted_artifacts.clone(),
             raw_artifacts: self.raw_artifacts.clone(),
+            config_snapshot: self.config_snapshot.clone(),
             dedupe_key,
             created_at_utc: timestamp_utc(),
             updated_at_utc: timestamp_utc(),
@@ -388,6 +580,10 @@ impl ReviewSession {
 
     pub fn source(&self) -> &ReviewSource {
         &self.source
+    }
+
+    pub fn config_snapshot(&self) -> Option<&EffectiveConfigSnapshot> {
+        self.config_snapshot.as_ref()
     }
 
     pub fn subscribe(&self, mut listener: impl FnMut(&ReviewEvent)) {
@@ -1616,5 +1812,160 @@ mod tests {
         assert_eq!(record.events.last(), Some(&extra_event));
         assert_eq!(record.status, ReviewStatus::Completed);
         assert!(record.result.is_some());
+    }
+
+    #[test]
+    fn workspace_profiles_set_get_list_and_version() {
+        let workspace = Muzen::new().workspace("acme");
+
+        let first = workspace
+            .set_model_profile(
+                "default",
+                ModelProfileInput {
+                    provider: ModelProviderKind::OpenaiCompatible,
+                    model: "gpt-5".to_string(),
+                    secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
+                    base_url: Some("https://models.example.test".to_string()),
+                    routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
+                },
+            )
+            .unwrap();
+        let second = workspace
+            .set_model_profile(
+                "default",
+                ModelProfileInput {
+                    provider: ModelProviderKind::OpenaiCompatible,
+                    model: "gpt-5.1".to_string(),
+                    secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
+                    base_url: Some("https://models.example.test".to_string()),
+                    routing: BTreeMap::new(),
+                },
+            )
+            .unwrap();
+        let provider = workspace
+            .set_provider_profile(
+                "github",
+                ProviderProfileInput {
+                    provider: SourceProviderKind::Github,
+                    secret_ref: Some("vault://workspaces/acme/providers/github".to_string()),
+                    base_url: Some("https://api.github.com".to_string()),
+                    routing: BTreeMap::new(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(first.version, "1");
+        assert_eq!(second.version, "2");
+        assert_eq!(provider.version, "1");
+        assert_eq!(
+            workspace
+                .get_model_profile("default")
+                .unwrap()
+                .unwrap()
+                .model,
+            "gpt-5.1"
+        );
+        assert_eq!(workspace.list_model_profiles().unwrap().len(), 1);
+        assert_eq!(workspace.list_provider_profiles().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
+        let session_store = Arc::new(InMemoryReviewSessionStore::default());
+        let profile_store = Arc::new(InMemoryWorkspaceProfileStore::default());
+        let muzen = Muzen::with_stores(session_store.clone(), profile_store);
+        let workspace = muzen.workspace("acme");
+        workspace
+            .set_model_profile(
+                "default",
+                ModelProfileInput {
+                    provider: ModelProviderKind::OpenaiCompatible,
+                    model: "gpt-5".to_string(),
+                    secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
+                    base_url: Some("https://models.example.test".to_string()),
+                    routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
+                },
+            )
+            .unwrap();
+
+        let review = workspace
+            .review(ReviewSource::local_with_changed_files(
+                repo.path(),
+                ["README.md"],
+            ))
+            .unwrap();
+        let record = session_store.get(review.id()).unwrap().unwrap();
+        let snapshot = record.config_snapshot.unwrap();
+        let serialized = serde_json::to_string(&snapshot).unwrap();
+
+        assert_eq!(
+            snapshot
+                .model_profile
+                .as_ref()
+                .map(|profile| profile.version.as_str()),
+            Some("1")
+        );
+        assert_eq!(
+            snapshot.routing.get("model.name").map(String::as_str),
+            Some("gpt-5")
+        );
+        assert_eq!(
+            snapshot
+                .routing
+                .get("model.routing.region")
+                .map(String::as_str),
+            Some("us-east")
+        );
+        assert!(serialized.contains("vault://workspaces/acme/models/default"));
+        assert!(!serialized.contains("apiKey"));
+        assert!(!serialized.contains("token"));
+        assert!(!serialized.contains("sk-live"));
+    }
+
+    #[test]
+    fn workspace_effective_snapshot_includes_source_provider_profile() {
+        let workspace = Muzen::new().workspace("acme");
+        workspace
+            .set_provider_profile(
+                "github",
+                ProviderProfileInput {
+                    provider: SourceProviderKind::Github,
+                    secret_ref: Some("vault://workspaces/acme/providers/github".to_string()),
+                    base_url: Some("https://api.github.com".to_string()),
+                    routing: BTreeMap::from([("installation".to_string(), "123".to_string())]),
+                },
+            )
+            .unwrap();
+        let source = ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap();
+
+        let snapshot = workspace.effective_config_snapshot(&source, None).unwrap();
+
+        assert_eq!(
+            snapshot
+                .provider_profile
+                .as_ref()
+                .map(|profile| profile.id.as_str()),
+            Some("workspace:acme/providers/github")
+        );
+        assert_eq!(
+            snapshot.routing.get("provider.kind").map(String::as_str),
+            Some("github")
+        );
+        assert_eq!(
+            snapshot
+                .routing
+                .get("provider.routing.installation")
+                .map(String::as_str),
+            Some("123")
+        );
+        assert_eq!(
+            snapshot
+                .provider_profile
+                .as_ref()
+                .and_then(|profile| profile.secret_ref.as_deref()),
+            Some("vault://workspaces/acme/providers/github")
+        );
     }
 }

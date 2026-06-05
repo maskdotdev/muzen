@@ -49,6 +49,8 @@ pressure, and commit-sized milestones.
   cancellation, and session snapshots using product nouns.
 - [x] Rust core maps review-session semantics onto runner execution without
   leaking runner internals into SDK contracts.
+- [x] Rust core exposes workspace-owned model and provider profile records with
+  secret-reference-only config snapshots.
 - [x] SDK-first `@muzen/sdk` package exists.
 - [x] `createMuzen()` works end to end against `muzen-runner`.
 - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
@@ -224,12 +226,13 @@ Exit criteria:
 ## Phase 9: Workspace-Owned Configuration And BYOK
 
 - [ ] Define host configuration model.
-- [ ] Define workspace profile records.
-- [ ] Implement model profile set/get/list.
-- [ ] Implement provider profile set/get/list.
-- [ ] Capture effective config snapshots when scheduling reviews.
-- [ ] Store only secret references and non-secret routing metadata.
-- [ ] Add redaction tests for records, events, logs, and results.
+- [x] Define workspace profile records.
+- [x] Implement model profile set/get/list.
+- [x] Implement provider profile set/get/list.
+- [x] Capture effective config snapshots when scheduling workspace reviews.
+- [x] Store only secret references and non-secret routing metadata in review
+  session records.
+- [ ] Add complete redaction tests for records, events, logs, and results.
 
 Exit criteria:
 
@@ -264,7 +267,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | f12ea0b | Preview README and basic examples | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
 | 2026-06-05 | 4643441 | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 | 2026-06-05 | c9fbbc6 | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | protocol-mapping | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
+| 2026-06-05 | 387629c | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
+| 2026-06-05 | pending | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
 
 ## Open Decisions
 
@@ -284,6 +288,9 @@ Record every milestone with the commands that were run.
 - The store boundary has an in-memory implementation for local execution and
   tests. A production database implementation, worker claims, leases, retries,
   and durable cancellation remain open.
+- Workspace model/provider profiles have Rust core APIs and in-memory storage.
+  Persistent profile storage, host-level configuration, and SDK workspace
+  wrappers remain open.
 
 ## Notes For Reviewers
 

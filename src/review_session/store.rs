@@ -15,6 +15,7 @@ pub struct ReviewSessionRecord {
     pub events: Vec<ReviewEvent>,
     pub redacted_artifacts: Vec<ReviewArtifact>,
     pub raw_artifacts: Vec<ReviewArtifact>,
+    pub config_snapshot: Option<super::EffectiveConfigSnapshot>,
     pub dedupe_key: Option<String>,
     pub created_at_utc: String,
     pub updated_at_utc: String,
