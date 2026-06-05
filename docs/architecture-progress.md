@@ -13,18 +13,19 @@ opportunities, execution order, and verification.
 
 ## Current Rating
 
-**Current score: 9.4/10.**
+**Current score: 9.5/10.**
 
 Muzen has a strong foundation: Rust owns the core, the runner protocol and HTTP
 contract are explicit, the durable store seams have in-memory and Postgres
 adapters, provider materialization lives in Rust, and the RFC tracker has
 reviewable milestones with broad verification.
 
-The score is not higher yet because a few newer Review Session and SDK modules
-remain broad at their current size. The largest TypeScript SDK concentration has
-been reduced by isolating the remote service adapter, but local runner behavior,
-Python SDK orchestration, and some Review Session test/orchestration code still
-ask reviewers to hold several concepts in memory at once.
+The score is not higher yet because a few newer Review Session and Python SDK
+modules remain broad at their current size. The TypeScript SDK now has clear
+factory, local adapter, remote adapter, mapping, validation, unsupported-surface,
+and shared flow modules. Python SDK orchestration and some Review Session
+test/orchestration code still ask reviewers to hold several concepts in memory
+at once.
 
 The Runner Protocol schema now includes method-level payload references and a
 shared definition catalog consumed by Rust, TypeScript, and Python tests. This
@@ -57,8 +58,9 @@ only.
   local Git tests.
 - The Runner Protocol fixture includes request, response, callback, and
   notification payload definitions that both SDK test suites read directly.
-- The TypeScript remote service adapter has its own module, separate from the
-  local runner-backed adapter and public factory functions.
+- The TypeScript SDK has separate public factory, local runner adapter, remote
+  service adapter, mapping, validation, unsupported-surface, and shared
+  review-flow modules.
 - Remote HTTP routing is framework-neutral, with Axum as a concrete adapter.
 - Verification is broad: Rust tests, SDK tests, runner-backed tests, service
   builds, and RFC example checks.
@@ -77,12 +79,12 @@ only.
    serialization helpers, claim logic, redaction, retry, and lease behavior.
    The seam is real, but the implementation locality inside the file is weak.
 
-3. **TypeScript SDK local runner behavior still shares the public factory file.**
+3. **TypeScript SDK adapter split is complete.**
    [sdk/typescript/packages/muzen-sdk/src/muzen.ts](/Users/e464543/code/muzen/sdk/typescript/packages/muzen-sdk/src/muzen.ts)
-   now delegates remote service behavior to `remote.ts`, but it still owns local
-   runner sessions, local webhooks, workers, and public factories. This is much
-   easier to review than before, but a future `local.ts` extraction would make
-   the adapter split symmetrical.
+   is now a small public factory module. Local runner behavior lives in
+   `local.ts`, remote service behavior lives in `remote.ts`, mapping and
+   validation live in their own helpers, and unsupported preview surfaces are
+   isolated.
 
 4. **Python SDK mirrors the same concentration.**
    [sdk/python/muzen/client.py](/Users/e464543/code/muzen/sdk/python/muzen/client.py)
@@ -257,9 +259,9 @@ Expected score lift: **+0.3**.
    schema helpers.
 
 4. **TypeScript SDK split.**
-   Remote HTTP adapter extracted in `a011c35`; mapping and validation helpers
-   were already extracted. A future local-runner adapter extraction is optional
-   and would mostly improve symmetry.
+   Done in `e07d4cc`: the public factory, local runner adapter, remote HTTP
+   adapter, mapping, validation, shared review-flow helpers, and unsupported
+   preview surfaces are separated.
 
 5. **Python SDK split.**
    Mirror the SDK adapter separation once TypeScript shape is stable.
@@ -285,13 +287,14 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | 974a66e | 9.2 | Extract Python SDK remote wire-response validation and unwrap helpers from SDK client orchestration module | `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | 575d728 | 9.3 | Add first-class Runner Protocol payload definitions and shared SDK fixture checks | `cargo fmt --check`; `cargo test runner --lib`; `cargo build --lib`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset); `python3 -m unittest discover -s tests` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 | 2026-06-05 | a011c35 | 9.4 | Extract TypeScript remote service adapter, shared review-flow helpers, unsupported preview surfaces, and SDK error type from public/local orchestration module | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
+| 2026-06-05 | e07d4cc | 9.5 | Extract TypeScript local runner adapter from public factory module, completing the SDK local/remote split | `npm run build`; `npm test` (runner-backed tests skipped: `MUZEN_RUNNER_PATH` unset) |
 
 ## Current Target
 
-Target score after the next practical slices: **9.5/10**.
+Target score after the next practical slices: **9.6/10**.
 
-The remaining 0.5 depends on production integration evidence that should happen
+The remaining 0.4 depends on production integration evidence that should happen
 in deployment CI: live Postgres, live provider materialization, and any future
-host-specific model/tool callback ergonomics. Additional local symmetry work,
-such as extracting TypeScript local-runner and Python remote adapters, can still
-improve review locality before that deployment evidence exists.
+host-specific model/tool callback ergonomics. Additional Python adapter
+separation can still improve review locality before that deployment evidence
+exists.
