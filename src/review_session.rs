@@ -35,15 +35,16 @@ pub use http::{
 };
 pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
-    ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
+    PostgresWorkspaceProfileStore, ProviderProfile, ProviderProfileInput, SourceProviderKind,
+    WorkspaceProfileStore,
 };
 pub use router::{
     ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
 };
 pub use store::{
-    InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
-    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
-    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
+    InMemoryReviewSessionStore, PostgresReviewSessionStore, ReviewAttemptFailure,
+    ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy,
+    ReviewLogStream, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
     ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
 };
 pub use webhooks::{

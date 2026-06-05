@@ -12,9 +12,9 @@ handle, and lets workers own execution, leases, retries, cancellation, event
 persistence, and final results.
 
 The local `createMuzen()` runner preview remains an inline compatibility bridge
-for local repository smoke tests until the embedded Rust host/router and
-production store are available. This exception is scoped to the preview runner
-path and must not shape the production API vocabulary.
+for local repository smoke tests until provider source materialization and the
+durable SDK service-boundary switch are complete. This exception is scoped to
+the preview runner path and must not shape the production API vocabulary.
 
 ## API Contract
 
@@ -38,11 +38,13 @@ Embedded `createMuzen()` should switch its default happy path from inline runner
 execution to queued durable execution when all of these are true:
 
 1. A Rust host/router boundary exists for review creation, webhook handling,
-   event replay, SSE streaming, worker control, and artifacts.
+   event replay, SSE streaming, worker control, and artifacts. Implemented by
+   `ReviewHttpRouter`, `muzen-service`, and the runner worker/webhook protocol.
 2. A production `ReviewSessionStore` implementation exists with transactional
    claiming and lease semantics equivalent to the in-memory store contract.
+   Implemented by `PostgresReviewSessionStore`.
 3. Workspace profile persistence exists for model/provider records and
-   secret-reference snapshots.
+   secret-reference snapshots. Implemented by `PostgresWorkspaceProfileStore`.
 4. Provider source materialization exists for GitHub and GitLab pull/merge
    requests.
 5. SDK `review.wait()`, `events()`, `eventsResponse()`, `cancel()`,

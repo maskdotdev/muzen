@@ -21,8 +21,9 @@ the production session/profile stores.
 
 The repository also ships an Axum adapter and `muzen-service` binary. The
 service binds the core router to a real HTTP listener and resolves webhook
-secrets from environment variables. It currently uses the in-memory Rust stores;
-production deployments still need database-backed session and profile stores.
+secrets from environment variables. When `DATABASE_URL` is set, it uses
+Postgres-backed session and workspace profile stores; otherwise it uses
+in-memory stores for local preview.
 
 ## Create Review
 

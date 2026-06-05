@@ -53,6 +53,8 @@ pressure, and commit-sized milestones.
   leaking runner internals into SDK contracts.
 - [x] Rust core exposes workspace-owned model and provider profile records with
   secret-reference-only config snapshots.
+- [x] Rust core exposes Postgres-backed review-session and workspace-profile
+  stores for `DATABASE_URL` service deployments.
 - [x] SDK-first `@muzen/sdk` package exists.
 - [x] `createMuzen()` works end to end against `muzen-runner`.
 - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
@@ -239,6 +241,8 @@ Exit criteria:
   switch from inline preview execution to queued durable execution.
 - [x] Expose TypeScript `muzen.workers.runOnce()` and `muzen.workers.start()`
   over Rust-owned worker execution.
+- [x] Implement a Postgres-backed `ReviewSessionStore` with JSONB records and
+  transactional `FOR UPDATE SKIP LOCKED` worker claims.
 
 Exit criteria:
 
@@ -251,6 +255,7 @@ Exit criteria:
 - [x] Define workspace profile records.
 - [x] Implement model profile set/get/list.
 - [x] Implement provider profile set/get/list.
+- [x] Implement Postgres-backed persistent workspace profile storage.
 - [x] Capture effective config snapshots when scheduling workspace reviews.
 - [x] Store only secret references and non-secret routing metadata in review
   session records.
@@ -335,6 +340,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 3ec971d | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | pending | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Resolved Decisions And Remaining Production Work
 
@@ -345,9 +351,8 @@ Record every milestone with the commands that were run.
   a placeholder.
 - Local inline-worker behavior is decided in
   `docs/rfcs/0001-durable-happy-path-decision.md`: production/remote paths are
-  durable-first; local inline execution remains preview-only until the embedded
-  Rust host/router, production store, profile persistence, provider
-  materialization, and durable SDK handles are all available.
+  durable-first; local inline execution remains preview-only until provider
+  materialization and the durable SDK service-boundary switch are complete.
 - Provider sources currently parse into stable Rust descriptors but return an
   explicit unsupported error when converted to the local runner start params;
   provider materialization belongs in the durable source-resolution phase.
@@ -355,16 +360,14 @@ Record every milestone with the commands that were run.
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
   paths should use durable queued scheduling.
-- The store boundary has an in-memory implementation for local execution,
-  tests, durable cancellation, worker claims, leases, retries, and workspace
-  claim limits. A production database implementation with transactional
-  `SKIP LOCKED`-style claiming remains open.
-- Workspace model/provider profiles have Rust core APIs and in-memory storage.
-  Persistent profile storage and SDK workspace wrappers remain open.
+- The store boundary has in-memory and Postgres implementations. The Postgres
+  review-session store persists JSONB records, events, results, artifacts, logs,
+  leases, cancellations, retry state, and dedupe keys, and uses transactional
+  `FOR UPDATE SKIP LOCKED` worker claims. The Postgres workspace-profile store
+  persists model/provider profiles for service deployments.
 - Host scheduling configuration now defines lease defaults, retry defaults,
   fairness strategy, and global/workspace/user/model/provider concurrency
-  limits. Production persistence still needs to enforce the same contract
-  transactionally.
+  limits. The Postgres store enforces worker claiming transactionally.
 - Durable records, events, results, and review-session logs have redaction
   coverage around profile secret references and raw secret values. The
   in-memory store redacts configured secret values and sensitive metadata keys
@@ -393,13 +396,16 @@ Record every milestone with the commands that were run.
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
   review, event, artifact, webhook, and workspace profile routes. The
-  `muzen-service` binary binds that router through an Axum HTTP adapter.
-  Production service deployment still needs database-backed stores.
+  `muzen-service` binary binds that router through an Axum HTTP adapter and uses
+  Postgres-backed stores when `DATABASE_URL` is set.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
-- Production worker deployment still depends on a database-backed durable store
-  and concrete service/host wiring, but the high-level TypeScript
-  `muzen.workers.start()` API is now present over Rust worker execution.
+- Production worker deployment can use the Postgres-backed durable store through
+  `muzen-service`; provider materialization remains the main blocker for local
+  provider-source execution.
+- The current verification compiles and exercises the Postgres store wiring
+  through Rust tests and service builds. A live Postgres integration run should
+  be part of deployment CI where `DATABASE_URL` is available.
 
 ## Notes For Reviewers
 

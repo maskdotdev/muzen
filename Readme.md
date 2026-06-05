@@ -85,6 +85,8 @@ Implemented now:
 - Rust core review-session contracts, local execution, durable records,
   cancellation, worker claims, leases, retries, concurrency limits, and queued
   worker execution.
+- Rust Postgres-backed review-session and workspace-profile stores, including
+  transactional worker claims with `FOR UPDATE SKIP LOCKED`.
 - Rust workspace model/provider profiles and effective config snapshots with
   secret references instead of raw credentials.
 - Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
@@ -110,7 +112,6 @@ Implemented now:
 
 Still in progress:
 
-- Production database persistence for durable sessions and workspace profiles.
 - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
 
 ## Local Preview
@@ -156,6 +157,21 @@ Runnable examples:
 - `examples/typescript/events`
 - `examples/python/basic_review.py`
 - `examples/python/notebook-review/notebook_review.ipynb`
+
+## Rust Service
+
+Run the RFC 0001 HTTP service:
+
+```sh
+DATABASE_URL=postgres://...
+GITHUB_WEBHOOK_SECRET=...
+GITLAB_WEBHOOK_TOKEN=...
+cargo run --bin muzen-service -- --bind 127.0.0.1:7341
+```
+
+When `DATABASE_URL` is set, `muzen-service` uses Postgres-backed durable review
+session and workspace profile stores. Without it, the service uses in-memory
+stores for local preview.
 
 ## Remote Client Preview
 

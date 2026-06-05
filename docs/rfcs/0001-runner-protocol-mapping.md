@@ -72,8 +72,8 @@ change must update the fixture and the SDK mapping intentionally.
 
 ## Review Session Store Mapping
 
-The Rust `review_session` module now includes a `ReviewSessionStore` boundary
-and `InMemoryReviewSessionStore` implementation.
+The Rust `review_session` module now includes a `ReviewSessionStore` boundary,
+`InMemoryReviewSessionStore`, and `PostgresReviewSessionStore`.
 
 The store owns:
 
@@ -83,8 +83,9 @@ The store owns:
 - redacted/raw artifact references,
 - dedupe lookup keys.
 
-This is the contract a durable database-backed store should implement next.
-The in-memory store is not a production durability substitute.
+The Postgres implementation stores durable session records as JSONB and uses
+transactional `FOR UPDATE SKIP LOCKED` worker claims. The in-memory store
+remains a local preview/test implementation.
 
 ## Known Gaps
 
@@ -94,7 +95,5 @@ The in-memory store is not a production durability substitute.
 - Active cancellation, leases, retry policy, and backoff require worker-owned
   durable sessions.
 - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
-  now exist around the core remote HTTP contract; production deployments still
-  need database-backed stores.
-- Workspace-owned BYOK profile APIs need production persistent profile records
-  and secret references.
+  now exist around the core remote HTTP contract. `muzen-service` uses Postgres
+  stores when `DATABASE_URL` is set.

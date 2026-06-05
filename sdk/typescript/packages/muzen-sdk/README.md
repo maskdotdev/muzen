@@ -84,9 +84,10 @@ completed:
   GitLab;
 - local worker execution is exposed through `muzen.workers.runOnce()` and
   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
-- production database persistence, provider materialization for local provider
-  sources, and production store wiring for the Rust service remain future
-  production work.
+- `muzen-service` can use Postgres-backed durable review-session and workspace
+  profile stores when `DATABASE_URL` is set;
+- provider materialization for local provider sources remains future production
+  work.
 
 See the repository root README and
 `docs/rfcs/0001-implementation-progress.md` for the full RFC implementation
