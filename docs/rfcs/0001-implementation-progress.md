@@ -172,11 +172,12 @@ Exit criteria:
 
 ## Phase 6: Python SDK Preview
 
-- [ ] Add `sdk/python/muzen` package scaffold.
-- [ ] Wrap the Rust-owned runner/review-session contracts with Pydantic models.
-- [ ] Implement Python process supervision for `muzen-runner`.
-- [ ] Implement Python `Client.create()`.
-- [ ] Implement Python review session event iteration and final result access.
+- [x] Add `sdk/python/muzen` package scaffold.
+- [x] Wrap the Rust-owned runner/review-session contracts with Python
+  dataclass models.
+- [x] Implement Python process supervision for `muzen-runner`.
+- [x] Implement Python `Client.create()`.
+- [x] Implement Python review session event iteration and final result access.
 - [ ] Add a notebook-friendly basic review example.
 
 Exit criteria:
@@ -258,7 +259,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 8f98757 | Progress tracker baseline | Documentation-only commit |
 | 2026-06-05 | 6be8151 | Rust core review-session contracts | `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 5fd89a5 | Rust local review-session facade | `cargo test review_session --lib`; `cargo test` |
-| 2026-06-05 | typescript-preview | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
+| 2026-06-05 | efaa992 | TypeScript SDK preview over `muzen-runner` | `cargo build --bin muzen-runner`; `npm run build`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test` |
+| 2026-06-05 | python-preview | Python SDK preview over `muzen-runner` | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 
 ## Open Decisions
 
