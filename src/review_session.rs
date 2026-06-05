@@ -26,7 +26,11 @@ pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
     ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
 };
-pub use store::{InMemoryReviewSessionStore, ReviewSessionRecord, ReviewSessionStore};
+pub use store::{
+    InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
+    ReviewLeaseExtension, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore,
+    ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReviewSessionError {
@@ -304,7 +308,7 @@ impl Muzen {
             }
         }
         let review = ReviewSession::execute_local(self.next_review_id(), input)?;
-        self.store.insert(review.to_record(dedupe_key))?;
+        self.store.insert(review.to_record(dedupe_key, None))?;
         Ok(review)
     }
 
@@ -374,7 +378,8 @@ impl MuzenWorkspace {
             }
         }
         let review = ReviewSession::execute_local(self.next_review_id(), input)?;
-        self.store.insert(review.to_record(dedupe_key))?;
+        self.store
+            .insert(review.to_record(dedupe_key, Some(self.id.clone())))?;
         Ok(review)
     }
 
@@ -554,9 +559,14 @@ impl ReviewSession {
         }
     }
 
-    fn to_record(&self, dedupe_key: Option<String>) -> ReviewSessionRecord {
+    fn to_record(
+        &self,
+        dedupe_key: Option<String>,
+        workspace_id: Option<String>,
+    ) -> ReviewSessionRecord {
         ReviewSessionRecord {
             id: self.id.clone(),
+            workspace_id,
             status: self.status,
             source: self.source.clone(),
             result: self.result.clone(),
@@ -564,6 +574,11 @@ impl ReviewSession {
             redacted_artifacts: self.redacted_artifacts.clone(),
             raw_artifacts: self.raw_artifacts.clone(),
             config_snapshot: self.config_snapshot.clone(),
+            attempt: 0,
+            run_after_unix_seconds: 0,
+            lease: None,
+            cancellation: None,
+            last_error: None,
             dedupe_key,
             created_at_utc: timestamp_utc(),
             updated_at_utc: timestamp_utc(),
@@ -1291,6 +1306,8 @@ pub enum ReviewEventType {
     SessionCreated,
     #[serde(rename = "session.queued")]
     SessionQueued,
+    #[serde(rename = "session.claimed")]
+    SessionClaimed,
     #[serde(rename = "session.started")]
     SessionStarted,
     #[serde(rename = "source.resolved")]
@@ -1815,6 +1832,229 @@ mod tests {
     }
 
     #[test]
+    fn review_store_claims_ready_sessions_with_workspace_concurrency() {
+        let store = InMemoryReviewSessionStore::default();
+        store
+            .insert(queued_record("review-1", Some("acme"), 0))
+            .unwrap();
+        store
+            .insert(queued_record("review-2", Some("acme"), 0))
+            .unwrap();
+        store
+            .insert(queued_record("review-3", Some("beta"), 0))
+            .unwrap();
+
+        let claims = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 3,
+                lease_seconds: 30,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits {
+                    max_running_per_workspace: Some(1),
+                },
+            })
+            .unwrap();
+
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].review_id.as_str(), "review-1");
+        assert_eq!(claims[0].attempt, 1);
+        assert_eq!(claims[0].lease.expires_at_unix_seconds, 130);
+        assert_eq!(claims[1].review_id.as_str(), "review-3");
+        assert_eq!(
+            store
+                .get(&ReviewSessionId::new("review-2").unwrap())
+                .unwrap()
+                .unwrap()
+                .status,
+            ReviewStatus::Queued
+        );
+        assert_eq!(
+            store
+                .get(&ReviewSessionId::new("review-1").unwrap())
+                .unwrap()
+                .unwrap()
+                .events
+                .last()
+                .map(|event| event.event_type),
+            Some(ReviewEventType::SessionClaimed)
+        );
+    }
+
+    #[test]
+    fn review_store_extends_and_reclaims_leases() {
+        let store = InMemoryReviewSessionStore::default();
+        let review_id = ReviewSessionId::new("review-1").unwrap();
+        store
+            .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+            .unwrap();
+        store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+
+        let blocked = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-b".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(105),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+        let extended = store
+            .extend_lease(
+                &review_id,
+                ReviewLeaseExtension {
+                    worker_id: "worker-a".to_string(),
+                    lease_seconds: 20,
+                    now_unix_seconds: Some(106),
+                },
+            )
+            .unwrap();
+        let reclaimed = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-b".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(127),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+
+        assert!(blocked.is_empty());
+        assert_eq!(extended.expires_at_unix_seconds, 126);
+        assert_eq!(reclaimed.len(), 1);
+        assert_eq!(reclaimed[0].attempt, 2);
+        assert_eq!(reclaimed[0].worker_id, "worker-b");
+    }
+
+    #[test]
+    fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
+        let store = InMemoryReviewSessionStore::default();
+        let review_id = ReviewSessionId::new("review-1").unwrap();
+        store
+            .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+            .unwrap();
+        store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+
+        let cancelled = store
+            .request_cancellation(&review_id, ReviewCancelOptions::new("superseded"))
+            .unwrap();
+        let later_claims = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-b".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(111),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+
+        assert_eq!(cancelled.status, ReviewStatus::Cancelled);
+        assert!(cancelled.lease.is_none());
+        assert_eq!(
+            cancelled
+                .cancellation
+                .as_ref()
+                .and_then(|cancellation| cancellation.reason.as_deref()),
+            Some("superseded")
+        );
+        assert_eq!(
+            cancelled.events.last().map(|event| event.event_type),
+            Some(ReviewEventType::SessionCancelled)
+        );
+        assert!(later_claims.is_empty());
+    }
+
+    #[test]
+    fn review_store_records_retry_backoff_and_final_failure() {
+        let store = InMemoryReviewSessionStore::default();
+        let review_id = ReviewSessionId::new("review-1").unwrap();
+        let retry_policy = ReviewRetryPolicy {
+            max_attempts: 2,
+            initial_backoff_seconds: 10,
+            max_backoff_seconds: 50,
+        };
+        store
+            .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+            .unwrap();
+        store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+
+        let retry = store
+            .record_attempt_failure(
+                &review_id,
+                ReviewAttemptFailure {
+                    error: "provider timeout".to_string(),
+                    retry_policy,
+                    now_unix_seconds: Some(110),
+                },
+            )
+            .unwrap();
+        let not_ready = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(119),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+        let second_attempt = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 10,
+                now_unix_seconds: Some(120),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .unwrap();
+        let failed = store
+            .record_attempt_failure(
+                &review_id,
+                ReviewAttemptFailure {
+                    error: "provider timeout again".to_string(),
+                    retry_policy,
+                    now_unix_seconds: Some(130),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(retry.status, ReviewStatus::Queued);
+        assert_eq!(retry.run_after_unix_seconds, 120);
+        assert_eq!(retry.last_error.as_deref(), Some("provider timeout"));
+        assert!(not_ready.is_empty());
+        assert_eq!(second_attempt[0].attempt, 2);
+        assert_eq!(failed.status, ReviewStatus::Failed);
+        assert!(failed.lease.is_none());
+        assert_eq!(
+            failed.events.last().map(|event| event.event_type),
+            Some(ReviewEventType::SessionFailed)
+        );
+    }
+
+    #[test]
     fn workspace_profiles_set_get_list_and_version() {
         let workspace = Muzen::new().workspace("acme");
 
@@ -1967,5 +2207,32 @@ mod tests {
                 .and_then(|profile| profile.secret_ref.as_deref()),
             Some("vault://workspaces/acme/providers/github")
         );
+    }
+
+    fn queued_record(
+        id: &str,
+        workspace_id: Option<&str>,
+        run_after_unix_seconds: u64,
+    ) -> ReviewSessionRecord {
+        let review_id = ReviewSessionId::new(id).unwrap();
+        ReviewSessionRecord {
+            id: review_id,
+            workspace_id: workspace_id.map(str::to_string),
+            status: ReviewStatus::Queued,
+            source: ReviewSource::local("."),
+            result: None,
+            events: Vec::new(),
+            redacted_artifacts: Vec::new(),
+            raw_artifacts: Vec::new(),
+            config_snapshot: None,
+            attempt: 0,
+            run_after_unix_seconds,
+            lease: None,
+            cancellation: None,
+            last_error: None,
+            dedupe_key: None,
+            created_at_utc: timestamp_utc(),
+            updated_at_utc: timestamp_utc(),
+        }
     }
 }

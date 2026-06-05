@@ -1,14 +1,19 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::{
-    ReviewArtifact, ReviewEvent, ReviewResult, ReviewSessionError, ReviewSessionId, ReviewSource,
-    ReviewStatus,
+    ReviewArtifact, ReviewCancelOptions, ReviewEvent, ReviewEventType, ReviewResult,
+    ReviewSessionError, ReviewSessionId, ReviewSource, ReviewStatus,
 };
 
 #[derive(Debug, Clone)]
 pub struct ReviewSessionRecord {
     pub id: ReviewSessionId,
+    pub workspace_id: Option<String>,
     pub status: ReviewStatus,
     pub source: ReviewSource,
     pub result: Option<ReviewResult>,
@@ -16,9 +21,130 @@ pub struct ReviewSessionRecord {
     pub redacted_artifacts: Vec<ReviewArtifact>,
     pub raw_artifacts: Vec<ReviewArtifact>,
     pub config_snapshot: Option<super::EffectiveConfigSnapshot>,
+    pub attempt: u32,
+    pub run_after_unix_seconds: u64,
+    pub lease: Option<ReviewWorkerLease>,
+    pub cancellation: Option<ReviewCancellationRecord>,
+    pub last_error: Option<String>,
     pub dedupe_key: Option<String>,
     pub created_at_utc: String,
     pub updated_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewWorkerLease {
+    pub worker_id: String,
+    pub attempt: u32,
+    pub acquired_at_utc: String,
+    pub expires_at_utc: String,
+    pub expires_at_unix_seconds: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewCancellationRecord {
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub cancelled_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewWorkerClaim {
+    pub review_id: ReviewSessionId,
+    pub worker_id: String,
+    pub attempt: u32,
+    pub lease: ReviewWorkerLease,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewWorkerClaimOptions {
+    pub worker_id: String,
+    pub max_sessions: usize,
+    pub lease_seconds: u64,
+    pub now_unix_seconds: Option<u64>,
+    pub concurrency: ReviewWorkerConcurrencyLimits,
+}
+
+impl ReviewWorkerClaimOptions {
+    pub fn new(worker_id: impl Into<String>) -> Self {
+        Self {
+            worker_id: worker_id.into(),
+            max_sessions: 1,
+            lease_seconds: 60,
+            now_unix_seconds: None,
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        }
+    }
+
+    fn now_unix_seconds(&self) -> u64 {
+        self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ReviewWorkerConcurrencyLimits {
+    pub max_running_per_workspace: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewLeaseExtension {
+    pub worker_id: String,
+    pub lease_seconds: u64,
+    pub now_unix_seconds: Option<u64>,
+}
+
+impl ReviewLeaseExtension {
+    pub fn new(worker_id: impl Into<String>) -> Self {
+        Self {
+            worker_id: worker_id.into(),
+            lease_seconds: 60,
+            now_unix_seconds: None,
+        }
+    }
+
+    fn now_unix_seconds(&self) -> u64 {
+        self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRetryPolicy {
+    pub max_attempts: u32,
+    pub initial_backoff_seconds: u64,
+    pub max_backoff_seconds: u64,
+}
+
+impl Default for ReviewRetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_backoff_seconds: 30,
+            max_backoff_seconds: 300,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewAttemptFailure {
+    pub error: String,
+    pub retry_policy: ReviewRetryPolicy,
+    pub now_unix_seconds: Option<u64>,
+}
+
+impl ReviewAttemptFailure {
+    pub fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            retry_policy: ReviewRetryPolicy::default(),
+            now_unix_seconds: None,
+        }
+    }
+
+    fn now_unix_seconds(&self) -> u64 {
+        self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
+    }
 }
 
 pub trait ReviewSessionStore: Send + Sync {
@@ -49,6 +175,29 @@ pub trait ReviewSessionStore: Send + Sync {
         status: ReviewStatus,
         result: ReviewResult,
     ) -> Result<(), ReviewSessionError>;
+
+    fn request_cancellation(
+        &self,
+        id: &ReviewSessionId,
+        options: ReviewCancelOptions,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError>;
+
+    fn claim_ready(
+        &self,
+        options: ReviewWorkerClaimOptions,
+    ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError>;
+
+    fn extend_lease(
+        &self,
+        id: &ReviewSessionId,
+        options: ReviewLeaseExtension,
+    ) -> Result<ReviewWorkerLease, ReviewSessionError>;
+
+    fn record_attempt_failure(
+        &self,
+        id: &ReviewSessionId,
+        failure: ReviewAttemptFailure,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError>;
 }
 
 #[derive(Debug, Default)]
@@ -138,8 +287,185 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
             .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
         record.status = status;
         record.result = Some(result);
+        record.lease = None;
         record.updated_at_utc = crate::util::timestamp_utc();
         Ok(())
+    }
+
+    fn request_cancellation(
+        &self,
+        id: &ReviewSessionId,
+        options: ReviewCancelOptions,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
+        let mut state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get_mut(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        if record.status.is_terminal() {
+            return Ok(record.clone());
+        }
+        let now = crate::util::timestamp_utc();
+        record.status = ReviewStatus::Cancelled;
+        record.lease = None;
+        record.cancellation = Some(ReviewCancellationRecord {
+            reason: options.reason.clone(),
+            cancelled_at_utc: now.clone(),
+        });
+        append_record_event(
+            record,
+            ReviewEventType::SessionCancelled,
+            json!({ "reason": options.reason }),
+            now.clone(),
+        );
+        record.updated_at_utc = now;
+        Ok(record.clone())
+    }
+
+    fn claim_ready(
+        &self,
+        options: ReviewWorkerClaimOptions,
+    ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError> {
+        validate_worker_id(&options.worker_id)?;
+        if options.max_sessions == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut state = self.lock_state()?;
+        let now = options.now_unix_seconds();
+        let lease_seconds = options.lease_seconds.max(1);
+        let mut running_by_workspace = state.running_by_workspace(now);
+        let mut claims = Vec::new();
+        let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
+
+        for id in ids {
+            if claims.len() >= options.max_sessions {
+                break;
+            }
+            let Some(record) = state.sessions.get_mut(&id) else {
+                continue;
+            };
+            if !is_claimable(record, now) {
+                continue;
+            }
+            if workspace_limit_reached(
+                record.workspace_id.as_deref(),
+                &running_by_workspace,
+                options.concurrency.max_running_per_workspace,
+            ) {
+                continue;
+            }
+
+            record.status = ReviewStatus::Running;
+            record.attempt = record.attempt.saturating_add(1).max(1);
+            let lease = worker_lease(&options.worker_id, record.attempt, now, lease_seconds);
+            record.lease = Some(lease.clone());
+            record.updated_at_utc = lease.acquired_at_utc.clone();
+            append_record_event(
+                record,
+                ReviewEventType::SessionClaimed,
+                json!({ "attempt": record.attempt }),
+                lease.acquired_at_utc.clone(),
+            );
+            if let Some(workspace_id) = &record.workspace_id {
+                *running_by_workspace
+                    .entry(workspace_id.clone())
+                    .or_insert(0) += 1;
+            }
+            claims.push(ReviewWorkerClaim {
+                review_id: record.id.clone(),
+                worker_id: options.worker_id.clone(),
+                attempt: record.attempt,
+                lease,
+            });
+        }
+
+        Ok(claims)
+    }
+
+    fn extend_lease(
+        &self,
+        id: &ReviewSessionId,
+        options: ReviewLeaseExtension,
+    ) -> Result<ReviewWorkerLease, ReviewSessionError> {
+        validate_worker_id(&options.worker_id)?;
+        let mut state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get_mut(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        let Some(existing) = &record.lease else {
+            return Err(ReviewSessionError::Store(format!(
+                "review session {id} does not have an active lease"
+            )));
+        };
+        if existing.worker_id != options.worker_id {
+            return Err(ReviewSessionError::Store(format!(
+                "review session {id} is leased by another worker"
+            )));
+        }
+        if record.status != ReviewStatus::Running {
+            return Err(ReviewSessionError::Store(format!(
+                "review session {id} is not running"
+            )));
+        }
+        let now = options.now_unix_seconds();
+        let lease = worker_lease(
+            &options.worker_id,
+            existing.attempt,
+            now,
+            options.lease_seconds.max(1),
+        );
+        record.lease = Some(lease.clone());
+        record.updated_at_utc = lease.acquired_at_utc.clone();
+        Ok(lease)
+    }
+
+    fn record_attempt_failure(
+        &self,
+        id: &ReviewSessionId,
+        failure: ReviewAttemptFailure,
+    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
+        let mut state = self.lock_state()?;
+        let record = state
+            .sessions
+            .get_mut(id.as_str())
+            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
+        if record.status.is_terminal() {
+            return Ok(record.clone());
+        }
+
+        let now = failure.now_unix_seconds();
+        let now_utc = timestamp_from_unix_seconds(now);
+        let max_attempts = failure.retry_policy.max_attempts.max(1);
+        record.lease = None;
+        record.last_error = Some(failure.error.clone());
+
+        if record.attempt >= max_attempts {
+            record.status = ReviewStatus::Failed;
+            append_record_event(
+                record,
+                ReviewEventType::SessionFailed,
+                json!({ "attempt": record.attempt, "error": failure.error }),
+                now_utc.clone(),
+            );
+        } else {
+            let backoff_seconds = retry_backoff_seconds(failure.retry_policy, record.attempt);
+            record.status = ReviewStatus::Queued;
+            record.run_after_unix_seconds = now.saturating_add(backoff_seconds);
+            append_record_event(
+                record,
+                ReviewEventType::SessionQueued,
+                json!({
+                    "retry": true,
+                    "attempt": record.attempt,
+                    "runAfterUtc": timestamp_from_unix_seconds(record.run_after_unix_seconds)
+                }),
+                now_utc.clone(),
+            );
+        }
+        record.updated_at_utc = now_utc;
+        Ok(record.clone())
     }
 }
 
@@ -149,4 +475,111 @@ impl InMemoryReviewSessionStore {
             .lock()
             .map_err(|_| ReviewSessionError::Store("review session store poisoned".to_string()))
     }
+}
+
+impl StoreState {
+    fn running_by_workspace(&self, now_unix_seconds: u64) -> BTreeMap<String, usize> {
+        let mut running = BTreeMap::new();
+        for record in self.sessions.values() {
+            if record.status != ReviewStatus::Running || !has_valid_lease(record, now_unix_seconds)
+            {
+                continue;
+            }
+            if let Some(workspace_id) = &record.workspace_id {
+                *running.entry(workspace_id.clone()).or_insert(0) += 1;
+            }
+        }
+        running
+    }
+}
+
+fn validate_worker_id(worker_id: &str) -> Result<(), ReviewSessionError> {
+    if worker_id.trim().is_empty() {
+        return Err(ReviewSessionError::Store(
+            "worker id cannot be empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_claimable(record: &ReviewSessionRecord, now_unix_seconds: u64) -> bool {
+    if record.status.is_terminal() || record.run_after_unix_seconds > now_unix_seconds {
+        return false;
+    }
+    match record.status {
+        ReviewStatus::Created | ReviewStatus::Queued => true,
+        ReviewStatus::Running => !has_valid_lease(record, now_unix_seconds),
+        ReviewStatus::Completed | ReviewStatus::Failed | ReviewStatus::Cancelled => false,
+    }
+}
+
+fn has_valid_lease(record: &ReviewSessionRecord, now_unix_seconds: u64) -> bool {
+    record
+        .lease
+        .as_ref()
+        .is_some_and(|lease| lease.expires_at_unix_seconds > now_unix_seconds)
+}
+
+fn workspace_limit_reached(
+    workspace_id: Option<&str>,
+    running_by_workspace: &BTreeMap<String, usize>,
+    limit: Option<usize>,
+) -> bool {
+    let Some(limit) = limit else {
+        return false;
+    };
+    let Some(workspace_id) = workspace_id else {
+        return false;
+    };
+    running_by_workspace.get(workspace_id).copied().unwrap_or(0) >= limit
+}
+
+fn worker_lease(
+    worker_id: &str,
+    attempt: u32,
+    now_unix_seconds: u64,
+    lease_seconds: u64,
+) -> ReviewWorkerLease {
+    let expires_at_unix_seconds = now_unix_seconds.saturating_add(lease_seconds);
+    ReviewWorkerLease {
+        worker_id: worker_id.to_string(),
+        attempt,
+        acquired_at_utc: timestamp_from_unix_seconds(now_unix_seconds),
+        expires_at_utc: timestamp_from_unix_seconds(expires_at_unix_seconds),
+        expires_at_unix_seconds,
+    }
+}
+
+fn append_record_event(
+    record: &mut ReviewSessionRecord,
+    event_type: ReviewEventType,
+    payload: serde_json::Value,
+    timestamp_utc: String,
+) {
+    record.events.push(ReviewEvent {
+        cursor: (record.events.len() + 1).to_string(),
+        event_type,
+        review_id: record.id.clone(),
+        timestamp_utc,
+        payload,
+    });
+}
+
+fn retry_backoff_seconds(policy: ReviewRetryPolicy, attempt: u32) -> u64 {
+    let initial = policy.initial_backoff_seconds.max(1);
+    let max = policy.max_backoff_seconds.max(initial);
+    let shift = attempt.saturating_sub(1).min(31);
+    let multiplier = 1_u64.checked_shl(shift).unwrap_or(u64::MAX);
+    initial.saturating_mul(multiplier).min(max)
+}
+
+fn current_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
+fn timestamp_from_unix_seconds(seconds: u64) -> String {
+    format!("{seconds}.000000000Z")
 }

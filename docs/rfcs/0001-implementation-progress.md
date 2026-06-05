@@ -213,10 +213,14 @@ Exit criteria:
   - [x] `source`,
   - [x] `source-head`,
   - [x] application-defined key.
-- [ ] Implement durable cancellation.
-- [ ] Implement worker claim and lease semantics.
-- [ ] Implement retry policy and backoff.
+- [x] Implement durable cancellation.
+- [x] Implement worker claim and lease semantics.
+- [x] Implement retry policy and backoff.
 - [ ] Implement worker concurrency limits.
+  - [x] Enforce claim batch size and per-workspace claim limits in the Rust
+    store boundary.
+  - [ ] Add host, user, model, and provider limit groups once the host
+    configuration model exists.
 
 Exit criteria:
 
@@ -268,7 +272,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 4643441 | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 | 2026-06-05 | c9fbbc6 | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 387629c | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
-| 2026-06-05 | pending | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
+| 2026-06-05 | e939764 | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
+| 2026-06-05 | pending | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -285,12 +290,16 @@ Record every milestone with the commands that were run.
 - The Rust `Muzen` facade currently executes local reviews synchronously through
   the runner execution path. Durable scheduling and asynchronous workers remain
   Phase 8 work.
-- The store boundary has an in-memory implementation for local execution and
-  tests. A production database implementation, worker claims, leases, retries,
-  and durable cancellation remain open.
+- The store boundary has an in-memory implementation for local execution,
+  tests, durable cancellation, worker claims, leases, retries, and workspace
+  claim limits. A production database implementation with transactional
+  `SKIP LOCKED`-style claiming remains open.
 - Workspace model/provider profiles have Rust core APIs and in-memory storage.
   Persistent profile storage, host-level configuration, and SDK workspace
   wrappers remain open.
+- Worker concurrency currently covers claim batch size and per-workspace limits.
+  Host, user, model, and provider dimensions should land with the host
+  configuration model instead of being hard-coded into the store.
 
 ## Notes For Reviewers
 
