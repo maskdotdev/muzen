@@ -216,11 +216,14 @@ Exit criteria:
 - [x] Implement durable cancellation.
 - [x] Implement worker claim and lease semantics.
 - [x] Implement retry policy and backoff.
-- [ ] Implement worker concurrency limits.
-  - [x] Enforce claim batch size and per-workspace claim limits in the Rust
-    store boundary.
-  - [ ] Add host, user, model, and provider limit groups once the host
-    configuration model exists.
+- [x] Implement worker concurrency limits:
+  - [x] claim batch and global running limits,
+  - [x] workspace limits,
+  - [x] user limits,
+  - [x] model profile limits,
+  - [x] provider profile limits.
+- [ ] Wire SDK-facing scheduling to queued durable records and a worker
+  execution loop.
 
 Exit criteria:
 
@@ -229,7 +232,7 @@ Exit criteria:
 
 ## Phase 9: Workspace-Owned Configuration And BYOK
 
-- [ ] Define host configuration model.
+- [x] Define host configuration model.
 - [x] Define workspace profile records.
 - [x] Implement model profile set/get/list.
 - [x] Implement provider profile set/get/list.
@@ -273,7 +276,8 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | c9fbbc6 | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 387629c | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
 | 2026-06-05 | e939764 | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
-| 2026-06-05 | pending | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | 20f556f | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+| 2026-06-05 | pending | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 
 ## Open Decisions
 
@@ -288,18 +292,18 @@ Record every milestone with the commands that were run.
   explicit unsupported error when converted to the local runner start params;
   provider materialization belongs in the durable source-resolution phase.
 - The Rust `Muzen` facade currently executes local reviews synchronously through
-  the runner execution path. Durable scheduling and asynchronous workers remain
-  Phase 8 work.
+  the runner execution path. Durable queued scheduling and the worker execution
+  loop remain Phase 8 work.
 - The store boundary has an in-memory implementation for local execution,
   tests, durable cancellation, worker claims, leases, retries, and workspace
   claim limits. A production database implementation with transactional
   `SKIP LOCKED`-style claiming remains open.
 - Workspace model/provider profiles have Rust core APIs and in-memory storage.
-  Persistent profile storage, host-level configuration, and SDK workspace
-  wrappers remain open.
-- Worker concurrency currently covers claim batch size and per-workspace limits.
-  Host, user, model, and provider dimensions should land with the host
-  configuration model instead of being hard-coded into the store.
+  Persistent profile storage and SDK workspace wrappers remain open.
+- Host scheduling configuration now defines lease defaults, retry defaults,
+  fairness strategy, and global/workspace/user/model/provider concurrency
+  limits. Production persistence still needs to enforce the same contract
+  transactionally.
 
 ## Notes For Reviewers
 

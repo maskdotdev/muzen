@@ -19,9 +19,11 @@ use crate::runner::{
 };
 use crate::util::timestamp_utc;
 
+mod config;
 mod profiles;
 mod store;
 
+pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
 pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
     ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
@@ -498,6 +500,7 @@ pub struct ReviewSession {
     id: ReviewSessionId,
     status: ReviewStatus,
     source: ReviewSource,
+    user_id: Option<String>,
     events: Vec<ReviewEvent>,
     result: Option<ReviewResult>,
     redacted_artifacts: Vec<ReviewArtifact>,
@@ -512,6 +515,7 @@ impl ReviewSession {
     ) -> Result<Self, ReviewSessionError> {
         let source = input.source.clone();
         let config_snapshot = input.options.config_snapshot.clone();
+        let user_id = input.options.user_id.clone();
         let start = input.into_runner_start(&id)?;
         let executed = execute_run_start(start, None)
             .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
@@ -538,6 +542,7 @@ impl ReviewSession {
             id,
             status,
             source,
+            user_id,
             events,
             result: Some(result),
             redacted_artifacts,
@@ -551,6 +556,7 @@ impl ReviewSession {
             id: record.id,
             status: record.status,
             source: record.source,
+            user_id: record.user_id,
             events: record.events,
             result: record.result,
             redacted_artifacts: record.redacted_artifacts,
@@ -567,6 +573,7 @@ impl ReviewSession {
         ReviewSessionRecord {
             id: self.id.clone(),
             workspace_id,
+            user_id: self.user_id.clone(),
             status: self.status,
             source: self.source.clone(),
             result: self.result.clone(),
@@ -595,6 +602,10 @@ impl ReviewSession {
 
     pub fn source(&self) -> &ReviewSource {
         &self.source
+    }
+
+    pub fn user_id(&self) -> Option<&str> {
+        self.user_id.as_deref()
     }
 
     pub fn config_snapshot(&self) -> Option<&EffectiveConfigSnapshot> {
@@ -776,6 +787,8 @@ pub struct ReviewOptions {
     #[serde(default)]
     pub cancel_superseded: bool,
     #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
     pub scope: ReviewScope,
@@ -794,6 +807,7 @@ impl Default for ReviewOptions {
         Self {
             dedupe: DedupePolicy::None,
             cancel_superseded: false,
+            user_id: None,
             model: None,
             scope: ReviewScope::default(),
             metadata: BTreeMap::new(),
@@ -1852,6 +1866,7 @@ mod tests {
                 now_unix_seconds: Some(100),
                 concurrency: ReviewWorkerConcurrencyLimits {
                     max_running_per_workspace: Some(1),
+                    ..ReviewWorkerConcurrencyLimits::default()
                 },
             })
             .unwrap();
@@ -2055,6 +2070,160 @@ mod tests {
     }
 
     #[test]
+    fn host_scheduling_configuration_builds_worker_claim_options() {
+        let config = HostSchedulingConfiguration {
+            lease_seconds: 120,
+            default_retry_policy: ReviewRetryPolicy {
+                max_attempts: 5,
+                initial_backoff_seconds: 15,
+                max_backoff_seconds: 600,
+            },
+            concurrency: ReviewWorkerConcurrencyLimits {
+                max_running_global: Some(10),
+                max_running_per_workspace: Some(3),
+                max_running_per_user: Some(2),
+                max_running_per_model_profile: Some(4),
+                max_running_per_provider_profile: Some(5),
+            },
+            fairness: SchedulingFairnessStrategy::RoundRobinByWorkspace,
+        };
+
+        let options = config.claim_options("worker-a", 7);
+
+        assert_eq!(options.worker_id, "worker-a");
+        assert_eq!(options.max_sessions, 7);
+        assert_eq!(options.lease_seconds, 120);
+        assert_eq!(options.concurrency.max_running_global, Some(10));
+        assert_eq!(config.default_retry_policy.initial_backoff_seconds, 15);
+        assert_eq!(
+            config.fairness,
+            SchedulingFairnessStrategy::RoundRobinByWorkspace
+        );
+    }
+
+    #[test]
+    fn review_store_enforces_global_running_limit() {
+        let store = InMemoryReviewSessionStore::default();
+        store
+            .insert(queued_record("review-1", Some("acme"), 0))
+            .unwrap();
+        store
+            .insert(queued_record("review-2", Some("beta"), 0))
+            .unwrap();
+
+        let claims = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 2,
+                lease_seconds: 30,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits {
+                    max_running_global: Some(1),
+                    ..ReviewWorkerConcurrencyLimits::default()
+                },
+            })
+            .unwrap();
+
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].review_id.as_str(), "review-1");
+    }
+
+    #[test]
+    fn review_store_enforces_user_model_and_provider_running_limits() {
+        let store = InMemoryReviewSessionStore::default();
+        store
+            .insert(queued_record_with_keys(
+                "review-1",
+                Some("acme"),
+                Some("user-a"),
+                Some("model-a"),
+                Some("provider-a"),
+            ))
+            .unwrap();
+        store
+            .insert(queued_record_with_keys(
+                "review-2",
+                Some("beta"),
+                Some("user-a"),
+                Some("model-b"),
+                Some("provider-b"),
+            ))
+            .unwrap();
+        store
+            .insert(queued_record_with_keys(
+                "review-3",
+                Some("gamma"),
+                Some("user-b"),
+                Some("model-a"),
+                Some("provider-c"),
+            ))
+            .unwrap();
+        store
+            .insert(queued_record_with_keys(
+                "review-4",
+                Some("delta"),
+                Some("user-c"),
+                Some("model-c"),
+                Some("provider-a"),
+            ))
+            .unwrap();
+        store
+            .insert(queued_record_with_keys(
+                "review-5",
+                Some("epsilon"),
+                Some("user-d"),
+                Some("model-d"),
+                Some("provider-d"),
+            ))
+            .unwrap();
+
+        let claims = store
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 5,
+                lease_seconds: 30,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits {
+                    max_running_per_user: Some(1),
+                    max_running_per_model_profile: Some(1),
+                    max_running_per_provider_profile: Some(1),
+                    ..ReviewWorkerConcurrencyLimits::default()
+                },
+            })
+            .unwrap();
+        let claimed_ids = claims
+            .iter()
+            .map(|claim| claim.review_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(claimed_ids, vec!["review-1", "review-5"]);
+        assert_eq!(
+            store
+                .get(&ReviewSessionId::new("review-2").unwrap())
+                .unwrap()
+                .unwrap()
+                .status,
+            ReviewStatus::Queued
+        );
+        assert_eq!(
+            store
+                .get(&ReviewSessionId::new("review-3").unwrap())
+                .unwrap()
+                .unwrap()
+                .status,
+            ReviewStatus::Queued
+        );
+        assert_eq!(
+            store
+                .get(&ReviewSessionId::new("review-4").unwrap())
+                .unwrap()
+                .unwrap()
+                .status,
+            ReviewStatus::Queued
+        );
+    }
+
+    #[test]
     fn workspace_profiles_set_get_list_and_version() {
         let workspace = Muzen::new().workspace("acme");
 
@@ -2218,6 +2387,7 @@ mod tests {
         ReviewSessionRecord {
             id: review_id,
             workspace_id: workspace_id.map(str::to_string),
+            user_id: None,
             status: ReviewStatus::Queued,
             source: ReviewSource::local("."),
             result: None,
@@ -2233,6 +2403,31 @@ mod tests {
             dedupe_key: None,
             created_at_utc: timestamp_utc(),
             updated_at_utc: timestamp_utc(),
+        }
+    }
+
+    fn queued_record_with_keys(
+        id: &str,
+        workspace_id: Option<&str>,
+        user_id: Option<&str>,
+        model_profile_id: Option<&str>,
+        provider_profile_id: Option<&str>,
+    ) -> ReviewSessionRecord {
+        let mut record = queued_record(id, workspace_id, 0);
+        record.user_id = user_id.map(str::to_string);
+        record.config_snapshot = Some(EffectiveConfigSnapshot {
+            model_profile: model_profile_id.map(profile_ref),
+            provider_profile: provider_profile_id.map(profile_ref),
+            routing: BTreeMap::new(),
+        });
+        record
+    }
+
+    fn profile_ref(id: &str) -> ProfileVersionRef {
+        ProfileVersionRef {
+            id: id.to_string(),
+            version: "1".to_string(),
+            secret_ref: None,
         }
     }
 }

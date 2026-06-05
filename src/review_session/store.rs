@@ -14,6 +14,7 @@ use super::{
 pub struct ReviewSessionRecord {
     pub id: ReviewSessionId,
     pub workspace_id: Option<String>,
+    pub user_id: Option<String>,
     pub status: ReviewStatus,
     pub source: ReviewSource,
     pub result: Option<ReviewResult>,
@@ -82,9 +83,14 @@ impl ReviewWorkerClaimOptions {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewWorkerConcurrencyLimits {
+    pub max_running_global: Option<usize>,
     pub max_running_per_workspace: Option<usize>,
+    pub max_running_per_user: Option<usize>,
+    pub max_running_per_model_profile: Option<usize>,
+    pub max_running_per_provider_profile: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,7 +340,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         let mut state = self.lock_state()?;
         let now = options.now_unix_seconds();
         let lease_seconds = options.lease_seconds.max(1);
-        let mut running_by_workspace = state.running_by_workspace(now);
+        let mut running = state.running_counts(now);
         let mut claims = Vec::new();
         let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
 
@@ -348,11 +354,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
             if !is_claimable(record, now) {
                 continue;
             }
-            if workspace_limit_reached(
-                record.workspace_id.as_deref(),
-                &running_by_workspace,
-                options.concurrency.max_running_per_workspace,
-            ) {
+            if claim_limit_reached(record, &running, options.concurrency) {
                 continue;
             }
 
@@ -367,11 +369,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
                 json!({ "attempt": record.attempt }),
                 lease.acquired_at_utc.clone(),
             );
-            if let Some(workspace_id) = &record.workspace_id {
-                *running_by_workspace
-                    .entry(workspace_id.clone())
-                    .or_insert(0) += 1;
-            }
+            running.add_record(record);
             claims.push(ReviewWorkerClaim {
                 review_id: record.id.clone(),
                 worker_id: options.worker_id.clone(),
@@ -478,18 +476,35 @@ impl InMemoryReviewSessionStore {
 }
 
 impl StoreState {
-    fn running_by_workspace(&self, now_unix_seconds: u64) -> BTreeMap<String, usize> {
-        let mut running = BTreeMap::new();
+    fn running_counts(&self, now_unix_seconds: u64) -> RunningCounts {
+        let mut running = RunningCounts::default();
         for record in self.sessions.values() {
             if record.status != ReviewStatus::Running || !has_valid_lease(record, now_unix_seconds)
             {
                 continue;
             }
-            if let Some(workspace_id) = &record.workspace_id {
-                *running.entry(workspace_id.clone()).or_insert(0) += 1;
-            }
+            running.add_record(record);
         }
         running
+    }
+}
+
+#[derive(Debug, Default)]
+struct RunningCounts {
+    global: usize,
+    workspaces: BTreeMap<String, usize>,
+    users: BTreeMap<String, usize>,
+    model_profiles: BTreeMap<String, usize>,
+    provider_profiles: BTreeMap<String, usize>,
+}
+
+impl RunningCounts {
+    fn add_record(&mut self, record: &ReviewSessionRecord) {
+        self.global += 1;
+        increment_key(&mut self.workspaces, record.workspace_id.as_deref());
+        increment_key(&mut self.users, record.user_id.as_deref());
+        increment_key(&mut self.model_profiles, model_profile_key(record));
+        increment_key(&mut self.provider_profiles, provider_profile_key(record));
     }
 }
 
@@ -520,18 +535,75 @@ fn has_valid_lease(record: &ReviewSessionRecord, now_unix_seconds: u64) -> bool 
         .is_some_and(|lease| lease.expires_at_unix_seconds > now_unix_seconds)
 }
 
-fn workspace_limit_reached(
-    workspace_id: Option<&str>,
-    running_by_workspace: &BTreeMap<String, usize>,
+fn claim_limit_reached(
+    record: &ReviewSessionRecord,
+    running: &RunningCounts,
+    limits: ReviewWorkerConcurrencyLimits,
+) -> bool {
+    limit_reached(running.global, limits.max_running_global)
+        || keyed_limit_reached(
+            record.workspace_id.as_deref(),
+            &running.workspaces,
+            limits.max_running_per_workspace,
+        )
+        || keyed_limit_reached(
+            record.user_id.as_deref(),
+            &running.users,
+            limits.max_running_per_user,
+        )
+        || keyed_limit_reached(
+            model_profile_key(record),
+            &running.model_profiles,
+            limits.max_running_per_model_profile,
+        )
+        || keyed_limit_reached(
+            provider_profile_key(record),
+            &running.provider_profiles,
+            limits.max_running_per_provider_profile,
+        )
+}
+
+fn limit_reached(current: usize, limit: Option<usize>) -> bool {
+    let Some(limit) = limit else {
+        return false;
+    };
+    current >= limit
+}
+
+fn keyed_limit_reached(
+    key: Option<&str>,
+    counts: &BTreeMap<String, usize>,
     limit: Option<usize>,
 ) -> bool {
     let Some(limit) = limit else {
         return false;
     };
-    let Some(workspace_id) = workspace_id else {
+    let Some(key) = key else {
         return false;
     };
-    running_by_workspace.get(workspace_id).copied().unwrap_or(0) >= limit
+    counts.get(key).copied().unwrap_or(0) >= limit
+}
+
+fn increment_key(counts: &mut BTreeMap<String, usize>, key: Option<&str>) {
+    if let Some(key) = key {
+        *counts.entry(key.to_string()).or_insert(0) += 1;
+    }
+}
+
+fn model_profile_key(record: &ReviewSessionRecord) -> Option<&str> {
+    record
+        .config_snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.model_profile.as_ref())
+        .map(|profile| profile.id.as_str())
+}
+
+fn provider_profile_key(record: &ReviewSessionRecord) -> Option<&str> {
+    record
+        .config_snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.provider_profile.as_ref())
+        .map(|profile| profile.id.as_str())
 }
 
 fn worker_lease(
