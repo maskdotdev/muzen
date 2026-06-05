@@ -266,7 +266,7 @@ Expected score lift: **+0.3**.
 | 2026-06-05 | a80cf0f | 8.4 | Extract Review Options, scope, dedupe, and config snapshot module from Review Session root | `cargo fmt --check`; `cargo test review_session::tests::maps_local_review_input_to_runner_start_params --lib`; `cargo test review_session --lib` |
 | 2026-06-05 | d8d6b05 | 8.5 | Extract Review result, artifact, status, and event value module from Review Session root | `cargo fmt --check`; `cargo test review_session::tests::maps_runner_result_to_review_result --lib`; `cargo test review_session --lib` |
 | 2026-06-05 | 4b49874 | 8.6 | Extract Review Session handle and runner-start input module from Review Session root | `cargo fmt --check`; `cargo test review_session --lib`; `cargo build --lib` |
-| 2026-06-05 | pending | 8.7 | Extract in-memory Review Session store adapter from shared store contract module | `cargo fmt --check`; `cargo test review_session::tests::review_store --lib`; `cargo test review_session --lib`; `cargo build --lib` |
+| 2026-06-05 | 923af0a | 8.7 | Extract in-memory Review Session store adapter from shared store contract module | `cargo fmt --check`; `cargo test review_session::tests::review_store --lib`; `cargo test review_session --lib`; `cargo build --lib` |
 
 ## Current Target
 
