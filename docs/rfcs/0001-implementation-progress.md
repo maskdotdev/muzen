@@ -306,7 +306,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 5378435 | TypeScript and Python webhook delivery response helpers | `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
 | 2026-06-05 | 4b3ce54 | README aligned to the intended production SDK flow while labeling preview gaps | Documentation-only commit |
 | 2026-06-05 | ea15ecc | TypeScript remote webhook request facade and HTTP contract routes | `npm test`; `scripts/verify-rfc-0001-examples.sh` |
-| 2026-06-05 | pending | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
+| 2026-06-05 | dbb980d | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
 
 ## Open Decisions
 
