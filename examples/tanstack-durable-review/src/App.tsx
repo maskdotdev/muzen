@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { sourceKey } from "@muzen/sdk";
 import type { ReviewEvent, ReviewResult, ReviewRole } from "@muzen/sdk";
 
-import type { CreateReviewRequest, ReviewSnapshot } from "./shared.js";
+import type {
+  CreateReviewRequest,
+  ReviewSnapshot,
+  ReviewTargetKind,
+} from "./shared.js";
 
 const defaultRoles: ReviewRole[] = ["correctness", "security"];
 const roleChoices: ReviewRole[] = [
@@ -16,7 +21,11 @@ const roleChoices: ReviewRole[] = [
 
 export function NewReviewPage() {
   const navigate = useNavigate();
+  const [sourceKind, setSourceKind] = useState<ReviewTargetKind>("local");
   const [repo, setRepo] = useState("../..");
+  const [githubPullRequest, setGithubPullRequest] = useState(
+    "https://github.com/maskdotdev/muzen/pull/1",
+  );
   const [changedFiles, setChangedFiles] = useState("Cargo.toml");
   const [roles, setRoles] = useState<ReviewRole[]>(defaultRoles);
   const [submitting, setSubmitting] = useState(false);
@@ -28,7 +37,10 @@ export function NewReviewPage() {
     setError(null);
     try {
       const body: CreateReviewRequest = {
-        repo,
+        sourceKind,
+        repo: sourceKind === "local" ? repo : undefined,
+        githubPullRequest:
+          sourceKind === "github" ? githubPullRequest : undefined,
         changedFiles: changedFiles
           .split(/\r?\n|,/)
           .map((value) => value.trim())
@@ -59,12 +71,47 @@ export function NewReviewPage() {
     <section className="layout">
       <form className="panel" onSubmit={submit}>
         <h1>Start One Durable Review</h1>
+        <fieldset className="segmented">
+          <legend>Target</legend>
+          <label>
+            <input
+              type="radio"
+              checked={sourceKind === "local"}
+              onChange={() => {
+                setSourceKind("local");
+                setChangedFiles("Cargo.toml");
+              }}
+            />
+            Local repo
+          </label>
+          <label>
+            <input
+              type="radio"
+              checked={sourceKind === "github"}
+              onChange={() => {
+                setSourceKind("github");
+                setChangedFiles("");
+              }}
+            />
+            GitHub PR
+          </label>
+        </fieldset>
+        {sourceKind === "local" ? (
+          <label>
+            Repo path on the service machine
+            <input value={repo} onChange={(event) => setRepo(event.target.value)} />
+          </label>
+        ) : (
+          <label>
+            GitHub PR URL or source key
+            <input
+              value={githubPullRequest}
+              onChange={(event) => setGithubPullRequest(event.target.value)}
+            />
+          </label>
+        )}
         <label>
-          Repo path on the service machine
-          <input value={repo} onChange={(event) => setRepo(event.target.value)} />
-        </label>
-        <label>
-          Changed files
+          Changed files {sourceKind === "github" ? "(optional)" : ""}
           <textarea
             rows={5}
             value={changedFiles}
@@ -121,6 +168,12 @@ export function ReviewPage() {
         <div>
           <span className="label">Review</span>
           <h1>{reviewId}</h1>
+          {snapshot ? (
+            <p className="source">
+              <span className="label">Target</span>
+              {sourceKey(snapshot.source)}
+            </p>
+          ) : null}
         </div>
         <span className={`status ${snapshot?.status ?? "queued"}`}>
           {snapshot?.status ?? "queued"}

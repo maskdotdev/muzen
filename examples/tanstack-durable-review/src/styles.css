@@ -85,6 +85,27 @@ fieldset {
   padding: 16px;
 }
 
+.segmented {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.segmented legend {
+  margin-bottom: 8px;
+}
+
+.segmented label {
+  align-items: center;
+  border: 1px solid #bcc7d3;
+  border-radius: 6px;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+}
+
 input,
 textarea {
   border: 1px solid #bcc7d3;
@@ -117,8 +138,14 @@ button:disabled {
 .summary {
   align-items: center;
   display: flex;
+  gap: 16px;
   justify-content: space-between;
   margin-bottom: 24px;
+}
+
+.source {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .label {

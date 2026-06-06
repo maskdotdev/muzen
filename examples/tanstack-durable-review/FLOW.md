@@ -14,6 +14,8 @@ This is the flow to read when mapping the example to Argus or another host.
 3. Host worker claims that one review row.
 4. Worker starts one Muzen review.
 5. Muzen materializes one source snapshot.
+   - local targets reuse the service-machine worktree
+   - GitHub PR targets fetch `refs/pull/<number>/head` into a temp checkout
 6. Muzen runs multiple sessions against the shared snapshot.
 7. Sessions call built-in tools such as read_diff, read_file, search_text.
 8. Muzen emits ordered events.
@@ -54,6 +56,26 @@ GET /api/reviews/:id/events/stream?after=17
 ```
 
 The service replays events after that cursor before streaming new ones.
+
+## Real GitHub PRs
+
+The example accepts three GitHub target shapes:
+
+```text
+https://github.com/owner/repo/pull/123
+github:owner/repo#123
+owner/repo#123
+```
+
+The host converts those into a provider-neutral Muzen source:
+
+```ts
+github.pullRequest({ owner, repo, number })
+```
+
+If the changed-file field is empty, the runner fetches the PR ref and infers the
+changed files from git diff. For private repositories, run the service with
+`GITHUB_TOKEN` so the runner can authenticate the fetch.
 
 ## Production Swap
 

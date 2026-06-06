@@ -5,6 +5,7 @@
     "prepare:sdk": "npm --prefix ../../sdk/typescript/packages/muzen-sdk install --package-lock=false && npm --prefix ../../sdk/typescript/packages/muzen-sdk run build",
     "dev": "vite",
     "service": "npm run prepare:sdk && tsx src/server.ts",
+    "test": "npm run prepare:sdk && tsx --test src/server/github.test.ts",
     "typecheck": "npm run prepare:sdk && tsc --noEmit"
   },
   "dependencies": {

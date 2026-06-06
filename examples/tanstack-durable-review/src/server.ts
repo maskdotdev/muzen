@@ -1,13 +1,17 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import {
+  github,
   local,
   type ReviewAgentSession,
   type ReviewOptions,
   type ReviewRole,
+  type ReviewSource,
+  sourceKey,
 } from "@muzen/sdk";
 
 import type { CreateReviewRequest } from "./shared.js";
+import { parseGithubPullRequestInput } from "./server/github.js";
 import { DurableReviewStore } from "./server/store.js";
 import { executeReview } from "./server/worker.js";
 
@@ -41,8 +45,8 @@ async function route(
 
   if (request.method === "POST" && url.pathname === "/api/reviews") {
     const input = await readJson<CreateReviewRequest>(request);
-    const source = local(input.repo, { changedFiles: input.changedFiles });
-    const review = store.create(source, reviewOptions(input));
+    const source = reviewSource(input);
+    const review = store.create(source, reviewOptions(input, source));
     void executeReview(store, review.id, { runnerPath });
     sendJson(response, 202, { review });
     return;
@@ -96,15 +100,38 @@ async function route(
   sendJson(response, 404, { error: "not found" });
 }
 
-function reviewOptions(input: CreateReviewRequest): ReviewOptions {
+function reviewSource(input: CreateReviewRequest): ReviewSource {
+  if (input.sourceKind === "github") {
+    const pullRequest = parseGithubPullRequestInput(input.githubPullRequest ?? "");
+    return github.pullRequest(pullRequest);
+  }
+
+  const repo = input.repo?.trim();
+  if (!repo) {
+    throw new Error("local repo path is empty");
+  }
+  return local(repo, { changedFiles: input.changedFiles });
+}
+
+function reviewOptions(
+  input: CreateReviewRequest,
+  source: ReviewSource,
+): ReviewOptions {
+  const target = sourceKey(source);
   return {
+    change: {
+      kind: source.type === "github_pull_request" ? "provider_review" : "revision_range",
+      changedFiles: input.changedFiles.map((path) => ({ path })),
+      reviewTarget: target,
+    },
     scope: {
       files: input.changedFiles,
     },
     sessions: sessions(input.roles),
     metadata: {
       example: "tanstack-durable-review",
-      requestedRepo: input.repo,
+      requestedSource: target,
+      requestedSourceKind: input.sourceKind,
     },
   };
 }

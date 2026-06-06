@@ -53,12 +53,27 @@ Start the TanStack/Vite frontend in another terminal:
 npm run dev
 ```
 
-Open the Vite URL, submit a local repo path such as `../..`, and use
-`Cargo.toml` as the changed file.
+Open the Vite URL, then choose one of the targets:
+
+- Local repo: submit a path such as `../..` and use `Cargo.toml` as the
+  changed file.
+- GitHub PR: submit a URL such as
+  `https://github.com/owner/repo/pull/123`, `github:owner/repo#123`, or
+  `owner/repo#123`.
+
+For GitHub PR targets, leave changed files empty to let Muzen fetch the PR ref
+and infer the changed files. Public PRs work over HTTPS. Private PRs require
+`GITHUB_TOKEN` in the service environment:
+
+```bash
+GITHUB_TOKEN=... MUZEN_RUNNER_PATH=../../target/debug/muzen-runner npm run service
+```
 
 ## What To Look At
 
 - `src/server.ts` exposes the durable HTTP/SSE shape.
+- `src/server/github.ts` parses real GitHub PR targets into provider-neutral
+  Muzen sources.
 - `src/server/store.ts` is the replaceable durable store boundary.
 - `src/server/worker.ts` is the worker claim/execute/result projection path.
 - `src/App.tsx` shows the browser flow: create one run, attach SSE, fetch

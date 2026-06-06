@@ -7,10 +7,14 @@ import type {
 } from "@muzen/sdk";
 
 export interface CreateReviewRequest {
-  repo: string;
+  sourceKind: ReviewTargetKind;
+  repo?: string;
+  githubPullRequest?: string;
   changedFiles: string[];
   roles: ReviewRole[];
 }
+
+export type ReviewTargetKind = "local" | "github";
 
 export interface ReviewSnapshot {
   id: string;
