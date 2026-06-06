@@ -64,11 +64,67 @@ describe("runner protocol fixture", () => {
       requireField(definitions, "RunStartParams", "source").type,
       "ReviewSource",
     );
+    assert.match(
+      requireField(definitions, "ReviewSource", "type").type,
+      /raw_snapshot/,
+    );
+    assert.match(
+      requireField(definitions, "ReviewSource", "type").type,
+      /perforce_changelist/,
+    );
     assert.equal(
       requireField(definitions, "RunStartParams", "changedFiles").default,
       "[]",
     );
+    assert.equal(
+      requireField(definitions, "RunStartParams", "metadata").default,
+      "{}",
+    );
+    assert.equal(
+      requireField(definitions, "RunStartParams", "change").type,
+      "RunChangeParams",
+    );
+    assert.equal(
+      requireField(definitions, "RunnerRunResult", "metadata").default,
+      "{}",
+    );
+    assert.equal(
+      requireField(definitions, "RunStartParams", "instructions").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunToolParams", "providerResources").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunToolParams", "effects").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunSessionParams", "toolGrants").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunStartParams", "heartbeat").type,
+      "RunHeartbeatConfigParams",
+    );
 
+    assert.equal(
+      requireMethod(schema.callbacks, "source.materialize").params?.name,
+      "SourceMaterializeParams",
+    );
+    assert.equal(
+      requireMethod(schema.callbacks, "source.materialize").result?.name,
+      "SourceMaterializeResult",
+    );
+    assert.equal(
+      requireMethod(schema.callbacks, "run.heartbeat").params?.name,
+      "RunHeartbeatParams",
+    );
+    assert.equal(
+      requireMethod(schema.callbacks, "run.heartbeat").result?.name,
+      "RunHeartbeatResult",
+    );
     assert.equal(
       requireMethod(schema.callbacks, "model.complete").params?.name,
       "RunnerModelCompleteParams",
@@ -80,6 +136,32 @@ describe("runner protocol fixture", () => {
     assert.equal(
       requireMethod(schema.notifications, "run.failed").params?.name,
       "RunFailedNotification",
+    );
+    assert.ok(definitions.has("RunnerFailureKind"));
+    assert.ok(definitions.has("RunnerRetryHint"));
+    assert.equal(
+      requireField(definitions, "RunFailedNotification", "failureKind").type,
+      "RunnerFailureKind",
+    );
+    assert.equal(
+      requireField(definitions, "RunFailedNotification", "retryHint").type,
+      "RunnerRetryHint",
+    );
+    assert.equal(
+      requireField(definitions, "RunnerFinding", "evidence").type,
+      "RunnerFindingEvidence[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunnerFinding", "evidence").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunnerFinding", "discoveredBy").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunnerFindingEvidence", "producingToolCallId").type,
+      "string",
     );
   });
 });

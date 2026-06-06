@@ -1,13 +1,18 @@
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tempfile::TempDir;
 
 use crate::review_session::ReviewSource;
 
+use super::transport::RunnerCallbackTransport;
 use super::types::RunSourceProviderParams;
+use super::RUNNER_PROTOCOL_VERSION;
 
 const GITHUB_BASE_URL: &str = "https://github.com";
 const GITLAB_BASE_URL: &str = "https://gitlab.com";
@@ -47,6 +52,7 @@ pub(crate) fn materialize_run_source(
     source: Option<&ReviewSource>,
     changed_files: &[String],
     provider: Option<&RunSourceProviderParams>,
+    transport: Option<&Arc<dyn RunnerCallbackTransport>>,
 ) -> Result<MaterializedRunSource> {
     if let Some(repo) = repo {
         return Ok(MaterializedRunSource {
@@ -60,6 +66,10 @@ pub(crate) fn materialize_run_source(
         anyhow::bail!("run.start requires either repo or source");
     };
 
+    if provider.is_some_and(|provider| provider.callback) {
+        return materialize_callback_source(source, changed_files, transport);
+    }
+
     match source {
         ReviewSource::Local {
             repo,
@@ -69,10 +79,66 @@ pub(crate) fn materialize_run_source(
             changed_files: override_or_source_changed_files(changed_files, source_changed_files),
             _temp_dir: None,
         }),
+        ReviewSource::RawSnapshot {
+            root,
+            changed_files: source_changed_files,
+        } => Ok(MaterializedRunSource {
+            repo_root: root.clone(),
+            changed_files: override_or_source_changed_files(changed_files, source_changed_files),
+            _temp_dir: None,
+        }),
         ReviewSource::GithubPullRequest { .. } | ReviewSource::GitlabMergeRequest { .. } => {
             materialize_provider_source(source, changed_files, provider)
         }
+        ReviewSource::PerforceChangelist { .. } | ReviewSource::Custom { .. } => {
+            anyhow::bail!(
+                "source {} requires sourceProvider.callback or a host-materialized repo",
+                source.source_key()
+            )
+        }
     }
+}
+
+fn materialize_callback_source(
+    source: &ReviewSource,
+    changed_files: &[String],
+    transport: Option<&Arc<dyn RunnerCallbackTransport>>,
+) -> Result<MaterializedRunSource> {
+    let transport = transport
+        .ok_or_else(|| anyhow::anyhow!("sourceProvider.callback requires interactive stdio"))?;
+    let params = SourceMaterializeParams {
+        protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
+        source: source.clone(),
+        changed_files: changed_files.to_vec(),
+    };
+    let value = transport.request("source.materialize", json!(params))?;
+    let result = serde_json::from_value::<SourceMaterializeResult>(value)
+        .context("invalid source.materialize result")?;
+    Ok(MaterializedRunSource {
+        repo_root: result.root,
+        changed_files: if result.changed_files.is_empty() {
+            changed_files.to_vec()
+        } else {
+            result.changed_files
+        },
+        _temp_dir: None,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceMaterializeParams {
+    protocol_version: String,
+    source: ReviewSource,
+    changed_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceMaterializeResult {
+    root: PathBuf,
+    #[serde(default)]
+    changed_files: Vec<String>,
 }
 
 pub(crate) fn provider_checkout_plan(
@@ -114,8 +180,14 @@ pub(crate) fn provider_checkout_plan(
                 token_env: "GITLAB_TOKEN",
             })
         }
-        ReviewSource::Local { .. } => {
+        ReviewSource::Local { .. } | ReviewSource::RawSnapshot { .. } => {
             anyhow::bail!("local sources do not require provider checkout planning")
+        }
+        ReviewSource::PerforceChangelist { .. } | ReviewSource::Custom { .. } => {
+            anyhow::bail!(
+                "source {} does not support git provider checkout planning",
+                source.source_key()
+            )
         }
     }
 }
@@ -281,8 +353,40 @@ fn provider_token(token_env: &str) -> Option<String> {
 mod tests {
     use std::fs;
     use std::process::Command;
+    use std::sync::Arc;
+
+    use serde_json::Value;
+
+    use crate::runner::JsonRpcResponse;
 
     use super::*;
+
+    struct StaticSourceTransport {
+        root: PathBuf,
+        changed_files: Vec<String>,
+    }
+
+    impl RunnerCallbackTransport for StaticSourceTransport {
+        fn request(&self, method: &str, params: Value) -> Result<Value> {
+            assert_eq!(method, "source.materialize");
+            assert_eq!(
+                params["source"]["type"],
+                Value::String("custom".to_string())
+            );
+            Ok(json!({
+                "root": self.root,
+                "changedFiles": self.changed_files,
+            }))
+        }
+
+        fn notify(&self, _method: &str, _params: Value) -> Result<()> {
+            Ok(())
+        }
+
+        fn respond(&self, _response: &JsonRpcResponse) -> Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn plans_github_pull_request_checkout() {
@@ -307,6 +411,7 @@ mod tests {
         let source = ReviewSource::gitlab_merge_request("platform/tools", "heimdaal", 77).unwrap();
         let provider = RunSourceProviderParams {
             base_url: Some("https://gitlab.example.test/".to_string()),
+            callback: false,
         };
 
         let plan = provider_checkout_plan(&source, Some(&provider)).unwrap();
@@ -320,6 +425,44 @@ mod tests {
             "+refs/merge-requests/77/head:refs/remotes/origin/muzen-review-head"
         );
         assert_eq!(plan.token_env, "GITLAB_TOKEN");
+    }
+
+    #[test]
+    fn materializes_raw_snapshot_source_from_host_bundle() {
+        let bundle = tempfile::tempdir().expect("snapshot bundle");
+        fs::create_dir_all(bundle.path().join("src")).expect("src dir");
+        fs::write(bundle.path().join("src/lib.rs"), "pub fn fixture() {}\n")
+            .expect("snapshot file");
+        let source = ReviewSource::raw_snapshot_with_changed_files(bundle.path(), ["src/lib.rs"]);
+
+        let materialized = materialize_run_source(None, Some(&source), &[], None, None).unwrap();
+
+        assert_eq!(materialized.repo_root(), bundle.path());
+        assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);
+    }
+
+    #[test]
+    fn materializes_custom_source_through_callback_provider() {
+        let bundle = tempfile::tempdir().expect("snapshot bundle");
+        fs::create_dir_all(bundle.path().join("src")).expect("src dir");
+        fs::write(bundle.path().join("src/lib.rs"), "pub fn fixture() {}\n")
+            .expect("snapshot file");
+        let source = ReviewSource::custom("acme", "review-123").unwrap();
+        let provider = RunSourceProviderParams {
+            base_url: None,
+            callback: true,
+        };
+        let transport: Arc<dyn RunnerCallbackTransport> = Arc::new(StaticSourceTransport {
+            root: bundle.path().to_path_buf(),
+            changed_files: vec!["src/lib.rs".to_string()],
+        });
+
+        let materialized =
+            materialize_run_source(None, Some(&source), &[], Some(&provider), Some(&transport))
+                .unwrap();
+
+        assert_eq!(materialized.repo_root(), bundle.path());
+        assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);
     }
 
     #[test]
@@ -384,10 +527,11 @@ mod tests {
         let source = ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap();
         let provider = RunSourceProviderParams {
             base_url: Some(format!("file://{}", root.path().display())),
+            callback: false,
         };
 
         let materialized =
-            materialize_run_source(None, Some(&source), &[], Some(&provider)).unwrap();
+            materialize_run_source(None, Some(&source), &[], Some(&provider), None).unwrap();
 
         assert!(materialized.repo_root().join("src/lib.rs").is_file());
         assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);

@@ -288,6 +288,7 @@ mod tests {
             id: SessionId(id.to_string()),
             role: Role::Generalist,
             objective: "effects test".to_string(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: Some("test-model".to_string()),
             capabilities: CapabilitySet::review_read_only(),
@@ -311,6 +312,7 @@ mod tests {
             merge_base_revision_id: None,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
+            inline_diff: None,
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
             changed_files: vec![ChangedFileEntryV1 {

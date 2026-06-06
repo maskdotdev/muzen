@@ -58,6 +58,8 @@ pub(crate) struct ChangeScopeV1 {
     pub(crate) merge_base_revision_id: Option<String>,
     pub(crate) changed_files_manifest_ref: Option<String>,
     pub(crate) diff_manifest_ref: Option<String>,
+    #[serde(default)]
+    pub(crate) inline_diff: Option<String>,
     pub(crate) snapshot_mode: SnapshotMode,
     pub(crate) rename_detection: RenameDetection,
     pub(crate) changed_files: Vec<ChangedFileEntryV1>,

@@ -1,11 +1,12 @@
 use super::*;
 use crate::contracts::Role;
 use crate::runner::{
-    RunnerFinding, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
+    RunnerFinding, RunnerFindingLocation, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
     RUNNER_PROTOCOL_VERSION,
 };
 use crate::util::timestamp_utc;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -40,6 +41,26 @@ fn parses_gitlab_source_shorthand_with_nested_owner() {
 }
 
 #[test]
+fn parses_raw_snapshot_source_shorthand() {
+    let source = ReviewSource::from_str("raw_snapshot:/tmp/muzen-snapshot").unwrap();
+
+    assert_eq!(source, ReviewSource::raw_snapshot("/tmp/muzen-snapshot"));
+    assert_eq!(source.source_key(), "raw_snapshot:/tmp/muzen-snapshot");
+}
+
+#[test]
+fn builds_non_git_provider_sources() {
+    let perforce = ReviewSource::perforce_changelist("perforce.example:1666", "12345").unwrap();
+    let custom = ReviewSource::custom("acme", "review-123").unwrap();
+
+    assert_eq!(
+        perforce.source_key(),
+        "perforce:perforce.example:1666@12345"
+    );
+    assert_eq!(custom.source_key(), "custom:acme:review-123");
+}
+
+#[test]
 fn rejects_invalid_source_shorthand() {
     let error = ReviewSource::from_str("github:maskdotdev/heimdaal").unwrap_err();
 
@@ -54,16 +75,55 @@ fn maps_local_review_input_to_runner_start_params() {
         ReviewSource::local_with_changed_files(".", ["Cargo.toml"]),
         ReviewOptions {
             model: Some("default".to_string()),
-            sessions: vec![ReviewAgentSession::new(
-                "security",
-                Role::Security,
-                "Find security regressions",
-            )],
+            change: Some(ReviewChangeSpec {
+                kind: "revision_range".to_string(),
+                base_revision: Some("base".to_string()),
+                start_revision: None,
+                head_revision: Some("head".to_string()),
+                changed_files: vec![ReviewChangedFile {
+                    path: "src/lib.rs".to_string(),
+                    status: Some("modified".to_string()),
+                }],
+                diff: None,
+                review_target: None,
+                metadata: BTreeMap::new(),
+            }),
+            instructions: vec![ReviewInstruction {
+                kind: "host_policy".to_string(),
+                text: "Prefer concrete regressions.".to_string(),
+                trusted: true,
+            }],
+            tools: vec![ReviewToolOption {
+                id: "argus.issue_context".to_string(),
+                description: "Fetch linked issue context.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+                effects: vec!["read_host".to_string(), "write_artifact".to_string()],
+                cacheable: true,
+                provider_resources: vec!["issue:123".to_string()],
+            }],
+            sessions: vec![ReviewAgentSession {
+                id: "security".to_string(),
+                role: Role::Security,
+                objective: "Find security regressions".to_string(),
+                cwd: None,
+                model_profile_id: None,
+                instructions: vec![ReviewInstruction {
+                    kind: "session_objective".to_string(),
+                    text: "Focus on authentication boundaries.".to_string(),
+                    trusted: true,
+                }],
+                tool_grants: vec!["argus.issue_context".to_string()],
+                budget: None,
+            }],
             limits: Some(ReviewLimits {
                 max_active_sessions: Some(1),
                 max_file_bytes: Some(4096),
                 max_search_matches: Some(12),
             }),
+            metadata: BTreeMap::from([("hostRunId".to_string(), json!("flow-1"))]),
             ..ReviewOptions::default()
         },
     )
@@ -82,9 +142,25 @@ fn maps_local_review_input_to_runner_start_params() {
         start.source,
         Some(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
     );
-    assert_eq!(start.changed_files, vec!["Cargo.toml"]);
+    assert_eq!(start.changed_files, vec!["src/lib.rs"]);
+    assert_eq!(
+        start.change.as_ref().map(|change| change.kind.as_str()),
+        Some("revision_range")
+    );
+    assert_eq!(start.instructions.len(), 1);
+    assert_eq!(start.instructions[0].kind, "host_policy");
+    assert_eq!(start.tools.len(), 1);
+    assert_eq!(start.tools[0].id, "argus.issue_context");
+    assert_eq!(
+        start.tools[0].effects,
+        vec!["read_host".to_string(), "write_artifact".to_string()]
+    );
+    assert_eq!(start.tools[0].provider_resources, vec!["issue:123"]);
+    assert_eq!(start.metadata["hostRunId"], json!("flow-1"));
     assert_eq!(start.sessions.len(), 1);
     assert_eq!(start.sessions[0].id, "security");
+    assert_eq!(start.sessions[0].instructions.len(), 1);
+    assert_eq!(start.sessions[0].tool_grants, vec!["argus.issue_context"]);
     assert_eq!(
         start.sessions[0].model_profile_id.as_deref(),
         Some("default")
@@ -142,6 +218,29 @@ fn maps_runner_result_to_review_result() {
             claim: "The code can panic.".to_string(),
             evidence_count: 1,
             publishable: true,
+            severity: Some("high".to_string()),
+            confidence: Some(0.81),
+            validation_status: Some("validated".to_string()),
+            evidence: vec![crate::runner::RunnerFindingEvidence {
+                evidence_id: "ev-1".to_string(),
+                artifact_id: "art-1".to_string(),
+                kind: "file_slice".to_string(),
+                content_hash: "hash-1".to_string(),
+                producing_tool_call_id: "call-1".to_string(),
+            }],
+            discovered_by: vec!["security".to_string()],
+            validated_by: vec!["call-1".to_string()],
+            challenged_by: Vec::new(),
+            location: Some(RunnerFindingLocation {
+                path: "src/lib.rs".to_string(),
+                revision: Some("head".to_string()),
+                start_line: Some(12),
+                end_line: None,
+                start_column: None,
+                end_column: None,
+                side: Some("additions".to_string()),
+                provider_anchor: Some(json!({"line_code": "abc"})),
+            }),
         }],
         snapshots: vec![RunnerSnapshotSummary {
             snapshot_id: "snapshot-1".to_string(),
@@ -150,6 +249,7 @@ fn maps_runner_result_to_review_result() {
             captured_files: 8,
             captured_bytes: 1000,
         }],
+        metadata: BTreeMap::from([("hostRunId".to_string(), json!("flow-1"))]),
     };
 
     let review = ReviewResult::from_runner_result(review_id, &source, result);
@@ -157,9 +257,23 @@ fn maps_runner_result_to_review_result() {
     assert_eq!(review.status, ReviewStatus::Completed);
     assert_eq!(review.conclusion, ReviewConclusion::ChangesRequested);
     assert_eq!(review.findings[0].severity, ReviewFindingSeverity::Error);
+    assert_eq!(review.findings[0].confidence, Some(0.81));
+    assert_eq!(
+        review.findings[0].validation_status.as_deref(),
+        Some("validated")
+    );
+    assert_eq!(review.findings[0].evidence[0].evidence_id, "ev-1");
+    assert_eq!(review.findings[0].discovered_by, vec!["security"]);
+    assert_eq!(review.findings[0].validated_by, vec!["call-1"]);
+    let location = review.findings[0].location.as_ref().unwrap();
+    assert_eq!(location.path, "src/lib.rs");
+    assert_eq!(location.start_line, Some(12));
+    assert_eq!(location.side.as_deref(), Some("additions"));
+    assert_eq!(location.provider_anchor, Some(json!({"line_code": "abc"})));
     assert_eq!(review.coverage.files_considered, 10);
     assert_eq!(review.coverage.files_reviewed, 8);
     assert_eq!(review.coverage.files_skipped, 2);
+    assert_eq!(review.metadata["hostRunId"], json!("flow-1"));
     assert_eq!(review.metadata["runnerRunId"], json!("review-1"));
 }
 

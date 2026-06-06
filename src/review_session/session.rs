@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use crate::runner::{
     execute_run_start, RunStartParams, RunnerArtifactView, RUNNER_PROTOCOL_VERSION,
@@ -40,7 +41,7 @@ impl ReviewSession {
         let config_snapshot = input.options.config_snapshot.clone();
         let user_id = input.options.user_id.clone();
         let start = input.into_runner_start(&id)?;
-        let executed = execute_run_start(start, None)
+        let executed = execute_run_start(start, None, CancellationToken::new())
             .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
         let result = ReviewResult::from_runner_result(id.clone(), &source, executed.result);
         let status = result.status;
@@ -323,7 +324,7 @@ impl CreateReviewSessionInput {
         self,
         review_id: &ReviewSessionId,
     ) -> Result<RunStartParams, ReviewSessionError> {
-        let changed_files = self.source.runner_changed_files(&self.options.scope);
+        let changed_files = self.options.runner_changed_files(&self.source);
         let repo = self.source.local_repo().map(Path::to_path_buf);
         let source_provider = self.options.runner_source_provider();
         Ok(RunStartParams {
@@ -333,10 +334,14 @@ impl CreateReviewSessionInput {
             source: Some(self.source),
             source_provider,
             changed_files,
+            metadata: self.options.metadata.clone(),
+            change: self.options.runner_change(),
+            instructions: self.options.runner_instructions(),
             sessions: self.options.runner_sessions(),
             limits: self.options.limits.map(ReviewLimits::into_runner_limits),
             model: None,
-            tools: Vec::new(),
+            tools: self.options.runner_tools(),
+            heartbeat: None,
         })
     }
 }

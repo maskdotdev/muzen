@@ -48,16 +48,30 @@ ReviewEventType = Literal[
 
 ReviewArtifactView = Literal["redacted", "raw"]
 ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
-SourceProviderKind = Literal["github", "gitlab"]
+SourceProviderKind = Literal["github", "gitlab", "perforce", "custom"]
 WebhookDeliveryType = Literal["review_created", "review_deduped", "ignored"]
 
 
 @dataclass(frozen=True)
 class ReviewSource:
-    type: Literal["local", "github_pull_request", "gitlab_merge_request"]
-    repo: str
+    type: Literal[
+        "local",
+        "raw_snapshot",
+        "github_pull_request",
+        "gitlab_merge_request",
+        "perforce_changelist",
+        "custom",
+    ]
+    repo: Optional[str] = None
+    root: Optional[str] = None
     owner: Optional[str] = None
     number: Optional[int] = None
+    server: Optional[str] = None
+    changelist: Optional[str] = None
+    client: Optional[str] = None
+    depot_paths: List[str] = field(default_factory=list)
+    provider: Optional[str] = None
+    id: Optional[str] = None
     changed_files: List[str] = field(default_factory=list)
 
 
@@ -79,6 +93,8 @@ class ReviewAgentSession:
     objective: str
     cwd: Optional[str] = None
     model_profile_id: Optional[str] = None
+    instructions: List["ReviewInstruction"] = field(default_factory=list)
+    tool_grants: List[str] = field(default_factory=list)
     budget: Optional[ReviewAgentBudget] = None
 
 
@@ -136,12 +152,62 @@ class ReviewOptions:
     dedupe: Union[str, Dict[str, str]] = "none"
     cancel_superseded: bool = False
     model: Optional[str] = None
+    change: Optional["ReviewChangeSpec"] = None
     scope_files: List[str] = field(default_factory=list)
     scope_include: List[str] = field(default_factory=list)
     scope_exclude: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    instructions: List["ReviewInstruction"] = field(default_factory=list)
+    tools: List["ReviewTool"] = field(default_factory=list)
     sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
+
+
+@dataclass(frozen=True)
+class ReviewChangedFile:
+    path: str
+    status: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ReviewChangeSpec:
+    kind: str
+    base_revision: Optional[str] = None
+    start_revision: Optional[str] = None
+    head_revision: Optional[str] = None
+    changed_files: List[ReviewChangedFile] = field(default_factory=list)
+    diff: Optional[str] = None
+    review_target: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ReviewInstruction:
+    kind: str
+    text: str
+    trusted: bool = False
+
+
+ReviewToolEffect = Literal[
+    "read_repo",
+    "read_diff",
+    "read_artifact",
+    "read_host",
+    "read_network",
+    "read_scratch",
+    "write_artifact",
+    "write_scratch",
+]
+
+
+@dataclass(frozen=True)
+class ReviewTool:
+    id: str
+    description: str
+    parameters: Any
+    effects: List[ReviewToolEffect] = field(default_factory=list)
+    cacheable: bool = False
+    provider_resources: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -163,6 +229,20 @@ class ReviewFinding:
     location: Optional[Dict[str, Any]] = None
     suggested_fix: Optional[Dict[str, Any]] = None
     confidence: Optional[float] = None
+    validation_status: Optional[str] = None
+    evidence: List["ReviewFindingEvidence"] = field(default_factory=list)
+    discovered_by: List[str] = field(default_factory=list)
+    validated_by: List[str] = field(default_factory=list)
+    challenged_by: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ReviewFindingEvidence:
+    evidence_id: str
+    artifact_id: str
+    kind: str
+    content_hash: str
+    producing_tool_call_id: str
 
 
 @dataclass(frozen=True)

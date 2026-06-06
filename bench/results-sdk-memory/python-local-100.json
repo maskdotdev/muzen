@@ -1,0 +1,276 @@
+{
+  "schemaVersion": "muzen.sdk-memory-benchmark.v1",
+  "sdk": {
+    "language": "python",
+    "package": "muzen",
+    "version": "0.1.0-preview.0",
+    "runtime": "python 3.9.6"
+  },
+  "mode": "local-runner-stdio",
+  "runner": {
+    "path": "/Users/e464543/code/muzen/target/release/muzen-runner"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/muzen",
+    "sessions": 100,
+    "maxActiveSessions": 100,
+    "maxTurns": 4,
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120,
+    "changedFiles": []
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-05T14:12:27.052525Z",
+    "finishedAtUtc": "2026-06-05T14:12:28.355446Z",
+    "elapsedMs": 1303,
+    "holdMs": 1000,
+    "sampleMs": 25
+  },
+  "memory": {
+    "peakClientRssBytes": 25264128,
+    "peakRunnerRssBytes": 18776064,
+    "peakCombinedRssBytes": 44040192,
+    "finalClientRssBytes": 25264128,
+    "finalRunnerRssBytes": 18726912,
+    "finalCombinedRssBytes": 43991040,
+    "sampleCount": 24,
+    "runnerPids": [
+      22836
+    ],
+    "samples": [
+      {
+        "atMs": 30,
+        "clientRssBytes": 22233088,
+        "runnerRssBytes": 0,
+        "combinedRssBytes": 22233088,
+        "runnerPids": []
+      },
+      {
+        "atMs": 68,
+        "clientRssBytes": 22757376,
+        "runnerRssBytes": 7176192,
+        "combinedRssBytes": 29933568,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 97,
+        "clientRssBytes": 22986752,
+        "runnerRssBytes": 7208960,
+        "combinedRssBytes": 30195712,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 155,
+        "clientRssBytes": 23003136,
+        "runnerRssBytes": 10010624,
+        "combinedRssBytes": 33013760,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 210,
+        "clientRssBytes": 23019520,
+        "runnerRssBytes": 16891904,
+        "combinedRssBytes": 39911424,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 265,
+        "clientRssBytes": 25001984,
+        "runnerRssBytes": 18776064,
+        "combinedRssBytes": 43778048,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 319,
+        "clientRssBytes": 25264128,
+        "runnerRssBytes": 18776064,
+        "combinedRssBytes": 44040192,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 376,
+        "clientRssBytes": 25264128,
+        "runnerRssBytes": 18776064,
+        "combinedRssBytes": 44040192,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 434,
+        "clientRssBytes": 25231360,
+        "runnerRssBytes": 18743296,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 489,
+        "clientRssBytes": 25231360,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43958272,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 550,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 613,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 670,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 730,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 790,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 852,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 916,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 978,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1042,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1107,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1170,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1235,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1268,
+        "clientRssBytes": 25247744,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43974656,
+        "runnerPids": [
+          22836
+        ]
+      },
+      {
+        "atMs": 1302,
+        "clientRssBytes": 25264128,
+        "runnerRssBytes": 18726912,
+        "combinedRssBytes": 43991040,
+        "runnerPids": [
+          22836
+        ]
+      }
+    ]
+  },
+  "result": {
+    "status": "completed",
+    "conclusion": "approved",
+    "summary": "Review completed 100/100 session(s), produced 0 finding(s), used 200 model call(s), 400 tool call(s), and 57600 total token(s).",
+    "findings": 0,
+    "coverage": {
+      "filesConsidered": 137,
+      "filesReviewed": 128,
+      "filesSkipped": 9
+    },
+    "metadata": {
+      "runnerRunId": "review-79f804d6-711b-4f58-a422-cb23a0019c1f",
+      "runnerStatus": "completed",
+      "source": "local:/Users/e464543/code/muzen"
+    }
+  },
+  "benchmarkValid": true,
+  "benchmarkFailures": []
+}

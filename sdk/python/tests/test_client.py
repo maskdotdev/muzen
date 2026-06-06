@@ -9,14 +9,145 @@ from muzen import (
     ModelProfileInput,
     ProviderProfileInput,
     ReviewAgentSession,
+    ReviewChangeSpec,
+    ReviewChangedFile,
+    ReviewInstruction,
     WebhookDelivery,
     ReviewOptions,
+    ReviewTool,
     create_webhook_response,
     create_muzen_client,
     local,
     parse_review_source,
 )
 from muzen.client import _to_runner_start_params
+from muzen.runner_mapping import _map_runner_result
+
+
+class RunnerMappingTests(unittest.TestCase):
+    def test_provider_sources_are_forwarded_to_rust_runner(self) -> None:
+        source = parse_review_source("github:maskdotdev/heimdaal#123")
+
+        params = _to_runner_start_params("review-1", source, ReviewOptions())
+
+        self.assertNotIn("repo", params)
+        self.assertEqual(
+            params["source"],
+            {
+                "type": "github_pull_request",
+                "owner": "maskdotdev",
+                "repo": "heimdaal",
+                "number": 123,
+            },
+        )
+        self.assertEqual(params["changedFiles"], [])
+
+    def test_provider_neutral_options_are_forwarded_to_rust_runner(self) -> None:
+        source = local("/repo", changed_files=["fallback.py"])
+
+        params = _to_runner_start_params(
+            "review-1",
+            source,
+            ReviewOptions(
+                metadata={"hostRunId": "flow-1"},
+                change=ReviewChangeSpec(
+                    kind="revision_range",
+                    base_revision="base",
+                    head_revision="head",
+                    changed_files=[
+                        ReviewChangedFile(path="src/auth.py", status="modified")
+                    ],
+                ),
+                instructions=[
+                    ReviewInstruction(
+                        kind="host_policy",
+                        text="Prefer concrete regressions.",
+                        trusted=True,
+                    )
+                ],
+                tools=[
+                    ReviewTool(
+                        id="host.issue_context",
+                        description="Fetch issue context.",
+                        parameters={"type": "object", "properties": {}},
+                        effects=["read_host"],
+                        cacheable=True,
+                        provider_resources=["issue:123"],
+                    )
+                ],
+                sessions=[
+                    ReviewAgentSession(
+                        id="security",
+                        role="security",
+                        objective="Find auth regressions.",
+                        instructions=[
+                            ReviewInstruction(
+                                kind="session_objective",
+                                text="Focus on token boundaries.",
+                                trusted=True,
+                            )
+                        ],
+                        tool_grants=["host.issue_context"],
+                    )
+                ],
+            ),
+        )
+
+        self.assertEqual(params["changedFiles"], ["src/auth.py"])
+        self.assertEqual(params["metadata"], {"hostRunId": "flow-1"})
+        self.assertEqual(params["change"]["headRevision"], "head")
+        self.assertEqual(params["instructions"][0]["kind"], "host_policy")
+        self.assertEqual(params["tools"][0]["effects"], ["read_host"])
+        self.assertEqual(params["tools"][0]["providerResources"], ["issue:123"])
+        self.assertEqual(params["sessions"][0]["toolGrants"], ["host.issue_context"])
+
+    def test_runner_result_preserves_finding_provenance(self) -> None:
+        result = _map_runner_result(
+            "review-1",
+            local("/repo"),
+            {
+                "runId": "review-1",
+                "status": "completed",
+                "summary": {
+                    "sessions": 1,
+                    "completedSessions": 1,
+                    "modelCalls": 1,
+                    "toolCalls": 2,
+                    "totalTokens": 12,
+                },
+                "findings": [
+                    {
+                        "id": "finding-1",
+                        "title": "Unsafe unwrap",
+                        "claim": "The code can panic.",
+                        "publishable": True,
+                        "severity": "high",
+                        "confidence": 0.81,
+                        "validationStatus": "validated",
+                        "evidence": [
+                            {
+                                "evidenceId": "ev-1",
+                                "artifactId": "art-1",
+                                "kind": "file_slice",
+                                "contentHash": "hash-1",
+                                "producingToolCallId": "call-1",
+                            }
+                        ],
+                        "discoveredBy": ["security"],
+                        "validatedBy": ["call-1"],
+                    }
+                ],
+                "snapshots": [{"files": 2, "capturedFiles": 2}],
+            },
+        )
+
+        finding = result.findings[0]
+        self.assertEqual(finding.severity, "error")
+        self.assertEqual(finding.confidence, 0.81)
+        self.assertEqual(finding.validation_status, "validated")
+        self.assertEqual(finding.evidence[0].evidence_id, "ev-1")
+        self.assertEqual(finding.discovered_by, ["security"])
+        self.assertEqual(finding.validated_by, ["call-1"])
 
 
 @unittest.skipUnless(os.environ.get("MUZEN_RUNNER_PATH"), "MUZEN_RUNNER_PATH is not set")
@@ -60,24 +191,6 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(len(artifact.content), 0)
             self.assertIn("session.completed", replayed)
             self.assertEqual((await review.refresh()).id, review.id)
-
-    async def test_provider_sources_are_forwarded_to_rust_runner(self) -> None:
-        source = parse_review_source("github:maskdotdev/heimdaal#123")
-
-        params = _to_runner_start_params("review-1", source, ReviewOptions())
-
-        self.assertNotIn("repo", params)
-        self.assertEqual(
-            params["source"],
-            {
-                "type": "github_pull_request",
-                "owner": "maskdotdev",
-                "repo": "heimdaal",
-                "number": 123,
-            },
-        )
-        self.assertEqual(params["changedFiles"], [])
-
 
 class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_remote_workspace_profiles_and_review_contract(self) -> None:

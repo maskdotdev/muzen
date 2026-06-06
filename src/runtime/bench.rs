@@ -238,6 +238,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
                     "Benchmark task: call read_diff, call read_file with path `{target_path}`, call search_text with query `{}`, then record one concise evidence-backed benchmark finding.",
                     args.query
                 ),
+                instructions: Vec::new(),
                 snapshot_id: None,
                 model_profile_id: Some("bench-oai".to_string()),
                 capabilities: CapabilitySet::review_read_only(),
@@ -345,6 +346,7 @@ fn run_concurrent(
                 role: Role::for_index(index),
                 objective: "Gather diff, file, and search evidence with concurrent tools."
                     .to_string(),
+                instructions: Vec::new(),
                 snapshot_id: None,
                 model_profile_id: Some("mock".to_string()),
                 capabilities: CapabilitySet::review_read_only(),
@@ -399,6 +401,7 @@ fn run_serial_baseline(
             id: SessionId(format!("serial-baseline-session-{index}")),
             role: Role::for_index(index),
             objective: "Gather diff, file, and search evidence with serial tools.".to_string(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: Some("mock".to_string()),
             capabilities: CapabilitySet::review_read_only(),
@@ -554,6 +557,7 @@ fn synthetic_change(root: &Path, policy: &PathPolicyV1) -> Result<ChangeScopeV1>
         merge_base_revision_id: None,
         changed_files_manifest_ref: None,
         diff_manifest_ref: None,
+        inline_diff: None,
         snapshot_mode: SnapshotMode::WorktreeHead,
         rename_detection: RenameDetection::None,
         changed_files: synthetic_changed_files(root, policy)?,

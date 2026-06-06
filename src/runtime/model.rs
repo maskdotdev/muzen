@@ -873,6 +873,7 @@ fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> S
         id: SessionId(format!("real-provider-canary-{profile_id}")),
         role: Role::Generalist,
         objective: "real-provider protocol canary".to_string(),
+        instructions: Vec::new(),
         snapshot_id: None,
         model_profile_id: Some(profile_id),
         capabilities: CapabilitySet::review_read_only(),

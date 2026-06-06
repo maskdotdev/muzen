@@ -83,12 +83,14 @@ export class RemoteMuzen implements Muzen {
     options?: ReviewOptions;
   }): Promise<ReviewSession> {
     const source = parseReviewSource(input.source);
+    const options = input.options ?? {};
     const response = await this.requestJson("/v1/reviews", {
       method: "POST",
       body: {
         source,
-        options: input.options ?? {},
+        options: remoteReviewOptions(options),
       },
+      signal: options.signal,
     });
     const snapshot = unwrapReviewSnapshot(response);
     return new RemoteReviewSession(this, snapshot);
@@ -223,8 +225,9 @@ class RemoteWorkspace implements MuzenWorkspace {
         method: "POST",
         body: {
           source,
-          options,
+          options: remoteReviewOptions(options),
         },
+        signal: options.signal,
       },
     );
     return new RemoteReviewSession(this.client, unwrapReviewSnapshot(response));
@@ -457,4 +460,24 @@ class RemoteReviewSession implements ReviewSession {
     this.currentResult = snapshot.result;
     return snapshot;
   }
+}
+
+function remoteReviewOptions(options: ReviewOptions): ReviewOptions {
+  const {
+    hooks: _hooks,
+    signal: _signal,
+    heartbeat: _heartbeat,
+    sourceProvider,
+    model,
+    tools,
+    ...serializable
+  } = options;
+  return {
+    ...serializable,
+    model: typeof model === "string" ? model : undefined,
+    sourceProvider: sourceProvider?.baseUrl
+      ? { baseUrl: sourceProvider.baseUrl }
+      : undefined,
+    tools: tools?.map(({ handler: _handler, ...tool }) => tool),
+  };
 }

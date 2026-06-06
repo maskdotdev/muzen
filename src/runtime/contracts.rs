@@ -198,7 +198,7 @@ impl ToolId {
         }
         if !input
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
         {
             return Err(RuntimeError::InvalidInput("invalid tool id".to_string()));
         }
@@ -819,10 +819,18 @@ pub struct SessionScope {
     pub id: SessionId,
     pub role: Role,
     pub objective: String,
+    pub instructions: Vec<SessionInstruction>,
     pub snapshot_id: Option<SnapshotId>,
     pub model_profile_id: Option<String>,
     pub capabilities: CapabilitySet,
     pub budget: AgentBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInstruction {
+    pub kind: String,
+    pub text: String,
+    pub trusted: bool,
 }
 
 impl SessionScope {
@@ -836,6 +844,7 @@ impl SessionScope {
             id,
             role,
             objective: objective.into(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
             capabilities: CapabilitySet::review_read_only(),

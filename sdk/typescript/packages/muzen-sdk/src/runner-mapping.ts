@@ -1,6 +1,7 @@
 import type { JsonRpcNotification } from "./protocol.js";
 import { sourceKey } from "./sources.js";
 import type {
+  ReviewChangeSpec,
   ReviewArtifact,
   ReviewEvent,
   ReviewEventType,
@@ -18,26 +19,110 @@ export function toRunnerStartParams(
   options: ReviewOptions,
 ): unknown {
   const changedFiles =
-    options.scope?.files ?? (source.type === "local" ? source.changedFiles ?? [] : []);
+    options.scope?.files ??
+    changedFilePaths(options.change) ??
+    (source.type === "local" ? source.changedFiles ?? [] : []);
+  const defaultModelProfileId =
+    typeof options.model === "string" ? options.model : undefined;
   const params: Record<string, unknown> = {
     protocolVersion: "muzen.runner.v1",
     runId: reviewId,
     source,
+    sourceProvider: mapReviewSourceProvider(options.sourceProvider),
     changedFiles,
+    metadata: options.metadata ?? {},
+    change: mapReviewChange(options.change),
+    instructions: (options.instructions ?? []).map((instruction) => ({
+      kind: instruction.kind,
+      text: instruction.text,
+      trusted: instruction.trusted ?? false,
+    })),
     sessions: (options.sessions ?? []).map((session) => ({
       id: session.id,
       role: session.role,
       objective: session.objective,
       cwd: session.cwd,
-      modelProfileId: session.modelProfileId ?? options.model,
+      modelProfileId: session.modelProfileId ?? defaultModelProfileId,
+      instructions: (session.instructions ?? []).map((instruction) => ({
+        kind: instruction.kind,
+        text: instruction.text,
+        trusted: instruction.trusted ?? false,
+      })),
+      toolGrants: session.toolGrants ?? [],
       budget: session.budget,
     })),
     limits: mapReviewLimits(options.limits),
+    model: mapReviewModel(options.model),
+    tools: (options.tools ?? []).map((tool) => ({
+      id: tool.id,
+      description: tool.description,
+      parameters: tool.parameters,
+      effects: tool.effects ?? [],
+      cacheable: tool.cacheable ?? false,
+      providerResources: tool.providerResources ?? [],
+    })),
+    heartbeat: mapReviewHeartbeat(options),
   };
   if (source.type === "local") {
     params.repo = source.repo;
   }
   return params;
+}
+
+function mapReviewHeartbeat(options: ReviewOptions): unknown {
+  if (!options.hooks?.onHeartbeat) {
+    return undefined;
+  }
+  return {
+    callback: true,
+    intervalMs: options.heartbeat?.intervalMs,
+    leaseSeconds: options.heartbeat?.leaseSeconds,
+  };
+}
+
+function mapReviewModel(model: ReviewOptions["model"]): unknown {
+  if (!model || typeof model === "string") {
+    return undefined;
+  }
+  if (model.kind === "callback") {
+    return { callback: true };
+  }
+  return undefined;
+}
+
+function mapReviewSourceProvider(
+  provider: ReviewOptions["sourceProvider"],
+): unknown {
+  if (!provider) {
+    return undefined;
+  }
+  return {
+    baseUrl: provider.baseUrl,
+    callback: Boolean(provider.handler),
+  };
+}
+
+function changedFilePaths(change: ReviewChangeSpec | undefined): string[] | undefined {
+  if (!change?.changedFiles?.length) {
+    return undefined;
+  }
+  return change.changedFiles.map((file) => file.path);
+}
+
+function mapReviewChange(change: ReviewChangeSpec | undefined): unknown {
+  if (!change) {
+    return undefined;
+  }
+  return {
+    kind: change.kind,
+    baseRevision: change.baseRevision,
+    startRevision: change.startRevision,
+    headRevision: change.headRevision,
+    changedFiles: change.changedFiles ?? [],
+    diff: change.diff,
+    reviewTarget: change.reviewTarget,
+    metadata: change.metadata ?? {},
+  };
 }
 
 export function mapNotification(
@@ -69,6 +154,7 @@ export function mapRunnerResult(
   }
   const findings = value.findings.map(mapRunnerFinding);
   const status = mapRunnerStatus(value.status);
+  const metadata = isRecord(value.metadata) ? value.metadata : {};
   return {
     reviewId,
     sessionId: reviewId,
@@ -78,6 +164,7 @@ export function mapRunnerResult(
     findings,
     coverage: coverageFromSnapshots(value.snapshots),
     metadata: {
+      ...metadata,
       runnerRunId: value.runId,
       runnerStatus: value.status,
       source: sourceKey(source),
@@ -204,11 +291,35 @@ function eventKind(event: unknown): string | undefined {
 function mapRunnerFinding(finding: RunnerFinding): ReviewFinding {
   return {
     id: finding.id,
-    severity: finding.publishable ? "error" : "info",
+    severity: mapRunnerFindingSeverity(finding),
     category: "other",
     title: finding.title,
     message: finding.claim,
+    location: finding.location,
+    confidence: finding.confidence,
+    validationStatus: finding.validationStatus,
+    evidence: finding.evidence ?? [],
+    discoveredBy: finding.discoveredBy ?? [],
+    validatedBy: finding.validatedBy ?? [],
+    challengedBy: finding.challengedBy ?? [],
   };
+}
+
+function mapRunnerFindingSeverity(
+  finding: RunnerFinding,
+): ReviewFinding["severity"] {
+  switch (finding.severity) {
+    case "blocker":
+    case "high":
+      return "error";
+    case "medium":
+    case "low":
+      return "warning";
+    case "nit":
+      return "info";
+    default:
+      return finding.publishable ? "error" : "info";
+  }
 }
 
 function conclusionFromFindings(findings: ReviewFinding[]): ReviewResult["conclusion"] {
@@ -247,6 +358,7 @@ interface RunnerRunResult {
   summary: RunnerRunSummary;
   findings: RunnerFinding[];
   snapshots: RunnerSnapshotSummary[];
+  metadata?: Record<string, unknown>;
 }
 
 interface RunnerRunSummary {
@@ -262,6 +374,33 @@ interface RunnerFinding {
   title: string;
   claim: string;
   publishable: boolean;
+  severity?: string;
+  confidence?: number;
+  validationStatus?: string;
+  evidence?: RunnerFindingEvidence[];
+  discoveredBy?: string[];
+  validatedBy?: string[];
+  challengedBy?: string[];
+  location?: RunnerFindingLocation;
+}
+
+interface RunnerFindingEvidence {
+  evidenceId: string;
+  artifactId: string;
+  kind: string;
+  contentHash: string;
+  producingToolCallId: string;
+}
+
+interface RunnerFindingLocation {
+  path: string;
+  revision?: string;
+  startLine?: number;
+  endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
+  side?: string;
+  providerAnchor?: Record<string, unknown>;
 }
 
 interface RunnerSnapshotSummary {

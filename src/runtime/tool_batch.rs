@@ -194,6 +194,7 @@ mod tests {
             merge_base_revision_id: None,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
+            inline_diff: None,
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
             changed_files: vec![ChangedFileEntryV1 {

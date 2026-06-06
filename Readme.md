@@ -1,128 +1,72 @@
 # Muzen
 
-Muzen is a Rust-first review automation runtime. The durable core owns review
-sessions, workspace configuration, scheduling, workers, webhooks, and event
-streams in Rust; TypeScript and Python SDKs provide the high-level developer
-experience on top.
+Code review automation that runs as a real service.
 
-## Production SDK Flow
-
-This is the public API shape RFC 0001 is driving toward.
-
-### 1. Install
-
-```sh
-npm install @muzen/sdk
-```
-
-### 2. Configure
-
-```sh
-DATABASE_URL=postgres://...
-GITHUB_TOKEN=...
-GITHUB_WEBHOOK_SECRET=...
-OPENAI_API_KEY=...
-```
-
-### 3. Run A Review
+Most review automation is glue code that breaks the moment you need retries,
+cancellation, streaming progress, or durable state. Muzen handles all of that so
+you can treat a code review like an API call:
 
 ```ts
 import { createMuzen } from "@muzen/sdk";
 
 const muzen = await createMuzen();
-
 const review = await muzen.review("github:maskdotdev/heimdaal#123");
 
-console.log(await review.wait());
-```
-
-### 4. Subscribe To Progress
-
-```ts
 review.subscribe((event) => {
   console.log(event.type);
 });
+
+const result = await review.wait();
+console.log(result.conclusion);
+console.log(result.summary);
 ```
 
-### 5. Handle GitHub Webhooks
+A Rust runtime manages sessions, workers, event replay, webhooks, provider
+checkouts, artifacts, and scheduling. TypeScript and Python SDKs give you a
+clean interface over it -- you never have to think about the Rust layer unless
+you want to.
 
-```ts
-export async function POST(request: Request) {
-  return muzen.webhooks.github.response(request);
-}
-```
+## Current Status
 
-### 6. Run Workers In Production
+Muzen is a preview implementation of RFC 0001. The repo builds and the APIs
+work, but the surface is still settling.
 
-```ts
-const muzen = await createMuzen();
+**Working today:**
 
-await muzen.workers.start();
-```
+- Local reviews via the `muzen-runner` binary
+- TypeScript and Python SDK previews over a shared runner protocol
+- Durable review sessions with events, results, artifacts, logs, cancellation,
+  retries, leases, and worker claims
+- In-memory stores for local dev, Postgres-backed stores for real deployments
+- Workspace-scoped model and provider profiles with secret references (no raw
+  credentials)
+- GitHub and GitLab webhook verification, source mapping, and queued scheduling
+- Full HTTP API: review creation, SSE streaming, results, artifacts,
+  cancellation, webhooks, and workspace profiles
+- An Axum-backed `muzen-service` binary wrapping the core HTTP router
+- Pull request and merge request materialization with temporary Git checkouts,
+  token-safe auth, provider base URL routing, and changed-file inference
 
-### 7. Connect To A Remote Muzen Service
+**Still hardening:**
 
-```ts
-import { createMuzenClient } from "@muzen/sdk";
+- Postgres integration CI for environments with `DATABASE_URL`
+- Live GitHub/GitLab provider smoke tests where tokens and network access are
+  available
+- Migration from local inline execution to durable service-bound SDK execution
 
-const muzen = createMuzenClient({
-  baseUrl: process.env.MUZEN_URL,
-});
+Full implementation ledger:
+[`docs/rfcs/0001-implementation-progress.md`](docs/rfcs/0001-implementation-progress.md)
 
-const review = await muzen.review("github:maskdotdev/heimdaal#123");
+## Try a Local Review
 
-console.log(await review.wait());
-```
-
-## Current Implementation Status
-
-The flow above is the target developer experience. The implementation is being
-built in committed RFC slices, and the current preview intentionally avoids
-documenting unimplemented APIs as if they are ready.
-
-Implemented now:
-
-- Rust core review-session contracts, local execution, durable records,
-  cancellation, worker claims, leases, retries, concurrency limits, and queued
-  worker execution.
-- Rust Postgres-backed review-session and workspace-profile stores, including
-  transactional worker claims with `FOR UPDATE SKIP LOCKED`.
-- Rust workspace model/provider profiles and effective config snapshots with
-  secret references instead of raw credentials.
-- Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
-  delivery JSON, and framework-agnostic HTTP/SSE response helpers.
-- Rust framework-neutral remote HTTP router for review creation, events,
-  results, artifacts, workspace profiles, and provider webhooks.
-- Rust Axum HTTP service adapter and `muzen-service` binary around the core
-  router.
-- Rust GitHub/GitLab provider materialization for pull/merge request sources,
-  including temporary Git checkouts, token-safe auth headers, provider base URL
-  routing, and changed-file inference.
-- TypeScript SDK local preview over `muzen-runner`.
-- TypeScript local webhook request facade:
-  `createMuzen(...).webhooks.github.response(request)`.
-- TypeScript local worker facade:
-  `createMuzen(...).workers.runOnce()` and `createMuzen(...).workers.start()`,
-  backed by the Rust worker protocol.
-- TypeScript remote client preview with review, workspace profile, event,
-  result, cancellation, and artifact APIs.
-- TypeScript framework-facing webhook delivery response helpers.
-- TypeScript remote webhook request facade:
-  `createMuzenClient(...).webhooks.github.response(request)`.
-- Python SDK local preview over `muzen-runner`.
-- Python remote client preview with review and workspace profile APIs.
-- Python framework-neutral webhook delivery response helpers.
-
-## Local Preview
-
-Build the runner:
+Build the runner and point an SDK at it:
 
 ```sh
 cargo build --bin muzen-runner
 export MUZEN_RUNNER_PATH="$PWD/target/debug/muzen-runner"
 ```
 
-Run a local repository review through the TypeScript SDK:
+Then run a review:
 
 ```ts
 import { createMuzen, local } from "@muzen/sdk";
@@ -150,16 +94,17 @@ try {
 }
 ```
 
-Runnable examples:
+More examples:
 
 - `examples/typescript/basic-review`
 - `examples/typescript/events`
 - `examples/python/basic_review.py`
 - `examples/python/notebook-review/notebook_review.ipynb`
 
-## Rust Service
+## Run the Service
 
-Run the RFC 0001 HTTP service:
+`muzen-service` exposes the full HTTP API from RFC 0001. Point it at Postgres
+for durable storage, or omit `DATABASE_URL` to run with in-memory stores.
 
 ```sh
 DATABASE_URL=postgres://...
@@ -168,11 +113,7 @@ GITLAB_WEBHOOK_TOKEN=...
 cargo run --bin muzen-service -- --bind 127.0.0.1:7341
 ```
 
-When `DATABASE_URL` is set, `muzen-service` uses Postgres-backed durable review
-session and workspace profile stores. Without it, the service uses in-memory
-stores for local preview.
-
-## Remote Client Preview
+Once the service is up, connect a remote client:
 
 ```ts
 import { createMuzenClient } from "@muzen/sdk";
@@ -198,9 +139,28 @@ await workspace.providers.set("github", {
 const review = await workspace.review("github:maskdotdev/heimdaal#123", {
   model: "default",
 });
+
+console.log(await review.wait());
 ```
 
-## Python Preview
+## Webhooks
+
+Webhook verification and event mapping live in Rust. Your framework route just
+delegates:
+
+```ts
+export async function POST(request: Request) {
+  return muzen.webhooks.github.response(request);
+}
+```
+
+The helpers verify signatures (GitHub) or tokens (GitLab), map pull request and
+merge request events to review sources, and queue workspace reviews
+automatically.
+
+## Python
+
+Python shares the same runner protocol as TypeScript:
 
 ```py
 import asyncio
@@ -218,7 +178,7 @@ async def main() -> None:
             local(".", changed_files=["Cargo.toml"]),
         )
 
-        for event in [event async for event in review.events()]:
+        async for event in review.events():
             print(event.type)
 
         result = await review.wait()
@@ -231,11 +191,49 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Verification
+## Architecture
+
+```text
+TypeScript SDK       Python SDK
+      |                  |
+      +------ runner protocol ------+
+                                    |
+                              muzen-runner
+                                    |
+                              Rust review core
+                                    |
+        +-----------+-------------+-------------+
+        |           |             |             |
+     sessions    workers      webhooks      artifacts
+        |           |             |             |
+        +-----------+-------------+-------------+
+                                    |
+                      in-memory stores or Postgres
+
+Remote clients use HTTP instead:
+
+SDK -> muzen-service -> Rust review core -> stores/workers/events/results
+```
+
+The Rust boundary is an operational choice: SDKs stay small and ergonomic while
+protocol validation, provider materialization, durable records, and worker
+behavior share a single implementation.
+
+## Verify the Repo
+
+Run the full verification gate:
 
 ```sh
 scripts/verify-rfc-0001-examples.sh
 ```
 
-The implementation ledger lives at
-`docs/rfcs/0001-implementation-progress.md`.
+This builds `muzen-runner`, runs TypeScript and Python SDK tests, typechecks the
+TypeScript examples, executes the Python basic review example, and validates the
+notebook JSON.
+
+## Docs
+
+- [RFC 0001 -- SDK-First Review Sessions](docs/rfcs/0001-sdk-first-review-sessions.md)
+- [Remote HTTP API Contract](docs/rfcs/0001-remote-http-api-contract.md)
+- [Runner Protocol Mapping](docs/rfcs/0001-runner-protocol-mapping.md)
+- [Implementation Progress](docs/rfcs/0001-implementation-progress.md)

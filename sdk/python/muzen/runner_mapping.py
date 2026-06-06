@@ -10,6 +10,7 @@ from .types import (
     ReviewEvent,
     ReviewEventType,
     ReviewFinding,
+    ReviewFindingEvidence,
     ReviewLimits,
     ReviewOptions,
     ReviewResult,
@@ -23,14 +24,22 @@ def _to_runner_start_params(
     source: ReviewSource,
     options: ReviewOptions,
 ) -> Dict[str, Any]:
-    changed_files = options.scope_files or (source.changed_files if source.type == "local" else [])
+    changed_files = (
+        options.scope_files
+        or _changed_file_paths(options)
+        or (source.changed_files if source.type == "local" else [])
+    )
     payload = {
         "protocolVersion": "muzen.runner.v1",
         "runId": review_id,
         "source": _source_to_remote(source),
         "changedFiles": changed_files,
+        "metadata": options.metadata,
+        "change": _change_to_runner(options),
+        "instructions": [_instruction_to_runner(item) for item in options.instructions],
         "sessions": [_session_to_runner(session, options.model) for session in options.sessions],
         "limits": _limits_to_runner(options.limits),
+        "tools": [_tool_to_runner(tool) for tool in options.tools],
     }
     if source.type == "local":
         payload["repo"] = source.repo
@@ -44,6 +53,8 @@ def _session_to_runner(session: Any, default_model: Optional[str]) -> Dict[str, 
         "objective": session.objective,
         "cwd": session.cwd,
         "modelProfileId": session.model_profile_id or default_model,
+        "instructions": [_instruction_to_runner(item) for item in session.instructions],
+        "toolGrants": session.tool_grants,
     }
     if session.budget is not None:
         payload["budget"] = _camel_dict(asdict(session.budget))
@@ -57,6 +68,50 @@ def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]
         "maxActiveSessions": limits.max_active_sessions,
         "maxFileBytes": limits.max_file_bytes,
         "maxSearchMatches": limits.max_search_matches,
+    }
+
+
+def _changed_file_paths(options: ReviewOptions) -> List[str]:
+    if options.change is None or not options.change.changed_files:
+        return []
+    return [file.path for file in options.change.changed_files]
+
+
+def _change_to_runner(options: ReviewOptions) -> Optional[Dict[str, Any]]:
+    change = options.change
+    if change is None:
+        return None
+    return {
+        "kind": change.kind,
+        "baseRevision": change.base_revision,
+        "startRevision": change.start_revision,
+        "headRevision": change.head_revision,
+        "changedFiles": [
+            {"path": file.path, "status": file.status}
+            for file in change.changed_files
+        ],
+        "diff": change.diff,
+        "reviewTarget": change.review_target,
+        "metadata": change.metadata,
+    }
+
+
+def _instruction_to_runner(instruction: Any) -> Dict[str, Any]:
+    return {
+        "kind": instruction.kind,
+        "text": instruction.text,
+        "trusted": instruction.trusted,
+    }
+
+
+def _tool_to_runner(tool: Any) -> Dict[str, Any]:
+    return {
+        "id": tool.id,
+        "description": tool.description,
+        "parameters": tool.parameters,
+        "effects": tool.effects,
+        "cacheable": tool.cacheable,
+        "providerResources": tool.provider_resources,
     }
 
 
@@ -134,11 +189,39 @@ def _map_runner_result(review_id: str, source: ReviewSource, value: Any) -> Revi
 def _map_runner_finding(value: Dict[str, Any]) -> ReviewFinding:
     return ReviewFinding(
         id=value.get("id", ""),
-        severity="error" if value.get("publishable") else "info",
+        severity=_map_finding_severity(value),
         category="other",
         title=value.get("title", ""),
         message=value.get("claim", ""),
+        location=value.get("location"),
+        confidence=value.get("confidence"),
+        validation_status=value.get("validationStatus"),
+        evidence=[
+            ReviewFindingEvidence(
+                evidence_id=evidence.get("evidenceId", ""),
+                artifact_id=evidence.get("artifactId", ""),
+                kind=evidence.get("kind", ""),
+                content_hash=evidence.get("contentHash", ""),
+                producing_tool_call_id=evidence.get("producingToolCallId", ""),
+            )
+            for evidence in value.get("evidence", [])
+            if isinstance(evidence, dict)
+        ],
+        discovered_by=list(value.get("discoveredBy", [])),
+        validated_by=list(value.get("validatedBy", [])),
+        challenged_by=list(value.get("challengedBy", [])),
     )
+
+
+def _map_finding_severity(value: Dict[str, Any]) -> str:
+    severity = value.get("severity")
+    if severity in ("blocker", "high"):
+        return "error"
+    if severity in ("medium", "low"):
+        return "warning"
+    if severity == "nit":
+        return "info"
+    return "error" if value.get("publishable") else "info"
 
 
 def _map_runner_artifact(value: Dict[str, Any]) -> ReviewArtifact:
@@ -186,11 +269,31 @@ def _source_to_remote(source: ReviewSource) -> Dict[str, Any]:
             "repo": source.repo,
             "number": source.number,
         }
+    if source.type == "gitlab_merge_request":
+        return {
+            "type": "gitlab_merge_request",
+            "owner": source.owner,
+            "repo": source.repo,
+            "number": source.number,
+        }
+    if source.type == "raw_snapshot":
+        return {
+            "type": "raw_snapshot",
+            "root": source.root,
+            "changedFiles": source.changed_files,
+        }
+    if source.type == "perforce_changelist":
+        return {
+            "type": "perforce_changelist",
+            "server": source.server,
+            "changelist": source.changelist,
+            "client": source.client,
+            "depotPaths": source.depot_paths,
+        }
     return {
-        "type": "gitlab_merge_request",
-        "owner": source.owner,
-        "repo": source.repo,
-        "number": source.number,
+        "type": "custom",
+        "provider": source.provider,
+        "id": source.id,
     }
 
 

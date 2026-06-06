@@ -150,6 +150,9 @@ pub(crate) fn validate_invocation(
                     ToolErrorCode::InvalidArgs,
                 )
             })?;
+            if !schema_accepts_value(&parsed, &definition.parameters) {
+                return Err((call.call_id, tool_id, ToolErrorCode::InvalidArgs));
+            }
             ToolArgs::Raw(parsed)
         }
     };
@@ -174,10 +177,96 @@ pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnve
     }
 }
 
+fn schema_accepts_value(value: &Value, schema: &Value) -> bool {
+    match schema {
+        Value::Bool(accepts) => *accepts,
+        Value::Object(_) => {
+            if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+                if !values.iter().any(|candidate| candidate == value) {
+                    return false;
+                }
+            }
+            match schema.get("type") {
+                Some(Value::String(kind)) => schema_type_accepts(value, schema, kind),
+                Some(Value::Array(kinds)) => kinds
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|kind| schema_type_accepts(value, schema, kind)),
+                Some(_) => false,
+                None => true,
+            }
+        }
+        _ => true,
+    }
+}
+
+fn schema_type_accepts(value: &Value, schema: &Value, kind: &str) -> bool {
+    match kind {
+        "object" => object_schema_accepts(value, schema),
+        "array" => array_schema_accepts(value, schema),
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        _ => false,
+    }
+}
+
+fn object_schema_accepts(value: &Value, schema: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        if !required
+            .iter()
+            .filter_map(Value::as_str)
+            .all(|name| object.contains_key(name))
+        {
+            return false;
+        }
+    }
+    if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
+        let Some(properties) = properties else {
+            return object.is_empty();
+        };
+        if object.keys().any(|name| !properties.contains_key(name)) {
+            return false;
+        }
+    }
+    properties.is_none_or(|properties| {
+        properties.iter().all(|(name, property_schema)| {
+            object
+                .get(name)
+                .is_none_or(|property| schema_accepts_value(property, property_schema))
+        })
+    })
+}
+
+fn array_schema_accepts(value: &Value, schema: &Value) -> bool {
+    let Some(items) = value.as_array() else {
+        return false;
+    };
+    schema.get("items").is_none_or(|item_schema| {
+        items
+            .iter()
+            .all(|item| schema_accepts_value(item, item_schema))
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::runtime::tools::ToolRegistry;
+    use async_trait::async_trait;
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::runtime::tools::registry::{
+        CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
+    };
 
     #[test]
     fn validation_rejects_arguments_over_capability_input_limit() {
@@ -202,5 +291,91 @@ mod tests {
         .expect_err("oversized arguments should be denied");
 
         assert_eq!(err.2, ToolErrorCode::TooLarge);
+    }
+
+    #[test]
+    fn validation_rejects_custom_arguments_outside_declared_schema() {
+        let mut registry = ToolRegistry::review_defaults().expect("registry");
+        let tool_id = ToolId::parse("argus.issue_context").expect("tool id");
+        registry
+            .register_custom(
+                tool_id.clone(),
+                "Issue context",
+                json!({
+                    "type": "object",
+                    "required": ["issueId"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "issueId": { "type": "string" },
+                        "includeHistory": { "type": "boolean" }
+                    }
+                }),
+                false,
+                Arc::new(NeverCalledTool),
+            )
+            .expect("custom tool");
+        let mut capabilities = CapabilitySet::review_read_only();
+        capabilities.grant(tool_id.clone(), ToolGrant::allow_custom_read_only());
+        let scope_key = FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string()));
+
+        let valid = validate_invocation(
+            SessionId("session".to_string()),
+            TurnId(1),
+            raw_call(
+                "valid",
+                tool_id.clone(),
+                r#"{"issueId":"123","includeHistory":false}"#,
+            ),
+            capabilities.clone(),
+            scope_key.clone(),
+            &registry,
+        )
+        .expect("valid custom args");
+        assert!(matches!(valid.args, ToolArgs::Raw(_)));
+
+        let wrong_type = validate_invocation(
+            SessionId("session".to_string()),
+            TurnId(1),
+            raw_call("wrong-type", tool_id.clone(), r#"{"issueId":123}"#),
+            capabilities.clone(),
+            scope_key.clone(),
+            &registry,
+        )
+        .expect_err("schema should reject wrong primitive type");
+        assert_eq!(wrong_type.2, ToolErrorCode::InvalidArgs);
+
+        let extra_property = validate_invocation(
+            SessionId("session".to_string()),
+            TurnId(1),
+            raw_call("extra", tool_id, r#"{"issueId":"123","extra":true}"#),
+            capabilities,
+            scope_key,
+            &registry,
+        )
+        .expect_err("schema should reject undeclared properties");
+        assert_eq!(extra_property.2, ToolErrorCode::InvalidArgs);
+    }
+
+    fn raw_call(id: &str, tool_id: ToolId, raw_arguments: &str) -> ModelToolCall {
+        ModelToolCall {
+            call_id: ToolCallId(id.to_string()),
+            index: 0,
+            name: tool_id,
+            raw_arguments: raw_arguments.to_string(),
+        }
+    }
+
+    struct NeverCalledTool;
+
+    #[async_trait]
+    impl CustomToolHandler for NeverCalledTool {
+        async fn execute(
+            &self,
+            _context: CustomToolContext,
+            _args: Value,
+            _cancel: CancellationToken,
+        ) -> RuntimeResult<CustomToolOutput> {
+            unreachable!("validation should not execute custom tools")
+        }
     }
 }

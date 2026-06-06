@@ -13,11 +13,11 @@ use crate::runtime::contracts::{
     ArtifactId, ArtifactKey, ArtifactView, CapabilitySet, ConcurrentCounters, ConcurrentRunReport,
     ConversationItem, FsScope, LimitInfo, ModelCostEstimate, ModelMetricsSnapshot, ModelToolCall,
     ModelTurn, ProviderResourceId, ProviderResourceScope, RepoPath, RuntimeError, RuntimeEvent,
-    RuntimeEventContext, RuntimeEventSink, RuntimeLimits, RuntimeResult, SessionId, SessionScope,
-    SnapshotCaptureStatus, SnapshotId, SnapshotObjectStore, SnapshotStorageMode,
-    SnapshotStoragePolicy, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant, ToolId,
-    ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
-    ToolProviderId, TurnId,
+    RuntimeEventContext, RuntimeEventSink, RuntimeLimits, RuntimeResult, SessionId,
+    SessionInstruction, SessionScope, SnapshotCaptureStatus, SnapshotId, SnapshotObjectStore,
+    SnapshotStorageMode, SnapshotStoragePolicy, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant,
+    ToolId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
+    ToolProviderHealthState, ToolProviderId, TurnId,
 };
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::model::{
@@ -205,6 +205,7 @@ pub struct ReviewSessionSpec {
     id: SessionId,
     role: Role,
     objective: String,
+    instructions: Vec<SessionInstruction>,
     snapshot_id: Option<SnapshotId>,
     model_profile_id: Option<String>,
     capabilities: CapabilitySet,
@@ -222,6 +223,7 @@ impl ReviewSessionSpec {
             id: SessionId(id.into()),
             role,
             objective: objective.into(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
             capabilities: CapabilitySet::review_read_only(),
@@ -236,6 +238,14 @@ impl ReviewSessionSpec {
 
     pub fn with_model_profile_id(mut self, model_profile_id: impl Into<String>) -> Self {
         self.model_profile_id = Some(model_profile_id.into());
+        self
+    }
+
+    pub fn with_instructions(
+        mut self,
+        instructions: impl IntoIterator<Item = SessionInstruction>,
+    ) -> Self {
+        self.instructions = instructions.into_iter().collect();
         self
     }
 
@@ -331,10 +341,37 @@ impl ReviewSessionSpec {
     }
 
     pub fn grant_custom_read_only_tool_for_resources(
-        mut self,
+        self,
         tool_id: ToolId,
         provider_resources: Vec<ProviderResourceId>,
     ) -> Self {
+        self.grant_custom_tool_with_effects_for_resources(
+            tool_id,
+            provider_resources,
+            ToolEffects::custom_read_only(),
+        )
+    }
+
+    pub fn grant_custom_tool_with_effects(mut self, tool_id: ToolId, effects: ToolEffects) -> Self {
+        allow_custom_tool_effect_authority(&mut self.capabilities, effects);
+        self.capabilities.grant_tool(
+            tool_id,
+            ToolGrant {
+                allow: true,
+                max_calls: None,
+                effects_allowed: effects,
+            },
+        );
+        self
+    }
+
+    pub fn grant_custom_tool_with_effects_for_resources(
+        mut self,
+        tool_id: ToolId,
+        provider_resources: Vec<ProviderResourceId>,
+        effects: ToolEffects,
+    ) -> Self {
+        allow_custom_tool_effect_authority(&mut self.capabilities, effects);
         self.capabilities.runtime_authority.host_read = true;
         let scopes = provider_resources
             .into_iter()
@@ -354,8 +391,14 @@ impl ReviewSessionSpec {
                     .allowed_provider_resources = Some(scopes)
             }
         }
-        self.capabilities
-            .grant_tool(tool_id, ToolGrant::allow_custom_read_only());
+        self.capabilities.grant_tool(
+            tool_id,
+            ToolGrant {
+                allow: true,
+                max_calls: None,
+                effects_allowed: effects,
+            },
+        );
         self
     }
 
@@ -364,6 +407,7 @@ impl ReviewSessionSpec {
             id: self.id,
             role: self.role,
             objective: self.objective,
+            instructions: self.instructions,
             snapshot_id: self.snapshot_id,
             model_profile_id: self.model_profile_id,
             capabilities: self.capabilities,
@@ -378,6 +422,7 @@ impl From<SessionScope> for ReviewSessionSpec {
             id: value.id,
             role: value.role,
             objective: value.objective,
+            instructions: value.instructions,
             snapshot_id: value.snapshot_id,
             model_profile_id: value.model_profile_id,
             capabilities: value.capabilities,
@@ -415,6 +460,24 @@ fn allow_runtime_provider_resources(
         if !resources.iter().any(|allowed| allowed == &scope) {
             resources.push(scope);
         }
+    }
+}
+
+fn allow_custom_tool_effect_authority(capabilities: &mut CapabilitySet, effects: ToolEffects) {
+    if effects.host_read {
+        capabilities.runtime_authority.host_read = true;
+    }
+    if effects.network_read {
+        capabilities.runtime_authority.network_read = true;
+    }
+    if effects.scratch_read {
+        capabilities.runtime_authority.scratch_read = true;
+    }
+    if effects.scratch_write {
+        capabilities.runtime_authority.scratch_write = true;
+    }
+    if effects.external_side_effect {
+        capabilities.runtime_authority.external_side_effect = true;
     }
 }
 
@@ -727,6 +790,32 @@ impl ReviewToolRegistry {
             CustomToolOptions {
                 cacheable,
                 effects: ToolEffects::custom_read_only(),
+                provider_resources,
+            },
+            Arc::new(ReviewToolHandlerAdapter::new(handler)),
+        )?;
+        Ok(id)
+    }
+
+    pub fn register_scoped_tool_with_effects(
+        &mut self,
+        id: impl AsRef<str>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+        cacheable: bool,
+        provider_resources: Vec<ProviderResourceId>,
+        effects: ToolEffects,
+        handler: Arc<dyn ReviewToolHandler>,
+    ) -> RuntimeResult<ToolId> {
+        let id = ToolId::parse(id.as_ref())?;
+        self.inner.register_custom_with_alias_and_effects(
+            id.clone(),
+            id.clone(),
+            description,
+            parameters,
+            CustomToolOptions {
+                cacheable,
+                effects,
                 provider_resources,
             },
             Arc::new(ReviewToolHandlerAdapter::new(handler)),
@@ -1076,6 +1165,7 @@ pub struct ChangeSpec {
     pub base_revision_id: String,
     pub head_revision_id: String,
     pub merge_base_revision_id: Option<String>,
+    pub inline_diff: Option<String>,
     pub snapshot_mode: SnapshotMode,
     pub rename_detection: RenameDetection,
     pub changed_files: Vec<ChangedFileSpec>,
@@ -1095,6 +1185,7 @@ impl ChangeSpec {
             base_revision_id: "base".to_string(),
             head_revision_id: head_revision_id.into(),
             merge_base_revision_id: None,
+            inline_diff: None,
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
             changed_files,
@@ -1114,6 +1205,7 @@ impl From<ChangeSpec> for ChangeScopeV1 {
             merge_base_revision_id: value.merge_base_revision_id,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
+            inline_diff: value.inline_diff,
             snapshot_mode: value.snapshot_mode.into(),
             rename_detection: value.rename_detection.into(),
             changed_files: value
@@ -1135,6 +1227,7 @@ impl From<ChangeScopeV1> for ChangeSpec {
             base_revision_id: value.base_revision_id,
             head_revision_id: value.head_revision_id,
             merge_base_revision_id: value.merge_base_revision_id,
+            inline_diff: value.inline_diff,
             snapshot_mode: value.snapshot_mode.into(),
             rename_detection: value.rename_detection.into(),
             changed_files: value
@@ -2407,10 +2500,28 @@ pub struct FindingView {
     pub claim: String,
     pub evidence_count: usize,
     pub publishable: bool,
+    pub severity: String,
+    pub confidence: f32,
+    pub validation_status: String,
+    pub evidence: Vec<EvidenceView>,
+    pub discovered_by: Vec<String>,
+    pub validated_by: Vec<String>,
+    pub challenged_by: Vec<String>,
 }
 
 impl FindingView {
     fn from_finding(finding: &FindingV1) -> Self {
+        let evidence = finding
+            .evidence
+            .iter()
+            .map(EvidenceView::from_evidence)
+            .collect::<Vec<_>>();
+        let mut validated_by = evidence
+            .iter()
+            .map(|evidence| evidence.producing_tool_call_id.0.clone())
+            .collect::<Vec<_>>();
+        validated_by.sort();
+        validated_by.dedup();
         Self {
             id: finding.id.clone(),
             title: finding.title.clone(),
@@ -2420,6 +2531,13 @@ impl FindingView {
                 finding.publishability,
                 crate::contracts::FindingPublishability::Publishable
             ),
+            severity: finding_severity_name(finding.severity).to_string(),
+            confidence: finding.confidence,
+            validation_status: validation_status_name(finding.validation_status).to_string(),
+            evidence,
+            discovered_by: finding.discovered_by.clone(),
+            validated_by,
+            challenged_by: finding.challenged_by.clone(),
         }
     }
 }
@@ -5157,6 +5275,25 @@ fn evidence_kind_name(kind: crate::contracts::ArtifactKind) -> &'static str {
         crate::contracts::ArtifactKind::ImportSummary => "import_summary",
         crate::contracts::ArtifactKind::ToolSummary => "tool_summary",
         crate::contracts::ArtifactKind::RedactedView => "redacted_view",
+    }
+}
+
+fn finding_severity_name(severity: crate::contracts::FindingSeverity) -> &'static str {
+    match severity {
+        crate::contracts::FindingSeverity::Blocker => "blocker",
+        crate::contracts::FindingSeverity::High => "high",
+        crate::contracts::FindingSeverity::Medium => "medium",
+        crate::contracts::FindingSeverity::Low => "low",
+        crate::contracts::FindingSeverity::Nit => "nit",
+    }
+}
+
+fn validation_status_name(status: crate::contracts::ValidationStatus) -> &'static str {
+    match status {
+        crate::contracts::ValidationStatus::Candidate => "candidate",
+        crate::contracts::ValidationStatus::Challenged => "challenged",
+        crate::contracts::ValidationStatus::Validated => "validated",
+        crate::contracts::ValidationStatus::Rejected => "rejected",
     }
 }
 

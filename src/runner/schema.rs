@@ -25,6 +25,8 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "webhook.github.handle".to_string(),
                 "webhook.gitlab.handle".to_string(),
                 "worker.runOnce".to_string(),
+                "source.materialize".to_string(),
+                "run.heartbeat".to_string(),
                 "model.complete".to_string(),
                 "tool.execute".to_string(),
                 "event.review".to_string(),
@@ -84,6 +86,14 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
         ],
         callbacks: vec![
             implemented_runner_to_sdk(
+                "source.materialize",
+                "Ask the SDK source provider to materialize a review source.",
+            ),
+            implemented_runner_to_sdk(
+                "run.heartbeat",
+                "Ask the SDK host to renew an active run lease.",
+            ),
+            implemented_runner_to_sdk(
                 "model.complete",
                 "Ask the SDK model adapter for one model turn.",
             ),
@@ -139,6 +149,8 @@ fn method_params(method: &str) -> Option<RunnerPayloadRef> {
             Some(payload_ref("WebhookHandleParams"))
         }
         "worker.runOnce" => Some(payload_ref("WorkerRunOnceParams")),
+        "source.materialize" => Some(payload_ref("SourceMaterializeParams")),
+        "run.heartbeat" => Some(payload_ref("RunHeartbeatParams")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
         "tool.execute" => Some(payload_ref("RunnerToolExecuteParams")),
         "event.review" => Some(payload_ref("ReviewEventRecord")),
@@ -164,6 +176,8 @@ fn method_result(method: &str) -> Option<RunnerPayloadRef> {
             Some(payload_ref("ReviewHttpResponse"))
         }
         "worker.runOnce" => Some(payload_ref("WorkerRunOnceResult")),
+        "source.materialize" => Some(payload_ref("SourceMaterializeResult")),
+        "run.heartbeat" => Some(payload_ref("RunHeartbeatResult")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
         "tool.execute" => Some(payload_ref("RunnerToolExecuteResult")),
         _ => None,
@@ -254,6 +268,28 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
         ),
         enum_definition("RunnerMethodStatus", vec!["implemented", "reserved"]),
         enum_definition("RunnerPayloadShape", vec!["object", "enum"]),
+        enum_definition(
+            "RunnerFailureKind",
+            vec![
+                "source_unavailable",
+                "auth_failed",
+                "tool_failed",
+                "model_failed",
+                "budget_exhausted",
+                "cancelled",
+                "policy_denied",
+                "internal_error",
+            ],
+        ),
+        enum_definition(
+            "RunnerRetryHint",
+            vec![
+                "retryable",
+                "not_retryable",
+                "retry_after",
+                "requires_user_action",
+            ],
+        ),
         object(
             "RunStartParams",
             vec![
@@ -263,25 +299,75 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("source", "ReviewSource"),
                 optional("sourceProvider", "RunSourceProviderParams"),
                 defaulted("changedFiles", "string[]", "[]"),
+                defaulted("metadata", "json", "{}"),
+                optional("change", "RunChangeParams"),
+                defaulted("instructions", "RunInstructionParams[]", "[]"),
                 defaulted("sessions", "RunSessionParams[]", "[]"),
                 optional("limits", "RunLimitParams"),
                 optional("model", "RunModelParams"),
                 defaulted("tools", "RunToolParams[]", "[]"),
+                optional("heartbeat", "RunHeartbeatConfigParams"),
+            ],
+        ),
+        object(
+            "RunHeartbeatConfigParams",
+            vec![
+                defaulted("callback", "boolean", "false"),
+                optional("intervalMs", "integer"),
+                optional("leaseSeconds", "integer"),
             ],
         ),
         object(
             "ReviewSource",
             vec![
-                required("type", "local | github_pull_request | gitlab_merge_request"),
-                required("repo", "string"),
+                required(
+                    "type",
+                    "local | raw_snapshot | github_pull_request | gitlab_merge_request | perforce_changelist | custom",
+                ),
+                optional("repo", "string"),
+                optional("root", "string"),
                 defaulted("changedFiles", "string[]", "[]"),
                 optional("owner", "string"),
                 optional("number", "integer"),
+                optional("server", "string"),
+                optional("changelist", "string"),
+                optional("client", "string"),
+                defaulted("depotPaths", "string[]", "[]"),
+                optional("provider", "string"),
+                optional("id", "string"),
             ],
         ),
         object(
             "RunSourceProviderParams",
-            vec![optional("baseUrl", "string")],
+            vec![
+                optional("baseUrl", "string"),
+                defaulted("callback", "boolean", "false"),
+            ],
+        ),
+        object(
+            "RunChangeParams",
+            vec![
+                required("kind", "string"),
+                optional("baseRevision", "string"),
+                optional("startRevision", "string"),
+                optional("headRevision", "string"),
+                defaulted("changedFiles", "RunChangeFileParams[]", "[]"),
+                optional("diff", "string"),
+                optional("reviewTarget", "string"),
+                defaulted("metadata", "json", "{}"),
+            ],
+        ),
+        object(
+            "RunChangeFileParams",
+            vec![required("path", "string"), optional("status", "string")],
+        ),
+        object(
+            "RunInstructionParams",
+            vec![
+                required("kind", "string"),
+                required("text", "string"),
+                defaulted("trusted", "boolean", "false"),
+            ],
         ),
         object(
             "RunModelParams",
@@ -293,7 +379,9 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("id", "string"),
                 required("description", "string"),
                 required("parameters", "json"),
+                defaulted("effects", "string[]", "[]"),
                 defaulted("cacheable", "boolean", "false"),
+                defaulted("providerResources", "string[]", "[]"),
             ],
         ),
         object(
@@ -304,6 +392,8 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("objective", "string"),
                 optional("cwd", "string"),
                 optional("modelProfileId", "string"),
+                defaulted("instructions", "RunInstructionParams[]", "[]"),
+                defaulted("toolGrants", "string[]", "[]"),
                 optional("budget", "RunAgentBudgetParams"),
             ],
         ),
@@ -438,6 +528,35 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             ],
         ),
         object(
+            "SourceMaterializeParams",
+            vec![
+                required("protocolVersion", "string"),
+                required("source", "ReviewSource"),
+                defaulted("changedFiles", "string[]", "[]"),
+            ],
+        ),
+        object(
+            "SourceMaterializeResult",
+            vec![
+                required("root", "string"),
+                defaulted("changedFiles", "string[]", "[]"),
+            ],
+        ),
+        object(
+            "RunHeartbeatParams",
+            vec![
+                required("protocolVersion", "string"),
+                required("runId", "string"),
+                required("sequence", "integer"),
+                required("elapsedMs", "integer"),
+                optional("leaseSeconds", "integer"),
+            ],
+        ),
+        object(
+            "RunHeartbeatResult",
+            vec![defaulted("continueRun", "boolean", "true")],
+        ),
+        object(
             "RunStatusResult",
             vec![required("runId", "string"), required("status", "string")],
         ),
@@ -459,6 +578,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("summary", "RunnerRunSummary"),
                 required("findings", "RunnerFinding[]"),
                 required("snapshots", "RunnerSnapshotSummary[]"),
+                defaulted("metadata", "json", "{}"),
             ],
         ),
         object(
@@ -487,6 +607,37 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("claim", "string"),
                 required("evidenceCount", "integer"),
                 required("publishable", "boolean"),
+                optional("severity", "string"),
+                optional("confidence", "number"),
+                optional("validationStatus", "string"),
+                defaulted("evidence", "RunnerFindingEvidence[]", "[]"),
+                defaulted("discoveredBy", "string[]", "[]"),
+                defaulted("validatedBy", "string[]", "[]"),
+                defaulted("challengedBy", "string[]", "[]"),
+                optional("location", "RunnerFindingLocation"),
+            ],
+        ),
+        object(
+            "RunnerFindingEvidence",
+            vec![
+                required("evidenceId", "string"),
+                required("artifactId", "string"),
+                required("kind", "string"),
+                required("contentHash", "string"),
+                required("producingToolCallId", "string"),
+            ],
+        ),
+        object(
+            "RunnerFindingLocation",
+            vec![
+                required("path", "string"),
+                optional("revision", "string"),
+                optional("startLine", "integer"),
+                optional("endLine", "integer"),
+                optional("startColumn", "integer"),
+                optional("endColumn", "integer"),
+                optional("side", "string"),
+                optional("providerAnchor", "json"),
             ],
         ),
         object(
@@ -572,7 +723,13 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
         ),
         object(
             "RunFailedNotification",
-            vec![required("error", "string"), required("kind", "string")],
+            vec![
+                required("error", "string"),
+                required("kind", "string"),
+                required("failureKind", "RunnerFailureKind"),
+                required("retryHint", "RunnerRetryHint"),
+                optional("retryAfterSeconds", "integer"),
+            ],
         ),
         object(
             "RunnerModelCompleteParams",

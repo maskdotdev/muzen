@@ -44,6 +44,12 @@ pub struct RunStartParams {
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub change: Option<RunChangeParams>,
+    #[serde(default)]
+    pub instructions: Vec<RunInstructionParams>,
+    #[serde(default)]
     pub sessions: Vec<RunSessionParams>,
     #[serde(default)]
     pub limits: Option<RunLimitParams>,
@@ -51,6 +57,19 @@ pub struct RunStartParams {
     pub model: Option<RunModelParams>,
     #[serde(default)]
     pub tools: Vec<RunToolParams>,
+    #[serde(default)]
+    pub heartbeat: Option<RunHeartbeatConfigParams>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHeartbeatConfigParams {
+    #[serde(default)]
+    pub callback: bool,
+    #[serde(default)]
+    pub interval_ms: Option<u64>,
+    #[serde(default)]
+    pub lease_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,6 +77,45 @@ pub struct RunStartParams {
 pub struct RunSourceProviderParams {
     #[serde(default)]
     pub base_url: Option<String>,
+    #[serde(default)]
+    pub callback: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunChangeParams {
+    pub kind: String,
+    #[serde(default)]
+    pub base_revision: Option<String>,
+    #[serde(default)]
+    pub start_revision: Option<String>,
+    #[serde(default)]
+    pub head_revision: Option<String>,
+    #[serde(default)]
+    pub changed_files: Vec<RunChangeFileParams>,
+    #[serde(default)]
+    pub diff: Option<String>,
+    #[serde(default)]
+    pub review_target: Option<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunChangeFileParams {
+    pub path: String,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunInstructionParams {
+    pub kind: String,
+    pub text: String,
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -74,7 +132,11 @@ pub struct RunToolParams {
     pub description: String,
     pub parameters: Value,
     #[serde(default)]
+    pub effects: Vec<String>,
+    #[serde(default)]
     pub cacheable: bool,
+    #[serde(default)]
+    pub provider_resources: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,6 +150,10 @@ pub struct RunSessionParams {
     pub cwd: Option<String>,
     #[serde(default)]
     pub model_profile_id: Option<String>,
+    #[serde(default)]
+    pub instructions: Vec<RunInstructionParams>,
+    #[serde(default)]
+    pub tool_grants: Vec<String>,
     #[serde(default)]
     pub budget: Option<RunAgentBudgetParams>,
 }
@@ -223,6 +289,126 @@ pub struct RunCancelResult {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHeartbeatParams {
+    pub protocol_version: String,
+    pub run_id: String,
+    pub sequence: u64,
+    pub elapsed_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHeartbeatResult {
+    #[serde(default = "default_continue_run")]
+    pub continue_run: bool,
+}
+
+fn default_continue_run() -> bool {
+    true
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunnerFailureKind {
+    SourceUnavailable,
+    AuthFailed,
+    ToolFailed,
+    ModelFailed,
+    BudgetExhausted,
+    Cancelled,
+    PolicyDenied,
+    InternalError,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunnerRetryHint {
+    Retryable,
+    NotRetryable,
+    RetryAfter,
+    RequiresUserAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFailedNotification {
+    pub error: String,
+    pub kind: String,
+    pub failure_kind: RunnerFailureKind,
+    pub retry_hint: RunnerRetryHint,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
+}
+
+impl RunFailedNotification {
+    pub(crate) fn from_runner_error(error: impl Into<String>) -> Self {
+        let error = error.into();
+        let (failure_kind, retry_hint) = classify_runner_failure(&error);
+        Self {
+            error,
+            kind: "runner_error".to_string(),
+            failure_kind,
+            retry_hint,
+            retry_after_seconds: None,
+        }
+    }
+}
+
+fn classify_runner_failure(message: &str) -> (RunnerFailureKind, RunnerRetryHint) {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("cancel") || lower.contains("abort") {
+        return (RunnerFailureKind::Cancelled, RunnerRetryHint::NotRetryable);
+    }
+    if lower.contains("auth")
+        || lower.contains("credential")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("permission")
+        || lower.contains("access denied")
+    {
+        return (
+            RunnerFailureKind::AuthFailed,
+            RunnerRetryHint::RequiresUserAction,
+        );
+    }
+    if lower.contains("budget") || lower.contains("limit exceeded") {
+        return (
+            RunnerFailureKind::BudgetExhausted,
+            RunnerRetryHint::NotRetryable,
+        );
+    }
+    if lower.contains("policy") || lower.contains("not allowed") || lower.contains("denied") {
+        return (
+            RunnerFailureKind::PolicyDenied,
+            RunnerRetryHint::NotRetryable,
+        );
+    }
+    if lower.contains("source.materialize")
+        || lower.contains("sourceprovider")
+        || lower.contains("materializ")
+        || lower.contains("repository unavailable")
+        || lower.contains("repo unavailable")
+    {
+        let retry_hint = if lower.contains("requires") || lower.contains("invalid") {
+            RunnerRetryHint::RequiresUserAction
+        } else {
+            RunnerRetryHint::Retryable
+        };
+        return (RunnerFailureKind::SourceUnavailable, retry_hint);
+    }
+    if lower.contains("model.complete") || lower.contains("model") {
+        return (RunnerFailureKind::ModelFailed, RunnerRetryHint::Retryable);
+    }
+    if lower.contains("tool.execute") || lower.contains("tool") {
+        return (RunnerFailureKind::ToolFailed, RunnerRetryHint::Retryable);
+    }
+    (RunnerFailureKind::InternalError, RunnerRetryHint::Retryable)
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunnerArtifactView {
@@ -295,6 +481,8 @@ pub struct RunnerRunResult {
     pub summary: RunnerRunSummary,
     pub findings: Vec<RunnerFinding>,
     pub snapshots: Vec<RunnerSnapshotSummary>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -315,7 +503,7 @@ pub struct RunnerRunSummary {
     pub snapshot_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RunnerFinding {
     pub id: String,
@@ -323,6 +511,52 @@ pub struct RunnerFinding {
     pub claim: String,
     pub evidence_count: usize,
     pub publishable: bool,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    #[serde(default)]
+    pub validation_status: Option<String>,
+    #[serde(default)]
+    pub evidence: Vec<RunnerFindingEvidence>,
+    #[serde(default)]
+    pub discovered_by: Vec<String>,
+    #[serde(default)]
+    pub validated_by: Vec<String>,
+    #[serde(default)]
+    pub challenged_by: Vec<String>,
+    #[serde(default)]
+    pub location: Option<RunnerFindingLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerFindingEvidence {
+    pub evidence_id: String,
+    pub artifact_id: String,
+    pub kind: String,
+    pub content_hash: String,
+    pub producing_tool_call_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerFindingLocation {
+    pub path: String,
+    #[serde(default)]
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub start_line: Option<usize>,
+    #[serde(default)]
+    pub end_line: Option<usize>,
+    #[serde(default)]
+    pub start_column: Option<usize>,
+    #[serde(default)]
+    pub end_column: Option<usize>,
+    #[serde(default)]
+    pub side: Option<String>,
+    #[serde(default)]
+    pub provider_anchor: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

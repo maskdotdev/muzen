@@ -155,6 +155,30 @@
   ],
   "callbacks": [
     {
+      "method": "source.materialize",
+      "direction": "runner_to_sdk",
+      "status": "implemented",
+      "summary": "Ask the SDK source provider to materialize a review source.",
+      "params": {
+        "name": "SourceMaterializeParams"
+      },
+      "result": {
+        "name": "SourceMaterializeResult"
+      }
+    },
+    {
+      "method": "run.heartbeat",
+      "direction": "runner_to_sdk",
+      "status": "implemented",
+      "summary": "Ask the SDK host to renew an active run lease.",
+      "params": {
+        "name": "RunHeartbeatParams"
+      },
+      "result": {
+        "name": "RunHeartbeatResult"
+      }
+    },
+    {
       "method": "model.complete",
       "direction": "runner_to_sdk",
       "status": "implemented",
@@ -484,6 +508,30 @@
       ]
     },
     {
+      "name": "RunnerFailureKind",
+      "shape": "enum",
+      "values": [
+        "source_unavailable",
+        "auth_failed",
+        "tool_failed",
+        "model_failed",
+        "budget_exhausted",
+        "cancelled",
+        "policy_denied",
+        "internal_error"
+      ]
+    },
+    {
+      "name": "RunnerRetryHint",
+      "shape": "enum",
+      "values": [
+        "retryable",
+        "not_retryable",
+        "retry_after",
+        "requires_user_action"
+      ]
+    },
+    {
       "name": "RunStartParams",
       "shape": "object",
       "fields": [
@@ -524,6 +572,24 @@
           "default": "[]"
         },
         {
+          "name": "metadata",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "change",
+          "type": "RunChangeParams",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "instructions",
+          "type": "RunInstructionParams[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
           "name": "sessions",
           "type": "RunSessionParams[]",
           "required": false,
@@ -546,6 +612,36 @@
           "type": "RunToolParams[]",
           "required": false,
           "default": "[]"
+        },
+        {
+          "name": "heartbeat",
+          "type": "RunHeartbeatConfigParams",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunHeartbeatConfigParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "callback",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "intervalMs",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "leaseSeconds",
+          "type": "integer",
+          "required": false,
+          "default": "null"
         }
       ]
     },
@@ -555,13 +651,20 @@
       "fields": [
         {
           "name": "type",
-          "type": "local | github_pull_request | gitlab_merge_request",
+          "type": "local | raw_snapshot | github_pull_request | gitlab_merge_request | perforce_changelist | custom",
           "required": true
         },
         {
           "name": "repo",
           "type": "string",
-          "required": true
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "root",
+          "type": "string",
+          "required": false,
+          "default": "null"
         },
         {
           "name": "changedFiles",
@@ -580,6 +683,42 @@
           "type": "integer",
           "required": false,
           "default": "null"
+        },
+        {
+          "name": "server",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "changelist",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "client",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "depotPaths",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "required": false,
+          "default": "null"
         }
       ]
     },
@@ -592,6 +731,104 @@
           "type": "string",
           "required": false,
           "default": "null"
+        },
+        {
+          "name": "callback",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        }
+      ]
+    },
+    {
+      "name": "RunChangeParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "baseRevision",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "startRevision",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "headRevision",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "changedFiles",
+          "type": "RunChangeFileParams[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "diff",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "reviewTarget",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "metadata",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        }
+      ]
+    },
+    {
+      "name": "RunChangeFileParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunInstructionParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "trusted",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
         }
       ]
     },
@@ -627,10 +864,22 @@
           "required": true
         },
         {
+          "name": "effects",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
           "name": "cacheable",
           "type": "boolean",
           "required": false,
           "default": "false"
+        },
+        {
+          "name": "providerResources",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
         }
       ]
     },
@@ -665,6 +914,18 @@
           "type": "string",
           "required": false,
           "default": "null"
+        },
+        {
+          "name": "instructions",
+          "type": "RunInstructionParams[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "toolGrants",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
         },
         {
           "name": "budget",
@@ -1056,6 +1317,89 @@
       ]
     },
     {
+      "name": "SourceMaterializeParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "source",
+          "type": "ReviewSource",
+          "required": true
+        },
+        {
+          "name": "changedFiles",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        }
+      ]
+    },
+    {
+      "name": "SourceMaterializeResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "root",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "changedFiles",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        }
+      ]
+    },
+    {
+      "name": "RunHeartbeatParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "protocolVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sequence",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "elapsedMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "leaseSeconds",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunHeartbeatResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "continueRun",
+          "type": "boolean",
+          "required": false,
+          "default": "true"
+        }
+      ]
+    },
+    {
       "name": "RunStatusResult",
       "shape": "object",
       "fields": [
@@ -1130,6 +1474,12 @@
           "name": "snapshots",
           "type": "RunnerSnapshotSummary[]",
           "required": true
+        },
+        {
+          "name": "metadata",
+          "type": "json",
+          "required": false,
+          "default": "{}"
         }
       ]
     },
@@ -1232,6 +1582,138 @@
           "name": "publishable",
           "type": "boolean",
           "required": true
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "confidence",
+          "type": "number",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "validationStatus",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "evidence",
+          "type": "RunnerFindingEvidence[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "discoveredBy",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "validatedBy",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "challengedBy",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "location",
+          "type": "RunnerFindingLocation",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "RunnerFindingEvidence",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "evidenceId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "contentHash",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "producingToolCallId",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerFindingLocation",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "startLine",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "endLine",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "startColumn",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "endColumn",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "providerAnchor",
+          "type": "json",
+          "required": false,
+          "default": "null"
         }
       ]
     },
@@ -1508,6 +1990,22 @@
           "name": "kind",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "failureKind",
+          "type": "RunnerFailureKind",
+          "required": true
+        },
+        {
+          "name": "retryHint",
+          "type": "RunnerRetryHint",
+          "required": true
+        },
+        {
+          "name": "retryAfterSeconds",
+          "type": "integer",
+          "required": false,
+          "default": "null"
         }
       ]
     },

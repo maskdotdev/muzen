@@ -29,6 +29,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::io::{Result as IoResult, Write};
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     use serde_json::json;
 
@@ -279,6 +280,64 @@ mod tests {
             .find(|value| value.get("id") == Some(&json!(3)))
             .expect("result response");
         assert_eq!(result_response["result"]["runId"], "fixture-run");
+    }
+
+    #[test]
+    fn stdio_failed_run_emits_structured_failure_notification() {
+        let mut session = RunnerStdioSession::default();
+        let mut writer = Vec::new();
+        let start = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "run.start",
+            "params": {
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runId": "failed-run",
+                "source": {
+                    "type": "custom",
+                    "provider": "acme",
+                    "id": "review-123"
+                }
+            }
+        });
+
+        let values = send_jsonrpc(&mut session, &mut writer, start);
+
+        let failed = values
+            .iter()
+            .find(|value| value.get("method") == Some(&json!("run.failed")))
+            .expect("run.failed notification");
+        assert_eq!(failed["params"]["kind"], "runner_error");
+        assert_eq!(failed["params"]["failureKind"], "source_unavailable");
+        assert_eq!(failed["params"]["retryHint"], "requires_user_action");
+        let response = values
+            .iter()
+            .find(|value| value.get("id") == Some(&json!(1)))
+            .expect("run.start response");
+        assert_eq!(response["error"]["data"]["kind"], "runner_error");
+    }
+
+    #[test]
+    fn run_failed_notification_classifies_common_terminal_failures() {
+        let auth = RunFailedNotification::from_runner_error("provider auth failed");
+        assert_eq!(auth.failure_kind, RunnerFailureKind::AuthFailed);
+        assert_eq!(auth.retry_hint, RunnerRetryHint::RequiresUserAction);
+
+        let model = RunFailedNotification::from_runner_error(
+            "SDK callback model.complete failed: upstream timeout",
+        );
+        assert_eq!(model.failure_kind, RunnerFailureKind::ModelFailed);
+        assert_eq!(model.retry_hint, RunnerRetryHint::Retryable);
+
+        let tool = RunFailedNotification::from_runner_error(
+            "SDK callback tool.execute failed: service unavailable",
+        );
+        assert_eq!(tool.failure_kind, RunnerFailureKind::ToolFailed);
+        assert_eq!(tool.retry_hint, RunnerRetryHint::Retryable);
+
+        let budget = RunFailedNotification::from_runner_error("budget exhausted");
+        assert_eq!(budget.failure_kind, RunnerFailureKind::BudgetExhausted);
+        assert_eq!(budget.retry_hint, RunnerRetryHint::NotRetryable);
     }
 
     #[test]
@@ -555,8 +614,11 @@ mod tests {
 
         run_stdio_interactive(reader, writer).expect("interactive stdio");
 
-        let bytes = output.lock().expect("output lock").clone();
-        let values = parse_json_lines(&bytes);
+        let values = wait_for_json_lines(&output, |values| {
+            values
+                .iter()
+                .any(|value| value.get("method") == Some(&json!("run.finished")))
+        });
         assert!(values
             .iter()
             .any(|value| value.get("method") == Some(&json!("model.complete"))));
@@ -600,6 +662,34 @@ mod tests {
             .collect()
     }
 
+    fn wait_for_json_lines(
+        output: &Arc<Mutex<Vec<u8>>>,
+        ready: impl Fn(&[serde_json::Value]) -> bool,
+    ) -> Vec<serde_json::Value> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let bytes = output.lock().expect("output lock").clone();
+            if let Ok(values) = try_parse_json_lines(&bytes) {
+                if ready(&values) {
+                    return values;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for interactive stdio output: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn try_parse_json_lines(bytes: &[u8]) -> Result<Vec<serde_json::Value>, serde_json::Error> {
+        let output = std::str::from_utf8(bytes).expect("utf8 output");
+        output
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect()
+    }
     #[test]
     fn handshake_fixture_matches_current_response() {
         let fixture = include_str!("../fixtures/runner-handshake-v1.jsonl");

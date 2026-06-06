@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import {
   github,
   gitlab,
+  customSource,
   local,
   parseReviewSource,
+  perforce,
+  rawSnapshot,
   sourceKey,
 } from "./index.js";
 
@@ -34,6 +37,17 @@ describe("review sources", () => {
     assert.equal(sourceKey(source), "gitlab:platform/reviews/heimdaal!42");
   });
 
+  it("parses raw snapshot shorthand", () => {
+    const source = parseReviewSource("raw_snapshot:/tmp/muzen-snapshot");
+
+    assert.deepEqual(source, {
+      type: "raw_snapshot",
+      root: "/tmp/muzen-snapshot",
+      changedFiles: [],
+    });
+    assert.equal(sourceKey(source), "raw_snapshot:/tmp/muzen-snapshot");
+  });
+
   it("builds typed sources", () => {
     assert.equal(
       sourceKey(github.pullRequest({ owner: "maskdotdev", repo: "heimdaal", number: 1 })),
@@ -48,6 +62,26 @@ describe("review sources", () => {
       repo: ".",
       changedFiles: ["Cargo.toml"],
     });
+    assert.deepEqual(rawSnapshot("/bundle", { changedFiles: ["src/lib.rs"] }), {
+      type: "raw_snapshot",
+      root: "/bundle",
+      changedFiles: ["src/lib.rs"],
+    });
+    assert.equal(
+      sourceKey(
+        perforce.changelist({
+          server: "perforce.example:1666",
+          changelist: 12345,
+          client: "build-client",
+          depotPaths: ["//depot/main/..."],
+        }),
+      ),
+      "perforce:perforce.example:1666@12345",
+    );
+    assert.equal(
+      sourceKey(customSource({ provider: "acme", id: "review-123" })),
+      "custom:acme:review-123",
+    );
   });
 
   it("rejects invalid review source shorthand", () => {
