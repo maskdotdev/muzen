@@ -287,7 +287,7 @@ class OpenAiCompatibleCallback {
         body: JSON.stringify({
           model: this.model,
           temperature: 0,
-          max_tokens: this.maxOutputTokens,
+          ...tokenLimitParam(this.model, this.maxOutputTokens),
           messages: [
             ...transcriptMessages(params.transcript ?? []),
             {
@@ -336,6 +336,12 @@ class OpenAiCompatibleCallback {
       errorMessages: this.errorMessages,
     };
   }
+}
+
+function tokenLimitParam(model, maxOutputTokens) {
+  return model.startsWith("gpt-5")
+    ? { max_completion_tokens: maxOutputTokens }
+    : { max_tokens: maxOutputTokens };
 }
 
 function transcriptMessages(items) {

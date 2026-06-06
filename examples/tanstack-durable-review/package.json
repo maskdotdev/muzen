@@ -3,9 +3,11 @@
   "type": "module",
   "scripts": {
     "prepare:sdk": "npm --prefix ../../sdk/typescript/packages/muzen-sdk install --package-lock=false && npm --prefix ../../sdk/typescript/packages/muzen-sdk run build",
+    "benchmark:run": "tsx src/server/benchmark-run.ts",
     "dev": "vite",
+    "quality:score": "tsx src/server/score-quality.ts",
     "service": "npm run prepare:sdk && tsx src/server.ts",
-    "test": "npm run prepare:sdk && tsx --test src/server/github.test.ts",
+    "test": "npm run prepare:sdk && tsx --test src/server/*.test.ts",
     "typecheck": "npm run prepare:sdk && tsc --noEmit"
   },
   "dependencies": {

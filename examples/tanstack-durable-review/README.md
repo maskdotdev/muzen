@@ -69,11 +69,37 @@ and infer the changed files. Public PRs work over HTTPS. Private PRs require
 GITHUB_TOKEN=... MUZEN_RUNNER_PATH=../../target/debug/muzen-runner npm run service
 ```
 
+## Model Mode
+
+This example runs Muzen with a hosted OpenAI model through the SDK's
+`openai(...)` helper. Add a repo-root `.env` before starting the service:
+
+```bash
+OPENAI_API_KEY=...
+OPENAI_MODEL=...
+```
+
+Optional knobs:
+
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MAX_OUTPUT_TOKENS=2048
+```
+
+The service loads `.env` on startup and treats it as authoritative for OpenAI
+and provider materialization credentials. Exported shell values for
+`OPENAI_API_KEY`, `OPENAI_MODEL`, `GITHUB_TOKEN`, and related Muzen provider
+settings are cleared before `.env` is applied. Restart `npm run service` after
+changing model settings. If `GITHUB_TOKEN` is also present in `.env`, the runner
+inherits it for private GitHub PR materialization.
+
 ## What To Look At
 
 - `src/server.ts` exposes the durable HTTP/SSE shape.
 - `src/server/github.ts` parses real GitHub PR targets into provider-neutral
   Muzen sources.
+- `src/server/openai-model.ts` configures Muzen's first-class OpenAI model
+  provider.
 - `src/server/store.ts` is the replaceable durable store boundary.
 - `src/server/worker.ts` is the worker claim/execute/result projection path.
 - `src/App.tsx` shows the browser flow: create one run, attach SSE, fetch

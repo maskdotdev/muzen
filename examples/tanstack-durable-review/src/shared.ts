@@ -11,6 +11,7 @@ export interface CreateReviewRequest {
   repo?: string;
   githubPullRequest?: string;
   changedFiles: string[];
+  maxActiveSessions?: number;
   roles: ReviewRole[];
 }
 
@@ -20,12 +21,41 @@ export interface ReviewSnapshot {
   id: string;
   status: ReviewStatus;
   source: ReviewSource;
+  changedFiles: string[];
+  maxActiveSessions?: number;
   result?: ReviewResult;
   error?: string;
 }
 
 export interface ReviewEventsResponse {
   events: ReviewEvent[];
+}
+
+export interface ReviewQualityReport {
+  passed: boolean;
+  failures: string[];
+  metrics: {
+    changedFiles: number;
+    duplicateFileVerdicts: number;
+    failedSessions: number;
+    failedTools: number;
+    fileReviews: number;
+    findings: number;
+    matchedRequiredIssues: number;
+    missingFileVerdicts: number;
+    missingRequiredIssues: number;
+    modelFailures: number;
+    speculativeFindings: number;
+    verdictMismatches: number;
+  };
+}
+
+export interface ReviewModelPreflightResponse {
+  error?: string;
+  model?: string;
+  ok: boolean;
+  provider?: string;
+  status?: number;
 }
 
 export function reviewSourceKey(source: ReviewSource): string {

@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   github,
@@ -11,13 +13,29 @@ import {
 } from "@muzen/sdk";
 
 import type { CreateReviewRequest } from "./shared.js";
+import { loadDemoEnv } from "./server/env.js";
 import { parseGithubPullRequestInput } from "./server/github.js";
+import {
+  createDemoReviewModel,
+  modelPreflightErrorMessage,
+  runOpenAIModelPreflight,
+} from "./server/openai-model.js";
+import { evaluateReviewQuality } from "./server/review-quality.js";
 import { DurableReviewStore } from "./server/store.js";
 import { executeReview } from "./server/worker.js";
 
+loadDemoEnv();
+
 const port = Number(process.env.PORT ?? 4077);
-const runnerPath = process.env.MUZEN_RUNNER_PATH;
+const runnerPath = process.env.MUZEN_RUNNER_PATH ?? defaultRunnerPath();
+const reviewModel = createDemoReviewModel();
 const store = new DurableReviewStore();
+const demoAgentBudget = {
+  maxTurns: 18,
+  maxToolCalls: 64,
+  maxPromptTokens: 64_000,
+  maxOutputTokens: 8_000,
+};
 
 createServer(async (request, response) => {
   try {
@@ -29,7 +47,13 @@ createServer(async (request, response) => {
   }
 }).listen(port, () => {
   console.log(`durable review example service listening on http://localhost:${port}`);
+  console.log(`review model: ${reviewModel.label}`);
 });
+
+function defaultRunnerPath(): string {
+  const serverDir = dirname(fileURLToPath(import.meta.url));
+  return resolve(serverDir, "../../../target/debug/muzen-runner");
+}
 
 async function route(
   request: IncomingMessage,
@@ -43,10 +67,35 @@ async function route(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/model/preflight") {
+    const preflight = await runOpenAIModelPreflight();
+    sendJson(response, preflight.ok ? 200 : 503, {
+      ...preflight,
+      ...(preflight.ok ? {} : { error: modelPreflightErrorMessage(preflight) }),
+      model: reviewModel.metadata.model,
+      provider: reviewModel.metadata.modelProvider,
+    });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/reviews") {
+    const preflight = await runOpenAIModelPreflight();
+    if (!preflight.ok) {
+      sendJson(response, 503, {
+        ...preflight,
+        error: modelPreflightErrorMessage(preflight),
+        model: preflight.model ?? reviewModel.metadata.model,
+        provider: preflight.provider ?? reviewModel.metadata.modelProvider,
+      });
+      return;
+    }
     const input = await readJson<CreateReviewRequest>(request);
-    const source = reviewSource(input);
-    const review = store.create(source, reviewOptions(input, source));
+    const reviewInput = {
+      ...input,
+      changedFiles: validateChangedFiles(input),
+    };
+    const source = reviewSource(reviewInput);
+    const review = store.create(source, reviewOptions(reviewInput, source));
     void executeReview(store, review.id, { runnerPath });
     sendJson(response, 202, { review });
     return;
@@ -82,6 +131,22 @@ async function route(
     return;
   }
 
+  if (request.method === "GET" && child === "quality") {
+    const snapshot = store.snapshot(reviewId);
+    const changedFiles = url.searchParams.getAll("changedFile");
+    sendJson(response, 200, {
+      quality: evaluateReviewQuality(
+        snapshot.result,
+        store.eventsAfter(reviewId),
+        {
+          changedFiles: changedFiles.length > 0 ? changedFiles : snapshot.changedFiles,
+          requiredIssuePhrases: url.searchParams.getAll("requiredIssuePhrase"),
+        },
+      ),
+    });
+    return;
+  }
+
   if (request.method === "GET" && child === "events/stream") {
     streamEvents(response, reviewId, url.searchParams.get("after"));
     return;
@@ -98,6 +163,24 @@ async function route(
   }
 
   sendJson(response, 404, { error: "not found" });
+}
+
+function validateChangedFiles(input: CreateReviewRequest): string[] {
+  const changedFiles = input.changedFiles ?? [];
+  if (!Array.isArray(changedFiles)) {
+    throw new Error("changedFiles must be an array of repo-relative paths");
+  }
+  if (changedFiles.some((file) => typeof file !== "string")) {
+    throw new Error("changedFiles must be an array of repo-relative paths");
+  }
+  const normalized = changedFiles.map((file) => file.trim());
+  if (normalized.some((file) => file.length === 0)) {
+    throw new Error("changedFiles must not include blank paths");
+  }
+  if (input.sourceKind === "local" && normalized.length === 0) {
+    throw new Error("changedFiles must include at least one repo-relative path");
+  }
+  return normalized;
 }
 
 function reviewSource(input: CreateReviewRequest): ReviewSource {
@@ -118,22 +201,36 @@ function reviewOptions(
   source: ReviewSource,
 ): ReviewOptions {
   const target = sourceKey(source);
+  const changedFiles = input.changedFiles.map((path) => ({ path }));
   return {
+    model: reviewModel.model,
     change: {
       kind: source.type === "github_pull_request" ? "provider_review" : "revision_range",
-      changedFiles: input.changedFiles.map((path) => ({ path })),
+      changedFiles: changedFiles.length > 0 ? changedFiles : undefined,
       reviewTarget: target,
     },
-    scope: {
-      files: input.changedFiles,
+    scope: input.changedFiles.length > 0 ? { files: input.changedFiles } : undefined,
+    limits: {
+      maxActiveSessions: validateMaxActiveSessions(input.maxActiveSessions),
     },
     sessions: sessions(input.roles),
     metadata: {
       example: "tanstack-durable-review",
       requestedSource: target,
       requestedSourceKind: input.sourceKind,
+      ...reviewModel.metadata,
     },
   };
+}
+
+function validateMaxActiveSessions(value: number | undefined): number {
+  if (value === undefined) {
+    return 4;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > 8) {
+    throw new Error("maxActiveSessions must be an integer from 1 to 8");
+  }
+  return value;
 }
 
 function sessions(roles: ReviewRole[]): ReviewAgentSession[] {
@@ -141,7 +238,11 @@ function sessions(roles: ReviewRole[]): ReviewAgentSession[] {
   return selected.map((role) => ({
     id: role,
     role,
-    objective: `Review this change from the ${role} perspective.`,
+    objective:
+      role === "generalist"
+        ? "Review this change for concrete correctness, security, API-contract, data-loss, and integration bugs."
+        : `Review this change from the ${role} perspective.`,
+    budget: demoAgentBudget,
   }));
 }
 

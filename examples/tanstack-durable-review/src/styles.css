@@ -61,6 +61,17 @@ textarea {
   padding: 24px;
 }
 
+.panel-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.compact-heading {
+  align-items: center;
+}
+
 .secondary {
   background: #eef5f2;
 }
@@ -156,6 +167,23 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.muted {
+  color: #5c6b7a;
+}
+
+.pill {
+  background: #edf5ff;
+  border: 1px solid #bfd6f2;
+  border-radius: 999px;
+  color: #24537d;
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 700;
+  justify-self: start;
+  padding: 6px 10px;
+  width: fit-content;
+}
+
 .status {
   border-radius: 999px;
   border: 1px solid #bcc7d3;
@@ -193,14 +221,114 @@ code {
   white-space: normal;
 }
 
+.work-trace {
+  margin-bottom: 24px;
+}
+
+.metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0 24px;
+}
+
+.metrics.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 16px 0;
+}
+
+.metric {
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.metric strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1.1;
+  margin-top: 6px;
+}
+
+.trace-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-list li {
+  background: #f8fafc;
+  border: 1px solid #e3e9f0;
+  border-radius: 6px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 10px;
+}
+
+.trace-list span,
+.trace-list small {
+  color: #5c6b7a;
+}
+
+.file-review-list small {
+  line-height: 1.45;
+}
+
+.quality {
+  border-bottom: 1px solid #edf1f5;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+}
+
+.quality.failed .pill {
+  background: #ffe8e8;
+  border-color: #e5a7a7;
+  color: #8a2424;
+}
+
+.quality.passed .pill {
+  background: #e1f6eb;
+  border-color: #9dd9b9;
+  color: #24613d;
+}
+
+details {
+  border-top: 1px solid #edf1f5;
+  margin-top: 22px;
+  padding-top: 16px;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .error {
   color: #a13030;
 }
 
 @media (max-width: 860px) {
   .layout,
-  .grid {
+  .grid,
+  .trace-grid,
+  .metrics,
+  .metrics.compact {
     grid-template-columns: 1fr;
+  }
+
+  .panel-heading {
+    display: grid;
   }
 
   .layout,

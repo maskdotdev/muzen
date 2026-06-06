@@ -65,8 +65,10 @@ export class DurableReviewStore {
       id: review.id,
       status: review.status,
       source: review.source,
+      changedFiles: requestedChangedFiles(review),
+      maxActiveSessions: review.options.limits?.maxActiveSessions,
       result: review.result,
-      error: review.error,
+      error: review.error ?? inferredReviewError(review),
     };
   }
 
@@ -88,10 +90,15 @@ export class DurableReviewStore {
         runnerRunId: result.metadata?.runnerRunId ?? result.reviewId,
       },
     };
-    review.status = "completed";
+    const error = inferredResultError(review, projectedResult);
+    review.status = projectedResult.status;
     review.result = projectedResult;
+    review.error = error;
     review.updatedAt = timestamp();
-    this.appendSystemEvent(id, "session.completed", { status: "completed" });
+    this.appendSystemEvent(id, terminalEventType(projectedResult.status), {
+      status: projectedResult.status,
+      ...(error ? { error } : {}),
+    });
     this.appendSystemEvent(id, "review.result_created", {
       conclusion: projectedResult.conclusion,
       findings: projectedResult.findings.length,
@@ -157,4 +164,78 @@ export class DurableReviewStore {
 
 function timestamp(): string {
   return new Date().toISOString();
+}
+
+function terminalEventType(status: ReviewStatus): ReviewEvent["type"] {
+  if (status === "cancelled") {
+    return "session.cancelled";
+  }
+  if (status === "failed") {
+    return "session.failed";
+  }
+  return "session.completed";
+}
+
+function requestedChangedFiles(review: StoredReview): string[] {
+  return review.options.scope?.files ?? [];
+}
+
+function inferredReviewError(review: StoredReview): string | undefined {
+  if (!review.result) {
+    return undefined;
+  }
+  return inferredResultError(review, review.result);
+}
+
+function inferredResultError(
+  review: StoredReview,
+  result: ReviewResult,
+): string | undefined {
+  if (result.status !== "failed" && result.status !== "cancelled") {
+    return undefined;
+  }
+  const failures = modelFailureMessages(review.events);
+  if (failures.length > 0) {
+    return failures.join("; ");
+  }
+  return result.summary;
+}
+
+function modelFailureMessages(events: ReviewEvent[]): string[] {
+  const failures: Array<{ final: boolean; text: string }> = [];
+  for (const event of events) {
+    const payload = asRecord(event.payload);
+    const modelFailed = asRecord(payload?.modelFailed);
+    if (!modelFailed) {
+      continue;
+    }
+    const context = asRecord(payload?.context);
+    const sessionId =
+      stringValue(modelFailed.sessionId) ??
+      stringValue(context?.sessionId) ??
+      "unknown";
+    const message = stringValue(modelFailed.message) ?? "model provider error";
+    const attempt = numberValue(modelFailed.attempt);
+    const attemptText = attempt > 0 ? ` attempt ${attempt}` : "";
+    failures.push({
+      final: modelFailed.retrying !== true,
+      text: `${sessionId} model call failed${attemptText}: ${message}`,
+    });
+  }
+  const finalFailures = failures.filter((failure) => failure.final);
+  return [...new Set((finalFailures.length > 0 ? finalFailures : failures).map((failure) => failure.text))];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

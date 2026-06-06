@@ -17,6 +17,8 @@ This is the flow to read when mapping the example to Argus or another host.
    - local targets reuse the service-machine worktree
    - GitHub PR targets fetch `refs/pull/<number>/head` into a temp checkout
 6. Muzen runs multiple sessions against the shared snapshot.
+   - sessions use the run model configured with `openai(...)`
+   - `.env` `OPENAI_API_KEY` resolves the model credential
 7. Sessions call built-in tools such as read_diff, read_file, search_text.
 8. Muzen emits ordered events.
 9. Host service persists those events with host cursors.

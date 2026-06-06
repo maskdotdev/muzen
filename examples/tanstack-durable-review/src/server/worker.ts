@@ -23,12 +23,28 @@ export async function executeReview(
       runnerPath: options.runnerPath,
       clientName: "tanstack-durable-review-example",
     });
+    const appended = new Set<string>();
     const session = await muzen.review(
       review.source as ReviewSource,
-      review.options,
+      {
+        ...review.options,
+        hooks: {
+          ...review.options.hooks,
+          onEvent: (event) => {
+            if (!appended.has(event.cursor)) {
+              appended.add(event.cursor);
+              store.appendRunnerEvent(reviewId, event);
+            }
+            review.options.hooks?.onEvent?.(event);
+          },
+        },
+      },
     );
     for await (const event of session.events()) {
-      store.appendRunnerEvent(reviewId, event);
+      if (!appended.has(event.cursor)) {
+        appended.add(event.cursor);
+        store.appendRunnerEvent(reviewId, event);
+      }
     }
     const result = await session.wait();
     store.complete(reviewId, result);
