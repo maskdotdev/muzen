@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { sourceKey } from "@muzen/sdk";
 import type { ReviewEvent, ReviewResult, ReviewRole } from "@muzen/sdk";
 
 import type {
@@ -8,6 +7,7 @@ import type {
   ReviewSnapshot,
   ReviewTargetKind,
 } from "./shared.js";
+import { reviewSourceKey } from "./shared.js";
 
 const defaultRoles: ReviewRole[] = ["correctness", "security"];
 const roleChoices: ReviewRole[] = [
@@ -171,7 +171,7 @@ export function ReviewPage() {
           {snapshot ? (
             <p className="source">
               <span className="label">Target</span>
-              {sourceKey(snapshot.source)}
+              {reviewSourceKey(snapshot.source)}
             </p>
           ) : null}
         </div>
