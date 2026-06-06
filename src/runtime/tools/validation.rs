@@ -14,6 +14,14 @@ struct ReadFileArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReadFileRangeArgs {
+    path: String,
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SearchTextArgs {
     query: String,
 }
@@ -23,6 +31,18 @@ struct SearchTextArgs {
 struct RecordFindingArgs {
     title: String,
     claim: String,
+    path: String,
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug)]
+struct RecordFileReviewArgs {
+    path: String,
+    verdict: String,
+    summary: String,
+    finding_id: Option<String>,
+    related_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +109,28 @@ pub(crate) fn validate_invocation(
             })?;
             ToolArgs::ReadFile { path }
         }
+        Some(ToolName::ReadFileRange) => {
+            let parsed: ReadFileRangeArgs =
+                serde_json::from_str(&call.raw_arguments).map_err(|_| {
+                    (
+                        call.call_id.clone(),
+                        tool_id.clone(),
+                        ToolErrorCode::InvalidArgs,
+                    )
+                })?;
+            let path = RepoPath::parse(&parsed.path).map_err(|_| {
+                (
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::PathDenied,
+                )
+            })?;
+            ToolArgs::ReadFileRange {
+                path,
+                start_line: parsed.start_line.max(1),
+                end_line: parsed.end_line.max(parsed.start_line).max(1),
+            }
+        }
         Some(ToolName::SearchText) => {
             let parsed: SearchTextArgs =
                 serde_json::from_str(&call.raw_arguments).map_err(|_| {
@@ -111,9 +153,72 @@ pub(crate) fn validate_invocation(
                         ToolErrorCode::InvalidArgs,
                     )
                 })?;
+            let path = RepoPath::parse(&parsed.path).map_err(|_| {
+                (
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::PathDenied,
+                )
+            })?;
             ToolArgs::RecordFinding {
                 title: parsed.title,
                 claim: parsed.claim,
+                path,
+                start_line: Some(parsed.start_line.max(1)),
+                end_line: Some(parsed.end_line.max(parsed.start_line).max(1)),
+            }
+        }
+        Some(ToolName::RecordFileReview) => {
+            let parsed = parse_record_file_review_args(&call.raw_arguments).ok_or_else(|| {
+                (
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::InvalidArgs,
+                )
+            })?;
+            let verdict = parsed.verdict.trim().to_ascii_lowercase();
+            if !matches!(verdict.as_str(), "clean" | "issue_found" | "skipped") {
+                return Err((
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::InvalidArgs,
+                ));
+            }
+            if parsed.summary.trim().is_empty() {
+                return Err((
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::InvalidArgs,
+                ));
+            }
+            let path = RepoPath::parse(&parsed.path).map_err(|_| {
+                (
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::PathDenied,
+                )
+            })?;
+            let related_paths = parsed
+                .related_paths
+                .into_iter()
+                .map(|path| RepoPath::parse(&path))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| {
+                    (
+                        call.call_id.clone(),
+                        tool_id.clone(),
+                        ToolErrorCode::PathDenied,
+                    )
+                })?;
+            ToolArgs::RecordFileReview {
+                path,
+                verdict,
+                summary: parsed.summary,
+                finding_id: parsed
+                    .finding_id
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
+                related_paths,
             }
         }
         Some(ToolName::ChallengeFinding) => {
@@ -166,7 +271,49 @@ pub(crate) fn validate_invocation(
         args,
         capabilities,
         scope_key,
+        assigned_changed_files: Vec::new(),
     })
+}
+
+fn parse_record_file_review_args(raw: &str) -> Option<RecordFileReviewArgs> {
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    let object = value.as_object()?;
+    let path = object.get("path")?.as_str()?.to_string();
+    let verdict = object.get("verdict")?.as_str()?.to_string();
+    let summary = object.get("summary")?.as_str()?.to_string();
+    let finding_id = object
+        .get("finding_id")
+        .or_else(|| object.get("findingId"))
+        .and_then(|value| match value {
+            Value::Null => None,
+            Value::String(value) => Some(value.clone()),
+            _ => None,
+        });
+    let related_paths = object
+        .get("related_paths")
+        .or_else(|| object.get("relatedPaths"))
+        .map(parse_related_paths)
+        .unwrap_or_else(|| Some(Vec::new()))?;
+    Some(RecordFileReviewArgs {
+        path,
+        verdict,
+        summary,
+        finding_id,
+        related_paths,
+    })
+}
+
+fn parse_related_paths(value: &Value) -> Option<Vec<String>> {
+    match value {
+        Value::Null => Some(Vec::new()),
+        Value::Array(values) => values
+            .iter()
+            .map(|value| value.as_str().map(ToString::to_string))
+            .collect(),
+        Value::String(value) if value.trim().is_empty() => Some(Vec::new()),
+        Value::String(value) => Some(vec![value.clone()]),
+        _ => None,
+    }
 }
 
 pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnvelope) {
@@ -291,6 +438,36 @@ mod tests {
         .expect_err("oversized arguments should be denied");
 
         assert_eq!(err.2, ToolErrorCode::TooLarge);
+    }
+
+    #[test]
+    fn validation_accepts_flexible_record_file_review_optional_fields() {
+        let registry = ToolRegistry::review_defaults().expect("registry");
+        let invocation = validate_invocation(
+            SessionId("session".to_string()),
+            TurnId(1),
+            raw_call(
+                "review",
+                ToolId::from(ToolName::RecordFileReview),
+                r#"{"path":"src/a.ts","verdict":"clean","summary":"inspected","findingId":null,"relatedPaths":"src/b.ts"}"#,
+            ),
+            CapabilitySet::review_read_only(),
+            FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string())),
+            &registry,
+        )
+        .expect("record_file_review args should validate");
+
+        let ToolArgs::RecordFileReview {
+            finding_id,
+            related_paths,
+            ..
+        } = invocation.args
+        else {
+            panic!("expected record_file_review args");
+        };
+        assert!(finding_id.is_none());
+        assert_eq!(related_paths.len(), 1);
+        assert_eq!(related_paths[0].display(), "src/b.ts");
     }
 
     #[test]

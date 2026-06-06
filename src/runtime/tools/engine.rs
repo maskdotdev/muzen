@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,8 +11,9 @@ use serde_json::json;
 use tokio::sync::{Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::contracts::{ByteRangeV1, EvidenceRefV1, ToolName};
+use crate::contracts::{ByteRangeV1, EvidenceLocationV1, EvidenceRefV1, FindingV1, ToolName};
 use crate::runtime::contracts::*;
+use crate::runtime::policy::{diff_risk_hint_items, diff_risk_hint_paths};
 use crate::runtime::repo::RepoSnapshot;
 use crate::util::redaction_none;
 
@@ -126,6 +127,39 @@ impl ToolEngine {
             .insert_from_tool_result(session_id, result, evidence)
     }
 
+    fn session_finding_matches_path(
+        &self,
+        session_id: &SessionId,
+        finding_id: &str,
+        path: &RepoPath,
+    ) -> bool {
+        let target = path.display();
+        self.findings.all().iter().any(|finding| {
+            finding.id == finding_id
+                && finding.discovered_by.iter().any(|id| id == &session_id.0)
+                && finding_primary_path(finding) == target
+        })
+    }
+
+    fn session_finding_options_message(&self, session_id: &SessionId) -> String {
+        let options = self
+            .findings
+            .all()
+            .iter()
+            .filter(|finding| finding.discovered_by.iter().any(|id| id == &session_id.0))
+            .take(8)
+            .map(|finding| format!("{}:{}", finding.id, finding_primary_path(finding)))
+            .collect::<Vec<_>>();
+        if options.is_empty() {
+            "No findings have been recorded in this session yet.".to_string()
+        } else {
+            format!(
+                "Available findings for this session: {}.",
+                options.join(", ")
+            )
+        }
+    }
+
     pub(crate) async fn execute_batch(
         &self,
         scope: SessionScope,
@@ -177,7 +211,7 @@ impl ToolEngine {
             let key = stable_id(&[call.name.as_str(), &call.raw_arguments]);
             if matches!(
                 call.name.as_builtin(),
-                Some(ToolName::RecordFinding | ToolName::Finish)
+                Some(ToolName::RecordFileReview | ToolName::RecordFinding | ToolName::Finish)
             ) || seen_calls.insert(key)
             {
                 calls_to_execute.push(call);
@@ -202,6 +236,7 @@ impl ToolEngine {
             .capabilities
             .fs_scope
             .scope_key(&self.snapshot.snapshot_id);
+        let assigned_changed_files = assigned_changed_files(&scope);
         let scope = Arc::new(scope);
         let mut futures = FuturesUnordered::new();
         for call in calls_to_execute {
@@ -211,6 +246,7 @@ impl ToolEngine {
             let session_id = scope.id.clone();
             let capabilities = scope.capabilities.clone();
             let scope_key = scope_key.clone();
+            let assigned_changed_files = assigned_changed_files.clone();
             futures.push(async move {
                 let original_index = call.index;
                 let result = match validate_invocation(
@@ -221,7 +257,8 @@ impl ToolEngine {
                     scope_key,
                     &engine.registry,
                 ) {
-                    Ok(invocation) => {
+                    Ok(mut invocation) => {
+                        invocation.assigned_changed_files = assigned_changed_files;
                         let Ok(_permit) = per_session.acquire_owned().await else {
                             return (
                                 original_index,
@@ -466,7 +503,11 @@ impl ToolEngine {
                 &invocation.scope_key,
                 cache_status,
             ),
-            Some(ToolName::ReadDiff) => self.read_diff(invocation.call_id, cache_status),
+            Some(ToolName::ReadDiff) => self.read_diff(
+                invocation.call_id,
+                cache_status,
+                invocation.assigned_changed_files.as_slice(),
+            ),
             Some(ToolName::ListFiles) => self.list_files(
                 invocation.call_id,
                 &invocation.capabilities.fs_scope,
@@ -522,6 +563,33 @@ impl ToolEngine {
                     cache_status,
                 )
                 .await
+            }
+            Some(ToolName::ReadFileRange) => {
+                let ToolArgs::ReadFileRange {
+                    path,
+                    start_line,
+                    end_line,
+                } = invocation.args
+                else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "read_file_range requires path, start_line, and end_line",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                self.read_file_range(invocation.call_id, path, start_line, end_line, cache_status)
+                    .await
             }
             Some(ToolName::SearchText) => {
                 let ToolArgs::SearchText { query } = invocation.args else {
@@ -596,16 +664,155 @@ impl ToolEngine {
                     .await
             }
             Some(ToolName::RecordFinding) => {
-                let ToolArgs::RecordFinding { title, claim } = invocation.args else {
+                let ToolArgs::RecordFinding {
+                    title,
+                    claim,
+                    path,
+                    start_line,
+                    end_line,
+                } = invocation.args
+                else {
                     return self.error_result(
                         invocation.call_id,
                         invocation.tool_id,
                         ToolErrorCode::InvalidArgs,
-                        "record_finding requires title and claim",
+                        "record_finding requires title, claim, path, start_line, and end_line",
                         false,
                     );
                 };
-                self.record_finding(invocation.call_id, title, claim)
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                if is_non_finding_claim(&title, &claim) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_finding is only for actionable bugs; use finish for clean or inconclusive batches",
+                        false,
+                    );
+                }
+                self.record_finding(invocation.call_id, title, claim, path, start_line, end_line)
+            }
+            Some(ToolName::RecordFileReview) => {
+                let ToolArgs::RecordFileReview {
+                    path,
+                    verdict,
+                    summary,
+                    finding_id,
+                    related_paths,
+                } = invocation.args
+                else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_file_review requires path, verdict, summary, and related_paths",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path)
+                    || related_paths
+                        .iter()
+                        .any(|path| !invocation.capabilities.fs_scope.allows(path))
+                {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                let (path_diff, _) =
+                    scoped_diff_content(&self.snapshot.diff.content, std::slice::from_ref(&path));
+                if weak_clean_review_for_risk_hinted_file(&path_diff, &path, &verdict, &summary) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "clean file review dismisses a changed-code risk hint without concrete safety evidence; inspect the hinted changed code and either record a finding or explain why the changed behavior is safe",
+                        true,
+                    );
+                }
+                if inconsistent_clean_review(&verdict, &summary) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_file_review verdict=clean cannot describe a concrete bug or dropped async work; record_finding first, then use verdict=issue_found with that finding_id",
+                        true,
+                    );
+                }
+                if inconsistent_issue_found_review(&verdict, &summary) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_file_review verdict=issue_found requires a summary of the concrete issue; use verdict=clean for files without an additional issue",
+                        true,
+                    );
+                }
+                if verdict.trim() == "issue_found" {
+                    let Some(finding_id) = finding_id.as_deref() else {
+                        let message = format!(
+                            "record_file_review verdict=issue_found requires finding_id for a recorded finding in this session. {}",
+                            self.session_finding_options_message(&invocation.session_id)
+                        );
+                        return self.error_result(
+                            invocation.call_id,
+                            invocation.tool_id,
+                            ToolErrorCode::InvalidArgs,
+                            &message,
+                            true,
+                        );
+                    };
+                    if !self.session_finding_matches_path(&invocation.session_id, finding_id, &path)
+                    {
+                        let message = format!(
+                            "record_file_review finding_id must refer to a recorded finding from this session on the same path. {}",
+                            self.session_finding_options_message(&invocation.session_id)
+                        );
+                        return self.error_result(
+                            invocation.call_id,
+                            invocation.tool_id,
+                            ToolErrorCode::InvalidArgs,
+                            &message,
+                            true,
+                        );
+                    }
+                } else if finding_id.is_some() {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_file_review finding_id is only allowed with verdict=issue_found",
+                        true,
+                    );
+                }
+                if inconsistent_skipped_review(&verdict, &summary) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "record_file_review verdict=skipped is only for files that could not be inspected; use clean or issue_found after inspection",
+                        true,
+                    );
+                }
+                self.record_file_review(
+                    invocation.call_id,
+                    path,
+                    verdict,
+                    summary,
+                    finding_id,
+                    related_paths,
+                )
             }
             Some(ToolName::ChallengeFinding) => {
                 let ToolArgs::ChallengeFinding {
@@ -664,6 +871,20 @@ impl ToolEngine {
                 &CONCURRENT_CONTRACT_VERSION.to_string(),
                 &REDACTION_POLICY_VERSION.to_string(),
             ])),
+            ToolArgs::ReadFileRange {
+                path,
+                start_line,
+                end_line,
+            } => Some(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                invocation.tool_id.as_str(),
+                invocation.scope_key.as_str(),
+                &path.display(),
+                &start_line.to_string(),
+                &end_line.to_string(),
+                &CONCURRENT_CONTRACT_VERSION.to_string(),
+                &REDACTION_POLICY_VERSION.to_string(),
+            ])),
             ToolArgs::SearchText { query } => Some(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 invocation.tool_id.as_str(),
@@ -691,15 +912,23 @@ impl ToolEngine {
         }
     }
 
-    fn read_diff(&self, call_id: ToolCallId, cache_status: CacheStatus) -> ToolResultEnvelope {
-        let content = self.redactor.redact(&self.snapshot.diff.content);
+    fn read_diff(
+        &self,
+        call_id: ToolCallId,
+        cache_status: CacheStatus,
+        assigned_changed_files: &[RepoPath],
+    ) -> ToolResultEnvelope {
+        let (raw_content, scoped_paths) =
+            scoped_diff_content(&self.snapshot.diff.content, assigned_changed_files);
+        let content_hash = stable_id(&[&self.snapshot.diff.content_hash, &raw_content]);
+        let content = self.redactor.redact(&raw_content);
         let artifact_id = self.artifacts.insert_views(
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "read_diff",
-                &self.snapshot.diff.content_hash,
+                &content_hash,
             ])),
-            self.snapshot.diff.content.clone(),
+            raw_content.clone(),
             content.clone(),
         );
         ToolResultEnvelope {
@@ -711,7 +940,7 @@ impl ToolEngine {
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
                 status: cache_status,
-                key_hash: Some(self.snapshot.diff.content_hash.clone()),
+                key_hash: Some(content_hash.clone()),
             },
             limits: LimitInfo {
                 output_bytes: content.len(),
@@ -719,7 +948,10 @@ impl ToolEngine {
             },
             data: Some(json!({
                 "content": content,
-                "contentHash": self.snapshot.diff.content_hash,
+                "contentHash": content_hash,
+                "riskHints": diff_risk_hint_items(&raw_content),
+                "scopedPaths": scoped_paths,
+                "scoped": !assigned_changed_files.is_empty(),
             })),
             error: None,
         }
@@ -872,10 +1104,11 @@ impl ToolEngine {
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
         let Ok(file) = self.snapshot.lookup(&path).cloned() else {
-            return self.error_result(
+            return self.read_unavailable_result(
                 call_id,
                 tool_name.into(),
                 ToolErrorCode::PathDenied,
+                &path,
                 "path is not present in the repo manifest",
                 false,
             );
@@ -937,7 +1170,106 @@ impl ToolEngine {
                     error: None,
                 }
             }
-            Err(error) => self.runtime_error_result(call_id, tool_name.into(), error),
+            Err(error) => self.read_error_result(call_id, tool_name.into(), &path, error),
+        }
+    }
+
+    async fn read_file_range(
+        &self,
+        call_id: ToolCallId,
+        path: RepoPath,
+        start_line: usize,
+        end_line: usize,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let Ok(file) = self.snapshot.lookup(&path).cloned() else {
+            return self.read_unavailable_result(
+                call_id,
+                ToolName::ReadFileRange.into(),
+                ToolErrorCode::PathDenied,
+                &path,
+                "path is not present in the repo manifest",
+                false,
+            );
+        };
+        let Ok(_permit) = self.read_permits.clone().acquire_owned().await else {
+            return self.error_result(
+                call_id,
+                ToolName::ReadFileRange.into(),
+                ToolErrorCode::Internal,
+                "read semaphore closed",
+                false,
+            );
+        };
+        match self.read.read_file(&file).await {
+            Ok(read) => {
+                let line_count = read.content.lines().count().max(1);
+                let normalized_start = start_line.min(line_count).max(1);
+                let normalized_end = end_line.min(line_count).max(normalized_start);
+                let raw_slice = read
+                    .content
+                    .lines()
+                    .enumerate()
+                    .filter(|(index, _)| {
+                        let line_number = index + 1;
+                        line_number >= normalized_start && line_number <= normalized_end
+                    })
+                    .map(|(index, line)| format!("{}: {}", index + 1, line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let content = self.redactor.redact(&raw_slice);
+                let artifact_id = self.artifacts.insert_views(
+                    ArtifactKey(stable_id(&[
+                        &self.snapshot.snapshot_id.0,
+                        "read_file_range",
+                        &file.fingerprint,
+                        &path.display(),
+                        &normalized_start.to_string(),
+                        &normalized_end.to_string(),
+                    ])),
+                    raw_slice,
+                    content.clone(),
+                );
+                ToolResultEnvelope {
+                    ok: true,
+                    tool_call_id: call_id,
+                    tool_name: ToolId::from(ToolName::ReadFileRange),
+                    provider_id: ToolProviderId::builtin_review(),
+                    snapshot_id: self.snapshot.snapshot_id.clone(),
+                    artifact_id: Some(artifact_id.clone()),
+                    cache: CacheInfo {
+                        status: cache_status,
+                        key_hash: Some(stable_id(&[
+                            &file.fingerprint,
+                            &normalized_start.to_string(),
+                            &normalized_end.to_string(),
+                        ])),
+                    },
+                    limits: LimitInfo {
+                        truncated: read.truncated,
+                        output_bytes: content.len(),
+                        ..LimitInfo::default()
+                    },
+                    data: Some(json!({
+                        "path": path.display(),
+                        "content": content,
+                        "lineRange": {
+                            "startLine": normalized_start,
+                            "endLine": normalized_end,
+                        },
+                        "evidenceId": stable_id(&[
+                            &self.snapshot.snapshot_id.0,
+                            &file.file_id.0.to_string(),
+                            &file.fingerprint,
+                            &artifact_id.0,
+                        ]),
+                    })),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                self.read_error_result(call_id, ToolName::ReadFileRange.into(), &path, error)
+            }
         }
     }
 
@@ -1157,6 +1489,9 @@ impl ToolEngine {
         call_id: ToolCallId,
         title: String,
         claim: String,
+        path: RepoPath,
+        start_line: Option<usize>,
+        end_line: Option<usize>,
     ) -> ToolResultEnvelope {
         let finding_id = finding_id_for_call(&call_id, &title, &claim);
         ToolResultEnvelope {
@@ -1175,6 +1510,72 @@ impl ToolEngine {
                 "findingId": finding_id,
                 "title": title,
                 "claim": claim,
+                "path": path.display().to_string(),
+                "startLine": start_line,
+                "endLine": end_line,
+            })),
+            error: None,
+        }
+    }
+
+    fn record_file_review(
+        &self,
+        call_id: ToolCallId,
+        path: RepoPath,
+        verdict: String,
+        summary: String,
+        finding_id: Option<String>,
+        related_paths: Vec<RepoPath>,
+    ) -> ToolResultEnvelope {
+        let related = related_paths
+            .iter()
+            .map(RepoPath::display)
+            .collect::<Vec<_>>();
+        let content = format!(
+            "{}: {}\n{}\nRelated paths: {}",
+            path.display(),
+            verdict,
+            summary.trim(),
+            if related.is_empty() {
+                "none".to_string()
+            } else {
+                related.join(", ")
+            }
+        );
+        let redacted = self.redactor.redact(&content);
+        let artifact_id = self.artifacts.insert_views(
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                "record_file_review",
+                &path.display(),
+                &verdict,
+                finding_id.as_deref().unwrap_or(""),
+                summary.trim(),
+            ])),
+            content,
+            redacted.clone(),
+        );
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: ToolId::from(ToolName::RecordFileReview),
+            provider_id: ToolProviderId::builtin_review(),
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id: Some(artifact_id),
+            cache: CacheInfo {
+                status: CacheStatus::NotCacheable,
+                key_hash: None,
+            },
+            limits: LimitInfo {
+                output_bytes: redacted.len(),
+                ..LimitInfo::default()
+            },
+            data: Some(json!({
+                "path": path.display().to_string(),
+                "verdict": verdict,
+                "summary": summary,
+                "findingId": finding_id,
+                "relatedPaths": related,
             })),
             error: None,
         }
@@ -1458,11 +1859,16 @@ impl ToolEngine {
                 "tool provider timed out",
                 true,
             ),
-            RuntimeError::InvalidInput(_) => self.error_result(
+            RuntimeError::InvalidInput(message)
+                if message.contains("not text") || message.contains("UTF-8") =>
+            {
+                self.error_result(call_id, tool_name, ToolErrorCode::NotText, &message, false)
+            }
+            RuntimeError::InvalidInput(message) => self.error_result(
                 call_id,
                 tool_name,
                 ToolErrorCode::InvalidArgs,
-                "invalid tool input",
+                &message,
                 false,
             ),
             _ => self.error_result(
@@ -1473,6 +1879,48 @@ impl ToolEngine {
                 false,
             ),
         }
+    }
+
+    fn read_error_result(
+        &self,
+        call_id: ToolCallId,
+        tool_name: ToolId,
+        path: &RepoPath,
+        error: RuntimeError,
+    ) -> ToolResultEnvelope {
+        let mut result = self.runtime_error_result(call_id, tool_name, error);
+        if matches!(
+            result.error.as_ref().map(|error| error.code),
+            Some(
+                ToolErrorCode::NotText
+                    | ToolErrorCode::TooLarge
+                    | ToolErrorCode::PathDenied
+                    | ToolErrorCode::NotFound
+            )
+        ) {
+            result.data = Some(json!({
+                "path": path.display(),
+                "available": false,
+            }));
+        }
+        result
+    }
+
+    fn read_unavailable_result(
+        &self,
+        call_id: ToolCallId,
+        tool_name: ToolId,
+        code: ToolErrorCode,
+        path: &RepoPath,
+        message: &str,
+        retryable: bool,
+    ) -> ToolResultEnvelope {
+        let mut result = self.error_result(call_id, tool_name, code, message, retryable);
+        result.data = Some(json!({
+            "path": path.display(),
+            "available": false,
+        }));
+        result
     }
 
     fn provider_id_for_tool(&self, tool_name: &ToolId) -> ToolProviderId {
@@ -1518,6 +1966,322 @@ fn elapsed_ms_allow_zero(started: Instant) -> u64 {
     started.elapsed().as_micros().div_ceil(1000) as u64
 }
 
+fn is_non_finding_claim(title: &str, claim: &str) -> bool {
+    let text = format!("{} {}", title, claim).to_ascii_lowercase();
+    let title = title.trim().to_ascii_lowercase();
+    if title.starts_with("check ")
+        || title.starts_with("verify ")
+        || title.starts_with("consider ")
+        || title.starts_with("potential ")
+        || title.starts_with("possible ")
+    {
+        return true;
+    }
+    let clean_batch_phrases = [
+        "no issue found",
+        "no issues found",
+        "no actionable",
+        "no supported",
+        "no concrete",
+        "no security regression",
+        "no correctness issue",
+        "no finding",
+        "no findings",
+        "found no",
+        "i found no",
+        "does not support a specific",
+        "does not support a concrete",
+        "nothing actionable",
+        "might be",
+        "may be",
+        "could be",
+        "potentially",
+        "correctness risk",
+        "can surface as",
+        "could surface as",
+        "may surface as",
+        "only safe if",
+        "intermediate result handling",
+        "intermediate consumers",
+        "callers that expect",
+        "verify that",
+        "check that",
+        "check runner",
+    ];
+    clean_batch_phrases
+        .iter()
+        .any(|phrase| text.contains(phrase))
+}
+
+fn weak_clean_review_for_risk_hinted_file(
+    diff: &str,
+    path: &RepoPath,
+    verdict: &str,
+    summary: &str,
+) -> bool {
+    if verdict.trim() != "clean" {
+        return false;
+    }
+    if !strict_risk_hint_clean_gate_applies(path) {
+        return false;
+    }
+    let risk_paths = diff_risk_hint_paths(diff);
+    if !risk_paths.contains("*") && !risk_paths.contains(&path.display()) {
+        return false;
+    }
+    let text = summary.to_ascii_lowercase();
+    let weak_dismissals = [
+        "pre-existing",
+        "already-existing",
+        "preexisting",
+        "already present",
+        "not modified",
+        "not changed",
+        "not introduce",
+        "does not introduce",
+        "existing async iteration",
+        "existing pattern",
+        "existing trust boundary",
+        "existing trust boundaries",
+        "existing cooked content pipeline",
+        "only shows",
+        "no concrete correctness regression",
+        "no actionable correctness regression",
+        "no actionable correctness defect",
+        "no actionable regression",
+        "no evidence",
+        "not proven",
+        "standard rails helpers",
+        "framework/helpers",
+        "handled by the framework",
+        "surrounding controller enforces",
+        "controller enforces",
+        "could not tie",
+        "could not connect",
+        "could not link",
+        "must be inspected",
+        "fire-and-forget",
+        "best-effort",
+        "remaining foreach",
+        "remaining foreach(async",
+        "only changed behavior",
+        "not relied upon",
+        "not rely",
+        "independent per-",
+    ];
+    weak_dismissals.iter().any(|phrase| text.contains(phrase))
+}
+
+fn strict_risk_hint_clean_gate_applies(path: &RepoPath) -> bool {
+    let path = path.display();
+    !(path.starts_with("spec/")
+        || path.starts_with("test/")
+        || path.contains("/spec/")
+        || path.contains("/test/")
+        || path.starts_with("db/migrate/"))
+}
+
+fn inconsistent_clean_review(verdict: &str, summary: &str) -> bool {
+    if verdict.trim() != "clean" {
+        return false;
+    }
+    let text = summary.to_ascii_lowercase();
+    let issue_phrases = [
+        "never awaits",
+        "not awaited",
+        "without awaiting",
+        "not collected",
+        "not aggregated",
+        "can return before",
+        "can continue before",
+        "continues before",
+        "rejection is not observed",
+        "rejections are not observed",
+        "not caught by the surrounding try/catch",
+        "failures are not caught",
+        "errors escape",
+        "dropped promise",
+        "dropped promises",
+        "drops async",
+        "drops promise",
+        "drops promises",
+        "loses async",
+        "loses cleanup",
+        "lose cleanup",
+        "lost before completion",
+        "fire-and-forget",
+        "leaves stale",
+        "remain uncleared",
+    ];
+    issue_phrases.iter().any(|phrase| text.contains(phrase))
+}
+
+fn inconsistent_issue_found_review(verdict: &str, summary: &str) -> bool {
+    if verdict.trim() != "issue_found" {
+        return false;
+    }
+    let text = summary.to_ascii_lowercase();
+    let clean_phrases = [
+        "no actionable",
+        "no additional",
+        "no correctness issue",
+        "no concrete",
+        "no issue",
+        "no bug",
+        "did not find",
+        "didn't find",
+        "not find",
+        "was not found",
+        "without an observable",
+    ];
+    clean_phrases.iter().any(|phrase| text.contains(phrase))
+}
+
+fn inconsistent_skipped_review(verdict: &str, summary: &str) -> bool {
+    if verdict.trim() != "skipped" {
+        return false;
+    }
+    let text = summary.to_ascii_lowercase();
+    let inspected_phrases = [
+        "inspected",
+        "reviewed",
+        "checked",
+        "no actionable",
+        "no correctness issue",
+        "no issue",
+        "no concrete",
+        "clean",
+        "best-effort",
+        "does not",
+    ];
+    if inspected_phrases.iter().any(|phrase| text.contains(phrase)) {
+        return true;
+    }
+    let skip_reasons = [
+        "could not inspect",
+        "cannot inspect",
+        "unable to inspect",
+        "not available",
+        "deleted file",
+        "binary file",
+        "too large",
+        "path denied",
+        "missing from snapshot",
+        "read failed",
+    ];
+    !skip_reasons.iter().any(|phrase| text.contains(phrase))
+}
+
+#[cfg(test)]
+fn finding_path_matches(finding: &FindingV1, path: &RepoPath) -> bool {
+    let target = path.display();
+    finding.file_refs.iter().any(|location| match location {
+        EvidenceLocationV1::SinglePath { path } => path == &target,
+        EvidenceLocationV1::Rename { old_path, new_path } => {
+            old_path == &target || new_path == &target
+        }
+    })
+}
+
+fn finding_primary_path(finding: &FindingV1) -> String {
+    finding
+        .file_refs
+        .iter()
+        .find_map(|location| match location {
+            EvidenceLocationV1::SinglePath { path } => Some(path.clone()),
+            EvidenceLocationV1::Rename { new_path, .. } => Some(new_path.clone()),
+        })
+        .unwrap_or_else(|| "<unknown>".to_string())
+}
+
+fn assigned_changed_files(scope: &SessionScope) -> Vec<RepoPath> {
+    scope
+        .instructions
+        .iter()
+        .filter(|instruction| instruction.trusted && instruction.kind == "changed_file_batch")
+        .flat_map(|instruction| changed_files_from_batch_instruction(&instruction.text))
+        .filter_map(|path| RepoPath::parse(&path).ok())
+        .collect()
+}
+
+fn changed_files_from_batch_instruction(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let (prefix, path) = trimmed.split_once(". ")?;
+            prefix.parse::<usize>().ok()?;
+            let path = path.trim();
+            (!path.is_empty()).then(|| path.to_string())
+        })
+        .collect()
+}
+
+fn scoped_diff_content(diff: &str, assigned_paths: &[RepoPath]) -> (String, Vec<String>) {
+    if assigned_paths.is_empty() {
+        return (diff.to_string(), Vec::new());
+    }
+
+    let assigned = assigned_paths
+        .iter()
+        .map(RepoPath::display)
+        .collect::<BTreeSet<_>>();
+    let mut selected = Vec::new();
+    let mut current = Vec::new();
+    let mut include_current = false;
+    let mut included_paths = BTreeSet::new();
+
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            flush_diff_section(&mut selected, &mut current, include_current);
+            include_current = diff_git_line_matches(line, &assigned, &mut included_paths);
+        } else if line.starts_with("+++ b/") || line.starts_with("--- a/") {
+            if let Some(path) = line.get(6..) {
+                if assigned.contains(path) {
+                    include_current = true;
+                    included_paths.insert(path.to_string());
+                }
+            }
+        }
+        current.push(line.to_string());
+    }
+    flush_diff_section(&mut selected, &mut current, include_current);
+
+    if selected.is_empty() {
+        return (diff.to_string(), Vec::new());
+    }
+
+    (
+        selected.join("\n") + "\n",
+        included_paths.into_iter().collect(),
+    )
+}
+
+fn flush_diff_section(selected: &mut Vec<String>, current: &mut Vec<String>, include: bool) {
+    if include {
+        selected.extend(std::mem::take(current));
+    } else {
+        current.clear();
+    }
+}
+
+fn diff_git_line_matches(
+    line: &str,
+    assigned: &BTreeSet<String>,
+    included_paths: &mut BTreeSet<String>,
+) -> bool {
+    let mut matched = false;
+    for part in line.split_whitespace().skip(2) {
+        let Some(path) = part.strip_prefix("a/").or_else(|| part.strip_prefix("b/")) else {
+            continue;
+        };
+        if assigned.contains(path) {
+            included_paths.insert(path.to_string());
+            matched = true;
+        }
+    }
+    matched
+}
+
 fn validation_error_message(code: ToolErrorCode) -> &'static str {
     match code {
         ToolErrorCode::ToolNotAllowed => "tool is not allowed for this session",
@@ -1526,5 +2290,345 @@ fn validation_error_message(code: ToolErrorCode) -> &'static str {
         ToolErrorCode::UnknownTool => "tool is not registered",
         ToolErrorCode::InvalidArgs => "invalid tool invocation",
         _ => "tool invocation failed validation",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::{
+        EvidenceLocationV1, FindingPublishability, FindingSeverity, FindingV1, ReportStatus,
+        ValidationStatus,
+    };
+    use crate::runtime::contracts::RepoPath;
+
+    use super::{
+        finding_path_matches, finding_primary_path, inconsistent_clean_review,
+        inconsistent_issue_found_review, inconsistent_skipped_review, is_non_finding_claim,
+        scoped_diff_content, weak_clean_review_for_risk_hinted_file,
+    };
+
+    #[test]
+    fn detects_clean_batch_summaries_as_non_findings() {
+        assert!(is_non_finding_claim(
+            "No actionable correctness finding from batch 7 evidence",
+            "No concrete correctness issue was evidenced in the inspected batch files",
+        ));
+        assert!(is_non_finding_claim(
+            "No supported security finding in batch 6/7",
+            "I found no concrete security regression in the reviewed batch",
+        ));
+        assert!(is_non_finding_claim(
+            "No issue found in GitHub PR parsing",
+            "the parser has tests for supported forms",
+        ));
+        assert!(is_non_finding_claim(
+            "Check runner/source scope contract consistency",
+            "verify these stay consistent because a mismatch could let a client-controlled source override what the server expects",
+        ));
+        assert!(is_non_finding_claim(
+            "Potential source scope mismatch",
+            "This may be a problem if callers pass unusual options.",
+        ));
+        assert!(is_non_finding_claim(
+            "Async map results are merged into result before being normalized",
+            "This can surface as unwrapped promise objects leaking into intermediate result handling before the final await, breaking callers that expect concrete objects.",
+        ));
+        assert!(is_non_finding_claim(
+            "Potential URL validation issue",
+            "This might allow SSRF if callers pass untrusted URLs.",
+        ));
+        assert!(is_non_finding_claim(
+            "Check origin validation",
+            "Verify that the referrer handling cannot be bypassed.",
+        ));
+    }
+
+    #[test]
+    fn scoped_diff_content_returns_only_assigned_file_sections() {
+        let diff = "\
+diff --git a/src/a.ts b/src/a.ts
+index 111..222 100644
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1 +1 @@
+-old
++new
+diff --git a/src/b.ts b/src/b.ts
+index 333..444 100644
+--- a/src/b.ts
++++ b/src/b.ts
+@@ -2 +2 @@
+-before
++after
+";
+        let assigned = [RepoPath::parse("src/b.ts").expect("path")];
+        let (scoped, paths) = scoped_diff_content(diff, &assigned);
+
+        assert!(!scoped.contains("src/a.ts"));
+        assert!(scoped.contains("src/b.ts"));
+        assert_eq!(paths, vec!["src/b.ts".to_string()]);
+    }
+
+    #[test]
+    fn primary_finding_path_is_stricter_than_evidence_path_matching() {
+        let finding = FindingV1 {
+            id: "finding-1".to_string(),
+            title: "Bug".to_string(),
+            claim: "Bug in primary path".to_string(),
+            severity: FindingSeverity::Medium,
+            confidence: 0.8,
+            validation_status: ValidationStatus::Validated,
+            report_status: ReportStatus::Included,
+            publishability: FindingPublishability::Publishable,
+            evidence: Vec::new(),
+            file_refs: vec![
+                EvidenceLocationV1::SinglePath {
+                    path: "src/primary.ts".to_string(),
+                },
+                EvidenceLocationV1::SinglePath {
+                    path: "src/related.ts".to_string(),
+                },
+            ],
+            location_line_range: None,
+            discovered_by: vec!["session".to_string()],
+            challenged_by: Vec::new(),
+        };
+
+        assert!(finding_path_matches(
+            &finding,
+            &RepoPath::parse("src/related.ts").expect("path")
+        ));
+        assert_eq!(finding_primary_path(&finding), "src/primary.ts");
+        assert_ne!(finding_primary_path(&finding), "src/related.ts");
+    }
+
+    #[test]
+    fn risk_hinted_clean_review_allows_concrete_safe_mechanism() {
+        let diff = r#"
+diff --git a/app/views/embed/best.html.erb b/app/views/embed/best.html.erb
+--- a/app/views/embed/best.html.erb
++++ b/app/views/embed/best.html.erb
++<%= render partial: "post", locals: { post: post } %>
+"#;
+        let path = RepoPath::parse("app/views/embed/best.html.erb").expect("path");
+
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The template renders values already escaped by link_to and the controller supplies @topic_view before rendering, so the changed render path does not add a new unescaped user-input sink."
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "This appears pre-existing and I could not link it to a concrete regression."
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "This template only renders cooked content and standard Rails helpers. The changed markup does not introduce an unsafe raw boundary beyond the existing cooked content pipeline, and the direct link/image fields are handled by the framework/helpers on this render path."
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The surrounding controller enforces the embedding host, so the changed layout does not introduce a new trust-boundary issue."
+        ));
+    }
+
+    #[test]
+    fn risk_hinted_clean_review_gate_ignores_specs_and_migrations() {
+        let diff = r#"
+diff --git a/spec/controllers/embed_controller_spec.rb b/spec/controllers/embed_controller_spec.rb
+--- a/spec/controllers/embed_controller_spec.rb
++++ b/spec/controllers/embed_controller_spec.rb
++expect(response.headers["X-Frame-Options"]).to eq("ALLOWALL")
+diff --git a/db/migrate/1_create_widgets.rb b/db/migrate/1_create_widgets.rb
+--- a/db/migrate/1_create_widgets.rb
++++ b/db/migrate/1_create_widgets.rb
++create_table :widgets do |t|
++  t.string :name, null: false
++end
+"#;
+        let spec_path = RepoPath::parse("spec/controllers/embed_controller_spec.rb").expect("path");
+        let migration_path = RepoPath::parse("db/migrate/1_create_widgets.rb").expect("path");
+
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            diff,
+            &spec_path,
+            "clean",
+            "The spec only checks the existing controller behavior and no issue was found."
+        ));
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            diff,
+            &migration_path,
+            "clean",
+            "The migration creates a table with a non-null column and no issue was found."
+        ));
+    }
+
+    #[test]
+    fn allows_actionable_bug_findings() {
+        assert!(!is_non_finding_claim(
+            "Progress projection silently maps unknown event types to queued",
+            "Unknown event types are projected as queued, which misreports progress for malformed events.",
+        ));
+        assert!(!is_non_finding_claim(
+            "Missing source scope check lets callback materialize outside target",
+            "When a callback source returns paths outside the requested scope, the runner accepts them.",
+        ));
+        assert!(!is_non_finding_claim(
+            "Dropped async cleanup leaves stale external events",
+            "The changed reschedule flow launches deleteEvent promises without awaiting them, so the mutation can report success while old calendar events remain undeleted.",
+        ));
+        assert!(!is_non_finding_claim(
+            "SSRF via unvalidated URL fetch",
+            "The changed endpoint passes the user-controlled url parameter directly to open(url) before parsing or allowlisting the host, so an attacker can make the server fetch internal addresses.",
+        ));
+        assert!(!is_non_finding_claim(
+            "Origin check accepts attacker-controlled suffix domains",
+            "The changed referrer check uses indexOf(siteUrl), so https://trusted.example.evil.test embeds the trusted string and passes the check even though the parsed origin is attacker-controlled.",
+        ));
+    }
+
+    #[test]
+    fn rejects_weak_clean_review_for_diff_risk_hinted_file() {
+        let diff = r#"
+diff --git a/src/reschedule.ts b/src/reschedule.ts
+--- a/src/reschedule.ts
++++ b/src/reschedule.ts
+@@ -10,6 +10,8 @@
++items.forEach(async (item) => {
++  await deletePayment(item.id);
++});
+"#;
+        let path = RepoPath::parse("src/reschedule.ts").expect("path");
+
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The async forEach pattern is pre-existing and the diff does not show a concrete regression.",
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The async forEach only wraps independent per-item work in a fire-and-forget path and is not relied upon for return timing.",
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The remaining async cleanup is not proven to regress because the caller treats deletions as best-effort, but the exact loop body must be inspected.",
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The only changed behavior is awaiting the helper and no actionable correctness regression was found.",
+        ));
+        assert!(weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The remaining forEach(async ...) pattern is present in the inspected implementation, but with the available evidence I could not tie it to a concrete introduced failure mode, so no actionable correctness defect is recorded.",
+        ));
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "clean",
+            "The callback promises are collected into Promise.all before the cleanup flow returns.",
+        ));
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            diff,
+            &path,
+            "issue_found",
+            "The callback promises are dropped.",
+        ));
+    }
+
+    #[test]
+    fn clean_review_risk_hint_check_ignores_unrelated_diff_sections() {
+        let clean_path = RepoPath::parse("src/payment.ts").expect("path");
+        let full_diff = r#"
+diff --git a/src/risky.ts b/src/risky.ts
+--- a/src/risky.ts
++++ b/src/risky.ts
+@@ -1 +1 @@
++items.forEach(async (item) => cleanup(item));
+diff --git a/src/payment.ts b/src/payment.ts
+--- a/src/payment.ts
++++ b/src/payment.ts
+@@ -1 +1 @@
+-const service = registry.payment;
++const service = await registry.payment;
+"#;
+        let (path_diff, _) = scoped_diff_content(full_diff, std::slice::from_ref(&clean_path));
+
+        assert!(!weak_clean_review_for_risk_hinted_file(
+            &path_diff,
+            &clean_path,
+            "clean",
+            "The changed await resolves the registry entry before use.",
+        ));
+    }
+
+    #[test]
+    fn rejects_issue_found_file_review_with_clean_summary() {
+        assert!(inconsistent_clean_review(
+            "clean",
+            "The reschedule flow never awaits async deletions, so the function can return before cleanup completes and rejection is not observed.",
+        ));
+        assert!(!inconsistent_clean_review(
+            "clean",
+            "The callback promises are collected and awaited with Promise.all before returning.",
+        ));
+        assert!(!inconsistent_clean_review(
+            "issue_found",
+            "The reschedule flow never awaits async deletions.",
+        ));
+        assert!(inconsistent_issue_found_review(
+            "issue_found",
+            "I did not find an additional correctness issue in this file.",
+        ));
+        assert!(inconsistent_issue_found_review(
+            "issue_found",
+            "No actionable issue was found after inspecting callers.",
+        ));
+        assert!(!inconsistent_issue_found_review(
+            "issue_found",
+            "This file contributes to a recorded finding because the async cleanup promises are dropped.",
+        ));
+        assert!(!inconsistent_issue_found_review(
+            "clean",
+            "No actionable issue was found after inspecting callers.",
+        ));
+    }
+
+    #[test]
+    fn rejects_skipped_file_review_after_inspection_or_without_skip_reason() {
+        assert!(inconsistent_skipped_review(
+            "skipped",
+            "Inspected the changed file and found no concrete correctness issue.",
+        ));
+        assert!(inconsistent_skipped_review(
+            "skipped",
+            "No actionable issue was identified in this best-effort cleanup flow.",
+        ));
+        assert!(inconsistent_skipped_review(
+            "skipped",
+            "The file was not part of the interesting logic.",
+        ));
+        assert!(!inconsistent_skipped_review(
+            "skipped",
+            "Could not inspect this deleted file because it is not available in the head snapshot.",
+        ));
+        assert!(!inconsistent_skipped_review(
+            "clean",
+            "Inspected the changed file and found no actionable issue.",
+        ));
     }
 }

@@ -172,10 +172,27 @@ impl ConcurrentFindingStore {
         let id = data.get("findingId")?.as_str()?.to_string();
         let title = data.get("title")?.as_str()?.to_string();
         let claim = data.get("claim")?.as_str()?.to_string();
-        let file_refs = evidence
+        let explicit_path = data.get("path").and_then(|value| value.as_str());
+        let explicit_line_range = match (
+            data.get("startLine").and_then(|value| value.as_u64()),
+            data.get("endLine").and_then(|value| value.as_u64()),
+        ) {
+            (Some(start), Some(end)) => Some(LineRangeV1 {
+                start_line: start as usize,
+                end_line: end.max(start) as usize,
+            }),
+            _ => None,
+        };
+        let explicit_location = explicit_path.map(|path| EvidenceLocationV1::SinglePath {
+            path: path.to_string(),
+        });
+        let mut file_refs = evidence
             .iter()
             .map(|item| item.location.clone())
             .collect::<Vec<_>>();
+        if let Some(location) = explicit_location {
+            file_refs.insert(0, location);
+        }
         let validated = !evidence.is_empty();
         let finding = FindingV1 {
             id: id.clone(),
@@ -200,6 +217,7 @@ impl ConcurrentFindingStore {
             },
             evidence,
             file_refs,
+            location_line_range: explicit_line_range,
             discovered_by: vec![session_id.0.clone()],
             challenged_by: Vec::new(),
         };
@@ -246,15 +264,17 @@ pub(super) fn finding_id_for_call(call_id: &ToolCallId, title: &str, claim: &str
 pub(super) fn artifact_kind_for_tool(tool: ToolName) -> Option<ArtifactKind> {
     match tool {
         ToolName::ReadDiff => Some(ArtifactKind::DiffHunk),
-        ToolName::ReadFile | ToolName::ReadBaseFile | ToolName::ReadHeadFile => {
-            Some(ArtifactKind::FileSlice)
-        }
+        ToolName::ReadFile
+        | ToolName::ReadFileRange
+        | ToolName::ReadBaseFile
+        | ToolName::ReadHeadFile => Some(ArtifactKind::FileSlice),
         ToolName::SearchText => Some(ArtifactKind::SearchResults),
         ToolName::ListChangedFiles => Some(ArtifactKind::ChangedFileList),
         ToolName::ListFiles | ToolName::FindRelatedFiles | ToolName::FindTestsForFile => {
             Some(ArtifactKind::FileList)
         }
         ToolName::ListImports => Some(ArtifactKind::ImportSummary),
+        ToolName::RecordFileReview => Some(ArtifactKind::ToolSummary),
         ToolName::RecordFinding | ToolName::ChallengeFinding | ToolName::Finish => None,
     }
 }
@@ -262,7 +282,7 @@ pub(super) fn artifact_kind_for_tool(tool: ToolName) -> Option<ArtifactKind> {
 pub(super) fn evidence_revision_for_tool(tool: ToolName) -> EvidenceRevision {
     match tool {
         ToolName::ReadBaseFile => EvidenceRevision::Base,
-        ToolName::ReadHeadFile => EvidenceRevision::Head,
+        ToolName::ReadHeadFile | ToolName::ReadFileRange => EvidenceRevision::Head,
         _ => EvidenceRevision::Review,
     }
 }

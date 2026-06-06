@@ -108,6 +108,12 @@ pub(crate) struct ChangedFileMeta {
     pub(crate) summary: String,
 }
 
+struct SnapshotCandidateFile {
+    path: PathBuf,
+    repo_path: RepoPath,
+    meta: fs::Metadata,
+}
+
 #[derive(Debug)]
 pub(crate) struct DiffArtifact {
     pub(crate) content: String,
@@ -158,6 +164,7 @@ impl RepoSnapshot {
             .git_exclude(false)
             .follow_links(false);
 
+        let mut candidate_files = Vec::new();
         for entry in walker.build() {
             let entry = match entry {
                 Ok(entry) => entry,
@@ -192,10 +199,26 @@ impl RepoSnapshot {
             if !meta.is_file() {
                 continue;
             }
+            candidate_files.push(SnapshotCandidateFile {
+                path: entry.path().to_path_buf(),
+                repo_path,
+                meta,
+            });
+        }
+        candidate_files.sort_by(|left, right| {
+            let left_changed = changed_paths.contains(&left.repo_path.display());
+            let right_changed = changed_paths.contains(&right.repo_path.display());
+            right_changed
+                .cmp(&left_changed)
+                .then_with(|| left.repo_path.display().cmp(&right.repo_path.display()))
+        });
+
+        for candidate in candidate_files {
             if files.len() >= policy.max_directory_entries {
                 break;
             }
-            let size = meta.len();
+            let repo_path = candidate.repo_path;
+            let size = candidate.meta.len();
             let can_read_text =
                 is_textish(repo_path.as_path()) && size <= policy.max_file_bytes as u64;
             let (captured, capture_status) = if can_read_text {
@@ -207,7 +230,7 @@ impl RepoSnapshot {
                     capture_skipped_bytes += size;
                     (None, SnapshotCaptureStatus::SkippedMemoryLimit)
                 } else {
-                    match snapshot_file_content(entry.path(), policy.max_file_bytes) {
+                    match snapshot_file_content(&candidate.path, policy.max_file_bytes) {
                         Ok(content) => {
                             captured_text_bytes =
                                 captured_text_bytes.saturating_add(content.bytes.len());

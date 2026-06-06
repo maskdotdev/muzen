@@ -6,7 +6,9 @@ use crate::contracts::ToolName;
 pub(crate) enum ToolArgShape {
     Empty,
     Path,
+    FileRange,
     SearchQuery,
+    RecordFileReview,
     RecordFinding,
     ChallengeFinding,
     Finish,
@@ -28,16 +30,71 @@ impl BuiltinToolSpec {
                 json!({"path": {"type": "string"}}),
                 vec!["path".to_string()],
             ),
+            ToolArgShape::FileRange => object_schema(
+                json!({
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer", "minimum": 1},
+                    "end_line": {"type": "integer", "minimum": 1}
+                }),
+                vec![
+                    "path".to_string(),
+                    "start_line".to_string(),
+                    "end_line".to_string(),
+                ],
+            ),
             ToolArgShape::SearchQuery => object_schema(
                 json!({"query": {"type": "string"}}),
                 vec!["query".to_string()],
             ),
+            ToolArgShape::RecordFileReview => object_schema(
+                json!({
+                    "path": {
+                        "type": "string",
+                        "description": "Repo-relative assigned changed file path for this file-review verdict."
+                    },
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["clean", "issue_found", "skipped"],
+                        "description": "Use issue_found only after a record_finding call has already succeeded in this same session for this same path."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Concrete evidence-backed verdict summary. For clean, explain the mechanism that makes the change safe; for issue_found, summarize the recorded issue."
+                    },
+                    "finding_id": {
+                        "type": ["string", "null"],
+                        "description": "Required only for verdict=issue_found, and must be the id returned by a prior successful record_finding call in this same session for the same path. Use null for clean or skipped."
+                    },
+                    "related_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Related files inspected for context; empty array when none.",
+                        "maxItems": 12
+                    }
+                }),
+                vec![
+                    "path".to_string(),
+                    "verdict".to_string(),
+                    "summary".to_string(),
+                    "finding_id".to_string(),
+                    "related_paths".to_string(),
+                ],
+            ),
             ToolArgShape::RecordFinding => object_schema(
                 json!({
                     "title": {"type": "string"},
-                    "claim": {"type": "string"}
+                    "claim": {"type": "string"},
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"}
                 }),
-                vec!["title".to_string(), "claim".to_string()],
+                vec![
+                    "title".to_string(),
+                    "claim".to_string(),
+                    "path".to_string(),
+                    "start_line".to_string(),
+                    "end_line".to_string(),
+                ],
             ),
             ToolArgShape::ChallengeFinding => object_schema(
                 json!({
@@ -46,9 +103,10 @@ impl BuiltinToolSpec {
                 }),
                 vec!["finding_id".to_string(), "rationale".to_string()],
             ),
-            ToolArgShape::Finish => {
-                object_schema(json!({"reason": {"type": "string"}}), Vec::new())
-            }
+            ToolArgShape::Finish => object_schema(
+                json!({"reason": {"type": "string"}}),
+                vec!["reason".to_string()],
+            ),
         }
     }
 }
@@ -84,6 +142,12 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
             name,
             description: "Read a text file by repo-relative path.",
             arg_shape: ToolArgShape::Path,
+            cacheable: true,
+        },
+        ToolName::ReadFileRange => BuiltinToolSpec {
+            name,
+            description: "Read a focused line range from a text file by repo-relative path.",
+            arg_shape: ToolArgShape::FileRange,
             cacheable: true,
         },
         ToolName::ReadBaseFile => BuiltinToolSpec {
@@ -123,9 +187,15 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
             arg_shape: ToolArgShape::Path,
             cacheable: true,
         },
+        ToolName::RecordFileReview => BuiltinToolSpec {
+            name,
+            description: "Record the review verdict for one assigned changed file. For a concrete bug, call record_finding first; only after that succeeds call exactly one record_file_review with verdict=issue_found for the same path and that finding_id. The finding_id must be for a finding whose primary path is exactly the same path as this verdict; never reuse a related-file finding_id for another file. For clean/skipped verdicts set finding_id to null.",
+            arg_shape: ToolArgShape::RecordFileReview,
+            cacheable: false,
+        },
         ToolName::RecordFinding => BuiltinToolSpec {
             name,
-            description: "Record one evidence-backed candidate finding.",
+            description: "Record one concrete, evidence-backed bug for the assigned changed file before marking that file issue_found.",
             arg_shape: ToolArgShape::RecordFinding,
             cacheable: false,
         },

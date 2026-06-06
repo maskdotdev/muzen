@@ -28,6 +28,7 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "source.materialize".to_string(),
                 "run.heartbeat".to_string(),
                 "model.complete".to_string(),
+                "secret.resolve".to_string(),
                 "tool.execute".to_string(),
                 "event.review".to_string(),
                 "event.runtime".to_string(),
@@ -97,6 +98,10 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
                 "model.complete",
                 "Ask the SDK model adapter for one model turn.",
             ),
+            implemented_runner_to_sdk(
+                "secret.resolve",
+                "Ask the SDK host to resolve one secret reference.",
+            ),
             implemented_runner_to_sdk("tool.execute", "Ask the SDK to execute a host custom tool."),
         ],
         notifications: vec![
@@ -152,6 +157,7 @@ fn method_params(method: &str) -> Option<RunnerPayloadRef> {
         "source.materialize" => Some(payload_ref("SourceMaterializeParams")),
         "run.heartbeat" => Some(payload_ref("RunHeartbeatParams")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
+        "secret.resolve" => Some(payload_ref("RunnerSecretResolveParams")),
         "tool.execute" => Some(payload_ref("RunnerToolExecuteParams")),
         "event.review" => Some(payload_ref("ReviewEventRecord")),
         "event.runtime" => Some(payload_ref("RuntimeEventRecord")),
@@ -179,6 +185,7 @@ fn method_result(method: &str) -> Option<RunnerPayloadRef> {
         "source.materialize" => Some(payload_ref("SourceMaterializeResult")),
         "run.heartbeat" => Some(payload_ref("RunHeartbeatResult")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
+        "secret.resolve" => Some(payload_ref("RunnerSecretResolveResult")),
         "tool.execute" => Some(payload_ref("RunnerToolExecuteResult")),
         _ => None,
     }
@@ -371,7 +378,30 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
         ),
         object(
             "RunModelParams",
-            vec![defaulted("callback", "boolean", "false")],
+            vec![
+                defaulted("callback", "boolean", "false"),
+                optional("defaultModelProfileId", "string"),
+                defaulted("modelProfiles", "RunModelProfileParams[]", "[]"),
+            ],
+        ),
+        object(
+            "RunModelProfileParams",
+            vec![
+                required("id", "string"),
+                required("provider", "string"),
+                required("model", "string"),
+                optional("credential", "RunModelCredentialParams"),
+                optional("baseUrl", "string"),
+                optional("apiProtocol", "string"),
+                optional("maxInputTokens", "integer"),
+                optional("maxOutputTokens", "integer"),
+                optional("temperature", "number"),
+                optional("topP", "number"),
+            ],
+        ),
+        object(
+            "RunModelCredentialParams",
+            vec![optional("env", "string"), optional("secretRef", "string")],
         ),
         object(
             "RunToolParams",
@@ -417,6 +447,17 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("maxPromptTokens", "integer"),
                 required("maxOutputTokens", "integer"),
             ],
+        ),
+        object(
+            "RunnerSecretResolveParams",
+            vec![
+                required("protocolVersion", "string"),
+                required("ref", "string"),
+            ],
+        ),
+        object(
+            "RunnerSecretResolveResult",
+            vec![required("value", "string")],
         ),
         object(
             "RunLimitParams",
@@ -576,6 +617,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("runId", "string"),
                 required("status", "string"),
                 required("summary", "RunnerRunSummary"),
+                defaulted("fileReviews", "RunnerFileReview[]", "[]"),
                 required("findings", "RunnerFinding[]"),
                 required("snapshots", "RunnerSnapshotSummary[]"),
                 defaulted("metadata", "json", "{}"),
@@ -597,6 +639,19 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("artifacts", "integer"),
                 required("artifactBytes", "integer"),
                 required("snapshotCount", "integer"),
+            ],
+        ),
+        object(
+            "RunnerFileReview",
+            vec![
+                required("path", "string"),
+                required("verdict", "string"),
+                required("summary", "string"),
+                defaulted("relatedPaths", "string[]", "[]"),
+                defaulted("evidenceArtifactIds", "string[]", "[]"),
+                required("evidenceCount", "integer"),
+                required("sessionId", "string"),
+                required("unitId", "string"),
             ],
         ),
         object(

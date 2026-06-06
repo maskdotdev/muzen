@@ -2,7 +2,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
-use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tools::ToolEngine;
 
 pub(crate) struct ToolBatchRunner<'a> {
@@ -29,13 +29,13 @@ impl<'a> ToolBatchRunner<'a> {
         scope: SessionScope,
         turn_id: TurnId,
         calls: Vec<ModelToolCall>,
-        evidence_ready: bool,
+        evidence: &SessionEvidence,
         remaining_tool_calls: usize,
         cancel: CancellationToken,
     ) -> Vec<ToolResultEnvelope> {
         let plan = self
             .policy
-            .plan_tool_batch(calls, evidence_ready, remaining_tool_calls);
+            .plan_tool_batch(calls, evidence, remaining_tool_calls);
         if let Some(planned) =
             self.policy
                 .plan_tool_batch_started_runtime_event(&scope, turn_id, plan.scheduled_count)
@@ -48,7 +48,7 @@ impl<'a> ToolBatchRunner<'a> {
                 denied.call_id,
                 denied.tool_id,
                 denied.denial.code,
-                denied.denial.message,
+                &denied.denial.message,
                 denied.denial.retryable,
             );
             self.tools
@@ -133,7 +133,7 @@ mod tests {
                     model_call("finish", 1, ToolName::Finish, "{}"),
                     model_call("diff", 2, ToolName::ReadDiff, "{}"),
                 ],
-                false,
+                &SessionEvidence::default(),
                 usize::MAX,
                 CancellationToken::new(),
             )

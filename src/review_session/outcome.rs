@@ -521,6 +521,7 @@ impl ReviewEventType {
             InternalReviewEvent::SessionStarted { .. } => Self::AgentStarted,
             InternalReviewEvent::ModelStarted { .. } => Self::RunnerEvent,
             InternalReviewEvent::ModelCompleted { .. } => Self::RunnerEvent,
+            InternalReviewEvent::ModelFailed { .. } => Self::RunnerEvent,
             InternalReviewEvent::ToolBatchStarted { .. } => Self::ToolStarted,
             InternalReviewEvent::ToolCallCompleted { .. }
             | InternalReviewEvent::ToolCallDenied { .. } => Self::ToolCompleted,

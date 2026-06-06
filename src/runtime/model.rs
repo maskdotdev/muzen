@@ -18,7 +18,7 @@ use crate::contracts::{
 use crate::runtime::contracts::*;
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
-use crate::util::{resolve_credential_ref, timestamp_utc};
+use crate::util::{redact_known_secrets, resolve_credential_ref, timestamp_utc};
 
 #[async_trait]
 pub trait ConcurrentModelClient: Send + Sync {
@@ -145,16 +145,19 @@ impl ConcurrentModelRouter for ProfileModelRouter {
         &self,
         scope: &SessionScope,
     ) -> RuntimeResult<Arc<dyn ConcurrentModelClient>> {
-        let profile_id = scope
-            .model_profile_id
-            .as_ref()
-            .unwrap_or(&self.default_profile_id);
+        if let Some(profile_id) = scope.model_profile_id.as_ref() {
+            return self.clients.get(profile_id).cloned().ok_or_else(|| {
+                RuntimeError::InvalidInput(format!("missing model profile {profile_id}"))
+            });
+        }
         self.clients
-            .get(profile_id)
-            .or_else(|| self.clients.get(&self.default_profile_id))
+            .get(&self.default_profile_id)
             .cloned()
             .ok_or_else(|| {
-                RuntimeError::InvalidInput(format!("missing model profile {profile_id}"))
+                RuntimeError::InvalidInput(format!(
+                    "missing model profile {}",
+                    self.default_profile_id
+                ))
             })
     }
 }
@@ -223,7 +226,10 @@ impl ConcurrentModelClient for MockReviewModel {
                 name: ToolId::from(ToolName::RecordFinding),
                 raw_arguments: json!({
                     "title": format!("{} reviewed with parallel evidence", session_id.0),
-                    "claim": "The benchmark session gathered diff, file, and search evidence."
+                    "claim": "The benchmark session gathered diff, file, and search evidence.",
+                    "path": self.target_path,
+                    "start_line": 1,
+                    "end_line": 1
                 })
                 .to_string(),
             }],
@@ -965,10 +971,7 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
             })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(RuntimeError::Provider {
-                status: Some(status.as_u16()),
-                retryable: status.as_u16() == 429 || status.is_server_error(),
-            });
+            return Err(provider_http_error(status, response).await);
         }
         let decoded: ChatCompletionResponse =
             response.json().await.map_err(|_| RuntimeError::Provider {
@@ -1057,10 +1060,7 @@ impl ConcurrentModelClient for OpenAiResponsesClient {
             })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(RuntimeError::Provider {
-                status: Some(status.as_u16()),
-                retryable: status.as_u16() == 429 || status.is_server_error(),
-            });
+            return Err(provider_http_error(status, response).await);
         }
         let decoded: ResponsesResponse =
             response.json().await.map_err(|_| RuntimeError::Provider {
@@ -1068,6 +1068,45 @@ impl ConcurrentModelClient for OpenAiResponsesClient {
                 retryable: false,
             })?;
         parse_responses_response(decoded, &self.tool_registry)
+    }
+}
+
+async fn provider_http_error(
+    status: reqwest::StatusCode,
+    response: reqwest::Response,
+) -> RuntimeError {
+    let message = response
+        .text()
+        .await
+        .map(provider_error_message)
+        .unwrap_or_else(|_| "provider error body unavailable".to_string());
+    let retryable = (status.as_u16() == 429 && !is_non_retryable_provider_quota_error(&message))
+        || status.is_server_error();
+    RuntimeError::ProviderMessage {
+        status: Some(status.as_u16()),
+        retryable,
+        message,
+    }
+}
+
+fn provider_error_message(body: String) -> String {
+    let redacted = redact_known_secrets(body.trim(), &[]);
+    truncate_chars(&redacted, 1_000)
+}
+
+fn is_non_retryable_provider_quota_error(message: &str) -> bool {
+    message.contains("\"code\":\"insufficient_quota\"")
+        || message.contains("\"code\": \"insufficient_quota\"")
+        || message.contains("insufficient_quota")
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
     }
 }
 
@@ -1192,11 +1231,16 @@ fn responses_request_body(
 }
 
 fn response_message(role: &str, content: &str) -> Value {
+    let content_type = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
     json!({
         "type": "message",
         "role": role,
         "content": [{
-            "type": "input_text",
+            "type": content_type,
             "text": content,
         }],
     })
@@ -1493,6 +1537,23 @@ mod tests {
         .expect("client");
 
         assert_eq!(client.api_key, "resolved-key");
+    }
+
+    #[test]
+    fn insufficient_quota_provider_error_is_not_retryable() {
+        let message = provider_error_message(
+            r#"{
+              "error": {
+                "message": "You exceeded your current quota.",
+                "type": "insufficient_quota",
+                "param": null,
+                "code": "insufficient_quota"
+              }
+            }"#
+            .to_string(),
+        );
+
+        assert!(is_non_retryable_provider_quota_error(&message));
     }
 
     #[test]

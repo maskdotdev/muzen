@@ -6,7 +6,8 @@ use serde_json::Value;
 use crate::contracts::{AgentBudget, Role};
 use crate::runner::{
     RunAgentBudgetParams, RunChangeFileParams, RunChangeParams, RunInstructionParams,
-    RunLimitParams, RunSessionParams, RunSourceProviderParams, RunToolParams,
+    RunLimitParams, RunModelCredentialParams, RunModelParams, RunModelProfileParams,
+    RunSessionParams, RunSourceProviderParams, RunToolParams,
 };
 
 use super::ReviewSource;
@@ -110,8 +111,62 @@ impl ReviewOptions {
         })
     }
 
+    pub(crate) fn runner_model(&self) -> Option<RunModelParams> {
+        #[cfg(test)]
+        {
+            Some(RunModelParams {
+                callback: false,
+                default_model_profile_id: None,
+                model_profiles: Vec::new(),
+                test: true,
+            })
+        }
+        #[cfg(not(test))]
+        {
+            self.hosted_runner_model()
+        }
+    }
+
+    pub(crate) fn hosted_runner_model(&self) -> Option<RunModelParams> {
+        let snapshot = self.config_snapshot.as_ref()?;
+        let profile = snapshot.model_profile.as_ref()?;
+        let provider = snapshot.routing.get("model.provider")?.clone();
+        let model = snapshot.routing.get("model.name")?.clone();
+        Some(RunModelParams {
+            callback: false,
+            default_model_profile_id: Some(profile.id.clone()),
+            model_profiles: vec![RunModelProfileParams {
+                id: profile.id.clone(),
+                provider,
+                model,
+                credential: profile.secret_ref.as_ref().map(model_credential_from_ref),
+                base_url: snapshot.routing.get("model.baseUrl").cloned(),
+                api_protocol: Some("responses".to_string()),
+                max_input_tokens: None,
+                max_output_tokens: None,
+                temperature: None,
+                top_p: None,
+            }],
+            #[cfg(test)]
+            test: false,
+        })
+    }
+
     pub(crate) fn dedupe_key(&self, source: &ReviewSource) -> Option<String> {
         self.dedupe.key_for_source(source, &self.metadata)
+    }
+}
+
+fn model_credential_from_ref(secret_ref: &String) -> RunModelCredentialParams {
+    if let Some(env) = secret_ref.strip_prefix("env:") {
+        return RunModelCredentialParams {
+            env: Some(env.to_string()),
+            secret_ref: None,
+        };
+    }
+    RunModelCredentialParams {
+        env: None,
+        secret_ref: Some(secret_ref.clone()),
     }
 }
 

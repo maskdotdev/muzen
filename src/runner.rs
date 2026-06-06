@@ -112,6 +112,11 @@ mod tests {
         assert!(schema
             .callbacks
             .iter()
+            .any(|method| method.method == "secret.resolve"
+                && method.status == RunnerMethodStatus::Implemented));
+        assert!(schema
+            .callbacks
+            .iter()
             .any(|method| method.method == "tool.execute"
                 && method.status == RunnerMethodStatus::Implemented));
         assert!(schema
@@ -225,6 +230,7 @@ mod tests {
                 "runId": "fixture-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
+                "model": {"test": true},
                 "sessions": [
                     {
                         "id": "security",
@@ -359,6 +365,7 @@ mod tests {
                 "runId": "resource-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
+                "model": {"test": true},
                 "sessions": [
                     {
                         "id": "security",
@@ -601,9 +608,7 @@ mod tests {
             "jsonrpc": "2.0",
             "id": "runner-callback-3",
             "result": {
-                "toolCalls": [
-                    {"toolId": "finish", "arguments": {"reason": "callback test complete"}}
-                ],
+                "content": "{\"summary\":\"callback test complete\",\"fileVerdicts\":[{\"path\":\"Cargo.toml\",\"verdict\":\"clean\",\"summary\":\"callback test completed with host context\",\"relatedPaths\":[]}],\"findings\":[]}",
                 "usage": {"inputTokens": 20, "outputTokens": 5, "totalTokens": 25}
             }
         });

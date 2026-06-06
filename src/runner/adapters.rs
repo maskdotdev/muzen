@@ -20,12 +20,14 @@ use crate::util::timestamp_utc;
 use super::transport::RunnerCallbackTransport;
 use super::RUNNER_PROTOCOL_VERSION;
 
-pub(crate) struct DeterministicRunnerModel {
+#[cfg(test)]
+pub(crate) struct TestRunnerModel {
     target_path: String,
     search_query: String,
 }
 
-impl DeterministicRunnerModel {
+#[cfg(test)]
+impl TestRunnerModel {
     pub(crate) fn new(target_path: String, search_query: String) -> Self {
         Self {
             target_path,
@@ -34,8 +36,9 @@ impl DeterministicRunnerModel {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
-impl ReviewModel for DeterministicRunnerModel {
+impl ReviewModel for TestRunnerModel {
     async fn complete_review(
         &self,
         request: ReviewModelRequest,
@@ -59,13 +62,19 @@ impl ReviewModel for DeterministicRunnerModel {
                 ],
             });
         }
-        Ok(ReviewModelTurn::ToolCalls {
+        Ok(ReviewModelTurn::Text {
             usage,
-            calls: vec![ReviewToolCall::new(
-                "finish",
-                json!({ "reason": "deterministic SDK smoke review completed" }),
-            )
-            .with_call_id(request.tool_call_id("finish"))],
+            content: json!({
+                "summary": "deterministic SDK smoke review completed",
+                "fileVerdicts": [{
+                    "path": self.target_path,
+                    "verdict": "clean",
+                    "summary": "Smoke review gathered diff, file, and search evidence without finding an actionable issue.",
+                    "relatedPaths": []
+                }],
+                "findings": []
+            })
+            .to_string(),
         })
     }
 }
@@ -399,6 +408,19 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             turn: turn_id.0,
             tool_call_count: *tool_call_count,
         },
+        RuntimeEvent::ModelFailed {
+            session_id,
+            turn_id,
+            attempt,
+            retrying,
+            message,
+        } => ReviewEvent::ModelFailed {
+            session_id: session_id.0.clone(),
+            turn: turn_id.0,
+            attempt: *attempt,
+            retrying: *retrying,
+            message: message.clone(),
+        },
         RuntimeEvent::ToolBatchStarted {
             session_id,
             turn_id,
@@ -413,12 +435,16 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_name,
             ok,
             error_code,
+            error_message,
+            details,
             ..
         } => ReviewEvent::ToolCallCompleted {
             call_id: call_id.0.clone(),
             tool_id: tool_name.as_str().to_string(),
             ok: *ok,
             error_code: *error_code,
+            error_message: error_message.clone(),
+            details: details.clone(),
         },
         RuntimeEvent::ToolCallDenied {
             call_id,
@@ -438,6 +464,8 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_name,
             bytes,
             content_hash,
+            summary,
+            details,
             ..
         } => ReviewEvent::ArtifactCreated {
             artifact_id: artifact_id.clone(),
@@ -445,6 +473,8 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_id: tool_name.as_str().to_string(),
             bytes: *bytes,
             content_hash: content_hash.clone(),
+            summary: summary.clone(),
+            details: details.clone(),
         },
         RuntimeEvent::FindingRecorded {
             finding_id,

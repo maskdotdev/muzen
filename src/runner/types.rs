@@ -123,6 +123,44 @@ pub struct RunInstructionParams {
 pub struct RunModelParams {
     #[serde(default)]
     pub callback: bool,
+    #[serde(default)]
+    pub default_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub model_profiles: Vec<RunModelProfileParams>,
+    #[cfg(test)]
+    #[serde(default)]
+    pub test: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunModelProfileParams {
+    pub id: String,
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub credential: Option<RunModelCredentialParams>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_protocol: Option<String>,
+    #[serde(default)]
+    pub max_input_tokens: Option<u32>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default)]
+    pub top_p: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunModelCredentialParams {
+    #[serde(default)]
+    pub env: Option<String>,
+    #[serde(default)]
+    pub secret_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +194,20 @@ pub struct RunSessionParams {
     pub tool_grants: Vec<String>,
     #[serde(default)]
     pub budget: Option<RunAgentBudgetParams>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerSecretResolveParams {
+    pub protocol_version: String,
+    #[serde(rename = "ref")]
+    pub ref_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerSecretResolveResult {
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -479,10 +531,27 @@ pub struct RunnerRunResult {
     pub run_id: String,
     pub status: String,
     pub summary: RunnerRunSummary,
+    #[serde(default)]
+    pub file_reviews: Vec<RunnerFileReview>,
     pub findings: Vec<RunnerFinding>,
     pub snapshots: Vec<RunnerSnapshotSummary>,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerFileReview {
+    pub path: String,
+    pub verdict: String,
+    pub summary: String,
+    #[serde(default)]
+    pub related_paths: Vec<String>,
+    #[serde(default)]
+    pub evidence_artifact_ids: Vec<String>,
+    pub evidence_count: usize,
+    pub session_id: String,
+    pub unit_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

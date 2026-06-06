@@ -37,13 +37,40 @@ pub(crate) fn redact_known_secrets(text: &str, secrets: &[&str]) -> String {
 }
 
 pub(crate) fn resolve_credential_ref(ref_name: &str) -> Result<String> {
-    if ref_name == "env:OPENAI_API_KEY" || ref_name == "env:OAI_API_KEY" {
-        return env::var("OAI_API_KEY")
-            .or_else(|_| env::var("OPENAI_API_KEY"))
-            .context("OAI_API_KEY or OPENAI_API_KEY is required");
-    }
     if let Some(name) = ref_name.strip_prefix("env:") {
         return env::var(name).with_context(|| format!("{name} is required"));
     }
     bail!("unsupported credentialRef; MVP supports env:NAME refs only")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_credential_ref;
+
+    #[test]
+    fn openai_credential_ref_uses_exact_env_name() {
+        let saved_openai = std::env::var("OPENAI_API_KEY").ok();
+        let saved_oai = std::env::var("OAI_API_KEY").ok();
+        std::env::set_var("OPENAI_API_KEY", "sk-openai");
+        std::env::set_var("OAI_API_KEY", "sk-oai");
+
+        assert_eq!(
+            resolve_credential_ref("env:OPENAI_API_KEY").expect("credential should resolve"),
+            "sk-openai"
+        );
+
+        std::env::remove_var("OPENAI_API_KEY");
+        assert!(resolve_credential_ref("env:OPENAI_API_KEY").is_err());
+
+        restore_env("OPENAI_API_KEY", saved_openai);
+        restore_env("OAI_API_KEY", saved_oai);
+    }
+
+    fn restore_env(name: &str, value: Option<String>) {
+        if let Some(value) = value {
+            std::env::set_var(name, value);
+        } else {
+            std::env::remove_var(name);
+        }
+    }
 }

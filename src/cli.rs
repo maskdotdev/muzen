@@ -23,10 +23,7 @@ use crate::reviewer::canaries::{
 use crate::reviewer::{
     HttpRemoteObjectClient, InMemoryRemoteArtifactObjectClient, InMemoryRemoteSnapshotObjectClient,
 };
-use crate::runtime::bench::{
-    run_compare, run_job_concurrent, run_job_concurrent_with_events, run_real_bench,
-    ConcurrentBenchArgs, ConcurrentRealBenchArgs,
-};
+use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_events};
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 
 const CANARY_PROVIDER_EVIDENCE_FILE: &str = "model-provider.json";
@@ -60,10 +57,6 @@ pub(crate) enum Command {
     Bench(BenchArgs),
     /// Build the benchmark ReviewRunJobV1 JSON without executing it.
     BenchJob(BenchArgs),
-    /// Compare a serial concurrent-owned baseline against the async concurrent runtime.
-    CompareConcurrent(ConcurrentBenchArgs),
-    /// Run the async concurrent runtime against an OpenAI-compatible model.
-    BenchConcurrent(ConcurrentRealBenchArgs),
     /// Validate canary publication configuration without writing evidence.
     CanaryPreflight(CanaryPublishArgs),
     /// Publish provider, remote object-store, aggregate, status, and provenance canary evidence.
@@ -478,23 +471,6 @@ pub(crate) fn run_main() -> Result<i32> {
         Command::BenchJob(args) => {
             let job = bench_job(&args)?;
             println!("{}", serde_json::to_string_pretty(&job)?);
-            Ok(0)
-        }
-        Command::CompareConcurrent(args) => {
-            let report = run_compare(args)?;
-            if !report.concurrent.benchmark_valid {
-                bail!("concurrent comparison proof gates failed");
-            }
-            Ok(0)
-        }
-        Command::BenchConcurrent(args) => {
-            let report = run_real_bench(args)?;
-            if !report.benchmark_valid {
-                bail!(
-                    "concurrent real benchmark gates failed: {:?}",
-                    report.benchmark_failures
-                );
-            }
             Ok(0)
         }
         Command::CanaryPreflight(args) => run_canary_preflight(args),

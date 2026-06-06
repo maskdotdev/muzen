@@ -15,13 +15,16 @@ use super::types::RunSourceProviderParams;
 use super::RUNNER_PROTOCOL_VERSION;
 
 const GITHUB_BASE_URL: &str = "https://github.com";
+const GITHUB_API_BASE_URL: &str = "https://api.github.com";
 const GITLAB_BASE_URL: &str = "https://gitlab.com";
 const MATERIALIZED_HEAD_REF: &str = "refs/remotes/origin/muzen-review-head";
 const MATERIALIZED_BASE_REF: &str = "refs/remotes/origin/HEAD";
+const MATERIALIZED_PR_BASE_REF: &str = "refs/remotes/origin/muzen-review-base";
 
 pub(crate) struct MaterializedRunSource {
     repo_root: PathBuf,
     changed_files: Vec<String>,
+    inline_diff: Option<String>,
     _temp_dir: Option<TempDir>,
 }
 
@@ -32,6 +35,10 @@ impl MaterializedRunSource {
 
     pub(crate) fn changed_files(&self) -> &[String] {
         &self.changed_files
+    }
+
+    pub(crate) fn inline_diff(&self) -> Option<&str> {
+        self.inline_diff.as_deref()
     }
 }
 
@@ -58,6 +65,7 @@ pub(crate) fn materialize_run_source(
         return Ok(MaterializedRunSource {
             repo_root: repo.to_path_buf(),
             changed_files: changed_files.to_vec(),
+            inline_diff: None,
             _temp_dir: None,
         });
     }
@@ -77,6 +85,7 @@ pub(crate) fn materialize_run_source(
         } => Ok(MaterializedRunSource {
             repo_root: repo.clone(),
             changed_files: override_or_source_changed_files(changed_files, source_changed_files),
+            inline_diff: None,
             _temp_dir: None,
         }),
         ReviewSource::RawSnapshot {
@@ -85,6 +94,7 @@ pub(crate) fn materialize_run_source(
         } => Ok(MaterializedRunSource {
             repo_root: root.clone(),
             changed_files: override_or_source_changed_files(changed_files, source_changed_files),
+            inline_diff: None,
             _temp_dir: None,
         }),
         ReviewSource::GithubPullRequest { .. } | ReviewSource::GitlabMergeRequest { .. } => {
@@ -121,6 +131,7 @@ fn materialize_callback_source(
         } else {
             result.changed_files
         },
+        inline_diff: None,
         _temp_dir: None,
     })
 }
@@ -197,7 +208,8 @@ fn materialize_provider_source(
     changed_files: &[String],
     provider: Option<&RunSourceProviderParams>,
 ) -> Result<MaterializedRunSource> {
-    let plan = provider_checkout_plan(source, provider)?;
+    let mut plan = provider_checkout_plan(source, provider)?;
+    let provider_changed_files = resolve_provider_pr_checkout(source, provider, &mut plan)?;
     let temp_dir = tempfile::Builder::new()
         .prefix("muzen-provider-")
         .tempdir()
@@ -222,17 +234,125 @@ fn materialize_provider_source(
     )?;
     run_git(&repo_root, &["checkout", "--detach", &plan.head_ref], &plan)?;
 
-    let inferred_changed_files = if changed_files.is_empty() {
-        infer_changed_files(&repo_root, &plan)
-    } else {
+    let inferred_changed_files = if !changed_files.is_empty() {
         changed_files.to_vec()
+    } else if !provider_changed_files.is_empty() {
+        provider_changed_files
+    } else {
+        infer_changed_files(&repo_root, &plan)
     };
+    let inline_diff = infer_inline_diff(&repo_root, &plan);
 
     Ok(MaterializedRunSource {
         repo_root,
         changed_files: inferred_changed_files,
+        inline_diff,
         _temp_dir: Some(temp_dir),
     })
+}
+
+fn resolve_provider_pr_checkout(
+    source: &ReviewSource,
+    provider: Option<&RunSourceProviderParams>,
+    plan: &mut ProviderCheckoutPlan,
+) -> Result<Vec<String>> {
+    match source {
+        ReviewSource::GithubPullRequest {
+            owner,
+            repo,
+            number,
+        } => {
+            if !provider_base_url(provider, GITHUB_BASE_URL).starts_with("http") {
+                return Ok(Vec::new());
+            }
+            let metadata = fetch_github_pull_request_metadata(owner, repo, *number, provider)?;
+            plan.base_refspec = format!("+{}:{MATERIALIZED_PR_BASE_REF}", metadata.base.sha.trim());
+            plan.head_refspec = format!("+{}:{MATERIALIZED_HEAD_REF}", metadata.head.sha.trim());
+            plan.base_ref = MATERIALIZED_PR_BASE_REF.to_string();
+            plan.head_ref = MATERIALIZED_HEAD_REF.to_string();
+            Ok(fetch_github_pull_request_files(
+                owner, repo, *number, provider,
+            )?)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubPullRequestMetadata {
+    base: GithubPullRequestRef,
+    head: GithubPullRequestRef,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubPullRequestRef {
+    sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubPullRequestFile {
+    filename: String,
+}
+
+fn fetch_github_pull_request_metadata(
+    owner: &str,
+    repo: &str,
+    number: u64,
+    provider: Option<&RunSourceProviderParams>,
+) -> Result<GithubPullRequestMetadata> {
+    github_get_json(&format!("/repos/{owner}/{repo}/pulls/{number}"), provider)
+        .with_context(|| format!("failed to resolve GitHub pull request {owner}/{repo}#{number}"))
+}
+
+fn fetch_github_pull_request_files(
+    owner: &str,
+    repo: &str,
+    number: u64,
+    provider: Option<&RunSourceProviderParams>,
+) -> Result<Vec<String>> {
+    let mut files = Vec::new();
+    for page in 1.. {
+        let page_files: Vec<GithubPullRequestFile> = github_get_json(
+            &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100&page={page}"),
+            provider,
+        )
+        .with_context(|| {
+            format!(
+                "failed to resolve changed files for GitHub pull request {owner}/{repo}#{number}"
+            )
+        })?;
+        if page_files.is_empty() {
+            break;
+        }
+        files.extend(page_files.into_iter().map(|file| file.filename));
+    }
+    Ok(files)
+}
+
+fn github_get_json<T: for<'de> Deserialize<'de>>(
+    path_and_query: &str,
+    provider: Option<&RunSourceProviderParams>,
+) -> Result<T> {
+    let base_url = provider_api_base_url(provider, GITHUB_API_BASE_URL);
+    let url = format!("{base_url}{}", path_and_query);
+    let client = reqwest::blocking::Client::new();
+    let mut request = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .header(reqwest::header::USER_AGENT, "muzen-runner");
+    if let Some(token) = provider_token("GITHUB_TOKEN") {
+        request = request.bearer_auth(token);
+    }
+    let response = request
+        .send()
+        .with_context(|| format!("failed to call GitHub API {url}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("GitHub API {url} returned {status}");
+    }
+    response
+        .json()
+        .with_context(|| format!("invalid GitHub API response from {url}"))
 }
 
 fn infer_changed_files(repo_root: &Path, plan: &ProviderCheckoutPlan) -> Vec<String> {
@@ -257,6 +377,24 @@ fn infer_changed_files(repo_root: &Path, plan: &ProviderCheckoutPlan) -> Vec<Str
         }
     }
     Vec::new()
+}
+
+fn infer_inline_diff(repo_root: &Path, plan: &ProviderCheckoutPlan) -> Option<String> {
+    let primary_range = format!("{}...HEAD", plan.base_ref);
+    let fallback_range = format!("{}..HEAD", plan.base_ref);
+    for range in [primary_range, fallback_range] {
+        if let Ok(output) = run_git_output(
+            repo_root,
+            &["diff", "--patch", "--diff-filter=ACMRTUXB", &range],
+            plan,
+        ) {
+            let diff = String::from_utf8_lossy(&output).to_string();
+            if !diff.trim().is_empty() {
+                return Some(diff);
+            }
+        }
+    }
+    None
 }
 
 fn parse_nul_delimited_paths(output: &[u8]) -> Vec<String> {
@@ -284,6 +422,26 @@ fn provider_base_url(provider: Option<&RunSourceProviderParams>, default_base_ur
         .map(str::trim)
         .filter(|base_url| !base_url.is_empty())
         .unwrap_or(default_base_url)
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn provider_api_base_url(
+    provider: Option<&RunSourceProviderParams>,
+    default_base_url: &str,
+) -> String {
+    provider
+        .and_then(|provider| provider.base_url.as_deref())
+        .map(str::trim)
+        .filter(|base_url| !base_url.is_empty())
+        .map(|base_url| {
+            if base_url == GITHUB_BASE_URL {
+                GITHUB_API_BASE_URL.to_string()
+            } else {
+                base_url.to_string()
+            }
+        })
+        .unwrap_or(default_base_url.to_string())
         .trim_end_matches('/')
         .to_string()
 }
@@ -535,6 +693,9 @@ mod tests {
 
         assert!(materialized.repo_root().join("src/lib.rs").is_file());
         assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);
+        let inline_diff = materialized.inline_diff().expect("inline diff");
+        assert!(inline_diff.contains("diff --git"));
+        assert!(inline_diff.contains("+pub fn fixture() {}"));
     }
 
     fn git(workdir: &Path, args: &[&str]) {

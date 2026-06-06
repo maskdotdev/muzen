@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
 use crate::runtime::contracts::{
@@ -35,7 +36,7 @@ pub use tokio_util::sync::CancellationToken as Cancellation;
 
 use crate::contracts::{
     ChangeKind as ContractChangeKind, ChangeScopeV1, ChangedFileEntryV1,
-    ChangedFileStatus as ContractChangedFileStatus, EventLevel, EventType, FindingV1,
+    ChangedFileStatus as ContractChangedFileStatus, EventLevel, EventType, FileReviewV1, FindingV1,
     ModelApiProtocol, PathPolicyV1, Publishability, RenameDetection as ContractRenameDetection,
     ReviewOutcomeV1, ReviewRunJobV1, ReviewRunResultV1, ReviewRuntimeV1,
     SnapshotMode as ContractSnapshotMode, ToolMask, ToolName,
@@ -43,9 +44,7 @@ use crate::contracts::{
 use crate::events::{EventEmitter, EventRecord};
 use crate::job::{effective_personas, tool_allowed, validate_job};
 use crate::runtime::contracts::stable_id;
-use crate::runtime::job_runtime::{
-    benchmark_failures as runtime_benchmark_failures, JobRuntime, SessionSpec,
-};
+use crate::runtime::planned_units::PlannedReviewRuntime;
 pub use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::repo::{remote_content_addressed_uri, RepoSnapshot, SnapshotContentRef};
 use crate::runtime::tools::ToolEngine;
@@ -917,7 +916,7 @@ impl ReviewToolRegistry {
         Ok(id)
     }
 
-    fn into_tool_registry(self) -> RuntimeToolRegistry {
+    pub(crate) fn into_tool_registry(self) -> RuntimeToolRegistry {
         self.inner
     }
 }
@@ -1596,6 +1595,7 @@ impl Run {
         let mut snapshot_readers = Vec::new();
         let mut summaries = Vec::new();
         let mut findings = Vec::new();
+        let mut file_reviews = Vec::new();
         for shard in self.shards {
             snapshot_readers.push(SnapshotReader::new(Arc::clone(&shard.snapshot)));
             let shard_event_sink = self.event_sink.as_ref().map(|sink| {
@@ -1610,36 +1610,31 @@ impl Run {
                     snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
                 });
             }
-            let runtime = JobRuntime {
+            let runtime = PlannedReviewRuntime {
                 snapshot: Arc::clone(&shard.snapshot),
                 model_router: Arc::clone(&self.model_router),
                 tools: Arc::clone(&shard.tools),
                 policy: Arc::clone(&self.reviewer_policy),
                 limits: Arc::clone(&self.limits),
                 review_revision_id: shard.review_revision_id.clone(),
+                session_templates: shard.sessions,
                 events: RuntimeEventDispatcher::new(
                     shard_event_sink.clone(),
                     self.legacy_event_emitter.clone(),
                 ),
             };
-            let session_specs = shard
-                .sessions
-                .into_iter()
-                .map(|scope| SessionSpec { scope })
-                .collect::<Vec<_>>();
-            let summary = runtime
-                .run_sessions_with_cancel(session_specs, cancel.clone())
-                .await;
+            let summary = runtime.run_with_cancel(cancel.clone()).await;
             aggregate_artifacts.merge_from(&runtime.tools.artifacts);
-            findings.extend(runtime.tools.findings.all());
+            findings.extend(summary.findings);
+            file_reviews.extend(summary.file_reviews);
             if let Some(sink) = &shard_event_sink {
                 sink.emit(RuntimeEvent::SnapshotFinished {
                     snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
-                    sessions: summary.sessions,
-                    completed_sessions: summary.completed_sessions,
+                    sessions: summary.metrics.sessions,
+                    completed_sessions: summary.metrics.completed_sessions,
                 });
             }
-            summaries.push(summary);
+            summaries.push(summary.metrics);
         }
         let metrics = merge_run_summaries(summaries);
         if let Some(sink) = &run_event_sink {
@@ -1660,6 +1655,7 @@ impl Run {
             artifacts: aggregate_artifacts,
             snapshot_readers,
             findings,
+            file_reviews,
         }
     }
 }
@@ -1785,6 +1781,13 @@ pub enum ReviewEvent {
         turn: u32,
         tool_call_count: usize,
     },
+    ModelFailed {
+        session_id: String,
+        turn: u32,
+        attempt: usize,
+        retrying: bool,
+        message: String,
+    },
     ToolBatchStarted {
         session_id: String,
         turn: u32,
@@ -1795,6 +1798,10 @@ pub enum ReviewEvent {
         tool_id: String,
         ok: bool,
         error_code: Option<ToolErrorCode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
     },
     ToolCallDenied {
         call_id: String,
@@ -1808,6 +1815,10 @@ pub enum ReviewEvent {
         tool_id: String,
         bytes: usize,
         content_hash: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
     },
     FindingRecorded {
         finding_id: String,
@@ -1873,6 +1884,19 @@ impl ReviewEvent {
                 turn: turn_id.0,
                 tool_call_count: *tool_call_count,
             },
+            RuntimeEvent::ModelFailed {
+                session_id,
+                turn_id,
+                attempt,
+                retrying,
+                message,
+            } => Self::ModelFailed {
+                session_id: session_id.0.clone(),
+                turn: turn_id.0,
+                attempt: *attempt,
+                retrying: *retrying,
+                message: message.clone(),
+            },
             RuntimeEvent::ToolBatchStarted {
                 session_id,
                 turn_id,
@@ -1887,12 +1911,16 @@ impl ReviewEvent {
                 tool_name,
                 ok,
                 error_code,
+                error_message,
+                details,
                 ..
             } => Self::ToolCallCompleted {
                 call_id: call_id.0.clone(),
                 tool_id: tool_name.as_str().to_string(),
                 ok: *ok,
                 error_code: *error_code,
+                error_message: error_message.clone(),
+                details: details.clone(),
             },
             RuntimeEvent::ToolCallDenied {
                 call_id,
@@ -1912,6 +1940,8 @@ impl ReviewEvent {
                 tool_name,
                 bytes,
                 content_hash,
+                summary,
+                details,
                 ..
             } => Self::ArtifactCreated {
                 artifact_id: artifact_id.clone(),
@@ -1919,6 +1949,8 @@ impl ReviewEvent {
                 tool_id: tool_name.as_str().to_string(),
                 bytes: *bytes,
                 content_hash: content_hash.clone(),
+                summary: summary.clone(),
+                details: details.clone(),
             },
             RuntimeEvent::FindingRecorded {
                 finding_id,
@@ -2180,9 +2212,20 @@ fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> ConcurrentRun
             .cmp(&right.snapshot_id.0)
             .then(left.sessions.cmp(&right.sessions))
     });
-    merged.benchmark_failures = runtime_benchmark_failures(&merged);
+    merged.benchmark_failures = planned_runtime_benchmark_failures(&merged);
     merged.benchmark_valid = merged.benchmark_failures.is_empty();
     merged
+}
+
+fn planned_runtime_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
+    let mut failures = Vec::new();
+    if report.sessions > 0 && report.completed_sessions == 0 {
+        failures.push("no planned review units completed".to_string());
+    }
+    if report.sessions > 0 && report.model_calls == 0 {
+        failures.push("no model calls recorded".to_string());
+    }
+    failures
 }
 
 fn merge_counters(left: &mut ConcurrentCounters, right: ConcurrentCounters) {
@@ -2328,6 +2371,7 @@ pub struct RunReport {
     pub artifacts: Arc<tool_adapters::ArtifactStore>,
     snapshot_readers: Vec<SnapshotReader>,
     pub(crate) findings: Vec<FindingV1>,
+    pub(crate) file_reviews: Vec<FileReviewV1>,
 }
 
 impl RunReport {
@@ -2354,6 +2398,10 @@ impl RunReport {
             .iter()
             .map(FindingView::from_finding)
             .collect()
+    }
+
+    pub fn file_reviews(&self) -> Vec<FileReviewV1> {
+        self.file_reviews.clone()
     }
 
     pub fn finding_evidence_artifacts(
@@ -2504,9 +2552,17 @@ pub struct FindingView {
     pub confidence: f32,
     pub validation_status: String,
     pub evidence: Vec<EvidenceView>,
+    pub location: Option<FindingLocationView>,
     pub discovered_by: Vec<String>,
     pub validated_by: Vec<String>,
     pub challenged_by: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FindingLocationView {
+    pub path: String,
+    pub start_line: Option<usize>,
+    pub end_line: Option<usize>,
 }
 
 impl FindingView {
@@ -2535,11 +2591,38 @@ impl FindingView {
             confidence: finding.confidence,
             validation_status: validation_status_name(finding.validation_status).to_string(),
             evidence,
+            location: finding_location_view(finding),
             discovered_by: finding.discovered_by.clone(),
             validated_by,
             challenged_by: finding.challenged_by.clone(),
         }
     }
+}
+
+fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {
+    if let Some(location) = finding.file_refs.first() {
+        let path = match location {
+            crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
+            crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+        };
+        let line_range = finding.location_line_range;
+        return Some(FindingLocationView {
+            path,
+            start_line: line_range.map(|range| range.start_line),
+            end_line: line_range.map(|range| range.end_line),
+        });
+    }
+    finding.evidence.iter().find_map(|evidence| {
+        let path = match &evidence.location {
+            crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
+            crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+        };
+        Some(FindingLocationView {
+            path,
+            start_line: evidence.line_range.map(|range| range.start_line),
+            end_line: evidence.line_range.map(|range| range.end_line),
+        })
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -5925,6 +6008,7 @@ pub(crate) fn run_review_job_with_events(
                 },
                 sessions: report.sessions,
                 completed_sessions: report.completed_sessions,
+                file_reviews: run_report.file_reviews.clone(),
                 findings: run_report.findings,
                 tool_counts: report.tool_counts,
                 model_calls: report.model_calls,

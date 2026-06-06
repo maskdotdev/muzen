@@ -291,12 +291,14 @@ pub(crate) struct ToolMask {
     pub(crate) read_diff: bool,
     pub(crate) list_files: bool,
     pub(crate) read_file: bool,
+    pub(crate) read_file_range: bool,
     pub(crate) read_base_file: bool,
     pub(crate) read_head_file: bool,
     pub(crate) search_text: bool,
     pub(crate) find_related_files: bool,
     pub(crate) find_tests_for_file: bool,
     pub(crate) list_imports: bool,
+    pub(crate) record_file_review: bool,
     pub(crate) record_finding: bool,
     pub(crate) challenge_finding: bool,
     pub(crate) finish: bool,
@@ -309,12 +311,14 @@ impl ToolMask {
             read_diff: true,
             list_files: true,
             read_file: true,
+            read_file_range: true,
             read_base_file: true,
             read_head_file: true,
             search_text: true,
             find_related_files: true,
             find_tests_for_file: true,
             list_imports: true,
+            record_file_review: true,
             record_finding: true,
             challenge_finding: true,
             finish: true,
@@ -409,12 +413,28 @@ pub(crate) struct ReviewRunResultV1 {
     pub(crate) publishability: Publishability,
     pub(crate) sessions: usize,
     pub(crate) completed_sessions: usize,
+    pub(crate) file_reviews: Vec<FileReviewV1>,
     pub(crate) findings: Vec<FindingV1>,
     pub(crate) tool_counts: ToolCounts,
     pub(crate) model_calls: usize,
     pub(crate) tokens: TokenUsage,
     pub(crate) artifact_stats: ArtifactStats,
     pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileReviewV1 {
+    pub path: String,
+    pub verdict: String,
+    pub summary: String,
+    #[serde(default)]
+    pub related_paths: Vec<String>,
+    #[serde(default)]
+    pub evidence_artifact_ids: Vec<String>,
+    pub evidence_count: usize,
+    pub session_id: String,
+    pub unit_id: String,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
@@ -547,6 +567,7 @@ pub(crate) struct FindingV1 {
     pub(crate) publishability: FindingPublishability,
     pub(crate) evidence: Vec<EvidenceRefV1>,
     pub(crate) file_refs: Vec<EvidenceLocationV1>,
+    pub(crate) location_line_range: Option<LineRangeV1>,
     pub(crate) discovered_by: Vec<String>,
     pub(crate) challenged_by: Vec<String>,
 }
@@ -593,29 +614,33 @@ pub enum ToolName {
     ReadDiff,
     ListFiles,
     ReadFile,
+    ReadFileRange,
     ReadBaseFile,
     ReadHeadFile,
     SearchText,
     FindRelatedFiles,
     FindTestsForFile,
     ListImports,
+    RecordFileReview,
     RecordFinding,
     ChallengeFinding,
     Finish,
 }
 
 impl ToolName {
-    pub const REVIEW_READ_ONLY: [Self; 13] = [
+    pub const REVIEW_READ_ONLY: [Self; 15] = [
         Self::ListChangedFiles,
         Self::ReadDiff,
         Self::ListFiles,
         Self::ReadFile,
+        Self::ReadFileRange,
         Self::ReadBaseFile,
         Self::ReadHeadFile,
         Self::SearchText,
         Self::FindRelatedFiles,
         Self::FindTestsForFile,
         Self::ListImports,
+        Self::RecordFileReview,
         Self::RecordFinding,
         Self::ChallengeFinding,
         Self::Finish,
@@ -631,12 +656,14 @@ impl ToolName {
             Self::ReadDiff => "read_diff",
             Self::ListFiles => "list_files",
             Self::ReadFile => "read_file",
+            Self::ReadFileRange => "read_file_range",
             Self::ReadBaseFile => "read_base_file",
             Self::ReadHeadFile => "read_head_file",
             Self::SearchText => "search_text",
             Self::FindRelatedFiles => "find_related_files",
             Self::FindTestsForFile => "find_tests_for_file",
             Self::ListImports => "list_imports",
+            Self::RecordFileReview => "record_file_review",
             Self::RecordFinding => "record_finding",
             Self::ChallengeFinding => "challenge_finding",
             Self::Finish => "finish",
@@ -667,12 +694,14 @@ pub struct ToolCounts {
     pub read_diff: usize,
     pub list_files: usize,
     pub read_file: usize,
+    pub read_file_range: usize,
     pub read_base_file: usize,
     pub read_head_file: usize,
     pub search_text: usize,
     pub find_related_files: usize,
     pub find_tests_for_file: usize,
     pub list_imports: usize,
+    pub record_file_review: usize,
     pub record_finding: usize,
     pub challenge_finding: usize,
     pub finish: usize,
@@ -684,12 +713,14 @@ impl ToolCounts {
         self.read_diff += other.read_diff;
         self.list_files += other.list_files;
         self.read_file += other.read_file;
+        self.read_file_range += other.read_file_range;
         self.read_base_file += other.read_base_file;
         self.read_head_file += other.read_head_file;
         self.search_text += other.search_text;
         self.find_related_files += other.find_related_files;
         self.find_tests_for_file += other.find_tests_for_file;
         self.list_imports += other.list_imports;
+        self.record_file_review += other.record_file_review;
         self.record_finding += other.record_finding;
         self.challenge_finding += other.challenge_finding;
         self.finish += other.finish;
@@ -701,12 +732,14 @@ impl ToolCounts {
             ToolName::ReadDiff => self.read_diff += 1,
             ToolName::ListFiles => self.list_files += 1,
             ToolName::ReadFile => self.read_file += 1,
+            ToolName::ReadFileRange => self.read_file_range += 1,
             ToolName::ReadBaseFile => self.read_base_file += 1,
             ToolName::ReadHeadFile => self.read_head_file += 1,
             ToolName::SearchText => self.search_text += 1,
             ToolName::FindRelatedFiles => self.find_related_files += 1,
             ToolName::FindTestsForFile => self.find_tests_for_file += 1,
             ToolName::ListImports => self.list_imports += 1,
+            ToolName::RecordFileReview => self.record_file_review += 1,
             ToolName::RecordFinding => self.record_finding += 1,
             ToolName::ChallengeFinding => self.challenge_finding += 1,
             ToolName::Finish => self.finish += 1,
@@ -718,12 +751,14 @@ impl ToolCounts {
             + self.read_diff
             + self.list_files
             + self.read_file
+            + self.read_file_range
             + self.read_base_file
             + self.read_head_file
             + self.search_text
             + self.find_related_files
             + self.find_tests_for_file
             + self.list_imports
+            + self.record_file_review
             + self.record_finding
             + self.challenge_finding
             + self.finish

@@ -212,6 +212,7 @@ fn maps_runner_result_to_review_result() {
             artifact_bytes: 42,
             snapshot_count: 1,
         },
+        file_reviews: Vec::new(),
         findings: vec![RunnerFinding {
             id: "finding-1".to_string(),
             title: "Unsafe unwrap".to_string(),
@@ -298,6 +299,50 @@ fn config_snapshot_serializes_secret_refs_not_secret_values() {
     assert!(serialized.contains("vault://models/default"));
     assert!(!serialized.contains("apiKey"));
     assert!(!serialized.contains("token"));
+}
+
+#[test]
+fn maps_workspace_model_snapshot_to_hosted_runner_model() {
+    let options = ReviewOptions {
+        config_snapshot: Some(EffectiveConfigSnapshot {
+            model_profile: Some(ProfileVersionRef {
+                id: "workspace:acme/models/default".to_string(),
+                version: "1".to_string(),
+                secret_ref: Some("env:OPENAI_API_KEY".to_string()),
+            }),
+            provider_profile: None,
+            routing: BTreeMap::from([
+                ("model.provider".to_string(), "openai".to_string()),
+                ("model.name".to_string(), "gpt-5.4-mini".to_string()),
+                (
+                    "model.baseUrl".to_string(),
+                    "https://api.openai.com/v1".to_string(),
+                ),
+            ]),
+        }),
+        ..ReviewOptions::default()
+    };
+
+    let model = options.hosted_runner_model().expect("hosted model");
+
+    assert_eq!(
+        model.default_model_profile_id.as_deref(),
+        Some("workspace:acme/models/default")
+    );
+    assert_eq!(model.model_profiles.len(), 1);
+    assert_eq!(model.model_profiles[0].provider, "openai");
+    assert_eq!(model.model_profiles[0].model, "gpt-5.4-mini");
+    assert_eq!(
+        model.model_profiles[0]
+            .credential
+            .as_ref()
+            .and_then(|credential| credential.env.as_deref()),
+        Some("OPENAI_API_KEY")
+    );
+    assert_eq!(
+        model.model_profiles[0].base_url.as_deref(),
+        Some("https://api.openai.com/v1")
+    );
 }
 
 #[test]
@@ -1054,10 +1099,11 @@ fn review_worker_records_final_failure_for_execution_error() {
     assert_eq!(run.failed, 1);
     assert_eq!(record.status, ReviewStatus::Failed);
     assert!(record.lease.is_none());
-    assert!(record
-        .last_error
-        .as_deref()
-        .is_some_and(|error| error.contains("repo has no obvious text file to review")));
+    assert!(record.last_error.as_deref().is_some_and(|error| {
+        error.contains(
+            "run requires at least one changed file that exists in the materialized worktree",
+        )
+    }));
     assert_eq!(
         record.events.last().map(|event| event.event_type),
         Some(ReviewEventType::SessionFailed)

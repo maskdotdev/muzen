@@ -1,3 +1,5 @@
+use serde_json::json;
+
 use crate::contracts::{ToolCounts, ToolName};
 use crate::runtime::contracts::{ConversationItem, SessionScope, ToolResultEnvelope, TurnId};
 use crate::runtime::dispatch::RuntimeEventDispatcher;
@@ -33,6 +35,7 @@ impl<'a> ToolResultEffectProcessor<'a> {
         results: Vec<ToolResultEnvelope>,
         mut state: ToolResultBatchState<'_>,
     ) -> ToolResultBatchOutcome {
+        let corrective_feedback = results.iter().find_map(terminal_tool_error_feedback);
         for result in &results {
             if result.ok {
                 self.policy.observe_evidence_result(state.evidence, result);
@@ -42,7 +45,10 @@ impl<'a> ToolResultEffectProcessor<'a> {
         for result in results {
             self.apply_result(scope, turn_id, result, &mut state);
         }
-        ToolResultBatchOutcome { terminal_seen }
+        ToolResultBatchOutcome {
+            terminal_seen,
+            corrective_feedback,
+        }
     }
 
     fn apply_result(
@@ -94,10 +100,39 @@ impl<'a> ToolResultEffectProcessor<'a> {
                 .emit_runtime_with_context(planned.context, planned.event);
         }
         count_tool_result(state.tool_counts, &result);
-        state
-            .transcript
-            .push(self.policy.plan_tool_result_transcript_item(result));
+        let transcript_result = artifact
+            .as_ref()
+            .map(|artifact| {
+                tool_result_with_artifact_content(result.clone(), artifact.content.as_str())
+            })
+            .unwrap_or(result);
+        state.transcript.push(
+            self.policy
+                .plan_tool_result_transcript_item(transcript_result),
+        );
     }
+}
+
+fn tool_result_with_artifact_content(
+    mut result: ToolResultEnvelope,
+    artifact_content: &str,
+) -> ToolResultEnvelope {
+    let artifact_content = if artifact_content.len() > 45_000 {
+        format!(
+            "{}\n...[truncated]",
+            artifact_content.chars().take(45_000).collect::<String>()
+        )
+    } else {
+        artifact_content.to_string()
+    };
+    let mut data = result
+        .data
+        .take()
+        .and_then(|data| data.as_object().cloned())
+        .unwrap_or_default();
+    data.insert("artifactContent".to_string(), json!(artifact_content));
+    result.data = Some(serde_json::Value::Object(data));
+    result
 }
 
 pub(crate) struct ToolResultBatchState<'a> {
@@ -107,9 +142,55 @@ pub(crate) struct ToolResultBatchState<'a> {
     pub(crate) transcript: &'a mut Vec<ConversationItem>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolResultBatchOutcome {
     pub(crate) terminal_seen: bool,
+    pub(crate) corrective_feedback: Option<String>,
+}
+
+fn terminal_tool_error_feedback(result: &ToolResultEnvelope) -> Option<String> {
+    if result.ok {
+        return None;
+    }
+    if !matches!(
+        result.tool_name.as_builtin(),
+        Some(ToolName::RecordFinding | ToolName::RecordFileReview | ToolName::Finish)
+    ) {
+        return None;
+    }
+    let error = result.error.as_ref()?;
+    if result.tool_name.as_builtin() == Some(ToolName::RecordFileReview)
+        && error.message.contains("requires finding_id")
+    {
+        return Some(format!(
+            "{} failed: {}. If this assigned file has a concrete issue, first call record_finding for the same path and changed line range. After that succeeds, call record_file_review with verdict=issue_found and the returned finding_id. If there is no concrete issue, call record_file_review with verdict=clean and no finding_id.",
+            result.tool_name.as_str(),
+            error.message
+        ));
+    }
+    if result.tool_name.as_builtin() == Some(ToolName::RecordFileReview)
+        && error.message.contains("finding_id must refer")
+    {
+        return Some(format!(
+            "{} failed: {}. The finding_id must come from a successful record_finding call in this same session and on this same assigned path. Next call record_finding for the concrete issue, or submit a clean verdict without finding_id if no issue is supported.",
+            result.tool_name.as_str(),
+            error.message
+        ));
+    }
+    if result.tool_name.as_builtin() == Some(ToolName::RecordFileReview)
+        && error.message.contains("finding_id is only allowed")
+    {
+        return Some(format!(
+            "{} failed: {}. Remove finding_id for clean/skipped verdicts; only issue_found may include finding_id.",
+            result.tool_name.as_str(),
+            error.message
+        ));
+    }
+    Some(format!(
+        "{} failed: {}. Correct the tool arguments or choose the appropriate terminal tool for the assigned file before continuing.",
+        result.tool_name.as_str(),
+        error.message
+    ))
 }
 
 #[cfg(test)]

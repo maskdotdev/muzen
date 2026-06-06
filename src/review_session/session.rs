@@ -339,7 +339,7 @@ impl CreateReviewSessionInput {
             instructions: self.options.runner_instructions(),
             sessions: self.options.runner_sessions(),
             limits: self.options.limits.map(ReviewLimits::into_runner_limits),
-            model: None,
+            model: self.options.runner_model(),
             tools: self.options.runner_tools(),
             heartbeat: None,
         })

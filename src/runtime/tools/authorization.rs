@@ -453,6 +453,7 @@ mod tests {
             scope_key,
             tool_id,
             capabilities,
+            assigned_changed_files: Vec::new(),
         }
     }
 
