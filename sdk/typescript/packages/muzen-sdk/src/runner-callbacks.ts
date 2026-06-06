@@ -1,10 +1,11 @@
 import { RunnerStdioClient } from "./protocol.js";
 import { throwIfAborted } from "./review-flow.js";
 import type {
+  ReviewCallbackModelSpec,
   ReviewModelRequest,
   ReviewModelResult,
-  ReviewModelSpec,
   ReviewHeartbeatHandler,
+  MuzenSecretResolverOptions,
   ReviewOptions,
   ReviewSourceMaterializeRequest,
   ReviewSourceMaterializeResult,
@@ -15,6 +16,7 @@ import type {
 export function registerReviewCallbacks(
   runner: RunnerStdioClient,
   options: ReviewOptions,
+  localOptions: { secrets?: MuzenSecretResolverOptions } = {},
 ): () => void {
   const unsubscribeSource = registerSourceMaterializeHandler(
     runner,
@@ -36,11 +38,17 @@ export function registerReviewCallbacks(
     options.hooks?.onHeartbeat,
     options.signal,
   );
+  const unsubscribeSecrets = registerSecretResolver(
+    runner,
+    localOptions.secrets,
+    options.signal,
+  );
   return () => {
     unsubscribeSource();
     unsubscribeModel();
     unsubscribeTools();
     unsubscribeHeartbeat();
+    unsubscribeSecrets();
   };
 }
 
@@ -118,7 +126,7 @@ function registerReviewModelHandler(
 
 function isCallbackModel(
   model: ReviewOptions["model"],
-): model is ReviewModelSpec {
+): model is ReviewCallbackModelSpec {
   return typeof model === "object" && model !== null && model.kind === "callback";
 }
 
@@ -290,6 +298,38 @@ function normalizeHeartbeatResult(
     return { continueRun: result };
   }
   return { continueRun: result?.continueRun ?? true };
+}
+
+function registerSecretResolver(
+  runner: RunnerStdioClient,
+  secrets: MuzenSecretResolverOptions | undefined,
+  signal?: AbortSignal,
+): () => void {
+  const resolver = secrets?.resolve;
+  if (!resolver) {
+    return () => {};
+  }
+  return runner.onRequest("secret.resolve", async (params) => {
+    throwIfAborted(signal);
+    const ref = parseSecretResolveRequest(params);
+    const value = await resolver(ref);
+    throwIfAborted(signal);
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error("secret resolver must return a non-empty string");
+    }
+    return { value };
+  });
+}
+
+function parseSecretResolveRequest(params: unknown): string {
+  if (!isRecord(params)) {
+    throw new Error("secret.resolve params must be an object");
+  }
+  const ref = params.ref;
+  if (typeof ref !== "string" || ref.trim().length === 0) {
+    throw new Error("secret.resolve params are invalid");
+  }
+  return ref;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

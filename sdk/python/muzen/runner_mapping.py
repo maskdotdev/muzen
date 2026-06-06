@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .sources import source_key
 from .types import (
+    OpenAIReviewModelSpec,
     ReviewArtifact,
     ReviewCoverage,
     ReviewEvent,
@@ -29,6 +30,7 @@ def _to_runner_start_params(
         or _changed_file_paths(options)
         or (source.changed_files if source.type == "local" else [])
     )
+    model_plan = _model_plan(options)
     payload = {
         "protocolVersion": "muzen.runner.v1",
         "runId": review_id,
@@ -37,8 +39,15 @@ def _to_runner_start_params(
         "metadata": options.metadata,
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],
-        "sessions": [_session_to_runner(session, options.model) for session in options.sessions],
+        "sessions": [
+            _session_to_runner(
+                session,
+                model_plan["sessionProfileIds"],
+            )
+            for session in options.sessions
+        ],
         "limits": _limits_to_runner(options.limits),
+        "model": model_plan["runnerModel"],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
     }
     if source.type == "local":
@@ -46,19 +55,85 @@ def _to_runner_start_params(
     return payload
 
 
-def _session_to_runner(session: Any, default_model: Optional[str]) -> Dict[str, Any]:
+def _session_to_runner(
+    session: Any, session_profiles: Dict[str, str]
+) -> Dict[str, Any]:
     payload = {
         "id": session.id,
         "role": session.role,
         "objective": session.objective,
         "cwd": session.cwd,
-        "modelProfileId": session.model_profile_id or default_model,
+        "modelProfileId": session_profiles.get(session.id),
         "instructions": [_instruction_to_runner(item) for item in session.instructions],
         "toolGrants": session.tool_grants,
     }
     if session.budget is not None:
         payload["budget"] = _camel_dict(asdict(session.budget))
     return payload
+
+
+def _model_plan(options: ReviewOptions) -> Dict[str, Any]:
+    profiles: Dict[str, Dict[str, Any]] = {}
+    session_profiles: Dict[str, str] = {}
+    default_profile_id: Optional[str] = None
+    if isinstance(options.model, OpenAIReviewModelSpec):
+        default_profile_id = _add_hosted_profile(profiles, "default", options.model)
+    for session in options.sessions:
+        if isinstance(session.model, OpenAIReviewModelSpec):
+            profile_id = _add_hosted_profile(
+                profiles, f"session:{session.id}", session.model
+            )
+            session_profiles[session.id] = profile_id
+            default_profile_id = default_profile_id or profile_id
+    if not profiles:
+        return {"runnerModel": None, "sessionProfileIds": session_profiles}
+    return {
+        "runnerModel": {
+            "callback": False,
+            "defaultModelProfileId": default_profile_id,
+            "modelProfiles": list(profiles.values()),
+        },
+        "sessionProfileIds": session_profiles,
+    }
+
+
+def _add_hosted_profile(
+    profiles: Dict[str, Dict[str, Any]], profile_id: str, model: OpenAIReviewModelSpec
+) -> str:
+    key = repr(
+        (
+            model.provider,
+            model.model,
+            model.credential,
+            model.base_url,
+            model.api_protocol,
+            model.max_input_tokens,
+            model.max_output_tokens,
+            model.temperature,
+            model.top_p,
+        )
+    )
+    if key in profiles:
+        return profiles[key]["id"]
+    profiles[key] = {
+        "id": profile_id,
+        "provider": model.provider,
+        "model": model.model,
+        "credential": _credential_to_runner(model.credential),
+        "baseUrl": model.base_url,
+        "apiProtocol": model.api_protocol,
+        "maxInputTokens": model.max_input_tokens,
+        "maxOutputTokens": model.max_output_tokens,
+        "temperature": model.temperature,
+        "topP": model.top_p,
+    }
+    return profile_id
+
+
+def _credential_to_runner(credential: Any) -> Dict[str, str]:
+    if credential.env:
+        return {"env": credential.env}
+    return {"secretRef": credential.secret_ref}
 
 
 def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]]:

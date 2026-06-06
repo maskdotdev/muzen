@@ -108,6 +108,14 @@ describe("runner protocol fixture", () => {
       requireField(definitions, "RunStartParams", "heartbeat").type,
       "RunHeartbeatConfigParams",
     );
+    assert.equal(
+      requireField(definitions, "RunModelParams", "modelProfiles").default,
+      "[]",
+    );
+    assert.equal(
+      requireField(definitions, "RunModelProfileParams", "credential").type,
+      "RunModelCredentialParams",
+    );
 
     assert.equal(
       requireMethod(schema.callbacks, "source.materialize").params?.name,
@@ -128,6 +136,14 @@ describe("runner protocol fixture", () => {
     assert.equal(
       requireMethod(schema.callbacks, "model.complete").params?.name,
       "RunnerModelCompleteParams",
+    );
+    assert.equal(
+      requireMethod(schema.callbacks, "secret.resolve").params?.name,
+      "RunnerSecretResolveParams",
+    );
+    assert.equal(
+      requireMethod(schema.callbacks, "secret.resolve").result?.name,
+      "RunnerSecretResolveResult",
     );
     assert.equal(
       requireMethod(schema.callbacks, "tool.execute").result?.name,

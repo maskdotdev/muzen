@@ -50,6 +50,7 @@ ReviewArtifactView = Literal["redacted", "raw"]
 ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
 SourceProviderKind = Literal["github", "gitlab", "perforce", "custom"]
 WebhookDeliveryType = Literal["review_created", "review_deduped", "ignored"]
+ModelApiProtocol = Literal["responses", "chat_completions"]
 
 
 @dataclass(frozen=True)
@@ -92,10 +93,35 @@ class ReviewAgentSession:
     role: ReviewRole
     objective: str
     cwd: Optional[str] = None
-    model_profile_id: Optional[str] = None
+    model: Optional["ReviewModelSpec"] = None
     instructions: List["ReviewInstruction"] = field(default_factory=list)
     tool_grants: List[str] = field(default_factory=list)
     budget: Optional[ReviewAgentBudget] = None
+
+
+@dataclass(frozen=True)
+class ReviewModelCredential:
+    env: Optional[str] = None
+    secret_ref: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OpenAIReviewModelSpec:
+    kind: Literal["provider"]
+    provider: Literal["openai"]
+    model: str
+    credential: ReviewModelCredential = field(
+        default_factory=lambda: ReviewModelCredential(env="OPENAI_API_KEY")
+    )
+    base_url: Optional[str] = None
+    api_protocol: ModelApiProtocol = "responses"
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+
+
+ReviewModelSpec = OpenAIReviewModelSpec
 
 
 @dataclass(frozen=True)
@@ -151,7 +177,7 @@ class ProviderProfile:
 class ReviewOptions:
     dedupe: Union[str, Dict[str, str]] = "none"
     cancel_superseded: bool = False
-    model: Optional[str] = None
+    model: Optional[ReviewModelSpec] = None
     change: Optional["ReviewChangeSpec"] = None
     scope_files: List[str] = field(default_factory=list)
     scope_include: List[str] = field(default_factory=list)

@@ -76,7 +76,7 @@ export type DedupePolicy =
 export interface ReviewOptions {
   dedupe?: DedupePolicy;
   cancelSuperseded?: boolean;
-  model?: string | ReviewModelSpec;
+  model?: ReviewModelSpec;
   sourceProvider?: ReviewSourceProvider;
   hooks?: ReviewHooks;
   heartbeat?: ReviewHeartbeatOptions;
@@ -134,12 +134,31 @@ export interface ReviewHeartbeat {
   signal?: AbortSignal;
 }
 
-export type ReviewModelSpec = ReviewCallbackModelSpec;
+export type ReviewModelSpec = ReviewCallbackModelSpec | ReviewHostedModelSpec;
 
 export interface ReviewCallbackModelSpec {
   kind: "callback";
   handler: ReviewModelHandler;
 }
+
+export interface OpenAIReviewModelSpec {
+  kind: "provider";
+  provider: "openai";
+  model: string;
+  credential?: ReviewModelCredential;
+  baseUrl?: string;
+  apiProtocol?: "responses" | "chat_completions";
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  topP?: number;
+}
+
+export type ReviewHostedModelSpec = OpenAIReviewModelSpec;
+
+export type ReviewModelCredential =
+  | { env: string }
+  | { secretRef: string };
 
 export type ReviewModelHandler = (
   request: ReviewModelRequest,
@@ -262,7 +281,7 @@ export interface ReviewAgentSession {
   role: ReviewRole;
   objective: string;
   cwd?: string;
-  modelProfileId?: string;
+  model?: ReviewModelSpec;
   instructions?: ReviewInstruction[];
   toolGrants?: string[];
   budget?: ReviewAgentBudget;
@@ -476,7 +495,14 @@ export interface CreateMuzenOptions {
   runnerArgs?: string[];
   clientName?: string;
   clientVersion?: string;
+  secrets?: MuzenSecretResolverOptions;
 }
+
+export interface MuzenSecretResolverOptions {
+  resolve: MuzenSecretResolver;
+}
+
+export type MuzenSecretResolver = (ref: string) => string | Promise<string>;
 
 export interface CreateMuzenClientOptions {
   baseUrl: string;

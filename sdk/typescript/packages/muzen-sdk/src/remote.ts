@@ -1,5 +1,9 @@
 import { MuzenUnsupportedFeatureError } from "./errors.js";
 import {
+  isCallbackReviewModelSpec,
+  isHostedReviewModelSpec,
+} from "./models.js";
+import {
   parseTimeoutMs,
   pollUntilResult,
   throwIfAborted,
@@ -37,6 +41,7 @@ import type {
   ReviewArtifactReadOptions,
   ReviewCancelOptions,
   ReviewEvent,
+  ReviewModelSpec,
   ReviewOptions,
   ReviewResult,
   ReviewSession,
@@ -474,10 +479,32 @@ function remoteReviewOptions(options: ReviewOptions): ReviewOptions {
   } = options;
   return {
     ...serializable,
-    model: typeof model === "string" ? model : undefined,
+    model: remoteModel(model),
+    sessions: serializable.sessions?.map(remoteSession),
     sourceProvider: sourceProvider?.baseUrl
       ? { baseUrl: sourceProvider.baseUrl }
       : undefined,
     tools: tools?.map(({ handler: _handler, ...tool }) => tool),
   };
+}
+
+function remoteSession(
+  session: NonNullable<ReviewOptions["sessions"]>[number],
+): NonNullable<ReviewOptions["sessions"]>[number] {
+  return {
+    ...session,
+    model: remoteModel(session.model),
+  };
+}
+
+function remoteModel(
+  model: ReviewOptions["model"],
+): ReviewModelSpec | undefined {
+  if (isHostedReviewModelSpec(model)) {
+    return model;
+  }
+  if (isCallbackReviewModelSpec(model)) {
+    return undefined;
+  }
+  return undefined;
 }

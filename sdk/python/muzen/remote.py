@@ -19,6 +19,7 @@ from .runner_mapping import (
 from .sources import parse_review_source
 from .types import (
     ModelProfileInput,
+    OpenAIReviewModelSpec,
     ProviderProfileInput,
     ReviewArtifact,
     ReviewArtifactExport,
@@ -326,7 +327,7 @@ def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
     return {
         "dedupe": options.dedupe,
         "cancelSuperseded": options.cancel_superseded,
-        "model": options.model,
+        "model": _model_to_remote(options.model),
         "scope": {
             "files": options.scope_files,
             "include": options.scope_include,
@@ -336,9 +337,36 @@ def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
-        "sessions": [_session_to_runner(session, options.model) for session in options.sessions],
+        "sessions": [_session_to_remote(session) for session in options.sessions],
         "limits": _limits_to_runner(options.limits),
     }
+
+
+def _session_to_remote(session: Any) -> Dict[str, Any]:
+    payload = _session_to_runner(session, {})
+    if session.model is not None:
+        payload["model"] = _model_to_remote(session.model)
+    return payload
+
+
+def _model_to_remote(model: Any) -> Any:
+    if isinstance(model, OpenAIReviewModelSpec):
+        return {
+            "kind": model.kind,
+            "provider": model.provider,
+            "model": model.model,
+            "credential": {
+                "env": model.credential.env,
+                "secretRef": model.credential.secret_ref,
+            },
+            "baseUrl": model.base_url,
+            "apiProtocol": model.api_protocol,
+            "maxInputTokens": model.max_input_tokens,
+            "maxOutputTokens": model.max_output_tokens,
+            "temperature": model.temperature,
+            "topP": model.top_p,
+        }
+    return None
 
 
 def _model_profile_input_to_remote(input: ModelProfileInput) -> Dict[str, Any]:

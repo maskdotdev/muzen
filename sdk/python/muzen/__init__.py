@@ -1,4 +1,5 @@
 from .client import Client, RemoteClient, create_muzen, create_muzen_client
+from .models import openai
 from .sources import (
     custom_source,
     github,
@@ -13,8 +14,10 @@ from .types import (
     ModelProfile,
     ModelProfileInput,
     ModelProviderKind,
+    OpenAIReviewModelSpec,
     ProviderProfile,
     ProviderProfileInput,
+    ReviewModelCredential,
     ReviewAgentBudget,
     ReviewAgentSession,
     ReviewArtifact,
@@ -53,6 +56,7 @@ __all__ = [
     "ModelProfile",
     "ModelProfileInput",
     "ModelProviderKind",
+    "OpenAIReviewModelSpec",
     "ProviderProfile",
     "ProviderProfileInput",
     "RemoteClient",
@@ -72,6 +76,7 @@ __all__ = [
     "ReviewFindingEvidence",
     "ReviewInstruction",
     "ReviewLimits",
+    "ReviewModelCredential",
     "ReviewOptions",
     "ReviewResult",
     "ReviewSessionSnapshot",
@@ -90,6 +95,7 @@ __all__ = [
     "github",
     "gitlab",
     "local",
+    "openai",
     "parse_review_source",
     "perforce",
     "raw_snapshot",

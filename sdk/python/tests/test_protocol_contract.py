@@ -37,6 +37,10 @@ class RunnerProtocolContractTests(unittest.TestCase):
             "RunnerModelCompleteParams",
         )
         self.assertEqual(
+            _require_method(schema["callbacks"], "secret.resolve")["result"]["name"],
+            "RunnerSecretResolveResult",
+        )
+        self.assertEqual(
             _require_method(schema["callbacks"], "tool.execute")["result"]["name"],
             "RunnerToolExecuteResult",
         )

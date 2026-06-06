@@ -18,6 +18,7 @@ from muzen import (
     create_webhook_response,
     create_muzen_client,
     local,
+    openai,
     parse_review_source,
 )
 from muzen.client import _to_runner_start_params
@@ -100,6 +101,44 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(params["tools"][0]["effects"], ["read_host"])
         self.assertEqual(params["tools"][0]["providerResources"], ["issue:123"])
         self.assertEqual(params["sessions"][0]["toolGrants"], ["host.issue_context"])
+
+    def test_openai_models_are_mapped_to_runner_profiles(self) -> None:
+        params = _to_runner_start_params(
+            "review-1",
+            local("/repo", changed_files=["src/auth.py"]),
+            ReviewOptions(
+                model=openai(
+                    "gpt-5.4-mini",
+                    credential={"env": "OPENAI_API_KEY"},
+                    max_output_tokens=4096,
+                ),
+                sessions=[
+                    ReviewAgentSession(
+                        id="generalist",
+                        role="generalist",
+                        objective="Review the change.",
+                    ),
+                    ReviewAgentSession(
+                        id="security",
+                        role="security",
+                        objective="Review security risk.",
+                        model=openai(
+                            "gpt-5.4",
+                            credential={"secretRef": "tenant:acme/openai"},
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+        self.assertEqual(params["model"]["defaultModelProfileId"], "default")
+        self.assertEqual(len(params["model"]["modelProfiles"]), 2)
+        self.assertEqual(params["model"]["modelProfiles"][0]["model"], "gpt-5.4-mini")
+        self.assertEqual(
+            params["model"]["modelProfiles"][1]["credential"],
+            {"secretRef": "tenant:acme/openai"},
+        )
+        self.assertEqual(params["sessions"][1]["modelProfileId"], "session:security")
 
     def test_runner_result_preserves_finding_provenance(self) -> None:
         result = _map_runner_result(
@@ -293,7 +332,16 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         )
         loaded_provider = await workspace.providers.get("github")
         providers = await workspace.providers.list()
-        review = await workspace.review("github:maskdotdev/heimdaal#123", ReviewOptions(model="default"))
+        review = await workspace.review(
+            "github:maskdotdev/heimdaal#123",
+            ReviewOptions(
+                model=openai(
+                    "gpt-5",
+                    credential={"secretRef": "vault://workspaces/acme/models/default"},
+                    base_url="https://models.example.test",
+                )
+            ),
+        )
         result = await review.wait(timeout="1s")
 
         self.assertEqual(workspace.id, "acme")

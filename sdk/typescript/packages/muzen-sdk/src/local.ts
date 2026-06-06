@@ -23,6 +23,7 @@ import {
   toRunnerStartParams,
 } from "./runner-mapping.js";
 import { registerReviewCallbacks } from "./runner-callbacks.js";
+import { reviewOptionsRequireSecretResolver } from "./models.js";
 import { parseReviewSource } from "./sources.js";
 import { UnsupportedWorkspaceProfileCollection } from "./unsupported.js";
 import {
@@ -30,6 +31,7 @@ import {
   unwrapWorkerRun,
 } from "./wire-validation.js";
 import type {
+  CreateMuzenOptions,
   HostConfiguration,
   ModelProfile,
   ModelProfileInput,
@@ -65,7 +67,10 @@ export class RunnerBackedMuzen implements Muzen {
   readonly webhooks: MuzenWebhooks;
   readonly workers: MuzenWorkers;
 
-  constructor(private readonly runner: RunnerStdioClient) {
+  constructor(
+    private readonly runner: RunnerStdioClient,
+    private readonly options: Pick<CreateMuzenOptions, "secrets"> = {},
+  ) {
     this.webhooks = new RunnerBackedMuzenWebhooks(runner);
     this.workers = new RunnerBackedMuzenWorkers(runner);
   }
@@ -86,6 +91,15 @@ export class RunnerBackedMuzen implements Muzen {
     options?: ReviewOptions;
   }): Promise<ReviewSession> {
     throwIfAborted(input.options?.signal);
+    if (
+      input.options &&
+      reviewOptionsRequireSecretResolver(input.options) &&
+      !this.options.secrets?.resolve
+    ) {
+      throw new Error(
+        "model credential secretRef requires createMuzen({ secrets: { resolve } })",
+      );
+    }
     const source = parseReviewSource(input.source);
     const reviewId = `review-${randomUUID()}`;
     const events: ReviewEvent[] = [];
@@ -104,6 +118,7 @@ export class RunnerBackedMuzen implements Muzen {
     const unsubscribeCallbacks = registerReviewCallbacks(
       this.runner,
       input.options ?? {},
+      this.options,
     );
     let startSent = false;
     let startSettled = false;

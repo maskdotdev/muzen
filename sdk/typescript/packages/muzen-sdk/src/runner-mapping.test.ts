@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { mapRunnerResult, toRunnerStartParams } from "./runner-mapping.js";
+import { openai } from "./models.js";
 import { local } from "./sources.js";
 
 describe("runner mapping", () => {
@@ -189,5 +190,109 @@ describe("runner mapping", () => {
       side: "additions",
       providerAnchor: { lineCode: "abc" },
     });
+  });
+
+  it("does not approve failed runner results with no findings", () => {
+    const result = mapRunnerResult("review-1", local("/repo"), {
+      runId: "runner-1",
+      status: "partial",
+      summary: {
+        sessions: 2,
+        completedSessions: 0,
+        modelCalls: 2,
+        toolCalls: 0,
+        totalTokens: 0,
+      },
+      findings: [],
+      snapshots: [{ files: 2, capturedFiles: 2 }],
+      metadata: {},
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.conclusion, "changes_requested");
+  });
+
+  it("maps OpenAI hosted models into runner model profiles", () => {
+    const params = toRunnerStartParams(
+      "review-1",
+      local("/repo", { changedFiles: ["src/auth.ts"] }),
+      {
+        model: openai({
+          model: "gpt-5.4-mini",
+          credential: { env: "OPENAI_API_KEY" },
+          maxOutputTokens: 4096,
+        }),
+        sessions: [
+          {
+            id: "generalist",
+            role: "generalist",
+            objective: "Review the change.",
+          },
+          {
+            id: "security",
+            role: "security",
+            objective: "Review security risk.",
+            model: openai({
+              model: "gpt-5.4",
+              credential: { secretRef: "tenant:acme/openai" },
+            }),
+          },
+        ],
+      },
+    ) as {
+      model: {
+        defaultModelProfileId: string;
+        modelProfiles: Array<Record<string, unknown>>;
+      };
+      sessions: Array<Record<string, unknown>>;
+    };
+
+    assert.equal(params.model.defaultModelProfileId, "default");
+    assert.deepEqual(params.model.modelProfiles, [
+      {
+        id: "default",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        credential: { env: "OPENAI_API_KEY" },
+        baseUrl: undefined,
+        apiProtocol: "responses",
+        maxInputTokens: undefined,
+        maxOutputTokens: 4096,
+        temperature: undefined,
+        topP: undefined,
+      },
+      {
+        id: "session:security",
+        provider: "openai",
+        model: "gpt-5.4",
+        credential: { secretRef: "tenant:acme/openai" },
+        baseUrl: undefined,
+        apiProtocol: "responses",
+        maxInputTokens: undefined,
+        maxOutputTokens: undefined,
+        temperature: undefined,
+        topP: undefined,
+      },
+    ]);
+    assert.equal(params.sessions[0].modelProfileId, undefined);
+    assert.equal(params.sessions[1].modelProfileId, "session:security");
+  });
+
+  it("rejects hosted session overrides with callback run models", () => {
+    assert.throws(
+      () =>
+        toRunnerStartParams("review-1", local("/repo"), {
+          model: { kind: "callback", handler: () => ({ content: "done" }) },
+          sessions: [
+            {
+              id: "security",
+              role: "security",
+              objective: "Review security risk.",
+              model: openai({ model: "gpt-5.4-mini" }),
+            },
+          ],
+        }),
+      /hosted session model overrides cannot be mixed/,
+    );
   });
 });

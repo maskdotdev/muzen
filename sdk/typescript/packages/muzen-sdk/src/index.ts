@@ -16,6 +16,15 @@ export {
   sourceKey,
 } from "./sources.js";
 export {
+  openai,
+  isCallbackReviewModelSpec,
+  isHostedReviewModelSpec,
+  reviewOptionsRequireSecretResolver,
+} from "./models.js";
+export type {
+  OpenAIModelOptions,
+} from "./models.js";
+export {
   createWebhookHttpResponse,
   createWebhookResponse,
   webhookDeliveryStatus,
@@ -61,6 +70,8 @@ export type {
   ModelProfileInput,
   ModelProviderKind,
   Muzen,
+  MuzenSecretResolver,
+  MuzenSecretResolverOptions,
   MuzenWorkerRun,
   MuzenWorkerRunOnceOptions,
   MuzenWorkers,
@@ -70,6 +81,7 @@ export type {
   MuzenWebhookResponseOptions,
   MuzenWebhooks,
   MuzenWorkspace,
+  OpenAIReviewModelSpec,
   ProviderProfile,
   ProviderProfileInput,
   PerforceChangelistSource,
@@ -99,7 +111,9 @@ export type {
   ReviewInstruction,
   ReviewLimits,
   ReviewCallbackModelSpec,
+  ReviewHostedModelSpec,
   ReviewModelHandler,
+  ReviewModelCredential,
   ReviewModelRequest,
   ReviewModelResult,
   ReviewModelSpec,
