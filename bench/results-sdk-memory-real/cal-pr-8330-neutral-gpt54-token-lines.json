@@ -1,0 +1,172 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T22:01:36.141Z",
+    "finishedAtUtc": "2026-06-06T22:01:41.607Z",
+    "elapsedMs": 5466
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 13042,
+    "outputTokens": 341,
+    "totalTokens": 13383,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the assigned changes. One concrete correctness regression is supported in the viewer slots router; the other assigned files do not have transcript evidence of an introduced bug.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\",\"note\":\"No transcript evidence supports a correctness bug in the changed test file.\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\",\"note\":\"No transcript evidence supports a correctness bug in this changed source file.\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"buggy\",\"note\":\"The cleanup query now deletes all selected-slot rows for the event type except the currently fetched active rows, which removes other users' valid reservations.\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\",\"note\":\"No transcript evidence supports a correctness bug in this changed type file.\"}],\"findings\":[{\"title\":\"Selected-slot cleanup deletes other users' active holds for the same event type\",\"claim\":\"After loading only the current users' unexpired selectedSlots, the new deleteMany call removes every other row for the same event type whose id is not in that fetched subset. Because the fetch is scoped by `userId: { in: users.map(...) }` and `releaseAt > now`, any active hold belonging to a different user on the same event type is absent from `selectedSlots` and will be deleted. This breaks concurrent slot reservation/seat holding by clearing unrelated users' valid holds whenever getSchedule runs.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":458,\"endLine\":476}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 48644,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_5ac8f3e5bc29fe68fdd5adee38cba416c59ebf1627dfb78fde47f202be5157c9",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_7b5da5b987aa2c8bc1248306407b55d9bc53bf4c14fc57c3b4f5a1620a69a12e",
+          "art_ed83c1e0a6196f61cdca3618f1a68dbb4f382d6c66d95f6a63d7c4e70a927d52"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_5ac8f3e5bc29fe68fdd5adee38cba416c59ebf1627dfb78fde47f202be5157c9",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_7b5da5b987aa2c8bc1248306407b55d9bc53bf4c14fc57c3b4f5a1620a69a12e",
+          "art_ed83c1e0a6196f61cdca3618f1a68dbb4f382d6c66d95f6a63d7c4e70a927d52"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_5ac8f3e5bc29fe68fdd5adee38cba416c59ebf1627dfb78fde47f202be5157c9",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_7b5da5b987aa2c8bc1248306407b55d9bc53bf4c14fc57c3b4f5a1620a69a12e",
+          "art_babc0e1f70d6e78935f96af6440515bd0b3c3107cb60959a8c5169bcc5b459d2",
+          "art_ed83c1e0a6196f61cdca3618f1a68dbb4f382d6c66d95f6a63d7c4e70a927d52"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict buggy.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_5ac8f3e5bc29fe68fdd5adee38cba416c59ebf1627dfb78fde47f202be5157c9",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_7b5da5b987aa2c8bc1248306407b55d9bc53bf4c14fc57c3b4f5a1620a69a12e",
+          "art_ed83c1e0a6196f61cdca3618f1a68dbb4f382d6c66d95f6a63d7c4e70a927d52"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "After loading only the current users' unexpired selectedSlots, the new deleteMany call removes every other row for the same event type whose id is not in that fetched subset. Because the fetch is scoped by `userId: { in: users.map(...) }` and `releaseAt > now`, any active hold belonging to a different user on the same event type is absent from `selectedSlots` and will be deleted. This breaks concurrent slot reservation/seat holding by clearing unrelated users' valid holds whenever getSchedule runs.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "90c2b7980a9bb334faa632dcac86119145f6abedf897c81f579780800b533c11",
+        "location": {
+          "endColumn": null,
+          "endLine": 476,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 458
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Selected-slot cleanup deletes other users' active holds for the same event type",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780783296148",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "ae086838897c8eae4e2a9b5a7086bd30b9d33c6c3772dccd6b2c91bbdd623f6a"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 20969,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 5318,
+      "findings": 1,
+      "inputTokens": 13042,
+      "modelCalls": 3,
+      "outputTokens": 341,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 13383
+    }
+  },
+  "reviewValid": true
+}
