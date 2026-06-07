@@ -41,6 +41,40 @@ def local(repo: str, *, changed_files: Optional[List[str]] = None) -> ReviewSour
     return ReviewSource(type="local", repo=repo, changed_files=changed_files or [])
 
 
+def raw_snapshot(root: str, *, changed_files: Optional[List[str]] = None) -> ReviewSource:
+    if not root.strip():
+        raise MuzenSourceError("raw snapshot root is empty")
+    return ReviewSource(type="raw_snapshot", root=root, changed_files=changed_files or [])
+
+
+def perforce(
+    server: str,
+    changelist: str,
+    *,
+    client: Optional[str] = None,
+    depot_paths: Optional[List[str]] = None,
+) -> ReviewSource:
+    if not server.strip():
+        raise MuzenSourceError("perforce server is empty")
+    if not changelist.strip():
+        raise MuzenSourceError("perforce changelist is empty")
+    return ReviewSource(
+        type="perforce_changelist",
+        server=server,
+        changelist=changelist,
+        client=client,
+        depot_paths=depot_paths or [],
+    )
+
+
+def custom_source(provider: str, id: str) -> ReviewSource:
+    if not provider.strip():
+        raise MuzenSourceError("custom source provider is empty")
+    if not id.strip():
+        raise MuzenSourceError("custom source id is empty")
+    return ReviewSource(type="custom", provider=provider, id=id)
+
+
 def parse_review_source(source: ReviewSourceLike) -> ReviewSource:
     if isinstance(source, ReviewSource):
         return source
@@ -52,8 +86,16 @@ def parse_review_source(source: ReviewSourceLike) -> ReviewSource:
         return gitlab.merge_request(owner=owner, repo=repo, number=number)
     if source.startswith("local:"):
         return local(source[len("local:") :])
+    if source.startswith("raw_snapshot:"):
+        return raw_snapshot(source[len("raw_snapshot:") :])
+    if source.startswith("perforce:"):
+        server, changelist = _parse_perforce(source[len("perforce:") :], source)
+        return perforce(server, changelist)
+    if source.startswith("custom:"):
+        provider, id = _parse_custom(source[len("custom:") :], source)
+        return custom_source(provider, id)
     raise MuzenSourceError(
-        "expected github:owner/repo#number, gitlab:owner/repo!number, or local:path"
+        "expected github:owner/repo#number, gitlab:owner/repo!number, local:path, raw_snapshot:path, perforce:server@changelist, or custom:provider:id"
     )
 
 
@@ -64,6 +106,12 @@ def source_key(source: ReviewSource) -> str:
         return f"github:{source.owner}/{source.repo}#{source.number}"
     if source.type == "gitlab_merge_request":
         return f"gitlab:{source.owner}/{source.repo}!{source.number}"
+    if source.type == "raw_snapshot":
+        return f"raw_snapshot:{source.root}"
+    if source.type == "perforce_changelist":
+        return f"perforce:{source.server}@{source.changelist}"
+    if source.type == "custom":
+        return f"custom:{source.provider}:{source.id}"
     raise MuzenSourceError(f"unknown review source type: {source.type}")
 
 
@@ -96,3 +144,21 @@ def _assert_repo_source_parts(provider: str, owner: str, repo: str, number: int)
         raise MuzenSourceError(f"{provider} repo is empty")
     if number <= 0:
         raise MuzenSourceError(f"{provider} review number must be positive")
+
+
+def _parse_perforce(rest: str, input_value: str) -> Tuple[str, str]:
+    delimiter_index = rest.rfind("@")
+    if delimiter_index == -1:
+        raise MuzenSourceError(
+            f"invalid review source {input_value}: missing @ changelist delimiter"
+        )
+    return rest[:delimiter_index], rest[delimiter_index + 1 :]
+
+
+def _parse_custom(rest: str, input_value: str) -> Tuple[str, str]:
+    delimiter_index = rest.find(":")
+    if delimiter_index == -1:
+        raise MuzenSourceError(
+            f"invalid review source {input_value}: missing provider:id delimiter"
+        )
+    return rest[:delimiter_index], rest[delimiter_index + 1 :]

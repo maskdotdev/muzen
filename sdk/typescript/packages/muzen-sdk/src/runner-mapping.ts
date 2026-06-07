@@ -1,16 +1,23 @@
 import type { JsonRpcNotification } from "./protocol.js";
 import { sourceKey } from "./sources.js";
 import type {
+  ReviewChangeSpec,
+  ReviewAgentSession,
   ReviewArtifact,
   ReviewEvent,
   ReviewEventType,
   ReviewFinding,
+  ReviewHostedModelSpec,
   ReviewLimits,
   ReviewOptions,
   ReviewResult,
   ReviewSource,
   ReviewStatus,
 } from "./types.js";
+import {
+  isCallbackReviewModelSpec,
+  isHostedReviewModelSpec,
+} from "./models.js";
 
 export function toRunnerStartParams(
   reviewId: string,
@@ -18,26 +25,231 @@ export function toRunnerStartParams(
   options: ReviewOptions,
 ): unknown {
   const changedFiles =
-    options.scope?.files ?? (source.type === "local" ? source.changedFiles ?? [] : []);
+    options.scope?.files ??
+    changedFilePaths(options.change) ??
+    (source.type === "local" ? source.changedFiles ?? [] : []);
+  const modelPlan = mapReviewModels(options);
   const params: Record<string, unknown> = {
     protocolVersion: "muzen.runner.v1",
     runId: reviewId,
     source,
+    sourceProvider: mapReviewSourceProvider(options.sourceProvider),
     changedFiles,
+    metadata: options.metadata ?? {},
+    change: mapReviewChange(options.change),
+    instructions: (options.instructions ?? []).map((instruction) => ({
+      kind: instruction.kind,
+      text: instruction.text,
+      trusted: instruction.trusted ?? false,
+    })),
     sessions: (options.sessions ?? []).map((session) => ({
       id: session.id,
       role: session.role,
       objective: session.objective,
       cwd: session.cwd,
-      modelProfileId: session.modelProfileId ?? options.model,
+      modelProfileId: modelPlan.sessionProfileIds.get(session.id),
+      instructions: (session.instructions ?? []).map((instruction) => ({
+        kind: instruction.kind,
+        text: instruction.text,
+        trusted: instruction.trusted ?? false,
+      })),
+      toolGrants: session.toolGrants ?? [],
       budget: session.budget,
     })),
     limits: mapReviewLimits(options.limits),
+    model: modelPlan.runnerModel,
+    tools: (options.tools ?? []).map((tool) => ({
+      id: tool.id,
+      description: tool.description,
+      parameters: tool.parameters,
+      effects: tool.effects ?? [],
+      cacheable: tool.cacheable ?? false,
+      providerResources: tool.providerResources ?? [],
+    })),
+    heartbeat: mapReviewHeartbeat(options),
   };
   if (source.type === "local") {
     params.repo = source.repo;
   }
   return params;
+}
+
+function mapReviewHeartbeat(options: ReviewOptions): unknown {
+  if (!options.hooks?.onHeartbeat) {
+    return undefined;
+  }
+  return {
+    callback: true,
+    intervalMs: options.heartbeat?.intervalMs,
+    leaseSeconds: options.heartbeat?.leaseSeconds,
+  };
+}
+
+function mapReviewModel(model: ReviewOptions["model"]): unknown {
+  if (isCallbackReviewModelSpec(model)) {
+    return { callback: true };
+  }
+  return undefined;
+}
+
+interface ModelPlan {
+  runnerModel: unknown;
+  sessionProfileIds: Map<string, string>;
+}
+
+interface HostedProfilePlan {
+  profile: unknown;
+  profileId: string;
+}
+
+function mapReviewModels(options: ReviewOptions): ModelPlan {
+  if (isCallbackReviewModelSpec(options.model)) {
+    rejectHostedSessionOverrides(options.sessions ?? []);
+    return {
+      runnerModel: mapReviewModel(options.model),
+      sessionProfileIds: new Map(),
+    };
+  }
+
+  const sessionProfileIds = new Map<string, string>();
+  const profiles = new Map<string, HostedProfilePlan>();
+  let defaultProfileId: string | undefined;
+
+  if (isHostedReviewModelSpec(options.model)) {
+    const planned = addHostedProfile(
+      profiles,
+      "default",
+      options.model,
+    );
+    defaultProfileId = planned.profileId;
+  }
+
+  for (const session of options.sessions ?? []) {
+    if (isHostedReviewModelSpec(session.model)) {
+      const planned = addHostedProfile(
+        profiles,
+        `session:${session.id}`,
+        session.model,
+      );
+      sessionProfileIds.set(session.id, planned.profileId);
+      defaultProfileId ??= planned.profileId;
+    }
+  }
+
+  if (profiles.size === 0) {
+    return {
+      runnerModel: mapReviewModel(options.model),
+      sessionProfileIds,
+    };
+  }
+
+  if (!isHostedReviewModelSpec(options.model)) {
+    const sessionsWithoutModel = (options.sessions ?? []).filter(
+      (session) =>
+        !session.model &&
+        !sessionProfileIds.has(session.id),
+    );
+    if (sessionsWithoutModel.length > 0) {
+      throw new Error(
+        "session model overrides require a run-level model when any session omits its own model",
+      );
+    }
+  }
+
+  return {
+    runnerModel: {
+      callback: false,
+      defaultModelProfileId: defaultProfileId,
+      modelProfiles: [...profiles.values()].map((planned) => planned.profile),
+    },
+    sessionProfileIds,
+  };
+}
+
+function rejectHostedSessionOverrides(sessions: ReviewAgentSession[]): void {
+  if (sessions.some((session) => isHostedReviewModelSpec(session.model))) {
+    throw new Error(
+      "hosted session model overrides cannot be mixed with a callback run model",
+    );
+  }
+}
+
+function addHostedProfile(
+  profiles: Map<string, HostedProfilePlan>,
+  requestedId: string,
+  model: ReviewHostedModelSpec,
+): HostedProfilePlan {
+  const key = hostedProfileKey(model);
+  const existing = profiles.get(key);
+  if (existing) {
+    return existing;
+  }
+  const planned = {
+    profileId: requestedId,
+    profile: {
+      id: requestedId,
+      provider: model.provider,
+      model: model.model,
+      credential: model.credential,
+      baseUrl: model.baseUrl,
+      apiProtocol: model.apiProtocol,
+      maxInputTokens: model.maxInputTokens,
+      maxOutputTokens: model.maxOutputTokens,
+      temperature: model.temperature,
+      topP: model.topP,
+    },
+  };
+  profiles.set(key, planned);
+  return planned;
+}
+
+function hostedProfileKey(model: ReviewHostedModelSpec): string {
+  return JSON.stringify({
+    provider: model.provider,
+    model: model.model,
+    credential: model.credential,
+    baseUrl: model.baseUrl,
+    apiProtocol: model.apiProtocol,
+    maxInputTokens: model.maxInputTokens,
+    maxOutputTokens: model.maxOutputTokens,
+    temperature: model.temperature,
+    topP: model.topP,
+  });
+}
+
+function mapReviewSourceProvider(
+  provider: ReviewOptions["sourceProvider"],
+): unknown {
+  if (!provider) {
+    return undefined;
+  }
+  return {
+    baseUrl: provider.baseUrl,
+    callback: Boolean(provider.handler),
+  };
+}
+
+function changedFilePaths(change: ReviewChangeSpec | undefined): string[] | undefined {
+  if (!change?.changedFiles?.length) {
+    return undefined;
+  }
+  return change.changedFiles.map((file) => file.path);
+}
+
+function mapReviewChange(change: ReviewChangeSpec | undefined): unknown {
+  if (!change) {
+    return undefined;
+  }
+  return {
+    kind: change.kind,
+    baseRevision: change.baseRevision,
+    startRevision: change.startRevision,
+    headRevision: change.headRevision,
+    changedFiles: change.changedFiles ?? [],
+    diff: change.diff,
+    reviewTarget: change.reviewTarget,
+    metadata: change.metadata ?? {},
+  };
 }
 
 export function mapNotification(
@@ -55,7 +267,37 @@ export function mapNotification(
     type: mapRunnerEventType(record.event),
     reviewId: record.runId ?? "unknown",
     timestampUtc: record.timestampUtc,
-    payload: record.event,
+    payload: attachRunnerEventContext(record.event, record),
+  };
+}
+
+function attachRunnerEventContext(
+  event: unknown,
+  record: RunnerReviewEventRecord,
+): unknown {
+  if (!isRecord(event)) {
+    return event;
+  }
+  const context: Record<string, unknown> = {};
+  for (const key of [
+    "snapshotId",
+    "sessionId",
+    "turn",
+    "toolCallId",
+    "artifactId",
+    "findingId",
+  ] as const) {
+    const value = record[key];
+    if (value !== undefined && value !== null) {
+      context[key] = value;
+    }
+  }
+  if (Object.keys(context).length === 0) {
+    return event;
+  }
+  return {
+    ...event,
+    context,
   };
 }
 
@@ -69,15 +311,20 @@ export function mapRunnerResult(
   }
   const findings = value.findings.map(mapRunnerFinding);
   const status = mapRunnerStatus(value.status);
+  const metadata = isRecord(value.metadata) ? value.metadata : {};
   return {
     reviewId,
     sessionId: reviewId,
     status,
-    conclusion: conclusionFromFindings(findings),
+    conclusion:
+      status === "failed" || status === "cancelled"
+        ? "changes_requested"
+        : conclusionFromFindings(findings),
     summary: `Review completed ${value.summary.completedSessions}/${value.summary.sessions} session(s), produced ${findings.length} finding(s), used ${value.summary.modelCalls} model call(s), ${value.summary.toolCalls} tool call(s), and ${value.summary.totalTokens} total token(s).`,
     findings,
     coverage: coverageFromSnapshots(value.snapshots),
     metadata: {
+      ...metadata,
       runnerRunId: value.runId,
       runnerStatus: value.status,
       source: sourceKey(source),
@@ -168,6 +415,7 @@ function mapRunnerEventType(event: unknown): ReviewEventType {
       return "tool.started";
     case "toolCallCompleted":
     case "toolCallDenied":
+    case "artifactCreated":
       return "tool.completed";
     case "findingRecorded":
       return "finding.created";
@@ -204,11 +452,35 @@ function eventKind(event: unknown): string | undefined {
 function mapRunnerFinding(finding: RunnerFinding): ReviewFinding {
   return {
     id: finding.id,
-    severity: finding.publishable ? "error" : "info",
+    severity: mapRunnerFindingSeverity(finding),
     category: "other",
     title: finding.title,
     message: finding.claim,
+    location: finding.location,
+    confidence: finding.confidence,
+    validationStatus: finding.validationStatus,
+    evidence: finding.evidence ?? [],
+    discoveredBy: finding.discoveredBy ?? [],
+    validatedBy: finding.validatedBy ?? [],
+    challengedBy: finding.challengedBy ?? [],
   };
+}
+
+function mapRunnerFindingSeverity(
+  finding: RunnerFinding,
+): ReviewFinding["severity"] {
+  switch (finding.severity) {
+    case "blocker":
+    case "high":
+      return "error";
+    case "medium":
+    case "low":
+      return "warning";
+    case "nit":
+      return "info";
+    default:
+      return finding.publishable ? "error" : "info";
+  }
 }
 
 function conclusionFromFindings(findings: ReviewFinding[]): ReviewResult["conclusion"] {
@@ -238,6 +510,12 @@ interface RunnerReviewEventRecord {
   seq: number;
   timestampUtc: string;
   runId?: string;
+  snapshotId?: string | { value?: string };
+  sessionId?: string;
+  turn?: number;
+  toolCallId?: string;
+  artifactId?: string | { value?: string };
+  findingId?: string;
   event: unknown;
 }
 
@@ -247,6 +525,7 @@ interface RunnerRunResult {
   summary: RunnerRunSummary;
   findings: RunnerFinding[];
   snapshots: RunnerSnapshotSummary[];
+  metadata?: Record<string, unknown>;
 }
 
 interface RunnerRunSummary {
@@ -262,6 +541,33 @@ interface RunnerFinding {
   title: string;
   claim: string;
   publishable: boolean;
+  severity?: string;
+  confidence?: number;
+  validationStatus?: string;
+  evidence?: RunnerFindingEvidence[];
+  discoveredBy?: string[];
+  validatedBy?: string[];
+  challengedBy?: string[];
+  location?: RunnerFindingLocation;
+}
+
+interface RunnerFindingEvidence {
+  evidenceId: string;
+  artifactId: string;
+  kind: string;
+  contentHash: string;
+  producingToolCallId: string;
+}
+
+interface RunnerFindingLocation {
+  path: string;
+  revision?: string;
+  startLine?: number;
+  endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
+  side?: string;
+  providerAnchor?: Record<string, unknown>;
 }
 
 interface RunnerSnapshotSummary {

@@ -1,22 +1,21 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
-use moka::future::Cache;
-use parking_lot::Mutex;
 use serde_json::json;
-use tokio::sync::{Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::contracts::{ByteRangeV1, EvidenceRefV1, ToolName};
+use crate::contracts::ToolName;
 use crate::runtime::contracts::*;
+use crate::runtime::policy::diff_risk_hint_items;
 use crate::runtime::repo::RepoSnapshot;
-use crate::util::redaction_none;
 
 use super::authorization::ToolAuthorizer;
+use super::cache::ToolResultCache;
+use super::dispatch::ToolProviderDispatcher;
 use super::metrics::{ConcurrentAtomicCounters, ConcurrentToolMetricsStore};
 use super::provider::{
     BuiltinReviewToolProvider, InProcessToolProvider, JsonRpcToolProvider, ToolProvider,
@@ -25,38 +24,27 @@ use super::read::ReadService;
 use super::redaction::Redactor;
 use super::registry::{CustomToolContext, CustomToolOutput, ToolRegistry};
 use super::search::SearchCoordinator;
-use super::store::{
-    artifact_kind_for_tool, evidence_line_range, evidence_location, evidence_revision_for_tool,
-    finding_id_for_call, ConcurrentArtifactStore, ConcurrentFindingStore,
-};
+use super::store::ConcurrentArtifactStore;
 use super::validation::validate_invocation;
 
 pub(crate) struct ToolEngine {
     pub(crate) snapshot: Arc<RepoSnapshot>,
     pub(crate) artifacts: Arc<ConcurrentArtifactStore>,
-    pub(crate) findings: Arc<ConcurrentFindingStore>,
     pub(crate) read: Arc<ReadService>,
     pub(crate) search: Arc<SearchCoordinator>,
     pub(crate) registry: Arc<ToolRegistry>,
     pub(crate) limits: Arc<RuntimeLimits>,
     pub(crate) redactor: Arc<Redactor>,
-    result_cache: Cache<String, Arc<ToolResultEnvelope>>,
-    inflight: Mutex<HashMap<String, Arc<InflightToolResult>>>,
+    result_cache: ToolResultCache,
     read_permits: Arc<Semaphore>,
     authorizer: ToolAuthorizer,
-    provider_permits: DashMap<String, Arc<Semaphore>>,
-    providers: Vec<Arc<dyn ToolProvider>>,
+    dispatcher: ToolProviderDispatcher,
     pub(crate) counters: Arc<ConcurrentAtomicCounters>,
     pub(crate) metrics: Arc<ConcurrentToolMetricsStore>,
 }
 
-#[derive(Debug, Default)]
-struct InflightToolResult {
-    result: TokioMutex<Option<Arc<ToolResultEnvelope>>>,
-    notify: Notify,
-}
-
 impl ToolEngine {
+    #[cfg(test)]
     pub(crate) fn new(
         snapshot: Arc<RepoSnapshot>,
         limits: Arc<RuntimeLimits>,
@@ -97,33 +85,18 @@ impl ToolEngine {
         Ok(Self {
             snapshot,
             artifacts,
-            findings: Arc::new(ConcurrentFindingStore::default()),
             read,
             search,
             registry,
-            result_cache: Cache::new(limits.search_result_cache_bytes.max(1)),
-            inflight: Mutex::new(HashMap::new()),
+            result_cache: ToolResultCache::new(limits.search_result_cache_bytes),
             read_permits: Arc::new(Semaphore::new(limits.max_read_concurrency_global.max(1))),
             authorizer: ToolAuthorizer::new(),
-            provider_permits: DashMap::new(),
-            providers,
+            dispatcher: ToolProviderDispatcher::new(providers, Arc::clone(&limits)),
             limits,
             redactor,
             counters,
             metrics,
         })
-    }
-
-    pub(crate) fn record_finding_result(
-        &self,
-        session_id: &SessionId,
-        result: &ToolResultEnvelope,
-        evidence_results: &[ToolResultEnvelope],
-        revision_id: &str,
-    ) -> Option<String> {
-        let evidence = self.evidence_refs(evidence_results, revision_id);
-        self.findings
-            .insert_from_tool_result(session_id, result, evidence)
     }
 
     pub(crate) async fn execute_batch(
@@ -149,37 +122,12 @@ impl ToolEngine {
             self.record_batch_metrics(&results);
             return results;
         }
-        if calls.len() > 1
-            && calls
-                .iter()
-                .any(|call| call.name.as_builtin() == Some(ToolName::Finish))
-        {
-            let results = calls
-                .into_iter()
-                .map(|call| {
-                    self.error_result(
-                        call.call_id,
-                        call.name,
-                        ToolErrorCode::InvalidArgs,
-                        "finish must be called alone",
-                        false,
-                    )
-                })
-                .collect::<Vec<_>>();
-            self.record_batch_metrics(&results);
-            return results;
-        }
-
         let mut seen_calls = HashSet::new();
         let mut duplicate_results = Vec::new();
         let mut calls_to_execute = Vec::new();
         for call in calls {
             let key = stable_id(&[call.name.as_str(), &call.raw_arguments]);
-            if matches!(
-                call.name.as_builtin(),
-                Some(ToolName::RecordFinding | ToolName::Finish)
-            ) || seen_calls.insert(key)
-            {
+            if seen_calls.insert(key) {
                 calls_to_execute.push(call);
             } else {
                 duplicate_results.push((
@@ -202,6 +150,7 @@ impl ToolEngine {
             .capabilities
             .fs_scope
             .scope_key(&self.snapshot.snapshot_id);
+        let assigned_changed_files = assigned_changed_files(&scope);
         let scope = Arc::new(scope);
         let mut futures = FuturesUnordered::new();
         for call in calls_to_execute {
@@ -211,6 +160,7 @@ impl ToolEngine {
             let session_id = scope.id.clone();
             let capabilities = scope.capabilities.clone();
             let scope_key = scope_key.clone();
+            let assigned_changed_files = assigned_changed_files.clone();
             futures.push(async move {
                 let original_index = call.index;
                 let result = match validate_invocation(
@@ -221,7 +171,8 @@ impl ToolEngine {
                     scope_key,
                     &engine.registry,
                 ) {
-                    Ok(invocation) => {
+                    Ok(mut invocation) => {
+                        invocation.assigned_changed_files = assigned_changed_files;
                         let Ok(_permit) = per_session.acquire_owned().await else {
                             return (
                                 original_index,
@@ -315,63 +266,18 @@ impl ToolEngine {
         invocation: ToolInvocation,
         cancel: CancellationToken,
     ) -> ToolResultEnvelope {
-        if let Some(hit) = self.result_cache.get(&key).await {
-            self.counters
-                .artifact_cache_hits
-                .fetch_add(1, Ordering::Relaxed);
-            return hit.for_call(invocation.call_id, invocation.tool_id, CacheStatus::Hit);
-        }
-        let (cell, owner) = {
-            let mut inflight = self.inflight.lock();
-            if let Some(cell) = inflight.get(&key) {
-                (Arc::clone(cell), false)
-            } else {
-                let cell = Arc::new(InflightToolResult::default());
-                inflight.insert(key.clone(), Arc::clone(&cell));
-                (cell, true)
-            }
-        };
-        if owner {
-            let result = Arc::new(
-                self.compute_uncached(invocation.clone(), cancel, CacheStatus::Miss)
-                    .await,
-            );
-            *cell.result.lock().await = Some(Arc::clone(&result));
-            cell.notify.notify_waiters();
-            if result.ok {
-                self.result_cache
-                    .insert(key.clone(), Arc::clone(&result))
-                    .await;
-            }
-            self.inflight.lock().remove(&key);
-            result.as_ref().clone()
-        } else {
-            self.counters.search_dedupe_waiters.fetch_add(
-                (invocation.builtin_name == Some(ToolName::SearchText)) as usize,
-                Ordering::Relaxed,
-            );
-            loop {
-                if let Some(result) = cell.result.lock().await.clone() {
-                    return result.for_call(
-                        invocation.call_id,
-                        invocation.tool_id,
-                        CacheStatus::Deduped,
-                    );
-                }
-                tokio::select! {
-                    _ = cancel.cancelled() => {
-                        return self.error_result(
-                            invocation.call_id,
-                            invocation.tool_id,
-                            ToolErrorCode::Cancelled,
-                            "operation cancelled",
-                            true,
-                        );
-                    }
-                    _ = cell.notify.notified() => {}
-                }
-            }
-        }
+        self.result_cache
+            .execute(
+                key,
+                invocation,
+                cancel,
+                self.counters.as_ref(),
+                self.snapshot.snapshot_id.clone(),
+                |invocation, cancel, cache_status| {
+                    self.compute_uncached(invocation, cancel, cache_status)
+                },
+            )
+            .await
     }
 
     async fn compute_uncached(
@@ -380,77 +286,9 @@ impl ToolEngine {
         cancel: CancellationToken,
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
-        let call_id = invocation.call_id.clone();
-        let tool_id = invocation.tool_id.clone();
-        let Some(definition) = self.registry.definition(&tool_id) else {
-            return self.error_result(
-                call_id,
-                tool_id,
-                ToolErrorCode::UnknownTool,
-                "tool is not registered",
-                false,
-            );
-        };
-        let Some(provider) = self
-            .providers
-            .iter()
-            .find(|provider| provider.accepts(definition))
-        else {
-            return self.error_result(
-                call_id,
-                tool_id,
-                ToolErrorCode::UnknownTool,
-                "tool has no provider",
-                false,
-            );
-        };
-        let provider_id = provider.id();
-        let timeout = Duration::from_millis(self.limits.max_tool_provider_ms.max(1));
-        let queue_started = Instant::now();
-        let permit = match self.acquire_provider_permit(&provider_id, timeout).await {
-            Ok(permit) => permit,
-            Err(error) => {
-                let mut result = self.runtime_error_result(call_id, tool_id, error);
-                result.limits.queue_wait_ms = elapsed_ms_allow_zero(queue_started);
-                return result;
-            }
-        };
-        let queue_wait_ms = elapsed_ms_allow_zero(queue_started);
-        let _permit = permit;
-        let mut result = match tokio::time::timeout(
-            timeout,
-            provider.execute(self, invocation, cancel, cache_status),
-        )
-        .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => self.runtime_error_result(call_id, tool_id, error),
-            Err(_) => self.runtime_error_result(call_id, tool_id, RuntimeError::Timeout),
-        };
-        result.limits.queue_wait_ms = queue_wait_ms;
-        result
-    }
-
-    async fn acquire_provider_permit(
-        &self,
-        provider_id: &ToolProviderId,
-        timeout: Duration,
-    ) -> RuntimeResult<OwnedSemaphorePermit> {
-        let permits = self
-            .provider_permits
-            .entry(provider_id.as_str().to_string())
-            .or_insert_with(|| {
-                Arc::new(Semaphore::new(
-                    self.limits
-                        .max_tool_provider_concurrency_per_provider
-                        .max(1),
-                ))
-            })
-            .clone();
-        tokio::time::timeout(timeout, permits.acquire_owned())
+        self.dispatcher
+            .execute(self, invocation, cancel, cache_status)
             .await
-            .map_err(|_| RuntimeError::Timeout)?
-            .map_err(|_| RuntimeError::Cancelled)
     }
 
     pub(super) async fn execute_builtin_tool(
@@ -466,7 +304,11 @@ impl ToolEngine {
                 &invocation.scope_key,
                 cache_status,
             ),
-            Some(ToolName::ReadDiff) => self.read_diff(invocation.call_id, cache_status),
+            Some(ToolName::ReadDiff) => self.read_diff(
+                invocation.call_id,
+                cache_status,
+                invocation.assigned_changed_files.as_slice(),
+            ),
             Some(ToolName::ListFiles) => self.list_files(
                 invocation.call_id,
                 &invocation.capabilities.fs_scope,
@@ -522,6 +364,33 @@ impl ToolEngine {
                     cache_status,
                 )
                 .await
+            }
+            Some(ToolName::ReadFileRange) => {
+                let ToolArgs::ReadFileRange {
+                    path,
+                    start_line,
+                    end_line,
+                } = invocation.args
+                else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "read_file_range requires path, start_line, and end_line",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                self.read_file_range(invocation.call_id, path, start_line, end_line, cache_status)
+                    .await
             }
             Some(ToolName::SearchText) => {
                 let ToolArgs::SearchText { query } = invocation.args else {
@@ -595,41 +464,6 @@ impl ToolEngine {
                 self.list_imports(invocation.call_id, path, cache_status)
                     .await
             }
-            Some(ToolName::RecordFinding) => {
-                let ToolArgs::RecordFinding { title, claim } = invocation.args else {
-                    return self.error_result(
-                        invocation.call_id,
-                        invocation.tool_id,
-                        ToolErrorCode::InvalidArgs,
-                        "record_finding requires title and claim",
-                        false,
-                    );
-                };
-                self.record_finding(invocation.call_id, title, claim)
-            }
-            Some(ToolName::ChallengeFinding) => {
-                let ToolArgs::ChallengeFinding {
-                    finding_id,
-                    rationale,
-                } = invocation.args
-                else {
-                    return self.error_result(
-                        invocation.call_id,
-                        invocation.tool_id,
-                        ToolErrorCode::InvalidArgs,
-                        "challenge_finding requires finding_id and rationale",
-                        false,
-                    );
-                };
-                self.challenge_finding(invocation.call_id, finding_id, rationale)
-            }
-            Some(ToolName::Finish) => {
-                let reason = match invocation.args {
-                    ToolArgs::Finish { reason } => reason,
-                    _ => "finished".to_string(),
-                };
-                self.finish(invocation.call_id, reason)
-            }
             None => self.error_result(
                 invocation.call_id,
                 invocation.tool_id,
@@ -664,6 +498,20 @@ impl ToolEngine {
                 &CONCURRENT_CONTRACT_VERSION.to_string(),
                 &REDACTION_POLICY_VERSION.to_string(),
             ])),
+            ToolArgs::ReadFileRange {
+                path,
+                start_line,
+                end_line,
+            } => Some(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                invocation.tool_id.as_str(),
+                invocation.scope_key.as_str(),
+                &path.display(),
+                &start_line.to_string(),
+                &end_line.to_string(),
+                &CONCURRENT_CONTRACT_VERSION.to_string(),
+                &REDACTION_POLICY_VERSION.to_string(),
+            ])),
             ToolArgs::SearchText { query } => Some(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 invocation.tool_id.as_str(),
@@ -691,15 +539,23 @@ impl ToolEngine {
         }
     }
 
-    fn read_diff(&self, call_id: ToolCallId, cache_status: CacheStatus) -> ToolResultEnvelope {
-        let content = self.redactor.redact(&self.snapshot.diff.content);
+    fn read_diff(
+        &self,
+        call_id: ToolCallId,
+        cache_status: CacheStatus,
+        assigned_changed_files: &[RepoPath],
+    ) -> ToolResultEnvelope {
+        let (raw_content, scoped_paths) =
+            scoped_diff_content(&self.snapshot.diff.content, assigned_changed_files);
+        let content_hash = stable_id(&[&self.snapshot.diff.content_hash, &raw_content]);
+        let content = self.redactor.redact(&raw_content);
         let artifact_id = self.artifacts.insert_views(
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "read_diff",
-                &self.snapshot.diff.content_hash,
+                &content_hash,
             ])),
-            self.snapshot.diff.content.clone(),
+            raw_content.clone(),
             content.clone(),
         );
         ToolResultEnvelope {
@@ -711,7 +567,7 @@ impl ToolEngine {
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
                 status: cache_status,
-                key_hash: Some(self.snapshot.diff.content_hash.clone()),
+                key_hash: Some(content_hash.clone()),
             },
             limits: LimitInfo {
                 output_bytes: content.len(),
@@ -719,7 +575,10 @@ impl ToolEngine {
             },
             data: Some(json!({
                 "content": content,
-                "contentHash": self.snapshot.diff.content_hash,
+                "contentHash": content_hash,
+                "riskHints": diff_risk_hint_items(&raw_content),
+                "scopedPaths": scoped_paths,
+                "scoped": !assigned_changed_files.is_empty(),
             })),
             error: None,
         }
@@ -872,10 +731,11 @@ impl ToolEngine {
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
         let Ok(file) = self.snapshot.lookup(&path).cloned() else {
-            return self.error_result(
+            return self.read_unavailable_result(
                 call_id,
                 tool_name.into(),
                 ToolErrorCode::PathDenied,
+                &path,
                 "path is not present in the repo manifest",
                 false,
             );
@@ -937,7 +797,106 @@ impl ToolEngine {
                     error: None,
                 }
             }
-            Err(error) => self.runtime_error_result(call_id, tool_name.into(), error),
+            Err(error) => self.read_error_result(call_id, tool_name.into(), &path, error),
+        }
+    }
+
+    async fn read_file_range(
+        &self,
+        call_id: ToolCallId,
+        path: RepoPath,
+        start_line: usize,
+        end_line: usize,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let Ok(file) = self.snapshot.lookup(&path).cloned() else {
+            return self.read_unavailable_result(
+                call_id,
+                ToolName::ReadFileRange.into(),
+                ToolErrorCode::PathDenied,
+                &path,
+                "path is not present in the repo manifest",
+                false,
+            );
+        };
+        let Ok(_permit) = self.read_permits.clone().acquire_owned().await else {
+            return self.error_result(
+                call_id,
+                ToolName::ReadFileRange.into(),
+                ToolErrorCode::Internal,
+                "read semaphore closed",
+                false,
+            );
+        };
+        match self.read.read_file(&file).await {
+            Ok(read) => {
+                let line_count = read.content.lines().count().max(1);
+                let normalized_start = start_line.min(line_count).max(1);
+                let normalized_end = end_line.min(line_count).max(normalized_start);
+                let raw_slice = read
+                    .content
+                    .lines()
+                    .enumerate()
+                    .filter(|(index, _)| {
+                        let line_number = index + 1;
+                        line_number >= normalized_start && line_number <= normalized_end
+                    })
+                    .map(|(index, line)| format!("{}: {}", index + 1, line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let content = self.redactor.redact(&raw_slice);
+                let artifact_id = self.artifacts.insert_views(
+                    ArtifactKey(stable_id(&[
+                        &self.snapshot.snapshot_id.0,
+                        "read_file_range",
+                        &file.fingerprint,
+                        &path.display(),
+                        &normalized_start.to_string(),
+                        &normalized_end.to_string(),
+                    ])),
+                    raw_slice,
+                    content.clone(),
+                );
+                ToolResultEnvelope {
+                    ok: true,
+                    tool_call_id: call_id,
+                    tool_name: ToolId::from(ToolName::ReadFileRange),
+                    provider_id: ToolProviderId::builtin_review(),
+                    snapshot_id: self.snapshot.snapshot_id.clone(),
+                    artifact_id: Some(artifact_id.clone()),
+                    cache: CacheInfo {
+                        status: cache_status,
+                        key_hash: Some(stable_id(&[
+                            &file.fingerprint,
+                            &normalized_start.to_string(),
+                            &normalized_end.to_string(),
+                        ])),
+                    },
+                    limits: LimitInfo {
+                        truncated: read.truncated,
+                        output_bytes: content.len(),
+                        ..LimitInfo::default()
+                    },
+                    data: Some(json!({
+                        "path": path.display(),
+                        "content": content,
+                        "lineRange": {
+                            "startLine": normalized_start,
+                            "endLine": normalized_end,
+                        },
+                        "evidenceId": stable_id(&[
+                            &self.snapshot.snapshot_id.0,
+                            &file.file_id.0.to_string(),
+                            &file.fingerprint,
+                            &artifact_id.0,
+                        ]),
+                    })),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                self.read_error_result(call_id, ToolName::ReadFileRange.into(), &path, error)
+            }
         }
     }
 
@@ -1109,126 +1068,6 @@ impl ToolEngine {
                 result
             }
             Err(error) => self.runtime_error_result(call_id, ToolName::SearchText.into(), error),
-        }
-    }
-
-    fn challenge_finding(
-        &self,
-        call_id: ToolCallId,
-        finding_id: String,
-        rationale: String,
-    ) -> ToolResultEnvelope {
-        let content = format!("{finding_id}: {rationale}");
-        let artifact_id = self.artifacts.insert_views(
-            ArtifactKey(stable_id(&[
-                &self.snapshot.snapshot_id.0,
-                "challenge_finding",
-                &finding_id,
-                &rationale,
-            ])),
-            content.clone(),
-            self.redactor.redact(&content),
-        );
-        ToolResultEnvelope {
-            ok: true,
-            tool_call_id: call_id,
-            tool_name: ToolId::from(ToolName::ChallengeFinding),
-            provider_id: ToolProviderId::builtin_review(),
-            snapshot_id: self.snapshot.snapshot_id.clone(),
-            artifact_id: Some(artifact_id),
-            cache: CacheInfo {
-                status: CacheStatus::NotCacheable,
-                key_hash: None,
-            },
-            limits: LimitInfo {
-                output_bytes: content.len(),
-                ..LimitInfo::default()
-            },
-            data: Some(json!({
-                "findingId": finding_id,
-                "rationale": rationale,
-            })),
-            error: None,
-        }
-    }
-
-    fn record_finding(
-        &self,
-        call_id: ToolCallId,
-        title: String,
-        claim: String,
-    ) -> ToolResultEnvelope {
-        let finding_id = finding_id_for_call(&call_id, &title, &claim);
-        ToolResultEnvelope {
-            ok: true,
-            tool_call_id: call_id,
-            tool_name: ToolId::from(ToolName::RecordFinding),
-            provider_id: ToolProviderId::builtin_review(),
-            snapshot_id: self.snapshot.snapshot_id.clone(),
-            artifact_id: None,
-            cache: CacheInfo {
-                status: CacheStatus::NotCacheable,
-                key_hash: None,
-            },
-            limits: LimitInfo::default(),
-            data: Some(json!({
-                "findingId": finding_id,
-                "title": title,
-                "claim": claim,
-            })),
-            error: None,
-        }
-    }
-
-    fn evidence_refs(
-        &self,
-        results: &[ToolResultEnvelope],
-        revision_id: &str,
-    ) -> Vec<EvidenceRefV1> {
-        results
-            .iter()
-            .filter(|result| result.ok)
-            .filter_map(|result| {
-                let tool = result.tool_name.as_builtin()?;
-                let kind = artifact_kind_for_tool(tool)?;
-                let artifact_id = result.artifact_id.as_ref()?;
-                let artifact = self.artifacts.get(artifact_id)?;
-                Some(EvidenceRefV1 {
-                    evidence_id: format!("evidence-{}", artifact_id.0),
-                    artifact_id: artifact_id.0.clone(),
-                    kind,
-                    revision: evidence_revision_for_tool(tool),
-                    revision_id: revision_id.to_string(),
-                    location: evidence_location(result, &self.snapshot),
-                    line_range: evidence_line_range(result),
-                    byte_range: Some(ByteRangeV1 {
-                        start_byte: 0,
-                        end_byte: artifact.bytes,
-                    }),
-                    diff_anchor: None,
-                    content_hash: artifact.content_hash,
-                    redaction: redaction_none(),
-                    producing_tool_call_id: result.tool_call_id.0.clone(),
-                })
-            })
-            .collect()
-    }
-
-    fn finish(&self, call_id: ToolCallId, reason: String) -> ToolResultEnvelope {
-        ToolResultEnvelope {
-            ok: true,
-            tool_call_id: call_id,
-            tool_name: ToolId::from(ToolName::Finish),
-            provider_id: ToolProviderId::builtin_review(),
-            snapshot_id: self.snapshot.snapshot_id.clone(),
-            artifact_id: None,
-            cache: CacheInfo {
-                status: CacheStatus::NotCacheable,
-                key_hash: None,
-            },
-            limits: LimitInfo::default(),
-            data: Some(json!({ "reason": reason })),
-            error: None,
         }
     }
 
@@ -1416,7 +1255,7 @@ impl ToolEngine {
         }
     }
 
-    fn runtime_error_result(
+    pub(super) fn runtime_error_result(
         &self,
         call_id: ToolCallId,
         tool_name: ToolId,
@@ -1458,11 +1297,16 @@ impl ToolEngine {
                 "tool provider timed out",
                 true,
             ),
-            RuntimeError::InvalidInput(_) => self.error_result(
+            RuntimeError::InvalidInput(message)
+                if message.contains("not text") || message.contains("UTF-8") =>
+            {
+                self.error_result(call_id, tool_name, ToolErrorCode::NotText, &message, false)
+            }
+            RuntimeError::InvalidInput(message) => self.error_result(
                 call_id,
                 tool_name,
                 ToolErrorCode::InvalidArgs,
-                "invalid tool input",
+                &message,
                 false,
             ),
             _ => self.error_result(
@@ -1473,6 +1317,48 @@ impl ToolEngine {
                 false,
             ),
         }
+    }
+
+    fn read_error_result(
+        &self,
+        call_id: ToolCallId,
+        tool_name: ToolId,
+        path: &RepoPath,
+        error: RuntimeError,
+    ) -> ToolResultEnvelope {
+        let mut result = self.runtime_error_result(call_id, tool_name, error);
+        if matches!(
+            result.error.as_ref().map(|error| error.code),
+            Some(
+                ToolErrorCode::NotText
+                    | ToolErrorCode::TooLarge
+                    | ToolErrorCode::PathDenied
+                    | ToolErrorCode::NotFound
+            )
+        ) {
+            result.data = Some(json!({
+                "path": path.display(),
+                "available": false,
+            }));
+        }
+        result
+    }
+
+    fn read_unavailable_result(
+        &self,
+        call_id: ToolCallId,
+        tool_name: ToolId,
+        code: ToolErrorCode,
+        path: &RepoPath,
+        message: &str,
+        retryable: bool,
+    ) -> ToolResultEnvelope {
+        let mut result = self.error_result(call_id, tool_name, code, message, retryable);
+        result.data = Some(json!({
+            "path": path.display(),
+            "available": false,
+        }));
+        result
     }
 
     fn provider_id_for_tool(&self, tool_name: &ToolId) -> ToolProviderId {
@@ -1500,7 +1386,7 @@ impl ToolEngine {
 
     #[cfg(test)]
     pub(crate) fn inflight_tool_count_for_test(&self) -> usize {
-        self.inflight.lock().len()
+        self.result_cache.inflight_count()
     }
 
     fn record_batch_metrics(&self, results: &[ToolResultEnvelope]) {
@@ -1514,8 +1400,96 @@ fn elapsed_ms(started: Instant) -> u64 {
     (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
 }
 
-fn elapsed_ms_allow_zero(started: Instant) -> u64 {
+pub(super) fn elapsed_ms_allow_zero(started: Instant) -> u64 {
     started.elapsed().as_micros().div_ceil(1000) as u64
+}
+
+fn assigned_changed_files(scope: &SessionScope) -> Vec<RepoPath> {
+    scope
+        .instructions
+        .iter()
+        .filter(|instruction| instruction.trusted && instruction.kind == "changed_file_batch")
+        .flat_map(|instruction| changed_files_from_batch_instruction(&instruction.text))
+        .filter_map(|path| RepoPath::parse(&path).ok())
+        .collect()
+}
+
+fn changed_files_from_batch_instruction(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let (prefix, path) = trimmed.split_once(". ")?;
+            prefix.parse::<usize>().ok()?;
+            let path = path.trim();
+            (!path.is_empty()).then(|| path.to_string())
+        })
+        .collect()
+}
+
+fn scoped_diff_content(diff: &str, assigned_paths: &[RepoPath]) -> (String, Vec<String>) {
+    if assigned_paths.is_empty() {
+        return (diff.to_string(), Vec::new());
+    }
+
+    let assigned = assigned_paths
+        .iter()
+        .map(RepoPath::display)
+        .collect::<BTreeSet<_>>();
+    let mut selected = Vec::new();
+    let mut current = Vec::new();
+    let mut include_current = false;
+    let mut included_paths = BTreeSet::new();
+
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            flush_diff_section(&mut selected, &mut current, include_current);
+            include_current = diff_git_line_matches(line, &assigned, &mut included_paths);
+        } else if line.starts_with("+++ b/") || line.starts_with("--- a/") {
+            if let Some(path) = line.get(6..) {
+                if assigned.contains(path) {
+                    include_current = true;
+                    included_paths.insert(path.to_string());
+                }
+            }
+        }
+        current.push(line.to_string());
+    }
+    flush_diff_section(&mut selected, &mut current, include_current);
+
+    if selected.is_empty() {
+        return (diff.to_string(), Vec::new());
+    }
+
+    (
+        selected.join("\n") + "\n",
+        included_paths.into_iter().collect(),
+    )
+}
+
+fn flush_diff_section(selected: &mut Vec<String>, current: &mut Vec<String>, include: bool) {
+    if include {
+        selected.extend(std::mem::take(current));
+    } else {
+        current.clear();
+    }
+}
+
+fn diff_git_line_matches(
+    line: &str,
+    assigned: &BTreeSet<String>,
+    included_paths: &mut BTreeSet<String>,
+) -> bool {
+    let mut matched = false;
+    for part in line.split_whitespace().skip(2) {
+        let Some(path) = part.strip_prefix("a/").or_else(|| part.strip_prefix("b/")) else {
+            continue;
+        };
+        if assigned.contains(path) {
+            included_paths.insert(path.to_string());
+            matched = true;
+        }
+    }
+    matched
 }
 
 fn validation_error_message(code: ToolErrorCode) -> &'static str {

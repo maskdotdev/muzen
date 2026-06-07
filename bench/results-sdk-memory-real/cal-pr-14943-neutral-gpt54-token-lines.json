@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+      "packages/prisma/schema.prisma"
+    ],
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T22:01:23.631Z",
+    "finishedAtUtc": "2026-06-06T22:01:29.315Z",
+    "elapsedMs": 5684
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 5145,
+    "outputTokens": 315,
+    "totalTokens": 5460,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"The SMS reminder scheduling change introduces a concrete data-loss bug in its cleanup query. The migration and schema change adding retryCount are not independently problematic based on the provided evidence.\",\"fileVerdicts\":[{\"path\":\"packages/features/ee/workflows/api/scheduleSMSReminders.ts\",\"verdict\":\"buggy\",\"summary\":\"The new deleteMany cleanup removes non-SMS reminders once their retryCount exceeds 1 because the retryCount branch is not scoped to method: SMS.\"},{\"path\":\"packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql\",\"verdict\":\"clean\",\"summary\":\"No concrete correctness issue is supported by the provided evidence for the migration itself.\"},{\"path\":\"packages/prisma/schema.prisma\",\"verdict\":\"clean\",\"summary\":\"No concrete correctness issue is supported by the provided evidence for the schema change itself.\"}],\"findings\":[{\"title\":\"Cleanup query deletes reminders from other delivery methods\",\"claim\":\"The new pre-processing deleteMany uses an OR where only the first branch is constrained by `method: WorkflowMethods.SMS`. Any workflow reminder of any method with `retryCount > 1` now matches the second branch and is permanently deleted by the SMS scheduler cron. This causes unrelated email/other reminders to be removed once they have retried twice, which is a correctness regression from an endpoint that should only manage SMS reminders.\",\"path\":\"packages/features/ee/workflows/api/scheduleSMSReminders.ts\",\"startLine\":28,\"endLine\":43}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 20794,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 3
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_43ad64d83789cdd4c78a4829a5231d62acea9ba30ae69e88025893500a2a8247",
+          "art_601866b9fa8f7958d083fcb5ac8e74875b484c48de74e310280f20d7c209121c",
+          "art_9089dfb20fb443b1b18e8b0eece298d15bf68ec7402cb376900774f27bbc22d4",
+          "art_92691f7fb5d330e68e987fc2a77b0761e863208949abfe4a019bba342f46724f",
+          "art_c5c85f3dc568919fa7fd887e065ec5176667de8c6e2ab09246c82224e8f68752"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "The new deleteMany cleanup removes non-SMS reminders once their retryCount exceeds 1 because the retryCount branch is not scoped to method: SMS.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_43ad64d83789cdd4c78a4829a5231d62acea9ba30ae69e88025893500a2a8247",
+          "art_9089dfb20fb443b1b18e8b0eece298d15bf68ec7402cb376900774f27bbc22d4",
+          "art_92691f7fb5d330e68e987fc2a77b0761e863208949abfe4a019bba342f46724f",
+          "art_c5c85f3dc568919fa7fd887e065ec5176667de8c6e2ab09246c82224e8f68752"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "No concrete correctness issue is supported by the provided evidence for the migration itself.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new pre-processing deleteMany uses an OR where only the first branch is constrained by `method: WorkflowMethods.SMS`. Any workflow reminder of any method with `retryCount > 1` now matches the second branch and is permanently deleted by the SMS scheduler cron. This causes unrelated email/other reminders to be removed once they have retried twice, which is a correctness regression from an endpoint that should only manage SMS reminders.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "fe02143556a4a802f220cb68df542adf37d75418ed91299f431854ab1d50a139",
+        "location": {
+          "endColumn": null,
+          "endLine": 43,
+          "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 28
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Cleanup query deletes reminders from other delivery methods",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780783284148",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "85051f26d3a2ba24abe8cd3f456847c082abe4156fc08552e680ce535d1bedab"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 7451,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 4853,
+      "findings": 1,
+      "inputTokens": 5145,
+      "modelCalls": 3,
+      "outputTokens": 315,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 5460
+    }
+  },
+  "reviewValid": true
+}

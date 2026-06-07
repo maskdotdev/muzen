@@ -1,0 +1,34 @@
+{
+  "issues": [
+    {
+      "id": "cal-11059-return-shape-refresh-token",
+      "title": "Refresh-token helper returns the wrong app credential shape",
+      "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+      "keywords": ["credential", "refresh", "return"]
+    },
+    {
+      "id": "cal-11059-google-calendar-return-shape",
+      "title": "Google Calendar callback expects the refreshed credential shape",
+      "path": "packages/app-store/googlecalendar/api/callback.ts",
+      "keywords": ["credential", "refresh", "return"]
+    },
+    {
+      "id": "cal-11059-office365-calendar-return-shape",
+      "title": "Office 365 Calendar callback expects the refreshed credential shape",
+      "path": "packages/app-store/office365calendar/api/callback.ts",
+      "keywords": ["credential", "refresh", "return"]
+    },
+    {
+      "id": "cal-11059-zoom-video-return-shape",
+      "title": "Zoom video callback expects the refreshed credential shape",
+      "path": "packages/app-store/zoomvideo/api/callback.ts",
+      "keywords": ["credential", "refresh", "return"]
+    },
+    {
+      "id": "cal-11059-webhook-credential-ownership",
+      "title": "Webhook-created app credential is not tied to the expected owner contract",
+      "path": "apps/web/pages/api/webhook/app-credential.ts",
+      "keywords": ["credential", "user"]
+    }
+  ]
+}

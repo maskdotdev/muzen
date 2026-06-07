@@ -13,6 +13,11 @@ pub enum ReviewSource {
         #[serde(default)]
         changed_files: Vec<String>,
     },
+    RawSnapshot {
+        root: PathBuf,
+        #[serde(default)]
+        changed_files: Vec<String>,
+    },
     GithubPullRequest {
         owner: String,
         repo: String,
@@ -22,6 +27,18 @@ pub enum ReviewSource {
         owner: String,
         repo: String,
         number: u64,
+    },
+    PerforceChangelist {
+        server: String,
+        changelist: String,
+        #[serde(default)]
+        client: Option<String>,
+        #[serde(default)]
+        depot_paths: Vec<String>,
+    },
+    Custom {
+        provider: String,
+        id: String,
     },
 }
 
@@ -39,6 +56,23 @@ impl ReviewSource {
     ) -> Self {
         Self::Local {
             repo: repo.into(),
+            changed_files: changed_files.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn raw_snapshot(root: impl Into<PathBuf>) -> Self {
+        Self::RawSnapshot {
+            root: root.into(),
+            changed_files: Vec::new(),
+        }
+    }
+
+    pub fn raw_snapshot_with_changed_files(
+        root: impl Into<PathBuf>,
+        changed_files: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self::RawSnapshot {
+            root: root.into(),
             changed_files: changed_files.into_iter().map(Into::into).collect(),
         }
     }
@@ -73,9 +107,37 @@ impl ReviewSource {
         })
     }
 
+    pub fn perforce_changelist(
+        server: impl Into<String>,
+        changelist: impl Into<String>,
+    ) -> Result<Self, ReviewSessionError> {
+        let server = server.into();
+        let changelist = changelist.into();
+        validate_non_empty_source_part("perforce", "server", &server)?;
+        validate_non_empty_source_part("perforce", "changelist", &changelist)?;
+        Ok(Self::PerforceChangelist {
+            server,
+            changelist,
+            client: None,
+            depot_paths: Vec::new(),
+        })
+    }
+
+    pub fn custom(
+        provider: impl Into<String>,
+        id: impl Into<String>,
+    ) -> Result<Self, ReviewSessionError> {
+        let provider = provider.into();
+        let id = id.into();
+        validate_non_empty_source_part("custom", "provider", &provider)?;
+        validate_non_empty_source_part("custom", "id", &id)?;
+        Ok(Self::Custom { provider, id })
+    }
+
     pub fn source_key(&self) -> String {
         match self {
             Self::Local { repo, .. } => format!("local:{}", repo.display()),
+            Self::RawSnapshot { root, .. } => format!("raw_snapshot:{}", root.display()),
             Self::GithubPullRequest {
                 owner,
                 repo,
@@ -86,13 +148,21 @@ impl ReviewSource {
                 repo,
                 number,
             } => format!("gitlab:{owner}/{repo}!{number}"),
+            Self::PerforceChangelist {
+                server, changelist, ..
+            } => format!("perforce:{server}@{changelist}"),
+            Self::Custom { provider, id } => format!("custom:{provider}:{id}"),
         }
     }
 
     pub(super) fn local_repo(&self) -> Option<&Path> {
         match self {
             Self::Local { repo, .. } => Some(repo.as_path()),
-            Self::GithubPullRequest { .. } | Self::GitlabMergeRequest { .. } => None,
+            Self::RawSnapshot { root, .. } => Some(root.as_path()),
+            Self::GithubPullRequest { .. }
+            | Self::GitlabMergeRequest { .. }
+            | Self::PerforceChangelist { .. }
+            | Self::Custom { .. } => None,
         }
     }
 
@@ -102,7 +172,11 @@ impl ReviewSource {
         }
         match self {
             Self::Local { changed_files, .. } => changed_files.clone(),
-            Self::GithubPullRequest { .. } | Self::GitlabMergeRequest { .. } => Vec::new(),
+            Self::RawSnapshot { changed_files, .. } => changed_files.clone(),
+            Self::GithubPullRequest { .. }
+            | Self::GitlabMergeRequest { .. }
+            | Self::PerforceChangelist { .. }
+            | Self::Custom { .. } => Vec::new(),
         }
     }
 }
@@ -128,10 +202,20 @@ impl FromStr for ReviewSource {
             }
             return Ok(Self::local(PathBuf::from(rest)));
         }
+        if let Some(rest) = input.strip_prefix("raw_snapshot:") {
+            if rest.trim().is_empty() {
+                return Err(ReviewSessionError::InvalidSource {
+                    input: input.to_string(),
+                    reason: "raw snapshot path is empty".to_string(),
+                });
+            }
+            return Ok(Self::raw_snapshot(PathBuf::from(rest)));
+        }
         Err(ReviewSessionError::InvalidSource {
             input: input.to_string(),
-            reason: "expected github:owner/repo#number, gitlab:owner/repo!number, or local:path"
-                .to_string(),
+            reason:
+                "expected github:owner/repo#number, gitlab:owner/repo!number, local:path, or raw_snapshot:path"
+                    .to_string(),
         })
     }
 }
@@ -214,6 +298,20 @@ fn parse_repo_change(
             reason: "missing owner/repo path".to_string(),
         })?;
     Ok((owner.to_string(), repo.to_string(), number))
+}
+
+fn validate_non_empty_source_part(
+    provider: &str,
+    field: &str,
+    value: &str,
+) -> Result<(), ReviewSessionError> {
+    if value.trim().is_empty() {
+        return Err(ReviewSessionError::InvalidSource {
+            input: provider.to_string(),
+            reason: format!("{field} is empty"),
+        });
+    }
+    Ok(())
 }
 
 fn validate_repo_source_parts(

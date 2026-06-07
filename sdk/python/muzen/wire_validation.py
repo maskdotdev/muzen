@@ -11,6 +11,7 @@ from .types import (
     ReviewCoverage,
     ReviewEvent,
     ReviewFinding,
+    ReviewFindingEvidence,
     ReviewResult,
     ReviewSessionSnapshot,
     ReviewSource,
@@ -132,10 +133,30 @@ def _remote_source(value: Dict[str, Any]) -> ReviewSource:
             repo=value["repo"],
             changed_files=value.get("changedFiles", []),
         )
+    if value["type"] == "raw_snapshot":
+        return ReviewSource(
+            type="raw_snapshot",
+            root=value["root"],
+            changed_files=value.get("changedFiles", []),
+        )
+    if value["type"] == "perforce_changelist":
+        return ReviewSource(
+            type="perforce_changelist",
+            server=value.get("server"),
+            changelist=value.get("changelist"),
+            client=value.get("client"),
+            depot_paths=value.get("depotPaths", []),
+        )
+    if value["type"] == "custom":
+        return ReviewSource(
+            type="custom",
+            provider=value.get("provider"),
+            id=value.get("id"),
+        )
     return ReviewSource(
         type=value["type"],
         owner=value.get("owner"),
-        repo=value["repo"],
+        repo=value.get("repo"),
         number=value.get("number"),
     )
 
@@ -157,6 +178,21 @@ def _remote_result(value: Dict[str, Any]) -> ReviewResult:
                 location=finding.get("location"),
                 suggested_fix=finding.get("suggestedFix"),
                 confidence=finding.get("confidence"),
+                validation_status=finding.get("validationStatus"),
+                evidence=[
+                    ReviewFindingEvidence(
+                        evidence_id=evidence.get("evidenceId", ""),
+                        artifact_id=evidence.get("artifactId", ""),
+                        kind=evidence.get("kind", ""),
+                        content_hash=evidence.get("contentHash", ""),
+                        producing_tool_call_id=evidence.get("producingToolCallId", ""),
+                    )
+                    for evidence in finding.get("evidence", [])
+                    if isinstance(evidence, dict)
+                ],
+                discovered_by=list(finding.get("discoveredBy", [])),
+                validated_by=list(finding.get("validatedBy", [])),
+                challenged_by=list(finding.get("challengedBy", [])),
             )
             for finding in value.get("findings", [])
         ],

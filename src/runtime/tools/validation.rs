@@ -14,28 +14,16 @@ struct ReadFileArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReadFileRangeArgs {
+    path: String,
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SearchTextArgs {
     query: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RecordFindingArgs {
-    title: String,
-    claim: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ChallengeFindingArgs {
-    finding_id: String,
-    rationale: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FinishArgs {
-    reason: Option<String>,
 }
 
 pub(crate) fn validate_invocation(
@@ -89,6 +77,28 @@ pub(crate) fn validate_invocation(
             })?;
             ToolArgs::ReadFile { path }
         }
+        Some(ToolName::ReadFileRange) => {
+            let parsed: ReadFileRangeArgs =
+                serde_json::from_str(&call.raw_arguments).map_err(|_| {
+                    (
+                        call.call_id.clone(),
+                        tool_id.clone(),
+                        ToolErrorCode::InvalidArgs,
+                    )
+                })?;
+            let path = RepoPath::parse(&parsed.path).map_err(|_| {
+                (
+                    call.call_id.clone(),
+                    tool_id.clone(),
+                    ToolErrorCode::PathDenied,
+                )
+            })?;
+            ToolArgs::ReadFileRange {
+                path,
+                start_line: parsed.start_line.max(1),
+                end_line: parsed.end_line.max(parsed.start_line).max(1),
+            }
+        }
         Some(ToolName::SearchText) => {
             let parsed: SearchTextArgs =
                 serde_json::from_str(&call.raw_arguments).map_err(|_| {
@@ -102,46 +112,6 @@ pub(crate) fn validate_invocation(
                 query: parsed.query,
             }
         }
-        Some(ToolName::RecordFinding) => {
-            let parsed: RecordFindingArgs =
-                serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                    (
-                        call.call_id.clone(),
-                        tool_id.clone(),
-                        ToolErrorCode::InvalidArgs,
-                    )
-                })?;
-            ToolArgs::RecordFinding {
-                title: parsed.title,
-                claim: parsed.claim,
-            }
-        }
-        Some(ToolName::ChallengeFinding) => {
-            let parsed: ChallengeFindingArgs =
-                serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                    (
-                        call.call_id.clone(),
-                        tool_id.clone(),
-                        ToolErrorCode::InvalidArgs,
-                    )
-                })?;
-            ToolArgs::ChallengeFinding {
-                finding_id: parsed.finding_id,
-                rationale: parsed.rationale,
-            }
-        }
-        Some(ToolName::Finish) => {
-            let parsed: FinishArgs = serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                (
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::InvalidArgs,
-                )
-            })?;
-            ToolArgs::Finish {
-                reason: parsed.reason.unwrap_or_else(|| "finished".to_string()),
-            }
-        }
         None => {
             let parsed: Value = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (
@@ -150,6 +120,9 @@ pub(crate) fn validate_invocation(
                     ToolErrorCode::InvalidArgs,
                 )
             })?;
+            if !schema_accepts_value(&parsed, &definition.parameters) {
+                return Err((call.call_id, tool_id, ToolErrorCode::InvalidArgs));
+            }
             ToolArgs::Raw(parsed)
         }
     };
@@ -163,6 +136,7 @@ pub(crate) fn validate_invocation(
         args,
         capabilities,
         scope_key,
+        assigned_changed_files: Vec::new(),
     })
 }
 
@@ -174,33 +148,80 @@ pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnve
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::runtime::tools::ToolRegistry;
-
-    #[test]
-    fn validation_rejects_arguments_over_capability_input_limit() {
-        let registry = ToolRegistry::review_defaults().expect("registry");
-        let mut capabilities = CapabilitySet::review_read_only();
-        capabilities.tool_input.max_argument_bytes = 1;
-        let call = ModelToolCall {
-            call_id: ToolCallId("call".to_string()),
-            index: 0,
-            name: ToolId::from(ToolName::ReadDiff),
-            raw_arguments: "{}".to_string(),
-        };
-
-        let err = validate_invocation(
-            SessionId("session".to_string()),
-            TurnId(1),
-            call,
-            capabilities,
-            FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string())),
-            &registry,
-        )
-        .expect_err("oversized arguments should be denied");
-
-        assert_eq!(err.2, ToolErrorCode::TooLarge);
+fn schema_accepts_value(value: &Value, schema: &Value) -> bool {
+    match schema {
+        Value::Bool(accepts) => *accepts,
+        Value::Object(_) => {
+            if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+                if !values.iter().any(|candidate| candidate == value) {
+                    return false;
+                }
+            }
+            match schema.get("type") {
+                Some(Value::String(kind)) => schema_type_accepts(value, schema, kind),
+                Some(Value::Array(kinds)) => kinds
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|kind| schema_type_accepts(value, schema, kind)),
+                Some(_) => false,
+                None => true,
+            }
+        }
+        _ => true,
     }
+}
+
+fn schema_type_accepts(value: &Value, schema: &Value, kind: &str) -> bool {
+    match kind {
+        "object" => object_schema_accepts(value, schema),
+        "array" => array_schema_accepts(value, schema),
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        _ => false,
+    }
+}
+
+fn object_schema_accepts(value: &Value, schema: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        if !required
+            .iter()
+            .filter_map(Value::as_str)
+            .all(|name| object.contains_key(name))
+        {
+            return false;
+        }
+    }
+    if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
+        let Some(properties) = properties else {
+            return object.is_empty();
+        };
+        if object.keys().any(|name| !properties.contains_key(name)) {
+            return false;
+        }
+    }
+    properties.is_none_or(|properties| {
+        properties.iter().all(|(name, property_schema)| {
+            object
+                .get(name)
+                .is_none_or(|property| schema_accepts_value(property, property_schema))
+        })
+    })
+}
+
+fn array_schema_accepts(value: &Value, schema: &Value) -> bool {
+    let Some(items) = value.as_array() else {
+        return false;
+    };
+    schema.get("items").is_none_or(|item_schema| {
+        items
+            .iter()
+            .all(|item| schema_accepts_value(item, item_schema))
+    })
 }

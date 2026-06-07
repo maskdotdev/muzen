@@ -1,0 +1,172 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T21:02:53.981Z",
+    "finishedAtUtc": "2026-06-06T21:02:56.807Z",
+    "elapsedMs": 2825
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 13206,
+    "outputTokens": 232,
+    "totalTokens": 13438,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the changed scheduling and slot-related files. The only supported issue is a working-hours boundary bug in slot availability calculation; no other actionable regressions are supported by the transcript evidence.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"needs_review\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Working-hours end boundary uses the slot start time twice\",\"claim\":\"In checkIfIsAvailable, the working-hours check computes both `start` and `end` from `slotStartTime` (`const end = slotStartTime.hour() * 60 + slotStartTime.minute();`). This means the slot end is never evaluated against `workingHour.endTime`, so slots that extend past the end of working hours can be incorrectly accepted.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":118,\"endLine\":123}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 49360,
+        "hasArtifactContent": true,
+        "hasDayjsIdentityComparison": false,
+        "hasRepeatedSlotStartEnd": true
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_39e4c56f68fc5a6900c86e50be5db036b523bb79a7966e2bf8b8e455e3fcb5bc",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_8b53c90398cdd07267b1f5e0ddd98090e8f116c3f20c6df300e27c9a18bb0374",
+          "art_d83b9eb60aba97c1702053e75187b1394c7b0c056853c0951217e31d27239067"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_39e4c56f68fc5a6900c86e50be5db036b523bb79a7966e2bf8b8e455e3fcb5bc",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_8b53c90398cdd07267b1f5e0ddd98090e8f116c3f20c6df300e27c9a18bb0374",
+          "art_d83b9eb60aba97c1702053e75187b1394c7b0c056853c0951217e31d27239067"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_39e4c56f68fc5a6900c86e50be5db036b523bb79a7966e2bf8b8e455e3fcb5bc",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_8b53c90398cdd07267b1f5e0ddd98090e8f116c3f20c6df300e27c9a18bb0374",
+          "art_babc0e1f70d6e78935f96af6440515bd0b3c3107cb60959a8c5169bcc5b459d2",
+          "art_d83b9eb60aba97c1702053e75187b1394c7b0c056853c0951217e31d27239067"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict needs_review.",
+        "unitId": "unit-001",
+        "verdict": "needs_review"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_39e4c56f68fc5a6900c86e50be5db036b523bb79a7966e2bf8b8e455e3fcb5bc",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_8b53c90398cdd07267b1f5e0ddd98090e8f116c3f20c6df300e27c9a18bb0374",
+          "art_d83b9eb60aba97c1702053e75187b1394c7b0c056853c0951217e31d27239067"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "In checkIfIsAvailable, the working-hours check computes both `start` and `end` from `slotStartTime` (`const end = slotStartTime.hour() * 60 + slotStartTime.minute();`). This means the slot end is never evaluated against `workingHour.endTime`, so slots that extend past the end of working hours can be incorrectly accepted.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "e172cf240b44b5d2750e14577984ce3d47f9e31b0ad26d11960af918ed468dfc",
+        "location": {
+          "endColumn": null,
+          "endLine": 123,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 118
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Working-hours end boundary uses the slot start time twice",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780779773992",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "ae086838897c8eae4e2a9b5a7086bd30b9d33c6c3772dccd6b2c91bbdd623f6a"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 20969,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 2662,
+      "findings": 1,
+      "inputTokens": 13206,
+      "modelCalls": 3,
+      "outputTokens": 232,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 13438
+    }
+  },
+  "reviewValid": true
+}

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+      "packages/prisma/schema.prisma"
+    ],
+    "baseRef": "origin/benchmark/base-pr-14943",
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T22:06:01.147Z",
+    "finishedAtUtc": "2026-06-06T22:06:06.152Z",
+    "elapsedMs": 5005
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 6822,
+    "outputTokens": 314,
+    "totalTokens": 7136,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"The retry-count migration itself is straightforward, but the SMS scheduling change introduces one concrete data-loss bug in the cleanup query. Other reviewed changes are acceptable based on the provided evidence.\",\"fileVerdicts\":[{\"path\":\"packages/features/ee/workflows/api/scheduleSMSReminders.ts\",\"verdict\":\"buggy\",\"summary\":\"The new retry cleanup broadens deleteMany in a way that can remove non-SMS reminders after two failures.\"},{\"path\":\"packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql\",\"verdict\":\"clean\",\"summary\":\"Adds a non-null retryCount column with a default value; no correctness issue is evident from the migration alone.\"},{\"path\":\"packages/prisma/schema.prisma\",\"verdict\":\"clean\",\"summary\":\"Schema change matches the migration and does not itself introduce a correctness issue.\"}],\"findings\":[{\"title\":\"Retry cleanup deletes reminders from every workflow method\",\"claim\":\"The new deleteMany condition changed from filtering only SMS reminders to an OR that includes any row with retryCount > 1. Because the second branch has no method constraint, once other reminder types start using or inheriting retryCount values, this cron will delete non-SMS WorkflowReminder records as well. Keep the retry-count purge scoped to method: SMS (or otherwise explicitly limit the affected reminder types) to avoid cross-method data loss.\",\"path\":\"packages/features/ee/workflows/api/scheduleSMSReminders.ts\",\"startLine\":30,\"endLine\":42}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 26573,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 3
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_185771797befa677167fe3d2a1d348a907314bc76e76ca28b5463f440bb6a205",
+          "art_48166dfb27878364245be71d36413111f11633ca6d4ef76c8c9a0a86c4248464",
+          "art_8d63ca50184ec64abcba990c97b26adc1f929cf933d2b5854564029940a4c7bb",
+          "art_bdc2e30fc70d17585ada668f4d01f7893de1504fa8147f52170170c53ea782a1",
+          "art_cde2b35914407a7ab13450cf867d0262d67ef6279b38eff831d0913a672ec48f"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "The new retry cleanup broadens deleteMany in a way that can remove non-SMS reminders after two failures.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_48166dfb27878364245be71d36413111f11633ca6d4ef76c8c9a0a86c4248464",
+          "art_8d63ca50184ec64abcba990c97b26adc1f929cf933d2b5854564029940a4c7bb",
+          "art_bdc2e30fc70d17585ada668f4d01f7893de1504fa8147f52170170c53ea782a1",
+          "art_cde2b35914407a7ab13450cf867d0262d67ef6279b38eff831d0913a672ec48f"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Adds a non-null retryCount column with a default value; no correctness issue is evident from the migration alone.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new deleteMany condition changed from filtering only SMS reminders to an OR that includes any row with retryCount > 1. Because the second branch has no method constraint, once other reminder types start using or inheriting retryCount values, this cron will delete non-SMS WorkflowReminder records as well. Keep the retry-count purge scoped to method: SMS (or otherwise explicitly limit the affected reminder types) to avoid cross-method data loss.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "a1539fc9b9407b004f816e1384b5355b3d758b69174bd4fd46cafd125ab150d1",
+        "location": {
+          "endColumn": null,
+          "endLine": 42,
+          "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 30
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Retry cleanup deletes reminders from every workflow method",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780783561153",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "242c4037f10dfdcab4ab9d39ee733dc241b42b9e2d0017bd1f85eac2ddf1534b"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 10175,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 4724,
+      "findings": 1,
+      "inputTokens": 6822,
+      "modelCalls": 3,
+      "outputTokens": 314,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 7136
+    }
+  },
+  "reviewValid": true
+}

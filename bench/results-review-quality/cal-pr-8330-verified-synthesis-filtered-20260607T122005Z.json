@@ -1,0 +1,267 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T12:20:15.705Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-lZ3GGY/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-lZ3GGY/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 1,
+    "completedSessions": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "needs_review": 3,
+      "issue_found": 1
+    },
+    "findings": 2,
+    "modelCalls": 8,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 1,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 1,
+      "readFile": 0,
+      "readFileRange": 4,
+      "readHeadFile": 0,
+      "searchText": 0
+    },
+    "tokens": {
+      "inputTokens": 30784,
+      "outputTokens": 619,
+      "totalTokens": 31403
+    },
+    "artifactStats": {
+      "artifactBytes": 29242,
+      "artifacts": 6,
+      "contentRefs": 6
+    },
+    "elapsedMs": 8452
+  },
+  "benchmark": {
+    "elapsedMs": 8855,
+    "hitRate": 0.3333333333333333,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "5598984181f8ec00b647c2f1c40da73536d6f818cf3c509a3855e1c6923e424d",
+        "title": "Date override check can return available for any slot on the override day regardless of actual override span"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 0,
+    "importCount": 0,
+    "needsReviewCount": 3,
+    "cleanCount": 0,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `checkIfIsAvailable`, `dateOverrideExist` is set true as soon as the slot shares the same YYYY MM DD as a date override, and the function then returns true immediately. That means any slot on that day bypasses the later busy/working-hours checks even when it falls outside the override's intended time range, which broadens availability incorrectly.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_839e8053a4fe8de29e3d926bf60f98cc4fcbda99b35095cab9f66c09c2cdb1ab",
+          "byteRange": {
+            "endByte": 9128,
+            "startByte": 0
+          },
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_839e8053a4fe8de29e3d926bf60f98cc4fcbda99b35095cab9f66c09c2cdb1ab",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 137,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        },
+        {
+          "artifactId": "art_fc4c425e0215dfe7583a007671c4df5945bb7919eec0839d7318520e312cc03a",
+          "byteRange": {
+            "endByte": 9177,
+            "startByte": 0
+          },
+          "contentHash": "7dec74087b8f1c6b8103244ae57f4a6f5a6f623783d53b0faedc234ee814e785",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fc4c425e0215dfe7583a007671c4df5945bb7919eec0839d7318520e312cc03a",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 137,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/trpc/server/routers/viewer/slots.ts"
+        }
+      ],
+      "id": "5598984181f8ec00b647c2f1c40da73536d6f818cf3c509a3855e1c6923e424d",
+      "locationLineRange": {
+        "endLine": 137,
+        "startLine": 99
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Date override check can return available for any slot on the override day regardless of actual override span",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new working-hours guard computes both `start` and `end` from `slotStartTime.hour()/minute()`. Because `end` never uses `slotEndTime`, a slot can be accepted or rejected based only on its start minute, breaking boundary checks for intervals that cross outside working hours.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_839e8053a4fe8de29e3d926bf60f98cc4fcbda99b35095cab9f66c09c2cdb1ab",
+          "byteRange": {
+            "endByte": 9128,
+            "startByte": 0
+          },
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_839e8053a4fe8de29e3d926bf60f98cc4fcbda99b35095cab9f66c09c2cdb1ab",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 149,
+            "startLine": 140
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        },
+        {
+          "artifactId": "art_fc4c425e0215dfe7583a007671c4df5945bb7919eec0839d7318520e312cc03a",
+          "byteRange": {
+            "endByte": 9177,
+            "startByte": 0
+          },
+          "contentHash": "7dec74087b8f1c6b8103244ae57f4a6f5a6f623783d53b0faedc234ee814e785",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fc4c425e0215dfe7583a007671c4df5945bb7919eec0839d7318520e312cc03a",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 149,
+            "startLine": 140
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/trpc/server/routers/viewer/slots.ts"
+        }
+      ],
+      "id": "2212ddc660bcc20c6063db6e3c78d970663c20b1c120160c44f4f60a88561f47",
+      "locationLineRange": {
+        "endLine": 149,
+        "startLine": 140
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Working-hours end boundary uses slot start minute twice, so end-time validation is ineffective",
+      "validationStatus": "validated"
+    }
+  ]
+}

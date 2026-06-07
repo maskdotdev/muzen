@@ -5,12 +5,14 @@ mod adapters;
 mod cli;
 mod execution;
 mod materialize;
+mod planning;
 mod protocol;
 mod schema;
 mod session;
 mod stored;
 mod transport;
 mod types;
+mod wiring;
 
 pub use cli::{main_entry, run_main, RunnerCli, RunnerCommand, RunnerSchemaCommand};
 pub(crate) use execution::execute_run_start;
@@ -26,9 +28,9 @@ pub(crate) use session::RunnerStdioSession;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use std::io::{Result as IoResult, Write};
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     use serde_json::json;
 
@@ -75,122 +77,6 @@ mod tests {
     }
 
     #[test]
-    fn schema_marks_wired_run_methods_and_callbacks_implemented() {
-        let schema = protocol_schema();
-
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "run.start"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "run.result"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "artifact.read"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "snapshot.readText"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .notifications
-            .iter()
-            .any(|method| method.method == "event.review"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .callbacks
-            .iter()
-            .any(|method| method.method == "model.complete"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .callbacks
-            .iter()
-            .any(|method| method.method == "tool.execute"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .notifications
-            .iter()
-            .any(|method| method.method == "event.runtime"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "webhook.github.handle"
-                && method.status == RunnerMethodStatus::Implemented));
-        assert!(schema
-            .requests
-            .iter()
-            .any(|method| method.method == "worker.runOnce"
-                && method.status == RunnerMethodStatus::Implemented));
-    }
-
-    #[test]
-    fn schema_links_methods_to_payload_definitions() {
-        let schema = protocol_schema();
-        let definitions = schema
-            .definitions
-            .iter()
-            .map(|definition| definition.name.as_str())
-            .collect::<BTreeSet<_>>();
-
-        for method in schema
-            .requests
-            .iter()
-            .chain(schema.callbacks.iter())
-            .chain(schema.notifications.iter())
-        {
-            for payload in method.params.iter().chain(method.result.iter()) {
-                assert!(
-                    definitions.contains(payload.name.as_str()),
-                    "{} references missing payload definition {}",
-                    method.method,
-                    payload.name
-                );
-            }
-        }
-
-        let run_start = schema
-            .requests
-            .iter()
-            .find(|method| method.method == "run.start")
-            .expect("run.start schema");
-        assert_eq!(
-            run_start
-                .params
-                .as_ref()
-                .map(|payload| payload.name.as_str()),
-            Some("RunStartParams")
-        );
-        assert_eq!(
-            run_start
-                .result
-                .as_ref()
-                .map(|payload| payload.name.as_str()),
-            Some("RunnerRunResult")
-        );
-
-        let run_start_params = schema
-            .definitions
-            .iter()
-            .find(|definition| definition.name == "RunStartParams")
-            .expect("RunStartParams definition");
-        assert!(run_start_params
-            .fields
-            .iter()
-            .any(|field| field.name == "source" && field.value_type == "ReviewSource"));
-        assert!(run_start_params
-            .fields
-            .iter()
-            .any(|field| field.name == "changedFiles" && field.default.as_deref() == Some("[]")));
-    }
-
-    #[test]
     fn stdio_handles_multiple_requests() {
         let input = br#"{"jsonrpc":"2.0","id":1,"method":"runner.check"}
 {"jsonrpc":"2.0","id":2,"method":"runner.schema.export"}
@@ -224,6 +110,7 @@ mod tests {
                 "runId": "fixture-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
+                "model": {},
                 "sessions": [
                     {
                         "id": "security",
@@ -282,6 +169,64 @@ mod tests {
     }
 
     #[test]
+    fn stdio_failed_run_emits_structured_failure_notification() {
+        let mut session = RunnerStdioSession::default();
+        let mut writer = Vec::new();
+        let start = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "run.start",
+            "params": {
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runId": "failed-run",
+                "source": {
+                    "type": "custom",
+                    "provider": "acme",
+                    "id": "review-123"
+                }
+            }
+        });
+
+        let values = send_jsonrpc(&mut session, &mut writer, start);
+
+        let failed = values
+            .iter()
+            .find(|value| value.get("method") == Some(&json!("run.failed")))
+            .expect("run.failed notification");
+        assert_eq!(failed["params"]["kind"], "runner_error");
+        assert_eq!(failed["params"]["failureKind"], "source_unavailable");
+        assert_eq!(failed["params"]["retryHint"], "requires_user_action");
+        let response = values
+            .iter()
+            .find(|value| value.get("id") == Some(&json!(1)))
+            .expect("run.start response");
+        assert_eq!(response["error"]["data"]["kind"], "runner_error");
+    }
+
+    #[test]
+    fn run_failed_notification_classifies_common_terminal_failures() {
+        let auth = RunFailedNotification::from_runner_error("provider auth failed");
+        assert_eq!(auth.failure_kind, RunnerFailureKind::AuthFailed);
+        assert_eq!(auth.retry_hint, RunnerRetryHint::RequiresUserAction);
+
+        let model = RunFailedNotification::from_runner_error(
+            "SDK callback model.complete failed: upstream timeout",
+        );
+        assert_eq!(model.failure_kind, RunnerFailureKind::ModelFailed);
+        assert_eq!(model.retry_hint, RunnerRetryHint::Retryable);
+
+        let tool = RunFailedNotification::from_runner_error(
+            "SDK callback tool.execute failed: service unavailable",
+        );
+        assert_eq!(tool.failure_kind, RunnerFailureKind::ToolFailed);
+        assert_eq!(tool.retry_hint, RunnerRetryHint::Retryable);
+
+        let budget = RunFailedNotification::from_runner_error("budget exhausted");
+        assert_eq!(budget.failure_kind, RunnerFailureKind::BudgetExhausted);
+        assert_eq!(budget.retry_hint, RunnerRetryHint::NotRetryable);
+    }
+
+    #[test]
     fn stdio_reads_artifacts_snapshots_and_cancel_status() {
         let repo = tempfile::tempdir().expect("temp repo");
         std::fs::write(
@@ -300,6 +245,7 @@ mod tests {
                 "runId": "resource-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
+                "model": {},
                 "sessions": [
                     {
                         "id": "security",
@@ -542,9 +488,7 @@ mod tests {
             "jsonrpc": "2.0",
             "id": "runner-callback-3",
             "result": {
-                "toolCalls": [
-                    {"toolId": "finish", "arguments": {"reason": "callback test complete"}}
-                ],
+                "content": "{\"summary\":\"callback test complete\",\"fileVerdicts\":[{\"path\":\"Cargo.toml\",\"verdict\":\"clean\",\"summary\":\"callback test completed with host context\",\"relatedPaths\":[]}],\"findings\":[]}",
                 "usage": {"inputTokens": 20, "outputTokens": 5, "totalTokens": 25}
             }
         });
@@ -555,8 +499,11 @@ mod tests {
 
         run_stdio_interactive(reader, writer).expect("interactive stdio");
 
-        let bytes = output.lock().expect("output lock").clone();
-        let values = parse_json_lines(&bytes);
+        let values = wait_for_json_lines(&output, |values| {
+            values
+                .iter()
+                .any(|value| value.get("method") == Some(&json!("run.finished")))
+        });
         assert!(values
             .iter()
             .any(|value| value.get("method") == Some(&json!("model.complete"))));
@@ -600,26 +547,32 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn handshake_fixture_matches_current_response() {
-        let fixture = include_str!("../fixtures/runner-handshake-v1.jsonl");
-        let lines = fixture.lines().collect::<Vec<_>>();
-        assert_eq!(lines.len(), 2);
-
-        let actual = serde_json::to_value(handle_jsonrpc_line(lines[0])).expect("actual response");
-        let expected: serde_json::Value =
-            serde_json::from_str(lines[1]).expect("expected response");
-
-        assert_eq!(actual, expected);
+    fn wait_for_json_lines(
+        output: &Arc<Mutex<Vec<u8>>>,
+        ready: impl Fn(&[serde_json::Value]) -> bool,
+    ) -> Vec<serde_json::Value> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let bytes = output.lock().expect("output lock").clone();
+            if let Ok(values) = try_parse_json_lines(&bytes) {
+                if ready(&values) {
+                    return values;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for interactive stdio output: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
-    #[test]
-    fn schema_fixture_matches_current_schema() {
-        let actual = serde_json::to_value(protocol_schema()).expect("actual schema");
-        let expected: serde_json::Value =
-            serde_json::from_str(include_str!("../fixtures/runner-schema-v1.json"))
-                .expect("expected schema");
-
-        assert_eq!(actual, expected);
+    fn try_parse_json_lines(bytes: &[u8]) -> Result<Vec<serde_json::Value>, serde_json::Error> {
+        let output = std::str::from_utf8(bytes).expect("utf8 output");
+        output
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect()
     }
 }

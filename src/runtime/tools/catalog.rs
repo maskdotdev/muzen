@@ -6,10 +6,8 @@ use crate::contracts::ToolName;
 pub(crate) enum ToolArgShape {
     Empty,
     Path,
+    FileRange,
     SearchQuery,
-    RecordFinding,
-    ChallengeFinding,
-    Finish,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -28,27 +26,22 @@ impl BuiltinToolSpec {
                 json!({"path": {"type": "string"}}),
                 vec!["path".to_string()],
             ),
+            ToolArgShape::FileRange => object_schema(
+                json!({
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer", "minimum": 1},
+                    "end_line": {"type": "integer", "minimum": 1}
+                }),
+                vec![
+                    "path".to_string(),
+                    "start_line".to_string(),
+                    "end_line".to_string(),
+                ],
+            ),
             ToolArgShape::SearchQuery => object_schema(
                 json!({"query": {"type": "string"}}),
                 vec!["query".to_string()],
             ),
-            ToolArgShape::RecordFinding => object_schema(
-                json!({
-                    "title": {"type": "string"},
-                    "claim": {"type": "string"}
-                }),
-                vec!["title".to_string(), "claim".to_string()],
-            ),
-            ToolArgShape::ChallengeFinding => object_schema(
-                json!({
-                    "finding_id": {"type": "string"},
-                    "rationale": {"type": "string"}
-                }),
-                vec!["finding_id".to_string(), "rationale".to_string()],
-            ),
-            ToolArgShape::Finish => {
-                object_schema(json!({"reason": {"type": "string"}}), Vec::new())
-            }
         }
     }
 }
@@ -84,6 +77,12 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
             name,
             description: "Read a text file by repo-relative path.",
             arg_shape: ToolArgShape::Path,
+            cacheable: true,
+        },
+        ToolName::ReadFileRange => BuiltinToolSpec {
+            name,
+            description: "Read a focused line range from a text file by repo-relative path.",
+            arg_shape: ToolArgShape::FileRange,
             cacheable: true,
         },
         ToolName::ReadBaseFile => BuiltinToolSpec {
@@ -122,24 +121,6 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
             description: "List import-like lines from a repo-relative text file.",
             arg_shape: ToolArgShape::Path,
             cacheable: true,
-        },
-        ToolName::RecordFinding => BuiltinToolSpec {
-            name,
-            description: "Record one evidence-backed candidate finding.",
-            arg_shape: ToolArgShape::RecordFinding,
-            cacheable: false,
-        },
-        ToolName::ChallengeFinding => BuiltinToolSpec {
-            name,
-            description: "Challenge a recorded finding with a rationale.",
-            arg_shape: ToolArgShape::ChallengeFinding,
-            cacheable: false,
-        },
-        ToolName::Finish => BuiltinToolSpec {
-            name,
-            description: "Finish the review session.",
-            arg_shape: ToolArgShape::Finish,
-            cacheable: false,
         },
     }
 }

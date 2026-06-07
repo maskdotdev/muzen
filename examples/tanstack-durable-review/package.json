@@ -1,0 +1,28 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:sdk": "npm --prefix ../../sdk/typescript/packages/muzen-sdk install --package-lock=false && npm --prefix ../../sdk/typescript/packages/muzen-sdk run build",
+    "benchmark:run": "tsx src/server/benchmark-run.ts",
+    "dev": "vite",
+    "quality:score": "tsx src/server/score-quality.ts",
+    "service": "npm run prepare:sdk && tsx src/server.ts",
+    "test": "npm run prepare:sdk && tsx --test src/server/*.test.ts",
+    "typecheck": "npm run prepare:sdk && tsc --noEmit"
+  },
+  "dependencies": {
+    "@muzen/sdk": "file:../../sdk/typescript/packages/muzen-sdk",
+    "@tanstack/react-router": "^1.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

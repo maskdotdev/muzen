@@ -23,7 +23,9 @@ export async function createMuzen(
     clientName: options.clientName ?? "@muzen/sdk",
     clientVersion: options.clientVersion,
   });
-  return new RunnerBackedMuzen(runner);
+  return new RunnerBackedMuzen(runner, {
+    secrets: options.secrets,
+  });
 }
 
 export function createMuzenClient(

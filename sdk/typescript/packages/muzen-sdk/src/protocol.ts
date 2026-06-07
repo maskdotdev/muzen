@@ -5,7 +5,7 @@ export const RUNNER_PROTOCOL_VERSION = "muzen.runner.v1";
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
-  id: number;
+  id: number | string | null;
   method: string;
   params?: unknown;
 }
@@ -35,6 +35,8 @@ export type RunnerNotificationListener = (
   notification: JsonRpcNotification,
 ) => void;
 
+export type RunnerRequestHandler = (params: unknown) => unknown | Promise<unknown>;
+
 export interface RunnerClientOptions {
   runnerPath: string;
   runnerArgs?: string[];
@@ -63,6 +65,7 @@ export class RunnerStdioClient {
     }
   >();
   private readonly notificationListeners = new Set<RunnerNotificationListener>();
+  private readonly requestHandlers = new Map<string, RunnerRequestHandler>();
   private nextRequestId = 1;
   private closed = false;
 
@@ -125,6 +128,15 @@ export class RunnerStdioClient {
     };
   }
 
+  onRequest(method: string, handler: RunnerRequestHandler): () => void {
+    this.requestHandlers.set(method, handler);
+    return () => {
+      if (this.requestHandlers.get(method) === handler) {
+        this.requestHandlers.delete(method);
+      }
+    };
+  }
+
   async close(): Promise<void> {
     if (this.closed) {
       return;
@@ -142,7 +154,7 @@ export class RunnerStdioClient {
     if (line.trim().length === 0) {
       return;
     }
-    let message: JsonRpcResponse | JsonRpcNotification;
+    let message: JsonRpcResponse | JsonRpcNotification | JsonRpcRequest;
     try {
       message = JSON.parse(line) as JsonRpcResponse | JsonRpcNotification;
     } catch (error) {
@@ -152,6 +164,10 @@ export class RunnerStdioClient {
       return;
     }
     if ("method" in message) {
+      if ("id" in message) {
+        void this.handleRequest(message as JsonRpcRequest);
+        return;
+      }
       for (const listener of this.notificationListeners) {
         listener(message);
       }
@@ -170,6 +186,47 @@ export class RunnerStdioClient {
       return;
     }
     pending.resolve(message.result);
+  }
+
+  private async handleRequest(request: JsonRpcRequest): Promise<void> {
+    const handler = this.requestHandlers.get(request.method);
+    if (!handler) {
+      this.writeResponse({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: {
+          code: -32601,
+          message: `unsupported runner callback method: ${request.method}`,
+          data: { kind: "unsupported_method" },
+        },
+      });
+      return;
+    }
+    try {
+      const result = await handler(request.params);
+      this.writeResponse({
+        jsonrpc: "2.0",
+        id: request.id,
+        result,
+      });
+    } catch (error) {
+      this.writeResponse({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: {
+          code: -32000,
+          message: error instanceof Error ? error.message : String(error),
+          data: { kind: "callback_failed" },
+        },
+      });
+    }
+  }
+
+  private writeResponse(response: JsonRpcResponse): void {
+    if (this.closed) {
+      return;
+    }
+    this.child.stdin.write(`${JSON.stringify(response)}\n`);
   }
 
   private rejectAll(error: Error): void {

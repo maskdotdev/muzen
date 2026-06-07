@@ -23,8 +23,9 @@ pub use http::{
     HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
 pub use options::{
-    DedupePolicy, EffectiveConfigSnapshot, ProfileVersionRef, ReviewAgentSession, ReviewLimits,
-    ReviewOptions, ReviewScope,
+    DedupePolicy, EffectiveConfigSnapshot, ProfileVersionRef, ReviewAgentSession, ReviewChangeSpec,
+    ReviewChangedFile, ReviewInstruction, ReviewLimits, ReviewOptions, ReviewScope,
+    ReviewToolOption,
 };
 pub use outcome::{
     ReviewArtifact, ReviewArtifactExport, ReviewArtifactExportOptions, ReviewArtifactReadOptions,
@@ -391,7 +392,9 @@ impl MuzenWorkspace {
         let name = match source {
             ReviewSource::GithubPullRequest { .. } => "github",
             ReviewSource::GitlabMergeRequest { .. } => "gitlab",
-            ReviewSource::Local { .. } => return Ok(None),
+            ReviewSource::PerforceChangelist { .. } => "perforce",
+            ReviewSource::Custom { provider, .. } => provider.as_str(),
+            ReviewSource::Local { .. } | ReviewSource::RawSnapshot { .. } => return Ok(None),
         };
         self.profile_store.get_provider_profile(&self.id, name)
     }

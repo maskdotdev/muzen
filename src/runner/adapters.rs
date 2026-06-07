@@ -6,26 +6,32 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::contracts::Role;
-use crate::reviewer::{
-    runtime::RuntimeError,
-    runtime_events::{
-        EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
-    },
-    Cancellation, ReviewEvent, ReviewEventRecord, ReviewModel, ReviewModelRequest, ReviewModelTurn,
-    ReviewToolArtifact, ReviewToolCall, ReviewToolContext, ReviewToolHandler, ReviewToolOutput,
-    TokenUsage,
+use crate::contracts::TokenUsage;
+use crate::reviewer::adapters::{runtime, Cancellation};
+use crate::reviewer::events::{ReviewEvent, ReviewEventRecord};
+use crate::reviewer::model::{
+    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall, ReviewTranscriptItem,
 };
+use crate::reviewer::runtime_events::{
+    EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
+};
+use crate::reviewer::tools::{
+    ReviewToolArtifact, ReviewToolContext, ReviewToolHandler, ReviewToolOutput,
+};
+use crate::runtime::contracts::RuntimeError;
 use crate::util::timestamp_utc;
 
 use super::transport::RunnerCallbackTransport;
 use super::RUNNER_PROTOCOL_VERSION;
 
-pub(crate) struct DeterministicRunnerModel {
+#[cfg(test)]
+pub(crate) struct TestRunnerModel {
     target_path: String,
     search_query: String,
 }
 
-impl DeterministicRunnerModel {
+#[cfg(test)]
+impl TestRunnerModel {
     pub(crate) fn new(target_path: String, search_query: String) -> Self {
         Self {
             target_path,
@@ -34,13 +40,14 @@ impl DeterministicRunnerModel {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
-impl ReviewModel for DeterministicRunnerModel {
+impl ReviewModel for TestRunnerModel {
     async fn complete_review(
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> runtime::RuntimeResult<ReviewModelTurn> {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64 * 64,
             output_tokens: 32,
@@ -59,13 +66,19 @@ impl ReviewModel for DeterministicRunnerModel {
                 ],
             });
         }
-        Ok(ReviewModelTurn::ToolCalls {
+        Ok(ReviewModelTurn::Text {
             usage,
-            calls: vec![ReviewToolCall::new(
-                "finish",
-                json!({ "reason": "deterministic SDK smoke review completed" }),
-            )
-            .with_call_id(request.tool_call_id("finish"))],
+            content: json!({
+                "summary": "deterministic SDK smoke review completed",
+                "fileVerdicts": [{
+                    "path": self.target_path,
+                    "verdict": "clean",
+                    "summary": "Smoke review gathered diff, file, and search evidence without finding an actionable issue.",
+                    "relatedPaths": []
+                }],
+                "findings": []
+            })
+            .to_string(),
         })
     }
 }
@@ -87,7 +100,7 @@ impl ReviewModel for CallbackReviewModel {
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> runtime::RuntimeResult<ReviewModelTurn> {
         let params = RunnerModelCompleteParams::from_request(&self.run_id, request);
         let value = self
             .transport
@@ -137,7 +150,7 @@ impl ReviewToolHandler for CallbackReviewTool {
         context: ReviewToolContext,
         arguments: Value,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewToolOutput> {
+    ) -> runtime::RuntimeResult<ReviewToolOutput> {
         let params = RunnerToolExecuteParams {
             protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
             run_id: self.run_id.clone(),
@@ -250,18 +263,18 @@ impl RunnerModelCompleteParams {
     }
 }
 
-fn runner_transcript_item(item: crate::reviewer::ReviewTranscriptItem) -> Value {
+fn runner_transcript_item(item: ReviewTranscriptItem) -> Value {
     match item {
-        crate::reviewer::ReviewTranscriptItem::System { content } => {
+        ReviewTranscriptItem::System { content } => {
             json!({"kind": "system", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::User { content } => {
+        ReviewTranscriptItem::User { content } => {
             json!({"kind": "user", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::AssistantText { content } => {
+        ReviewTranscriptItem::AssistantText { content } => {
             json!({"kind": "assistant_text", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
+        ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
             "kind": "assistant_tool_calls",
             "calls": calls.into_iter().map(|call| json!({
                 "callId": call.call_id,
@@ -269,7 +282,7 @@ fn runner_transcript_item(item: crate::reviewer::ReviewTranscriptItem) -> Value 
                 "arguments": call.arguments,
             })).collect::<Vec<_>>()
         }),
-        crate::reviewer::ReviewTranscriptItem::ToolResult {
+        ReviewTranscriptItem::ToolResult {
             call_id,
             tool_id,
             ok,
@@ -399,6 +412,19 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             turn: turn_id.0,
             tool_call_count: *tool_call_count,
         },
+        RuntimeEvent::ModelFailed {
+            session_id,
+            turn_id,
+            attempt,
+            retrying,
+            message,
+        } => ReviewEvent::ModelFailed {
+            session_id: session_id.0.clone(),
+            turn: turn_id.0,
+            attempt: *attempt,
+            retrying: *retrying,
+            message: message.clone(),
+        },
         RuntimeEvent::ToolBatchStarted {
             session_id,
             turn_id,
@@ -413,12 +439,16 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_name,
             ok,
             error_code,
+            error_message,
+            details,
             ..
         } => ReviewEvent::ToolCallCompleted {
             call_id: call_id.0.clone(),
             tool_id: tool_name.as_str().to_string(),
             ok: *ok,
             error_code: *error_code,
+            error_message: error_message.clone(),
+            details: details.clone(),
         },
         RuntimeEvent::ToolCallDenied {
             call_id,
@@ -438,6 +468,8 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_name,
             bytes,
             content_hash,
+            summary,
+            details,
             ..
         } => ReviewEvent::ArtifactCreated {
             artifact_id: artifact_id.clone(),
@@ -445,6 +477,8 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             tool_id: tool_name.as_str().to_string(),
             bytes: *bytes,
             content_hash: content_hash.clone(),
+            summary: summary.clone(),
+            details: details.clone(),
         },
         RuntimeEvent::FindingRecorded {
             finding_id,

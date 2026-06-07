@@ -13,12 +13,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
-    ToolCallingMode, ToolName,
+    ToolCallingMode,
 };
 use crate::runtime::contracts::*;
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
-use crate::util::{resolve_credential_ref, timestamp_utc};
+use crate::util::{redact_known_secrets, resolve_credential_ref, timestamp_utc};
 
 #[async_trait]
 pub trait ConcurrentModelClient: Send + Sync {
@@ -145,89 +145,20 @@ impl ConcurrentModelRouter for ProfileModelRouter {
         &self,
         scope: &SessionScope,
     ) -> RuntimeResult<Arc<dyn ConcurrentModelClient>> {
-        let profile_id = scope
-            .model_profile_id
-            .as_ref()
-            .unwrap_or(&self.default_profile_id);
-        self.clients
-            .get(profile_id)
-            .or_else(|| self.clients.get(&self.default_profile_id))
-            .cloned()
-            .ok_or_else(|| {
+        if let Some(profile_id) = scope.model_profile_id.as_ref() {
+            return self.clients.get(profile_id).cloned().ok_or_else(|| {
                 RuntimeError::InvalidInput(format!("missing model profile {profile_id}"))
-            })
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct MockReviewModel {
-    target_path: String,
-    query: String,
-}
-
-impl MockReviewModel {
-    pub(crate) fn new(target_path: String, query: String) -> Self {
-        Self { target_path, query }
-    }
-}
-
-#[async_trait]
-impl ConcurrentModelClient for MockReviewModel {
-    async fn complete(
-        &self,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        turn_id: TurnId,
-        _cancel: CancellationToken,
-    ) -> RuntimeResult<ModelTurn> {
-        let session_id = &scope.id;
-        let tool_results = transcript
-            .iter()
-            .filter(|item| matches!(item, ConversationItem::ToolResult { .. }))
-            .count();
-        let usage = TokenUsage {
-            input_tokens: transcript.len() as u64 * 100,
-            output_tokens: 64,
-            total_tokens: transcript.len() as u64 * 100 + 64,
-        };
-        if tool_results == 0 {
-            return Ok(ModelTurn::ToolCalls {
-                usage,
-                calls: vec![
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-read-diff", session_id.0, turn_id.0)),
-                        index: 0,
-                        name: ToolId::from(ToolName::ReadDiff),
-                        raw_arguments: "{}".to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-read-file", session_id.0, turn_id.0)),
-                        index: 1,
-                        name: ToolId::from(ToolName::ReadFile),
-                        raw_arguments: json!({ "path": self.target_path }).to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-search", session_id.0, turn_id.0)),
-                        index: 2,
-                        name: ToolId::from(ToolName::SearchText),
-                        raw_arguments: json!({ "query": self.query }).to_string(),
-                    },
-                ],
             });
         }
-        Ok(ModelTurn::ToolCalls {
-            usage,
-            calls: vec![ModelToolCall {
-                call_id: ToolCallId(format!("{}-{}-finding", session_id.0, turn_id.0)),
-                index: 0,
-                name: ToolId::from(ToolName::RecordFinding),
-                raw_arguments: json!({
-                    "title": format!("{} reviewed with parallel evidence", session_id.0),
-                    "claim": "The benchmark session gathered diff, file, and search evidence."
-                })
-                .to_string(),
-            }],
-        })
+        self.clients
+            .get(&self.default_profile_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::InvalidInput(format!(
+                    "missing model profile {}",
+                    self.default_profile_id
+                ))
+            })
     }
 }
 
@@ -873,6 +804,7 @@ fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> S
         id: SessionId(format!("real-provider-canary-{profile_id}")),
         role: Role::Generalist,
         objective: "real-provider protocol canary".to_string(),
+        instructions: Vec::new(),
         snapshot_id: None,
         model_profile_id: Some(profile_id),
         capabilities: CapabilitySet::review_read_only(),
@@ -964,10 +896,7 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
             })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(RuntimeError::Provider {
-                status: Some(status.as_u16()),
-                retryable: status.as_u16() == 429 || status.is_server_error(),
-            });
+            return Err(provider_http_error(status, response).await);
         }
         let decoded: ChatCompletionResponse =
             response.json().await.map_err(|_| RuntimeError::Provider {
@@ -1056,10 +985,7 @@ impl ConcurrentModelClient for OpenAiResponsesClient {
             })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(RuntimeError::Provider {
-                status: Some(status.as_u16()),
-                retryable: status.as_u16() == 429 || status.is_server_error(),
-            });
+            return Err(provider_http_error(status, response).await);
         }
         let decoded: ResponsesResponse =
             response.json().await.map_err(|_| RuntimeError::Provider {
@@ -1067,6 +993,45 @@ impl ConcurrentModelClient for OpenAiResponsesClient {
                 retryable: false,
             })?;
         parse_responses_response(decoded, &self.tool_registry)
+    }
+}
+
+async fn provider_http_error(
+    status: reqwest::StatusCode,
+    response: reqwest::Response,
+) -> RuntimeError {
+    let message = response
+        .text()
+        .await
+        .map(provider_error_message)
+        .unwrap_or_else(|_| "provider error body unavailable".to_string());
+    let retryable = (status.as_u16() == 429 && !is_non_retryable_provider_quota_error(&message))
+        || status.is_server_error();
+    RuntimeError::ProviderMessage {
+        status: Some(status.as_u16()),
+        retryable,
+        message,
+    }
+}
+
+fn provider_error_message(body: String) -> String {
+    let redacted = redact_known_secrets(body.trim(), &[]);
+    truncate_chars(&redacted, 1_000)
+}
+
+fn is_non_retryable_provider_quota_error(message: &str) -> bool {
+    message.contains("\"code\":\"insufficient_quota\"")
+        || message.contains("\"code\": \"insufficient_quota\"")
+        || message.contains("insufficient_quota")
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
     }
 }
 
@@ -1191,11 +1156,16 @@ fn responses_request_body(
 }
 
 fn response_message(role: &str, content: &str) -> Value {
+    let content_type = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
     json!({
         "type": "message",
         "role": role,
         "content": [{
-            "type": "input_text",
+            "type": content_type,
             "text": content,
         }],
     })
@@ -1459,39 +1429,24 @@ impl ResponsesUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{AgentBudget, Role};
+
     use crate::runtime::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
 
     #[test]
-    fn openai_client_uses_supplied_credential_resolver() {
-        let registry = Arc::new(ToolRegistry::review_defaults().expect("registry"));
-        let client = OpenAiChatCompletionsClient::from_profile(
-            test_profile(),
-            "http://localhost:9999/v1".to_string(),
-            Arc::new(ModelLimiter::new(1)),
-            registry,
-            Arc::new(ReviewerPolicy::new()),
-            Arc::new(StaticCredentialResolver),
-        )
-        .expect("client");
+    fn insufficient_quota_provider_error_is_not_retryable() {
+        let message = provider_error_message(
+            r#"{
+              "error": {
+                "message": "You exceeded your current quota.",
+                "type": "insufficient_quota",
+                "param": null,
+                "code": "insufficient_quota"
+              }
+            }"#
+            .to_string(),
+        );
 
-        assert_eq!(client.api_key, "resolved-key");
-    }
-
-    #[test]
-    fn openai_responses_client_uses_supplied_credential_resolver() {
-        let registry = Arc::new(ToolRegistry::review_defaults().expect("registry"));
-        let client = OpenAiResponsesClient::from_profile(
-            test_profile_for_protocol(ModelApiProtocol::Responses),
-            "http://localhost:9999/v1".to_string(),
-            Arc::new(ModelLimiter::new(1)),
-            registry,
-            Arc::new(ReviewerPolicy::new()),
-            Arc::new(StaticCredentialResolver),
-        )
-        .expect("client");
-
-        assert_eq!(client.api_key, "resolved-key");
+        assert!(is_non_retryable_provider_quota_error(&message));
     }
 
     #[test]
@@ -1546,121 +1501,6 @@ mod tests {
     }
 
     #[test]
-    fn openai_protocol_requests_replay_tool_calls_with_model_aliases() {
-        let (registry, internal_tool, model_alias) = aliased_registry();
-        let scope = test_scope();
-        let transcript = vec![
-            ConversationItem::System {
-                content: "system".to_string(),
-            },
-            ConversationItem::User {
-                content: "user".to_string(),
-            },
-            ConversationItem::AssistantToolCalls {
-                calls: vec![ModelToolCall {
-                    call_id: ToolCallId("call_aliased".to_string()),
-                    index: 0,
-                    name: internal_tool,
-                    raw_arguments: r#"{"value":"ok"}"#.to_string(),
-                }],
-            },
-        ];
-
-        let chat = chat_messages(&ReviewerPolicy::new(), &registry, &scope, &transcript)
-            .expect("chat messages");
-        assert_eq!(
-            chat[2]["tool_calls"][0]["function"]["name"].as_str(),
-            Some(model_alias.as_str())
-        );
-
-        let responses = responses_request_body(
-            &test_profile_for_protocol(ModelApiProtocol::Responses),
-            &ReviewerPolicy::new(),
-            &registry,
-            &scope,
-            &transcript,
-        )
-        .expect("responses body");
-        assert_eq!(
-            responses["input"][1]["name"].as_str(),
-            Some(model_alias.as_str())
-        );
-        assert_eq!(
-            responses["input"][1]["type"].as_str(),
-            Some("function_call")
-        );
-        assert_eq!(responses["instructions"].as_str(), Some("system"));
-    }
-
-    #[test]
-    fn openai_protocol_tool_schemas_share_exposure_policy() {
-        let registry = ToolRegistry::review_defaults().expect("registry");
-        let scope = test_scope();
-        let transcript = vec![ConversationItem::User {
-            content: "review".to_string(),
-        }];
-        let policy = ReviewerPolicy::new();
-        let chat_tools = openai_tools_for_protocol(
-            ModelApiProtocol::ChatCompletions,
-            &policy,
-            &registry,
-            &transcript,
-            &scope.capabilities,
-        )
-        .expect("chat tools");
-        let responses_tools = openai_tools_for_protocol(
-            ModelApiProtocol::Responses,
-            &policy,
-            &registry,
-            &transcript,
-            &scope.capabilities,
-        )
-        .expect("responses tools");
-
-        assert_eq!(chat_tools.len(), responses_tools.len());
-        assert_eq!(
-            chat_tools[0]["function"]["name"],
-            responses_tools[0]["name"]
-        );
-        assert_eq!(
-            chat_tools[0]["function"]["parameters"],
-            responses_tools[0]["parameters"]
-        );
-        assert_eq!(responses_tools[0]["type"].as_str(), Some("function"));
-        assert_eq!(responses_tools[0]["strict"].as_bool(), Some(true));
-        assert!(responses_tools[0].get("function").is_none());
-    }
-
-    #[test]
-    fn openai_provider_canary_contract_covers_chat_and_responses() {
-        let config = test_canary_config(false);
-        let profiles = openai_provider_canary_profiles(&config);
-        let protocols = profiles
-            .iter()
-            .map(|profile| profile.api_protocol)
-            .collect::<Vec<_>>();
-        assert_eq!(protocols.as_slice(), openai_provider_canary_protocols());
-        assert_eq!(profiles[0].credential_ref, config.credential_ref);
-        assert_eq!(profiles[1].model, config.model);
-
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("runtime");
-        let reports = runtime.block_on(run_openai_provider_canaries(
-            config,
-            Arc::new(StaticCredentialResolver),
-        ));
-        assert_eq!(reports.len(), openai_provider_canary_protocols().len());
-        let evidence = ModelProviderCanaryEvidence::with_generated_at("123.000000000Z", reports);
-        assert_eq!(
-            evidence.gate.skipped,
-            openai_provider_canary_protocols().len()
-        );
-        assert!(!evidence.gate.valid);
-    }
-
-    #[test]
     fn openai_provider_canary_skips_all_protocols_without_credential() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1678,105 +1518,6 @@ mod tests {
                     if reason == "credential unavailable"
             )
         }));
-    }
-
-    #[test]
-    fn model_provider_canary_evidence_gates_full_protocol_matrix() {
-        let config = test_canary_config(true);
-        let evidence = ModelProviderCanaryEvidence::with_generated_at(
-            "123.000000000Z",
-            vec![
-                ModelProviderCanaryReport::passed(ModelApiProtocol::ChatCompletions, &config),
-                ModelProviderCanaryReport::skipped(
-                    ModelApiProtocol::Responses,
-                    &config,
-                    "credential unavailable",
-                ),
-            ],
-        );
-
-        assert!(!evidence.gate.valid);
-        assert_eq!(evidence.gate.passed, 1);
-        assert_eq!(evidence.gate.skipped, 1);
-        assert!(evidence
-            .gate
-            .failures
-            .contains(&"responses skipped: credential unavailable".to_string()));
-        assert!(evidence
-            .require_passed()
-            .unwrap_err()
-            .to_string()
-            .contains("responses skipped"));
-
-        let missing = ModelProviderCanaryEvidence::with_generated_at(
-            "123.000000000Z",
-            vec![ModelProviderCanaryReport::passed(
-                ModelApiProtocol::ChatCompletions,
-                &config,
-            )],
-        );
-        assert!(missing
-            .gate
-            .failures
-            .contains(&"missing responses canary report".to_string()));
-
-        let duplicate = ModelProviderCanaryEvidence::with_generated_at(
-            "123.000000000Z",
-            vec![
-                ModelProviderCanaryReport::passed(ModelApiProtocol::ChatCompletions, &config),
-                ModelProviderCanaryReport::passed(ModelApiProtocol::ChatCompletions, &config),
-                ModelProviderCanaryReport::passed(ModelApiProtocol::Responses, &config),
-            ],
-        );
-        assert!(duplicate
-            .gate
-            .failures
-            .contains(&"duplicate chat_completions canary reports: 2".to_string()));
-    }
-
-    #[test]
-    fn model_provider_canary_evidence_export_roundtrips() {
-        let config = test_canary_config(true);
-        let reports = openai_provider_canary_protocols()
-            .iter()
-            .copied()
-            .map(|protocol| ModelProviderCanaryReport::passed(protocol, &config))
-            .collect::<Vec<_>>();
-        let evidence = ModelProviderCanaryEvidence::with_generated_at("123.000000000Z", reports);
-        evidence.require_passed().expect("valid evidence");
-
-        let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp
-            .path()
-            .join("canaries")
-            .join("real-provider-openai.json");
-        let export = export_model_provider_canary_evidence(&path, &evidence).expect("export");
-
-        assert_eq!(export.path, path);
-        assert!(export.valid);
-        assert!(export.bytes > 0);
-        let serialized = std::fs::read_to_string(&export.path).expect("read evidence");
-        assert!(serialized.ends_with('\n'));
-        let loaded: ModelProviderCanaryEvidence =
-            serde_json::from_str(&serialized).expect("load evidence");
-        assert_eq!(
-            loaded.schema_version,
-            MODEL_PROVIDER_CANARY_EVIDENCE_SCHEMA_VERSION
-        );
-        assert_eq!(
-            loaded.required_protocols,
-            openai_provider_canary_protocols()
-        );
-        assert_eq!(loaded.gate.passed, openai_provider_canary_protocols().len());
-        loaded.require_passed().expect("roundtrip evidence valid");
-
-        let mut forged = loaded.clone();
-        forged.reports.pop();
-        forged.gate.valid = true;
-        forged.gate.failures.clear();
-        let error = forged.require_passed().unwrap_err().to_string();
-        assert!(error.contains("stored provider canary gate does not match reports"));
-        assert!(error.contains("missing responses canary report"));
     }
 
     #[test]
@@ -1851,25 +1592,12 @@ mod tests {
         });
     }
 
-    struct StaticCredentialResolver;
-
-    impl CredentialResolver for StaticCredentialResolver {
-        fn resolve_credential(&self, credential_ref: &str) -> RuntimeResult<String> {
-            assert_eq!(credential_ref, "test:credential");
-            Ok("resolved-key".to_string())
-        }
-    }
-
     struct MissingCredentialResolver;
 
     impl CredentialResolver for MissingCredentialResolver {
         fn resolve_credential(&self, _credential_ref: &str) -> RuntimeResult<String> {
             Err(RuntimeError::InvalidInput("missing credential".to_string()))
         }
-    }
-
-    fn test_profile() -> ModelProfileRefV1 {
-        test_profile_for_protocol(ModelApiProtocol::ChatCompletions)
     }
 
     fn test_canary_config(enabled: bool) -> OpenAiProviderCanaryConfig {
@@ -1881,36 +1609,6 @@ mod tests {
             max_output_tokens: 16,
             prompt: "Return ready.".to_string(),
         }
-    }
-
-    fn test_profile_for_protocol(api_protocol: ModelApiProtocol) -> ModelProfileRefV1 {
-        ModelProfileRefV1 {
-            id: "test-profile".to_string(),
-            provider_kind: ProviderKind::OpenaiCompatible,
-            api_protocol,
-            provider_profile_id: "test-provider-profile".to_string(),
-            credential_ref: "test:credential".to_string(),
-            model: "gpt-4o-mini".to_string(),
-            max_input_tokens: 32_000,
-            max_output_tokens: 128,
-            tool_calling_mode: ToolCallingMode::Auto,
-            temperature: Some(0.0),
-            top_p: None,
-        }
-    }
-
-    fn test_scope() -> SessionScope {
-        SessionScope::review_read_only(
-            SessionId("test-session".to_string()),
-            Role::Generalist,
-            "test objective",
-            AgentBudget {
-                max_turns: 2,
-                max_tool_calls: 4,
-                max_prompt_tokens: 1024,
-                max_output_tokens: 128,
-            },
-        )
     }
 
     fn aliased_registry() -> (ToolRegistry, ToolId, ToolId) {

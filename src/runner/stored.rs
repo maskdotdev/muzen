@@ -1,4 +1,4 @@
-use crate::reviewer::SnapshotReader;
+use crate::reviewer::snapshots::SnapshotReader;
 
 use super::protocol::JsonRpcError;
 use super::types::{RunnerArtifact, RunnerArtifactView, RunnerRunResult};
@@ -14,7 +14,7 @@ pub(crate) struct RunnerStoredRun {
 
 impl RunnerStoredRun {
     pub(crate) fn from_report(
-        report: &crate::reviewer::RunReport,
+        report: &crate::reviewer::report::RunReport,
         result: RunnerRunResult,
     ) -> Self {
         Self {

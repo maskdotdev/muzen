@@ -3,12 +3,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::reviewer::{
+use crate::reviewer::events::{
     ReviewEvent as InternalReviewEvent, ReviewEventRecord as InternalReviewEventRecord,
 };
 use crate::runner::{
-    RunnerArtifact, RunnerArtifactView as RunnerWireArtifactView, RunnerFinding, RunnerRunResult,
-    RunnerSnapshotSummary,
+    RunnerArtifact, RunnerArtifactView as RunnerWireArtifactView, RunnerFinding,
+    RunnerFindingLocation, RunnerRunResult, RunnerSnapshotSummary,
 };
 
 use super::{ReviewSessionError, ReviewSource};
@@ -202,7 +202,7 @@ impl ReviewResult {
         let conclusion = ReviewConclusion::from_findings(&findings);
         let coverage = ReviewCoverage::from_runner_snapshots(&result.snapshots);
         let status = ReviewStatus::from_runner_status(&result.status);
-        let mut metadata = BTreeMap::new();
+        let mut metadata = result.metadata.clone();
         metadata.insert("runnerRunId".to_string(), json!(result.run_id));
         metadata.insert("runnerStatus".to_string(), json!(result.status));
         metadata.insert("source".to_string(), json!(source.source_key()));
@@ -257,23 +257,88 @@ pub struct ReviewFinding {
     pub suggested_fix: Option<ReviewSuggestedFix>,
     #[serde(default)]
     pub confidence: Option<f32>,
+    #[serde(default)]
+    pub validation_status: Option<String>,
+    #[serde(default)]
+    pub evidence: Vec<ReviewFindingEvidence>,
+    #[serde(default)]
+    pub discovered_by: Vec<String>,
+    #[serde(default)]
+    pub validated_by: Vec<String>,
+    #[serde(default)]
+    pub challenged_by: Vec<String>,
 }
 
 impl ReviewFinding {
     fn from_runner_finding(finding: &RunnerFinding) -> Self {
         Self {
             id: finding.id.clone(),
-            severity: if finding.publishable {
-                ReviewFindingSeverity::Error
-            } else {
-                ReviewFindingSeverity::Info
-            },
+            severity: review_severity_from_runner(finding),
             category: ReviewFindingCategory::Other,
             title: finding.title.clone(),
             message: finding.claim.clone(),
-            location: None,
+            location: finding
+                .location
+                .as_ref()
+                .map(ReviewFindingLocation::from_runner_location),
             suggested_fix: None,
-            confidence: None,
+            confidence: finding.confidence,
+            validation_status: finding.validation_status.clone(),
+            evidence: finding
+                .evidence
+                .iter()
+                .map(ReviewFindingEvidence::from_runner_evidence)
+                .collect(),
+            discovered_by: finding.discovered_by.clone(),
+            validated_by: finding.validated_by.clone(),
+            challenged_by: finding.challenged_by.clone(),
+        }
+    }
+}
+
+fn review_severity_from_runner(finding: &RunnerFinding) -> ReviewFindingSeverity {
+    match finding.severity.as_deref() {
+        Some("blocker" | "high") => ReviewFindingSeverity::Error,
+        Some("medium" | "low") => ReviewFindingSeverity::Warning,
+        Some("nit") => ReviewFindingSeverity::Info,
+        _ if finding.publishable => ReviewFindingSeverity::Error,
+        _ => ReviewFindingSeverity::Info,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFindingEvidence {
+    pub evidence_id: String,
+    pub artifact_id: String,
+    pub kind: String,
+    pub content_hash: String,
+    pub producing_tool_call_id: String,
+}
+
+impl ReviewFindingEvidence {
+    fn from_runner_evidence(evidence: &crate::runner::RunnerFindingEvidence) -> Self {
+        Self {
+            evidence_id: evidence.evidence_id.clone(),
+            artifact_id: evidence.artifact_id.clone(),
+            kind: evidence.kind.clone(),
+            content_hash: evidence.content_hash.clone(),
+            producing_tool_call_id: evidence.producing_tool_call_id.clone(),
+        }
+    }
+}
+
+impl ReviewFindingLocation {
+    fn from_runner_location(location: &RunnerFindingLocation) -> Self {
+        Self {
+            path: location.path.clone(),
+            revision: location.revision.clone(),
+            start_line: location.start_line,
+            end_line: location.end_line,
+            start_column: location.start_column,
+            end_column: location.end_column,
+            side: location.side.clone(),
+            provider_anchor: location.provider_anchor.clone(),
         }
     }
 }
@@ -304,6 +369,8 @@ pub enum ReviewFindingCategory {
 pub struct ReviewFindingLocation {
     pub path: String,
     #[serde(default)]
+    pub revision: Option<String>,
+    #[serde(default)]
     pub start_line: Option<usize>,
     #[serde(default)]
     pub end_line: Option<usize>,
@@ -311,6 +378,10 @@ pub struct ReviewFindingLocation {
     pub start_column: Option<usize>,
     #[serde(default)]
     pub end_column: Option<usize>,
+    #[serde(default)]
+    pub side: Option<String>,
+    #[serde(default)]
+    pub provider_anchor: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,6 +521,7 @@ impl ReviewEventType {
             InternalReviewEvent::SessionStarted { .. } => Self::AgentStarted,
             InternalReviewEvent::ModelStarted { .. } => Self::RunnerEvent,
             InternalReviewEvent::ModelCompleted { .. } => Self::RunnerEvent,
+            InternalReviewEvent::ModelFailed { .. } => Self::RunnerEvent,
             InternalReviewEvent::ToolBatchStarted { .. } => Self::ToolStarted,
             InternalReviewEvent::ToolCallCompleted { .. }
             | InternalReviewEvent::ToolCallDenied { .. } => Self::ToolCompleted,

@@ -108,6 +108,12 @@ pub(crate) struct ChangedFileMeta {
     pub(crate) summary: String,
 }
 
+struct SnapshotCandidateFile {
+    path: PathBuf,
+    repo_path: RepoPath,
+    meta: fs::Metadata,
+}
+
 #[derive(Debug)]
 pub(crate) struct DiffArtifact {
     pub(crate) content: String,
@@ -115,6 +121,7 @@ pub(crate) struct DiffArtifact {
 }
 
 impl RepoSnapshot {
+    #[cfg(test)]
     pub(crate) fn build(
         root: &Path,
         policy: &PathPolicyV1,
@@ -158,6 +165,7 @@ impl RepoSnapshot {
             .git_exclude(false)
             .follow_links(false);
 
+        let mut candidate_files = Vec::new();
         for entry in walker.build() {
             let entry = match entry {
                 Ok(entry) => entry,
@@ -192,10 +200,26 @@ impl RepoSnapshot {
             if !meta.is_file() {
                 continue;
             }
+            candidate_files.push(SnapshotCandidateFile {
+                path: entry.path().to_path_buf(),
+                repo_path,
+                meta,
+            });
+        }
+        candidate_files.sort_by(|left, right| {
+            let left_changed = changed_paths.contains(&left.repo_path.display());
+            let right_changed = changed_paths.contains(&right.repo_path.display());
+            right_changed
+                .cmp(&left_changed)
+                .then_with(|| left.repo_path.display().cmp(&right.repo_path.display()))
+        });
+
+        for candidate in candidate_files {
             if files.len() >= policy.max_directory_entries {
                 break;
             }
-            let size = meta.len();
+            let repo_path = candidate.repo_path;
+            let size = candidate.meta.len();
             let can_read_text =
                 is_textish(repo_path.as_path()) && size <= policy.max_file_bytes as u64;
             let (captured, capture_status) = if can_read_text {
@@ -207,7 +231,7 @@ impl RepoSnapshot {
                     capture_skipped_bytes += size;
                     (None, SnapshotCaptureStatus::SkippedMemoryLimit)
                 } else {
-                    match snapshot_file_content(entry.path(), policy.max_file_bytes) {
+                    match snapshot_file_content(&candidate.path, policy.max_file_bytes) {
                         Ok(content) => {
                             captured_text_bytes =
                                 captured_text_bytes.saturating_add(content.bytes.len());
@@ -547,6 +571,17 @@ fn changed_file_entries(change: &ChangeScopeV1) -> Vec<ChangedFileMeta> {
 }
 
 fn build_diff(change: &ChangeScopeV1) -> DiffArtifact {
+    if let Some(content) = change
+        .inline_diff
+        .as_ref()
+        .filter(|content| !content.trim().is_empty())
+    {
+        let content_hash = stable_id(&[content]);
+        return DiffArtifact {
+            content: content.clone(),
+            content_hash,
+        };
+    }
     let mut content = format!(
         "change {} {}..{}\n",
         change.change_id, change.base_revision_id, change.head_revision_id
@@ -610,4 +645,42 @@ fn is_allowed(policy: &PathPolicyV1, clean: &Path) -> bool {
             || clean == root.as_path()
             || clean.starts_with(root.as_path())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::{ChangeKind, ChangedFileEntryV1, RenameDetection, SnapshotMode};
+
+    #[test]
+    fn build_diff_prefers_inline_change_diff() {
+        let change = ChangeScopeV1 {
+            kind: ChangeKind::LocalDiff,
+            change_id: "inline-diff-change".to_string(),
+            source_ref: "head".to_string(),
+            target_ref: "base".to_string(),
+            base_revision_id: "base".to_string(),
+            head_revision_id: "head".to_string(),
+            merge_base_revision_id: None,
+            changed_files_manifest_ref: None,
+            diff_manifest_ref: None,
+            inline_diff: Some("diff --git a/src/lib.rs b/src/lib.rs\n".to_string()),
+            snapshot_mode: SnapshotMode::WorktreeHead,
+            rename_detection: RenameDetection::None,
+            changed_files: vec![ChangedFileEntryV1 {
+                status: ChangedFileStatus::Modified,
+                old_path: Some(PathBuf::from("src/lib.rs")),
+                new_path: Some(PathBuf::from("src/lib.rs")),
+                old_content_hash: None,
+                new_content_hash: None,
+                is_binary: false,
+                is_generated: false,
+            }],
+        };
+
+        let diff = build_diff(&change);
+
+        assert_eq!(diff.content, "diff --git a/src/lib.rs b/src/lib.rs\n");
+        assert!(!diff.content.contains("inline-diff-change base..head"));
+    }
 }

@@ -1,5 +1,7 @@
 mod authorization;
+mod cache;
 mod catalog;
+mod dispatch;
 mod engine;
 mod metrics;
 mod provider;

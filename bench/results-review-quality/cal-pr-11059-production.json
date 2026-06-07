@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T02:18:50.221Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-martian-cal-11059-mini-20260607T012145Z",
+    "baseRef": "aci-martian/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-dX3LLx/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-dX3LLx/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 11,
+    "completedSessions": 11,
+    "fileReviews": 40,
+    "findings": 1,
+    "modelCalls": 44,
+    "toolCounts": {
+      "challengeFinding": 0,
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "finish": 0,
+      "listChangedFiles": 11,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 0,
+      "readFile": 0,
+      "readFileRange": 1,
+      "readHeadFile": 21,
+      "recordFileReview": 0,
+      "recordFinding": 0,
+      "searchText": 0
+    },
+    "tokens": {
+      "inputTokens": 76571,
+      "outputTokens": 2348,
+      "totalTokens": 78919
+    },
+    "artifactStats": {
+      "artifactBytes": 96800,
+      "artifacts": 23,
+      "contentRefs": 23
+    },
+    "elapsedMs": 34067
+  },
+  "benchmark": {
+    "elapsedMs": 34462,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The handler resolves the app via prisma.app.findUnique({ where: { slug: reqBody.appSlug } }) but later stores credential.appId as appMetadata.slug from appStoreMetadata rather than the app row that was just found. If those identifiers differ, the webhook will create/update credentials under a different appId than the one it validated, so later reads scoped by the database app record can miss the credential.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-001"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_2636bcaf1118f6da6a21ef8127bc8934dd736af9adfd28b89f274b54ba404d82",
+          "byteRange": {
+            "endByte": 3145,
+            "startByte": 0
+          },
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_2636bcaf1118f6da6a21ef8127bc8934dd736af9adfd28b89f274b54ba404d82",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 89,
+            "startLine": 40
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "unit-001-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_4adbd45e6da62605218755cf3e72605f55d74992fdbda25f9566c44d72c466d5",
+          "byteRange": {
+            "endByte": 2783,
+            "startByte": 0
+          },
+          "contentHash": "a0ff3713560356e1e0423fb52cf087d8fb7aeb0e4c978baa77a757f94e3b3f71",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4adbd45e6da62605218755cf3e72605f55d74992fdbda25f9566c44d72c466d5",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 89,
+            "startLine": 40
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "unit-001-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "apps/web/pages/api/webhook/app-credential.ts"
+        }
+      ],
+      "id": "b306bd1f9ca3dd242dabf1ac02e29ac76fe8b4beed387896511c2d97722478e8",
+      "locationLineRange": {
+        "endLine": 89,
+        "startLine": 40
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Credential records are keyed by app-store slug instead of the looked-up app record, risking mismatched writes",
+      "validationStatus": "validated"
+    }
+  ]
+}

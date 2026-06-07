@@ -1,0 +1,261 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T12:26:51.018Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-uaBdNv/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-uaBdNv/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 1,
+    "completedSessions": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 0,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 1,
+      "readFile": 0,
+      "readFileRange": 4,
+      "readHeadFile": 2,
+      "searchText": 1
+    },
+    "tokens": {
+      "inputTokens": 35292,
+      "outputTokens": 557,
+      "totalTokens": 35849
+    },
+    "artifactStats": {
+      "artifactBytes": 36591,
+      "artifacts": 8,
+      "contentRefs": 8
+    },
+    "elapsedMs": 12575
+  },
+  "benchmark": {
+    "elapsedMs": 12736,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "findingId": "3d2b36419344f4c1e889f9c15ba70734629a2652d52ed0071f229cff57b678d8",
+        "title": "deleteMany OR clause broadens cleanup to all high-retry reminders, not just SMS/past-due ones"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 1,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new `deleteMany` predicate changed from a scoped SMS/past-date cleanup to `OR: [{ method: SMS, scheduledDate <= now }, { retryCount > 1 }]`. This will delete any `WorkflowReminder` with `retryCount > 1` regardless of method or scheduled date, which is a destructive contract change from the comment and prior behavior. It can remove non-SMS reminders and future reminders before the later scheduling/update logic can process them.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_2cac6b7103f2bb4e65f459e1ef2b9d8cf59df2b8db183feefe115ad9091dd365",
+          "byteRange": {
+            "endByte": 5958,
+            "startByte": 0
+          },
+          "contentHash": "0792106dfa81e53197bf030b6128067cfc8bc80c8ec420de44f399b0ac220f95",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_2cac6b7103f2bb4e65f459e1ef2b9d8cf59df2b8db183feefe115ad9091dd365",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 41,
+            "startLine": 30
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+        },
+        {
+          "artifactId": "art_6302a71c73b6d971d8ff9f83e2b24695b637398a1733a9c4041d58f574fbc8fe",
+          "byteRange": {
+            "endByte": 8032,
+            "startByte": 0
+          },
+          "contentHash": "763efa378e3c2e9928e39b1763af4121f763ff6ee7cdf5bbc1713f916e65d542",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_6302a71c73b6d971d8ff9f83e2b24695b637398a1733a9c4041d58f574fbc8fe",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 41,
+            "startLine": 30
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+        },
+        {
+          "artifactId": "art_985a8b2d0e1221434299e3d9d619e190668a6e9f300a0dcb36766848d3949477",
+          "byteRange": {
+            "endByte": 7111,
+            "startByte": 0
+          },
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_985a8b2d0e1221434299e3d9d619e190668a6e9f300a0dcb36766848d3949477",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 41,
+            "startLine": 30
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+        },
+        {
+          "artifactId": "art_c0e5edd848fc137a69dec1605d4f349645179d24003d53ecb0c741ebe48f7568",
+          "byteRange": {
+            "endByte": 2512,
+            "startByte": 0
+          },
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_c0e5edd848fc137a69dec1605d4f349645179d24003d53ecb0c741ebe48f7568",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 41,
+            "startLine": 30
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+        },
+        {
+          "artifactId": "art_cef737f7f8b369880446c30cac02def06c99f4820aa025e3e3ddb77affc70767",
+          "byteRange": {
+            "endByte": 1684,
+            "startByte": 0
+          },
+          "contentHash": "72526cdb5e50d3b8916a5b2f0041d9e4cb324f0b726e3574f86e45b8b1bcb942",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_cef737f7f8b369880446c30cac02def06c99f4820aa025e3e3ddb77affc70767",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 41,
+            "startLine": 30
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+        }
+      ],
+      "id": "3d2b36419344f4c1e889f9c15ba70734629a2652d52ed0071f229cff57b678d8",
+      "locationLineRange": {
+        "endLine": 41,
+        "startLine": 30
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "deleteMany OR clause broadens cleanup to all high-retry reminders, not just SMS/past-due ones",
+      "validationStatus": "validated"
+    }
+  ]
+}
