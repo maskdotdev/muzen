@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T02:16:01.536Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/Users/mask/code/muzen",
+    "baseRef": "HEAD~1",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-4o-mini",
+    "changedFileCount": 5,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-fdzgGo/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-fdzgGo/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_no_findings",
+    "publishability": "publishable",
+    "sessions": 2,
+    "completedSessions": 2,
+    "fileReviews": 2,
+    "findings": 0,
+    "modelCalls": 8,
+    "toolCounts": {
+      "challengeFinding": 0,
+      "findRelatedFiles": 1,
+      "findTestsForFile": 0,
+      "finish": 0,
+      "listChangedFiles": 2,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 0,
+      "readFile": 0,
+      "readFileRange": 0,
+      "readHeadFile": 3,
+      "recordFileReview": 0,
+      "recordFinding": 0,
+      "searchText": 0
+    },
+    "tokens": {
+      "inputTokens": 8477,
+      "outputTokens": 233,
+      "totalTokens": 8710
+    },
+    "artifactStats": {
+      "artifactBytes": 95224,
+      "artifacts": 5,
+      "contentRefs": 5
+    },
+    "elapsedMs": 6748
+  },
+  "benchmark": {
+    "elapsedMs": 7089,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0
+  },
+  "findings": []
+}

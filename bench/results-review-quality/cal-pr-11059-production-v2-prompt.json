@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T02:38:47.314Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-martian-cal-11059-mini-20260607T012145Z",
+    "baseRef": "aci-martian/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-bxURwr/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-bxURwr/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 11,
+    "completedSessions": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 1,
+      "needs_review": 38
+    },
+    "findings": 1,
+    "modelCalls": 44,
+    "toolCounts": {
+      "challengeFinding": 0,
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "finish": 0,
+      "listChangedFiles": 11,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 3,
+      "readFile": 18,
+      "readFileRange": 0,
+      "readHeadFile": 1,
+      "recordFileReview": 0,
+      "recordFinding": 0,
+      "searchText": 0
+    },
+    "tokens": {
+      "inputTokens": 82826,
+      "outputTokens": 2302,
+      "totalTokens": 85128
+    },
+    "artifactStats": {
+      "artifactBytes": 84643,
+      "artifacts": 21,
+      "contentRefs": 21
+    },
+    "elapsedMs": 30145
+  },
+  "benchmark": {
+    "elapsedMs": 30569,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "findingId": "91a83c0e07524b663db04671937b0eca0c7a0da881555b9107c3e9661221cbb4",
+        "title": "Webhook accepts any existing user ID without verifying ownership of the target app credential"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "requiredEvidenceFailures": 0,
+    "contractRiskTerminalCount": 0,
+    "searchCount": 0,
+    "importCount": 0,
+    "needsReviewCount": 38,
+    "cleanCount": 0,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The handler authorizes solely by `userId` existence and webhook secret, then decrypts and persists credentials for the provided `appSlug` without verifying that the credential payload is intended for that user or that the webhook sender is authorized to write credentials for that specific app/user pair. This can let a valid webhook secret inject credentials for arbitrary users/apps if the secret is exposed or reused across integrations.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-001"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_38e878b4010860e174a82630945bcad3bfae506226047b63e97eb6eb145327e1",
+          "byteRange": {
+            "endByte": 2783,
+            "startByte": 0
+          },
+          "contentHash": "a0ff3713560356e1e0423fb52cf087d8fb7aeb0e4c978baa77a757f94e3b3f71",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_38e878b4010860e174a82630945bcad3bfae506226047b63e97eb6eb145327e1",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 56,
+            "startLine": 29
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "unit-001-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_6010039421ad30b9c8d8753be20987c56d9e43df5f1796f01ab79e2fc049daf4",
+          "byteRange": {
+            "endByte": 2783,
+            "startByte": 0
+          },
+          "contentHash": "a0ff3713560356e1e0423fb52cf087d8fb7aeb0e4c978baa77a757f94e3b3f71",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_6010039421ad30b9c8d8753be20987c56d9e43df5f1796f01ab79e2fc049daf4",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 56,
+            "startLine": 29
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "unit-001-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "apps/web/pages/api/webhook/app-credential.ts"
+        }
+      ],
+      "id": "91a83c0e07524b663db04671937b0eca0c7a0da881555b9107c3e9661221cbb4",
+      "locationLineRange": {
+        "endLine": 56,
+        "startLine": 29
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Webhook accepts any existing user ID without verifying ownership of the target app credential",
+      "validationStatus": "validated"
+    }
+  ]
+}
