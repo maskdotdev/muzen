@@ -40,7 +40,8 @@ Implemented on `feat/context-engine`:
   default, embedding provider/vector-index traits are defined, semantic score is
   an additive ranking signal, and hosted embedding inputs reject restricted
   evidence unless explicitly allowed.
-- Fixture and benchmark scaffolding for context-engine evaluation.
+- A runnable context-engine evaluation harness with fixture-backed recall,
+  precision, token efficiency, omission, and latency summaries.
 
 Still pending from the full plan:
 
@@ -50,5 +51,5 @@ Still pending from the full plan:
 - Capability-scoped network/provider retrieval for cross-repository contracts.
 - Concrete local/hosted embedding provider implementations and benchmarked
   semantic ranking improvements.
-- Full replay/evaluation suite with precision, recall, latency, redaction, and
-  prompt-injection metrics.
+- Broader replay/evaluation coverage for redaction, prompt-injection resistance,
+  sufficiency calibration, cache hit rates, and multi-fixture regressions.
