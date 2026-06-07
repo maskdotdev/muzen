@@ -2,25 +2,12 @@ use serde_json::{json, Value};
 
 use crate::contracts::ToolName;
 use crate::runtime::contracts::{
-    CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, ToolId, ToolResultEnvelope,
+    CapabilitySet, ConversationItem, ModelOutputPolicy, ToolId, ToolResultEnvelope,
 };
 use crate::runtime::tools::ToolRegistry;
 
 use super::ReviewerPolicy;
 impl ReviewerPolicy {
-    pub(crate) fn plan_assistant_text_transcript_item(&self, content: String) -> ConversationItem {
-        ConversationItem::AssistantText { content }
-    }
-
-    pub(crate) fn plan_assistant_tool_calls_transcript_item(
-        &self,
-        calls: &[ModelToolCall],
-    ) -> ConversationItem {
-        ConversationItem::AssistantToolCalls {
-            calls: calls.to_vec(),
-        }
-    }
-
     pub(crate) fn plan_tool_result_transcript_item(
         &self,
         result: ToolResultEnvelope,

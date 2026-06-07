@@ -48,24 +48,6 @@ impl SessionEvidence {
         self.ready() && self.changed_file_coverage_ready()
     }
 
-    pub(crate) fn coverage_feedback_message(&self) -> Option<String> {
-        if self.changed_file_coverage_ready() {
-            return None;
-        }
-        let missing_read = self.missing_read_files(8);
-        let missing_review = self.missing_review_files(8);
-        if missing_read.is_empty() && !missing_review.is_empty() && self.ready() {
-            return Some(format!(
-                "{}. Minimum evidence is already present. Stop broad exploration and either record_finding for a concrete bug, then record_file_review verdict=issue_found with that finding_id, or record_file_review verdict=clean/skipped for the missing file review(s).",
-                self.finish_coverage_denial_message()
-            ));
-        }
-        Some(format!(
-            "{}. Continue by reading any missing files and recording record_file_review verdicts for missing file reviews; do not call finish until this checklist is empty.",
-            self.finish_coverage_denial_message()
-        ))
-    }
-
     pub(crate) fn file_review_scope_denial(
         &self,
         call: &ModelToolCall,
@@ -169,14 +151,7 @@ impl SessionEvidence {
         &self.results
     }
 
-    pub(crate) fn saw_diff(&self) -> bool {
-        self.saw_diff
-    }
-
-    pub(crate) fn saw_file(&self) -> bool {
-        self.saw_file
-    }
-
+    #[cfg(test)]
     pub(crate) fn saw_search(&self) -> bool {
         self.saw_search
     }
@@ -265,51 +240,6 @@ fn changed_files_from_batch_instruction(text: &str) -> Vec<String> {
             (!path.is_empty()).then(|| path.to_string())
         })
         .collect()
-}
-
-pub(crate) fn scoped_diff_content(diff: &str, assigned_paths: &BTreeSet<String>) -> String {
-    if assigned_paths.is_empty() {
-        return diff.to_string();
-    }
-
-    let mut selected = Vec::new();
-    let mut current = Vec::new();
-    let mut include_current = false;
-
-    for line in diff.lines() {
-        if line.starts_with("diff --git ") {
-            flush_diff_section(&mut selected, &mut current, include_current);
-            include_current = diff_git_line_matches(line, assigned_paths);
-        } else if line.starts_with("+++ b/") || line.starts_with("--- a/") {
-            if let Some(path) = line.get(6..) {
-                include_current |= assigned_paths.contains(path);
-            }
-        }
-        current.push(line.to_string());
-    }
-    flush_diff_section(&mut selected, &mut current, include_current);
-
-    if selected.is_empty() {
-        diff.to_string()
-    } else {
-        selected.join("\n") + "\n"
-    }
-}
-
-fn flush_diff_section(selected: &mut Vec<String>, current: &mut Vec<String>, include: bool) {
-    if include && !current.is_empty() {
-        selected.push(current.join("\n"));
-    }
-    current.clear();
-}
-
-fn diff_git_line_matches(line: &str, assigned_paths: &BTreeSet<String>) -> bool {
-    assigned_paths.iter().any(|path| {
-        line.contains(&format!(" a/{path} "))
-            || line.ends_with(&format!(" a/{path}"))
-            || line.contains(&format!(" b/{path} "))
-            || line.ends_with(&format!(" b/{path}"))
-    })
 }
 
 fn result_data_path(result: &ToolResultEnvelope) -> Option<String> {

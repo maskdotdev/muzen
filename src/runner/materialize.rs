@@ -334,7 +334,7 @@ fn github_get_json<T: for<'de> Deserialize<'de>>(
     provider: Option<&RunSourceProviderParams>,
 ) -> Result<T> {
     let base_url = provider_api_base_url(provider, GITHUB_API_BASE_URL);
-    let url = format!("{base_url}{}", path_and_query);
+    let url = format!("{base_url}{path_and_query}");
     let client = reqwest::blocking::Client::new();
     let mut request = client
         .get(&url)

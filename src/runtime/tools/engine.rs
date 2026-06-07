@@ -58,6 +58,7 @@ struct InflightToolResult {
 }
 
 impl ToolEngine {
+    #[cfg(test)]
     pub(crate) fn new(
         snapshot: Arc<RepoSnapshot>,
         limits: Arc<RuntimeLimits>,
@@ -1967,7 +1968,7 @@ fn elapsed_ms_allow_zero(started: Instant) -> u64 {
 }
 
 fn is_non_finding_claim(title: &str, claim: &str) -> bool {
-    let text = format!("{} {}", title, claim).to_ascii_lowercase();
+    let text = format!("{title} {claim}").to_ascii_lowercase();
     let title = title.trim().to_ascii_lowercase();
     if title.starts_with("check ")
         || title.starts_with("verify ")
@@ -2172,25 +2173,15 @@ fn inconsistent_skipped_review(verdict: &str, summary: &str) -> bool {
     !skip_reasons.iter().any(|phrase| text.contains(phrase))
 }
 
-#[cfg(test)]
-fn finding_path_matches(finding: &FindingV1, path: &RepoPath) -> bool {
-    let target = path.display();
-    finding.file_refs.iter().any(|location| match location {
-        EvidenceLocationV1::SinglePath { path } => path == &target,
-        EvidenceLocationV1::Rename { old_path, new_path } => {
-            old_path == &target || new_path == &target
-        }
-    })
-}
-
 fn finding_primary_path(finding: &FindingV1) -> String {
     finding
         .file_refs
         .iter()
-        .find_map(|location| match location {
-            EvidenceLocationV1::SinglePath { path } => Some(path.clone()),
-            EvidenceLocationV1::Rename { new_path, .. } => Some(new_path.clone()),
+        .map(|location| match location {
+            EvidenceLocationV1::SinglePath { path } => path.clone(),
+            EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
         })
+        .next()
         .unwrap_or_else(|| "<unknown>".to_string())
 }
 

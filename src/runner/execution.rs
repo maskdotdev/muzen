@@ -939,9 +939,9 @@ fn changed_file_specs(
         }
     }
     changed_files
-        .to_vec()
-        .into_iter()
+        .iter()
         .filter(|path| repo_root.join(path).is_file())
+        .cloned()
         .map(|path| changed_file_spec(&path, None))
         .collect()
 }

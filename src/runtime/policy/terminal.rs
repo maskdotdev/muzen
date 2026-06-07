@@ -1,10 +1,8 @@
-use crate::contracts::{ToolCounts, ToolName};
-use crate::runtime::contracts::{
-    SessionScope, SessionTerminalDiagnostic, ToolErrorCode, ToolResultEnvelope,
-};
+use crate::contracts::ToolName;
+use crate::runtime::contracts::{ToolErrorCode, ToolResultEnvelope};
 use crate::util::redact_known_secrets;
 
-use super::{ReviewerPolicy, SessionEvidence};
+use super::ReviewerPolicy;
 impl ReviewerPolicy {
     pub(crate) fn observe_terminal_batch(
         &self,
@@ -22,9 +20,12 @@ impl ReviewerPolicy {
         terminal.observe_error(result);
     }
 
+    #[cfg(test)]
     pub(crate) fn should_fail_after_terminal_errors(&self, terminal: &SessionTerminal) -> bool {
         terminal.denied_tool_errors >= 2
     }
+
+    #[cfg(test)]
     pub(crate) fn session_state(
         &self,
         completed: bool,
@@ -40,47 +41,6 @@ impl ReviewerPolicy {
             "failed"
         } else {
             "budget_exhausted"
-        }
-    }
-
-    pub(crate) fn session_terminal_diagnostic(
-        &self,
-        scope: &SessionScope,
-        completed: bool,
-        evidence: &SessionEvidence,
-        terminal: &SessionTerminal,
-        model_calls: usize,
-        tool_counts: ToolCounts,
-    ) -> SessionTerminalDiagnostic {
-        SessionTerminalDiagnostic {
-            session_id: scope.id.0.clone(),
-            completed,
-            terminal_tool: terminal.tool(),
-            terminal_summary: terminal.summary(),
-            saw_diff: evidence.saw_diff(),
-            saw_file: evidence.saw_file(),
-            saw_search: evidence.saw_search(),
-            model_calls,
-            tool_counts,
-        }
-    }
-
-    pub(crate) fn empty_session_terminal_diagnostic(
-        &self,
-        scope: &SessionScope,
-        completed: bool,
-        terminal_summary: Option<String>,
-    ) -> SessionTerminalDiagnostic {
-        SessionTerminalDiagnostic {
-            session_id: scope.id.0.clone(),
-            completed,
-            terminal_tool: None,
-            terminal_summary,
-            saw_diff: false,
-            saw_file: false,
-            saw_search: false,
-            model_calls: 0,
-            tool_counts: ToolCounts::default(),
         }
     }
 }
@@ -116,16 +76,9 @@ impl SessionTerminal {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn seen(&self) -> bool {
         self.seen
-    }
-
-    pub(crate) fn tool(&self) -> Option<String> {
-        self.tool.clone()
-    }
-
-    pub(crate) fn summary(&self) -> Option<String> {
-        self.summary.clone()
     }
 }
 fn is_successful_terminal(result: &ToolResultEnvelope) -> bool {

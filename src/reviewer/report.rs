@@ -523,17 +523,21 @@ fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {
             end_line: line_range.map(|range| range.end_line),
         });
     }
-    finding.evidence.iter().find_map(|evidence| {
-        let path = match &evidence.location {
-            crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
-            crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
-        };
-        Some(FindingLocationView {
-            path,
-            start_line: evidence.line_range.map(|range| range.start_line),
-            end_line: evidence.line_range.map(|range| range.end_line),
+    finding
+        .evidence
+        .iter()
+        .map(|evidence| {
+            let path = match &evidence.location {
+                crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
+                crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+            };
+            FindingLocationView {
+                path,
+                start_line: evidence.line_range.map(|range| range.start_line),
+                end_line: evidence.line_range.map(|range| range.end_line),
+            }
         })
-    })
+        .next()
 }
 
 #[derive(Debug, Clone)]

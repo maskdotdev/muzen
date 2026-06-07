@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
-    ToolCallingMode, ToolName,
+    ToolCallingMode,
 };
 use crate::runtime::contracts::*;
 use crate::runtime::policy::ReviewerPolicy;
@@ -159,81 +159,6 @@ impl ConcurrentModelRouter for ProfileModelRouter {
                     self.default_profile_id
                 ))
             })
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct MockReviewModel {
-    target_path: String,
-    query: String,
-}
-
-impl MockReviewModel {
-    pub(crate) fn new(target_path: String, query: String) -> Self {
-        Self { target_path, query }
-    }
-}
-
-#[async_trait]
-impl ConcurrentModelClient for MockReviewModel {
-    async fn complete(
-        &self,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        turn_id: TurnId,
-        _cancel: CancellationToken,
-    ) -> RuntimeResult<ModelTurn> {
-        let session_id = &scope.id;
-        let tool_results = transcript
-            .iter()
-            .filter(|item| matches!(item, ConversationItem::ToolResult { .. }))
-            .count();
-        let usage = TokenUsage {
-            input_tokens: transcript.len() as u64 * 100,
-            output_tokens: 64,
-            total_tokens: transcript.len() as u64 * 100 + 64,
-        };
-        if tool_results == 0 {
-            return Ok(ModelTurn::ToolCalls {
-                usage,
-                calls: vec![
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-read-diff", session_id.0, turn_id.0)),
-                        index: 0,
-                        name: ToolId::from(ToolName::ReadDiff),
-                        raw_arguments: "{}".to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-read-file", session_id.0, turn_id.0)),
-                        index: 1,
-                        name: ToolId::from(ToolName::ReadFile),
-                        raw_arguments: json!({ "path": self.target_path }).to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-search", session_id.0, turn_id.0)),
-                        index: 2,
-                        name: ToolId::from(ToolName::SearchText),
-                        raw_arguments: json!({ "query": self.query }).to_string(),
-                    },
-                ],
-            });
-        }
-        Ok(ModelTurn::ToolCalls {
-            usage,
-            calls: vec![ModelToolCall {
-                call_id: ToolCallId(format!("{}-{}-finding", session_id.0, turn_id.0)),
-                index: 0,
-                name: ToolId::from(ToolName::RecordFinding),
-                raw_arguments: json!({
-                    "title": format!("{} reviewed with parallel evidence", session_id.0),
-                    "claim": "The benchmark session gathered diff, file, and search evidence.",
-                    "path": self.target_path,
-                    "start_line": 1,
-                    "end_line": 1
-                })
-                .to_string(),
-            }],
-        })
     }
 }
 
@@ -1504,7 +1429,7 @@ impl ResponsesUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{AgentBudget, Role};
+
     use crate::runtime::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
 
     #[test]
@@ -1667,25 +1592,12 @@ mod tests {
         });
     }
 
-    struct StaticCredentialResolver;
-
-    impl CredentialResolver for StaticCredentialResolver {
-        fn resolve_credential(&self, credential_ref: &str) -> RuntimeResult<String> {
-            assert_eq!(credential_ref, "test:credential");
-            Ok("resolved-key".to_string())
-        }
-    }
-
     struct MissingCredentialResolver;
 
     impl CredentialResolver for MissingCredentialResolver {
         fn resolve_credential(&self, _credential_ref: &str) -> RuntimeResult<String> {
             Err(RuntimeError::InvalidInput("missing credential".to_string()))
         }
-    }
-
-    fn test_profile() -> ModelProfileRefV1 {
-        test_profile_for_protocol(ModelApiProtocol::ChatCompletions)
     }
 
     fn test_canary_config(enabled: bool) -> OpenAiProviderCanaryConfig {
@@ -1697,36 +1609,6 @@ mod tests {
             max_output_tokens: 16,
             prompt: "Return ready.".to_string(),
         }
-    }
-
-    fn test_profile_for_protocol(api_protocol: ModelApiProtocol) -> ModelProfileRefV1 {
-        ModelProfileRefV1 {
-            id: "test-profile".to_string(),
-            provider_kind: ProviderKind::OpenaiCompatible,
-            api_protocol,
-            provider_profile_id: "test-provider-profile".to_string(),
-            credential_ref: "test:credential".to_string(),
-            model: "gpt-4o-mini".to_string(),
-            max_input_tokens: 32_000,
-            max_output_tokens: 128,
-            tool_calling_mode: ToolCallingMode::Auto,
-            temperature: Some(0.0),
-            top_p: None,
-        }
-    }
-
-    fn test_scope() -> SessionScope {
-        SessionScope::review_read_only(
-            SessionId("test-session".to_string()),
-            Role::Generalist,
-            "test objective",
-            AgentBudget {
-                max_turns: 2,
-                max_tool_calls: 4,
-                max_prompt_tokens: 1024,
-                max_output_tokens: 128,
-            },
-        )
     }
 
     fn aliased_registry() -> (ToolRegistry, ToolId, ToolId) {

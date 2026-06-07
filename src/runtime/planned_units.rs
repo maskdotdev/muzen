@@ -604,7 +604,8 @@ fn unit_scope(
             text: unit
                 .file_paths
                 .iter()
-                .map(|path| path.display())
+                .enumerate()
+                .map(|(index, path)| format!("{}. {}", index + 1, path.display()))
                 .collect::<Vec<_>>()
                 .join("\n"),
         }],
@@ -715,7 +716,7 @@ fn validate_findings(
                         end_line: end.max(start),
                     })?;
             if let Some(ranges) = changed_ranges.get(&path.display()) {
-                let finding_text = format!("{} {}", title, claim);
+                let finding_text = format!("{title} {claim}");
                 if let Some(tokens_by_line) = added_tokens.get(&path.display()) {
                     if !tokens_by_line.iter().any(|(line, tokens)| {
                         *line >= line_range.start_line
@@ -1005,7 +1006,6 @@ mod tests {
         ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
         RenameDetection, SnapshotMode,
     };
-    use crate::review_plan::ReviewPlanReason;
     use crate::runtime::model::StaticModelRouter;
     use crate::runtime::repo::RepoSnapshot;
 

@@ -6,9 +6,10 @@ use serde_json::Value;
 use crate::contracts::{AgentBudget, Role};
 use crate::runner::{
     RunAgentBudgetParams, RunChangeFileParams, RunChangeParams, RunInstructionParams,
-    RunLimitParams, RunModelCredentialParams, RunModelParams, RunModelProfileParams,
-    RunSessionParams, RunSourceProviderParams, RunToolParams,
+    RunLimitParams, RunModelParams, RunSessionParams, RunSourceProviderParams, RunToolParams,
 };
+#[cfg(not(test))]
+use crate::runner::{RunModelCredentialParams, RunModelProfileParams};
 
 use super::ReviewSource;
 
@@ -126,6 +127,7 @@ impl ReviewOptions {
         }
     }
 
+    #[cfg(not(test))]
     pub(crate) fn hosted_runner_model(&self) -> Option<RunModelParams> {
         let snapshot = self.config_snapshot.as_ref()?;
         let profile = snapshot.model_profile.as_ref()?;
@@ -138,7 +140,7 @@ impl ReviewOptions {
                 id: profile.id.clone(),
                 provider,
                 model,
-                credential: profile.secret_ref.as_ref().map(model_credential_from_ref),
+                credential: profile.secret_ref.as_deref().map(model_credential_from_ref),
                 base_url: snapshot.routing.get("model.baseUrl").cloned(),
                 api_protocol: Some("responses".to_string()),
                 max_input_tokens: None,
@@ -154,7 +156,8 @@ impl ReviewOptions {
     }
 }
 
-fn model_credential_from_ref(secret_ref: &String) -> RunModelCredentialParams {
+#[cfg(not(test))]
+fn model_credential_from_ref(secret_ref: &str) -> RunModelCredentialParams {
     if let Some(env) = secret_ref.strip_prefix("env:") {
         return RunModelCredentialParams {
             env: Some(env.to_string()),
@@ -163,7 +166,7 @@ fn model_credential_from_ref(secret_ref: &String) -> RunModelCredentialParams {
     }
     RunModelCredentialParams {
         env: None,
-        secret_ref: Some(secret_ref.clone()),
+        secret_ref: Some(secret_ref.to_owned()),
     }
 }
 
