@@ -71,6 +71,35 @@ class RunnerMappingTests(unittest.TestCase):
                         "evidence": [],
                         "omitted": 0,
                     }
+                if method == "context.feedback":
+                    return {
+                        "accepted": True,
+                        "message": "stored",
+                        "proposedLearning": {
+                            "id": "learning-1",
+                            "snapshotId": "snap-1",
+                            "source": "human_feedback",
+                            "status": "proposed",
+                            "scope": "repository",
+                            "evidenceIds": [],
+                            "summary": params["feedback"],
+                            "createdAtUtc": "1780620000",
+                        },
+                    }
+                if method == "context.learning.approve":
+                    return {
+                        "accepted": True,
+                        "learning": {
+                            "id": params["learningId"],
+                            "snapshotId": params["snapshotId"],
+                            "source": "human_feedback",
+                            "status": "approved",
+                            "scope": "repository",
+                            "evidenceIds": [],
+                            "summary": "Suppress duplicate warning.",
+                            "createdAtUtc": "1780620000",
+                        },
+                    }
                 raise AssertionError(f"unexpected method {method}")
 
         async def run() -> None:
@@ -90,10 +119,21 @@ class RunnerMappingTests(unittest.TestCase):
                 kind="related_tests",
                 arguments={"path": "src/auth.py"},
             )
+            feedback = await workspace.context.record_feedback(
+                source=local("/repo", changed_files=["src/auth.py"]),
+                feedback="Suppress duplicate warning.",
+            )
+            approval = await workspace.context.approve_learning(
+                snapshot_id="snap-1",
+                learning_id="learning-1",
+                approve=True,
+            )
 
             self.assertEqual(manifest["snapshotId"], "snap-1")
             self.assertEqual(pack["purpose"], "security")
             self.assertEqual(query["kind"], "related_tests")
+            self.assertEqual(feedback["proposedLearning"]["status"], "proposed")
+            self.assertEqual(approval["learning"]["status"], "approved")
             self.assertEqual(
                 [call["method"] for call in runner.calls],
                 [
@@ -102,6 +142,9 @@ class RunnerMappingTests(unittest.TestCase):
                     "context.pack",
                     "context.index",
                     "context.query",
+                    "context.index",
+                    "context.feedback",
+                    "context.learning.approve",
                 ],
             )
 
@@ -550,6 +593,42 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "omitted": 0,
                     }
                 }
+            if path == "/v1/workspaces/acme/context/feedback" and method == "POST":
+                return {
+                    "receipt": {
+                        "accepted": True,
+                        "message": "stored",
+                        "proposedLearning": {
+                            "id": "learning-1",
+                            "snapshotId": "snap-1",
+                            "source": "human_feedback",
+                            "status": "proposed",
+                            "scope": "repository",
+                            "evidenceIds": [],
+                            "summary": body["feedback"],
+                            "createdAtUtc": "1780620000",
+                        },
+                    }
+                }
+            if (
+                path == "/v1/workspaces/acme/context/learnings/approve"
+                and method == "POST"
+            ):
+                return {
+                    "receipt": {
+                        "accepted": True,
+                        "learning": {
+                            "id": body["learningId"],
+                            "snapshotId": body["snapshotId"],
+                            "source": "human_feedback",
+                            "status": "approved",
+                            "scope": "repository",
+                            "evidenceIds": [],
+                            "summary": "Suppress duplicate warning.",
+                            "createdAtUtc": "1780620000",
+                        },
+                    }
+                }
             if path == "/v1/reviews/review-workspace-1/result":
                 return {
                     "result": {
@@ -621,6 +700,15 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
             arguments={"path": "src/auth.py"},
             limits=ContextQueryLimits(max_results=10, max_tokens=1000),
         )
+        feedback = await workspace.context.record_feedback(
+            source=local("/repo", changed_files=["src/auth.py"]),
+            feedback="Suppress duplicate warning.",
+        )
+        approval = await workspace.context.approve_learning(
+            snapshot_id="snap-1",
+            learning_id="learning-1",
+            approve=True,
+        )
         result = await review.wait(timeout="1s")
 
         self.assertEqual(workspace.id, "acme")
@@ -634,6 +722,8 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manifest["schemaVersion"], "muzen.context_manifest.v1")
         self.assertEqual(pack["purpose"], "security")
         self.assertEqual(query["kind"], "related_tests")
+        self.assertEqual(feedback["proposedLearning"]["status"], "proposed")
+        self.assertEqual(approval["learning"]["status"], "approved")
         self.assertEqual(result.conclusion, "approved")
         self.assertEqual(requests[0]["authorization"], "Bearer test-token")
         self.assertEqual(
@@ -649,6 +739,8 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 "/v1/workspaces/acme/context/index",
                 "/v1/workspaces/acme/context/packs",
                 "/v1/workspaces/acme/context/query",
+                "/v1/workspaces/acme/context/feedback",
+                "/v1/workspaces/acme/context/learnings/approve",
                 "/v1/reviews/review-workspace-1/result",
             ],
         )

@@ -508,6 +508,40 @@ mod tests {
                 }
             }),
         );
+        let feedback = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "context.feedback",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "evidenceIds": [],
+                    "feedback": "Suppress duplicate generated auth wrapper warning.",
+                    "source": "human_feedback",
+                    "scope": "repository"
+                }
+            }),
+        );
+        let learning_id = feedback[0]["result"]["proposedLearning"]["id"]
+            .as_str()
+            .expect("learning id")
+            .to_string();
+        let approval = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "context.learning.approve",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": true
+                }
+            }),
+        );
 
         assert_eq!(
             index[0]["result"]["schemaVersion"],
@@ -520,6 +554,14 @@ mod tests {
             .unwrap()
             .iter()
             .any(|evidence| evidence["path"] == json!("tests/auth/token_test.rs")));
+        assert_eq!(
+            feedback[0]["result"]["proposedLearning"]["status"],
+            json!("proposed")
+        );
+        assert_eq!(
+            approval[0]["result"]["learning"]["status"],
+            json!("approved")
+        );
     }
 
     #[test]

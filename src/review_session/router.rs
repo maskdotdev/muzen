@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::{
     ModelProfile, ModelProfileInput, Muzen, ProviderProfile, ProviderProfileInput, ReviewArtifact,
@@ -11,7 +11,9 @@ use super::{
     HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
 use crate::context_engine::{
-    ContextEngine, ContextEngineConfig, ContextIndexRequest, ContextManifestArtifact, ContextPack,
+    ContextEngine, ContextEngineConfig, ContextFeedback, ContextFeedbackReceipt,
+    ContextIndexRequest, ContextLearningApproval, ContextLearningApprovalReceipt,
+    ContextLearningScope, ContextLearningSource, ContextManifestArtifact, ContextPack,
     ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
     ContextQueryResult, SnapshotContextEngine,
 };
@@ -94,6 +96,7 @@ pub struct ReviewHttpRouterOptions {
 pub struct ReviewHttpRouter {
     muzen: Muzen,
     options: ReviewHttpRouterOptions,
+    context_engines: Arc<Mutex<BTreeMap<String, SnapshotContextEngine>>>,
 }
 
 impl ReviewHttpRouter {
@@ -102,7 +105,11 @@ impl ReviewHttpRouter {
     }
 
     pub fn with_options(muzen: Muzen, options: ReviewHttpRouterOptions) -> Self {
-        Self { muzen, options }
+        Self {
+            muzen,
+            options,
+            context_engines: Arc::new(Mutex::new(BTreeMap::new())),
+        }
     }
 
     pub fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
@@ -160,6 +167,12 @@ impl ReviewHttpRouter {
             }
             ["v1", "workspaces", workspace_id, "context", "query"] => {
                 self.handle_context_query(request, workspace_id)
+            }
+            ["v1", "workspaces", workspace_id, "context", "feedback"] => {
+                self.handle_context_feedback(request, workspace_id)
+            }
+            ["v1", "workspaces", workspace_id, "context", "learnings", "approve"] => {
+                self.handle_context_learning_approval(request, workspace_id)
             }
             _ => Err(ReviewHttpRouteError::NotFound(format!(
                 "no Muzen route matches {} {}",
@@ -486,6 +499,48 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ContextQueryResponse { result })
     }
 
+    fn handle_context_feedback(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextFeedbackBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let feedback_engine = engine.clone();
+        let receipt = block_on_context(async move {
+            feedback_engine
+                .record_feedback(
+                    ContextFeedback {
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        evidence_ids: body.evidence_ids,
+                        feedback: body.feedback,
+                        source: body.learning_source,
+                        scope: body.scope,
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextFeedbackResponse { receipt })
+    }
+
+    fn handle_context_learning_approval(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextLearningApprovalBody = json_body(request)?;
+        let engine = self.context_engine_for_snapshot(workspace_id, &body.snapshot_id)?;
+        let receipt = block_on_context(async move {
+            engine
+                .approve_learning(body.approval, CancellationToken::new())
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextLearningApprovalResponse { receipt })
+    }
+
     fn index_context_request(
         &self,
         _workspace_id: &str,
@@ -512,7 +567,31 @@ impl ReviewHttpRouter {
         let index = engine.get_index(&snapshot.snapshot_id).ok_or_else(|| {
             ReviewHttpRouteError::BadRequest("context index was not stored".to_string())
         })?;
+        self.context_engines
+            .lock()
+            .expect("context engine store poisoned")
+            .insert(
+                context_engine_key(_workspace_id, &snapshot.snapshot_id.0),
+                engine.clone(),
+            );
         Ok((engine, snapshot, index.manifest_artifact.clone()))
+    }
+
+    fn context_engine_for_snapshot(
+        &self,
+        workspace_id: &str,
+        snapshot_id: &str,
+    ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
+        self.context_engines
+            .lock()
+            .expect("context engine store poisoned")
+            .get(&context_engine_key(workspace_id, snapshot_id))
+            .cloned()
+            .ok_or_else(|| {
+                ReviewHttpRouteError::BadRequest(format!(
+                    "context index not found for snapshot {snapshot_id}"
+                ))
+            })
     }
 
     fn review_snapshot(
@@ -651,6 +730,28 @@ struct ContextQueryBody {
     limits: Option<ContextQueryLimits>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextFeedbackBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    evidence_ids: Vec<EvidenceId>,
+    feedback: String,
+    #[serde(default)]
+    learning_source: Option<ContextLearningSource>,
+    #[serde(default)]
+    scope: Option<ContextLearningScope>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextLearningApprovalBody {
+    snapshot_id: String,
+    #[serde(flatten)]
+    approval: ContextLearningApproval,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ContextIndexResponse {
@@ -667,6 +768,18 @@ struct ContextPackResponse {
 #[serde(rename_all = "camelCase")]
 struct ContextQueryResponse {
     result: ContextQueryResult,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextFeedbackResponse {
+    receipt: ContextFeedbackReceipt,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextLearningApprovalResponse {
+    receipt: ContextLearningApprovalReceipt,
 }
 
 #[derive(Debug, Serialize)]
@@ -879,6 +992,10 @@ fn parse_query_lossy(query: &str) -> BTreeMap<String, String> {
         );
     }
     result
+}
+
+fn context_engine_key(workspace_id: &str, snapshot_id: &str) -> String {
+    format!("{workspace_id}:{snapshot_id}")
 }
 
 fn percent_decode(input: &str, plus_as_space: bool) -> Result<String, ReviewHttpRouteError> {

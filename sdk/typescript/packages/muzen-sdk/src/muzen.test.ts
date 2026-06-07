@@ -69,6 +69,37 @@ describe("runner-backed Muzen preview", () => {
             omitted: 0,
           };
         }
+        if (method === "context.feedback") {
+          return {
+            accepted: true,
+            message: "stored",
+            proposedLearning: {
+              id: "learning-1",
+              snapshotId: "snap-1",
+              source: "human_feedback",
+              status: "proposed",
+              scope: "repository",
+              evidenceIds: [],
+              summary: "Suppress duplicate warning.",
+              createdAtUtc: "1780620000",
+            },
+          };
+        }
+        if (method === "context.learning.approve") {
+          return {
+            accepted: true,
+            learning: {
+              id: "learning-1",
+              snapshotId: "snap-1",
+              source: "human_feedback",
+              status: "approved",
+              scope: "repository",
+              evidenceIds: [],
+              summary: "Suppress duplicate warning.",
+              createdAtUtc: "1780620000",
+            },
+          };
+        }
         throw new Error(`unexpected method ${method}`);
       },
       onNotification: () => () => {},
@@ -90,16 +121,30 @@ describe("runner-backed Muzen preview", () => {
       kind: "related_tests",
       arguments: { path: "src/auth.ts" },
     });
+    const feedback = await workspace.context.recordFeedback({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      feedback: "Suppress duplicate warning.",
+    });
+    const approval = await workspace.context.approveLearning({
+      snapshotId: "snap-1",
+      learningId: "learning-1",
+      approve: true,
+    });
 
     assert.equal(manifest.snapshotId, "snap-1");
     assert.equal(pack.purpose, "security");
     assert.equal(query.kind, "related_tests");
+    assert.equal(feedback.proposedLearning?.status, "proposed");
+    assert.equal(approval.learning.status, "approved");
     assert.deepEqual(calls.map((call) => call.method), [
       "context.index",
       "context.index",
       "context.pack",
       "context.index",
       "context.query",
+      "context.index",
+      "context.feedback",
+      "context.learning.approve",
     ]);
   });
 
@@ -598,6 +643,47 @@ describe("remote Muzen client", () => {
           },
         });
       }
+      if (
+        url.pathname === "/v1/workspaces/acme/context/feedback" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          receipt: {
+            accepted: true,
+            message: "stored",
+            proposedLearning: {
+              id: "learning-1",
+              snapshotId: "snap-1",
+              source: "human_feedback",
+              status: "proposed",
+              scope: "repository",
+              evidenceIds: [],
+              summary: body.feedback,
+              createdAtUtc: "1780620000",
+            },
+          },
+        });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/context/learnings/approve" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          receipt: {
+            accepted: true,
+            learning: {
+              id: body.learningId,
+              snapshotId: body.snapshotId,
+              source: "human_feedback",
+              status: "approved",
+              scope: "repository",
+              evidenceIds: [],
+              summary: "Suppress duplicate warning.",
+              createdAtUtc: "1780620000",
+            },
+          },
+        });
+      }
       return new Response("not found", { status: 404, statusText: "Not Found" });
     };
     const workspace = createMuzenClient({
@@ -643,6 +729,15 @@ describe("remote Muzen client", () => {
       arguments: { path: "src/auth.ts" },
       limits: { maxResults: 10, maxTokens: 1000 },
     });
+    const feedback = await workspace.context.recordFeedback({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      feedback: "Suppress duplicate warning.",
+    });
+    const approval = await workspace.context.approveLearning({
+      snapshotId: "snap-1",
+      learningId: "learning-1",
+      approve: true,
+    });
 
     assert.equal(workspace.id, "acme");
     assert.equal(savedModel.model, "gpt-5");
@@ -658,6 +753,8 @@ describe("remote Muzen client", () => {
     assert.equal(manifest.schemaVersion, "muzen.context_manifest.v1");
     assert.equal(pack.purpose, "security");
     assert.equal(query.kind, "related_tests");
+    assert.equal(feedback.proposedLearning?.status, "proposed");
+    assert.equal(approval.learning.status, "approved");
     assert.deepEqual(requests.map((request) => request.path), [
       "/v1/workspaces/acme/models/default",
       "/v1/workspaces/acme/models/default",
@@ -669,11 +766,10 @@ describe("remote Muzen client", () => {
       "/v1/workspaces/acme/context/index",
       "/v1/workspaces/acme/context/packs",
       "/v1/workspaces/acme/context/query",
+      "/v1/workspaces/acme/context/feedback",
+      "/v1/workspaces/acme/context/learnings/approve",
     ]);
-    assert.equal(
-      (requests.at(-1)?.body as { kind?: string }).kind,
-      "related_tests",
-    );
+    assert.equal((requests.at(-3)?.body as { kind?: string }).kind, "related_tests");
   });
 
   it("forwards webhook requests to the remote HTTP contract", async () => {

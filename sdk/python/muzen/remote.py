@@ -20,6 +20,8 @@ from .sources import parse_review_source
 from .errors import MuzenUnsupportedFeatureError
 from .types import (
     ContextEngineConfig,
+    ContextLearningScope,
+    ContextLearningSource,
     ContextPackPurpose,
     ContextQueryKind,
     ContextQueryLimits,
@@ -234,6 +236,47 @@ class RemoteContextWorkspace:
         return (
             await self._client._request_json("POST", self._path("query"), payload)
         )["result"]
+
+    async def record_feedback(
+        self,
+        *,
+        source: ReviewSourceLike,
+        feedback: str,
+        evidence_ids: Optional[List[str]] = None,
+        changed_files: Optional[List[str]] = None,
+        learning_source: Optional[ContextLearningSource] = None,
+        scope: Optional[ContextLearningScope] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(source, changed_files, config)
+        payload["evidenceIds"] = evidence_ids or []
+        payload["feedback"] = feedback
+        payload["source"] = learning_source
+        payload["scope"] = scope
+        return (
+            await self._client._request_json("POST", self._path("feedback"), payload)
+        )["receipt"]
+
+    async def approve_learning(
+        self,
+        *,
+        snapshot_id: str,
+        learning_id: str,
+        approve: bool = False,
+        expires_at_utc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return (
+            await self._client._request_json(
+                "POST",
+                self._path("learnings/approve"),
+                {
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": approve,
+                    "expiresAtUtc": expires_at_utc,
+                },
+            )
+        )["receipt"]
 
     def _path(self, kind: str) -> str:
         return f"/v1/workspaces/{_quote(self._workspace_id)}/context/{kind}"

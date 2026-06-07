@@ -631,10 +631,21 @@ export interface ContextFeedbackReceipt {
   proposedLearning?: ContextLearning;
 }
 
+export interface ContextFeedbackOptions extends ContextIndexOptions {
+  evidenceIds?: string[];
+  feedback: string;
+  learningSource?: ContextLearningSource;
+  scope?: ContextLearningScope;
+}
+
 export interface ContextLearningApproval {
   learningId: string;
   approve?: boolean;
   expiresAtUtc?: string;
+}
+
+export interface ContextLearningApprovalOptions extends ContextLearningApproval {
+  snapshotId: string;
 }
 
 export interface ContextLearningApprovalReceipt {
@@ -691,6 +702,10 @@ export interface MuzenContextWorkspace {
   index(options: ContextIndexOptions): Promise<ContextManifest>;
   buildPack(options: ContextPackOptions): Promise<ContextPack>;
   query(options: ContextQueryOptions): Promise<ContextQueryResult>;
+  recordFeedback(options: ContextFeedbackOptions): Promise<ContextFeedbackReceipt>;
+  approveLearning(
+    options: ContextLearningApprovalOptions,
+  ): Promise<ContextLearningApprovalReceipt>;
 }
 
 export type ModelProviderKind =

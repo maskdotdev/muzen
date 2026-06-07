@@ -31,13 +31,15 @@ Implemented on `feat/context-engine`:
 - Feedback records can create inspectable proposed repository/workspace/org
   learnings; in-memory approval/rejection and expiry are enforced before
   `history_similar` retrieval returns a learning.
+- HTTP, runner stdio, and TypeScript/Python SDK context adapters expose feedback
+  recording and learning approval flows.
 - Fixture and benchmark scaffolding for context-engine evaluation.
 
 Still pending from the full plan:
 
 - Parser-backed symbol/import/export graphs for Rust, TypeScript/TSX, and Python.
-- Persistent feedback/learnings plus HTTP/runner/SDK transport for approval
-  workflows.
+- Persistent feedback/learnings across process restarts and durable workspace
+  storage.
 - Cross-repository contract context and capability-scoped network retrieval.
 - Optional embedding providers/vector indexes and semantic ranking.
 - Full replay/evaluation suite with precision, recall, latency, redaction, and

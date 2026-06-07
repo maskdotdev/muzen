@@ -36,13 +36,17 @@ import {
 import type {
   CreateMuzenOptions,
   ContextEngineConfig,
-  HostConfiguration,
+  ContextFeedbackOptions,
+  ContextFeedbackReceipt,
   ContextIndexOptions,
+  ContextLearningApprovalOptions,
+  ContextLearningApprovalReceipt,
   ContextManifest,
   ContextPack,
   ContextPackOptions,
   ContextQueryOptions,
   ContextQueryResult,
+  HostConfiguration,
   ModelProfile,
   ModelProfileInput,
   Muzen,
@@ -318,6 +322,30 @@ class RunnerBackedContextWorkspace implements MuzenContextWorkspace {
         maxTokens: options.config?.maxPackTokens ?? 12_000,
       },
     })) as ContextQueryResult;
+  }
+
+  async recordFeedback(
+    options: ContextFeedbackOptions,
+  ): Promise<ContextFeedbackReceipt> {
+    const manifest = await this.index(options);
+    return (await this.runner.request("context.feedback", {
+      snapshotId: manifest.snapshotId,
+      evidenceIds: options.evidenceIds ?? [],
+      feedback: options.feedback,
+      source: options.learningSource,
+      scope: options.scope,
+    })) as ContextFeedbackReceipt;
+  }
+
+  async approveLearning(
+    options: ContextLearningApprovalOptions,
+  ): Promise<ContextLearningApprovalReceipt> {
+    return (await this.runner.request("context.learning.approve", {
+      snapshotId: options.snapshotId,
+      learningId: options.learningId,
+      approve: options.approve ?? false,
+      expiresAtUtc: options.expiresAtUtc,
+    })) as ContextLearningApprovalReceipt;
   }
 }
 
