@@ -1,14 +1,28 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::runtime::contracts::{RuntimeResult, SnapshotId};
+use serde::{Deserialize, Serialize};
 
-use super::ContextIndex;
+use crate::runtime::contracts::{RuntimeError, RuntimeResult, SnapshotId};
+
+use super::{ContextIndex, ContextLearning};
 
 pub trait ContextIndexStore: Send + Sync {
     fn put_index(&self, index: ContextIndex) -> RuntimeResult<()>;
     fn get_index(&self, snapshot_id: &SnapshotId) -> Option<Arc<ContextIndex>>;
     fn remove_index(&self, snapshot_id: &SnapshotId) -> RuntimeResult<bool>;
+}
+
+pub trait ContextLearningStore: Send + Sync {
+    fn put_learning(&self, learning: ContextLearning) -> RuntimeResult<()>;
+    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning>;
+    fn update_learning(
+        &self,
+        learning_id: &str,
+        update: &mut dyn FnMut(&mut ContextLearning) -> RuntimeResult<()>,
+    ) -> RuntimeResult<ContextLearning>;
+    fn list_learnings(&self) -> Vec<ContextLearning>;
 }
 
 #[derive(Debug, Default)]
@@ -46,5 +60,176 @@ impl ContextIndexStore for InMemoryContextIndexStore {
             .expect("context index store poisoned")
             .remove(snapshot_id)
             .is_some())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct InMemoryContextLearningStore {
+    learnings: Mutex<HashMap<String, ContextLearning>>,
+}
+
+impl InMemoryContextLearningStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl ContextLearningStore for InMemoryContextLearningStore {
+    fn put_learning(&self, learning: ContextLearning) -> RuntimeResult<()> {
+        self.learnings
+            .lock()
+            .expect("context learning store poisoned")
+            .insert(learning.id.clone(), learning);
+        Ok(())
+    }
+
+    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning> {
+        self.learnings
+            .lock()
+            .expect("context learning store poisoned")
+            .get(learning_id)
+            .cloned()
+    }
+
+    fn update_learning(
+        &self,
+        learning_id: &str,
+        update: &mut dyn FnMut(&mut ContextLearning) -> RuntimeResult<()>,
+    ) -> RuntimeResult<ContextLearning> {
+        let mut learnings = self
+            .learnings
+            .lock()
+            .expect("context learning store poisoned");
+        let learning = learnings
+            .get_mut(learning_id)
+            .ok_or_else(|| RuntimeError::InvalidInput("context learning not found".to_string()))?;
+        update(learning)?;
+        Ok(learning.clone())
+    }
+
+    fn list_learnings(&self) -> Vec<ContextLearning> {
+        self.learnings
+            .lock()
+            .expect("context learning store poisoned")
+            .values()
+            .cloned()
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct FileContextLearningStore {
+    path: PathBuf,
+    learnings: Mutex<HashMap<String, ContextLearning>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextLearningStoreFile {
+    schema_version: String,
+    learnings: HashMap<String, ContextLearning>,
+}
+
+impl FileContextLearningStore {
+    pub fn open(path: impl AsRef<Path>) -> RuntimeResult<Self> {
+        let path = path.as_ref().to_path_buf();
+        let learnings = if path.exists() {
+            let contents = std::fs::read_to_string(&path).map_err(|error| {
+                RuntimeError::InvalidInput(format!(
+                    "failed to read context learning store {}: {error}",
+                    path.display()
+                ))
+            })?;
+            if contents.trim().is_empty() {
+                HashMap::new()
+            } else {
+                serde_json::from_str::<ContextLearningStoreFile>(&contents)
+                    .map_err(|error| {
+                        RuntimeError::InvalidInput(format!(
+                            "invalid context learning store {}: {error}",
+                            path.display()
+                        ))
+                    })?
+                    .learnings
+            }
+        } else {
+            HashMap::new()
+        };
+        Ok(Self {
+            path,
+            learnings: Mutex::new(learnings),
+        })
+    }
+
+    fn persist(&self, learnings: &HashMap<String, ContextLearning>) -> RuntimeResult<()> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                RuntimeError::InvalidInput(format!(
+                    "failed to create context learning store dir {}: {error}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let file = ContextLearningStoreFile {
+            schema_version: "muzen.context_learning_store.v1".to_string(),
+            learnings: learnings.clone(),
+        };
+        let contents = serde_json::to_string_pretty(&file).map_err(|error| {
+            RuntimeError::InvalidInput(format!("failed to encode context learning store: {error}"))
+        })?;
+        std::fs::write(&self.path, contents).map_err(|error| {
+            RuntimeError::InvalidInput(format!(
+                "failed to write context learning store {}: {error}",
+                self.path.display()
+            ))
+        })
+    }
+}
+
+impl ContextLearningStore for FileContextLearningStore {
+    fn put_learning(&self, learning: ContextLearning) -> RuntimeResult<()> {
+        let mut learnings = self
+            .learnings
+            .lock()
+            .expect("context learning store poisoned");
+        learnings.insert(learning.id.clone(), learning);
+        self.persist(&learnings)
+    }
+
+    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning> {
+        self.learnings
+            .lock()
+            .expect("context learning store poisoned")
+            .get(learning_id)
+            .cloned()
+    }
+
+    fn update_learning(
+        &self,
+        learning_id: &str,
+        update: &mut dyn FnMut(&mut ContextLearning) -> RuntimeResult<()>,
+    ) -> RuntimeResult<ContextLearning> {
+        let mut learnings = self
+            .learnings
+            .lock()
+            .expect("context learning store poisoned");
+        let updated = {
+            let learning = learnings.get_mut(learning_id).ok_or_else(|| {
+                RuntimeError::InvalidInput("context learning not found".to_string())
+            })?;
+            update(learning)?;
+            learning.clone()
+        };
+        self.persist(&learnings)?;
+        Ok(updated)
+    }
+
+    fn list_learnings(&self) -> Vec<ContextLearning> {
+        self.learnings
+            .lock()
+            .expect("context learning store poisoned")
+            .values()
+            .cloned()
+            .collect()
     }
 }

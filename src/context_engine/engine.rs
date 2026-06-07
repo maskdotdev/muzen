@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use crate::runtime::contracts::{stable_id, EvidenceId, RuntimeError, RuntimeResult, SnapshotId};
 
 use super::semantic_score_for_purpose;
+use super::ContextLearningStore;
 use super::{
     ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
     ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
@@ -15,8 +16,8 @@ use super::{
     ContextLearningApprovalReceipt, ContextLearningScope, ContextLearningSource,
     ContextLearningStatus, ContextOmissionReason, ContextPack, ContextPackId, ContextPackPurpose,
     ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryResult, ContextSufficiency,
-    ContextSufficiencyStatus, InMemoryContextIndexStore, OmittedContextCandidate,
-    CONTEXT_ENGINE_VERSION,
+    ContextSufficiencyStatus, FileContextLearningStore, InMemoryContextIndexStore,
+    InMemoryContextLearningStore, OmittedContextCandidate, CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -122,7 +123,7 @@ pub struct SnapshotContextEngine {
     config: ContextEngineConfig,
     store: Arc<dyn ContextIndexStore>,
     packs: Arc<Mutex<BTreeMap<String, ContextPack>>>,
-    learnings: Arc<Mutex<BTreeMap<String, ContextLearning>>>,
+    learnings: Arc<dyn ContextLearningStore>,
 }
 
 impl Clone for SnapshotContextEngine {
@@ -142,17 +143,36 @@ impl SnapshotContextEngine {
             config,
             store: Arc::new(InMemoryContextIndexStore::new()),
             packs: Arc::new(Mutex::new(BTreeMap::new())),
-            learnings: Arc::new(Mutex::new(BTreeMap::new())),
+            learnings: Arc::new(InMemoryContextLearningStore::new()),
         }
     }
 
     pub fn with_store(config: ContextEngineConfig, store: Arc<dyn ContextIndexStore>) -> Self {
+        Self::with_stores(config, store, Arc::new(InMemoryContextLearningStore::new()))
+    }
+
+    pub fn with_stores(
+        config: ContextEngineConfig,
+        store: Arc<dyn ContextIndexStore>,
+        learnings: Arc<dyn ContextLearningStore>,
+    ) -> Self {
         Self {
             config,
             store,
             packs: Arc::new(Mutex::new(BTreeMap::new())),
-            learnings: Arc::new(Mutex::new(BTreeMap::new())),
+            learnings,
         }
+    }
+
+    pub fn with_learning_store_file(
+        config: ContextEngineConfig,
+        path: impl AsRef<std::path::Path>,
+    ) -> RuntimeResult<Self> {
+        Ok(Self::with_stores(
+            config,
+            Arc::new(InMemoryContextIndexStore::new()),
+            Arc::new(FileContextLearningStore::open(path)?),
+        ))
     }
 
     pub fn config_ref(&self) -> &ContextEngineConfig {
@@ -414,9 +434,8 @@ impl ContextEngine for SnapshotContextEngine {
                     .to_ascii_lowercase();
                 let learnings = self
                     .learnings
-                    .lock()
-                    .expect("context learning store poisoned")
-                    .values()
+                    .list_learnings()
+                    .into_iter()
                     .filter(|learning| {
                         learning.status == ContextLearningStatus::Approved
                             && !learning_is_expired(learning)
@@ -426,7 +445,6 @@ impl ContextEngine for SnapshotContextEngine {
                         query.is_empty() || learning.summary.to_ascii_lowercase().contains(&query)
                     })
                     .take(limit)
-                    .cloned()
                     .collect::<Vec<_>>();
                 Ok(ContextQueryResult {
                     kind: request.kind,
@@ -629,10 +647,7 @@ impl ContextEngine for SnapshotContextEngine {
             created_at_utc: unix_timestamp_string(),
             expires_at_utc: None,
         };
-        self.learnings
-            .lock()
-            .expect("context learning store poisoned")
-            .insert(learning.id.clone(), learning.clone());
+        self.learnings.put_learning(learning.clone())?;
         Ok(ContextFeedbackReceipt {
             accepted: true,
             message: "stored proposed context learning; approval required before retrieval"
@@ -649,27 +664,26 @@ impl ContextEngine for SnapshotContextEngine {
         if cancel.is_cancelled() {
             return Err(RuntimeError::Cancelled);
         }
-        let mut learnings = self
-            .learnings
-            .lock()
-            .expect("context learning store poisoned");
-        let learning = learnings
-            .get_mut(&approval.learning_id)
-            .ok_or_else(|| RuntimeError::InvalidInput("context learning not found".to_string()))?;
-        if learning.status != ContextLearningStatus::Proposed {
-            return Err(RuntimeError::InvalidInput(
-                "only proposed context learnings can be approved or rejected".to_string(),
-            ));
-        }
-        learning.status = if approval.approve {
-            ContextLearningStatus::Approved
-        } else {
-            ContextLearningStatus::Rejected
+        let mut update = |learning: &mut ContextLearning| {
+            if learning.status != ContextLearningStatus::Proposed {
+                return Err(RuntimeError::InvalidInput(
+                    "only proposed context learnings can be approved or rejected".to_string(),
+                ));
+            }
+            learning.status = if approval.approve {
+                ContextLearningStatus::Approved
+            } else {
+                ContextLearningStatus::Rejected
+            };
+            learning.expires_at_utc = approval.expires_at_utc.clone();
+            Ok(())
         };
-        learning.expires_at_utc = approval.expires_at_utc;
+        let learning = self
+            .learnings
+            .update_learning(&approval.learning_id, &mut update)?;
         Ok(ContextLearningApprovalReceipt {
             accepted: true,
-            learning: learning.clone(),
+            learning,
         })
     }
 }
