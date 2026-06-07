@@ -32,6 +32,9 @@ Implemented on `feat/context-engine`:
   learnings; approval/rejection and expiry are enforced before
   `history_similar` retrieval returns a learning, with in-memory and JSON-file
   stores available for restart-safe local persistence.
+- Workspace HTTP hosts can opt into per-workspace durable learning stores with
+  sanitized store paths; `muzen-service` wires this through
+  `MUZEN_CONTEXT_LEARNING_STORE_ROOT`.
 - HTTP, runner stdio, and TypeScript/Python SDK context adapters expose feedback
   recording and learning approval flows.
 - Cross-repository contract context has a provider-neutral query surface,
@@ -51,8 +54,7 @@ Still pending from the full plan:
 
 - Deeper parser coverage for re-exports, aliases, method receivers, nested
   modules/classes, and line ranges on symbol evidence.
-- Host wiring for workspace-managed durable learning store paths and retention
-  policies.
+- Retention policies and cleanup for durable context learning stores.
 - Capability-scoped network/provider retrieval for cross-repository contracts.
 - Hosted embedding provider implementation, index lifecycle wiring, and
   benchmarked semantic ranking improvements.

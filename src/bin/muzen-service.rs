@@ -1,5 +1,6 @@
 use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
@@ -29,6 +30,10 @@ struct ServiceCli {
     /// Environment variable containing the Postgres database URL.
     #[arg(long, default_value = "DATABASE_URL")]
     database_url_env: String,
+
+    /// Environment variable containing the context learning store root directory.
+    #[arg(long, default_value = "MUZEN_CONTEXT_LEARNING_STORE_ROOT")]
+    context_learning_store_root_env: String,
 }
 
 #[tokio::main]
@@ -48,6 +53,9 @@ async fn run() -> Result<()> {
     let router_options = ReviewHttpRouterOptions {
         github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
         gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
+        context_learning_store_root: env::var(cli.context_learning_store_root_env)
+            .ok()
+            .map(PathBuf::from),
     };
     let service = if let Ok(database_url) = env::var(cli.database_url_env) {
         let muzen = Muzen::with_stores(
