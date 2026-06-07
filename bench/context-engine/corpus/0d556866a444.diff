@@ -1,0 +1,300 @@
+diff --git a/muzen-context-engine/README.md b/muzen-context-engine/README.md
+index c5def44..68bff9a 100644
+--- a/muzen-context-engine/README.md
++++ b/muzen-context-engine/README.md
+@@ -47,9 +47,10 @@ Implemented on `feat/context-engine`:
+   candidates are denied and reported instead of becoming evidence.
+ - Optional semantic retrieval scaffolding is present: no-vector mode is the
+   default, embedding provider/vector-index traits are defined, a deterministic
+-  local hashed embedding provider and in-memory vector index are available,
+-  semantic score is an additive ranking signal, and hosted embedding inputs
+-  reject restricted evidence unless explicitly allowed.
++  local hashed embedding provider, in-memory vector index, local-mode semantic
++  index lifecycle, and search merge are available, semantic score is an
++  additive ranking signal, and hosted embedding inputs reject restricted
++  evidence unless explicitly allowed.
+ - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
+   import extraction feeds a per-index symbol graph used by `related_symbols`.
+ - A runnable context-engine evaluation harness with fixture-backed recall,
+@@ -60,7 +61,7 @@ Still pending from the full plan:
+ 
+ - Deeper parser coverage for re-exports, aliases, method receivers, nested
+   modules/classes, and line ranges on symbol evidence.
+-- Hosted embedding provider implementation, index lifecycle wiring, and
+-  benchmarked semantic ranking improvements.
++- Hosted embedding provider implementation and benchmarked hosted semantic
++  ranking improvements.
+ - Broader replay/evaluation coverage for sufficiency calibration, cache hit
+   rates, hosted semantic ranking, and larger multi-fixture regressions.
+diff --git a/src/context_engine/engine.rs b/src/context_engine/engine.rs
+index 996adb7..7823592 100644
+--- a/src/context_engine/engine.rs
++++ b/src/context_engine/engine.rs
+@@ -9,8 +9,10 @@ use tokio_util::sync::CancellationToken;
+ 
+ use crate::runtime::contracts::{stable_id, EvidenceId, RuntimeError, RuntimeResult, SnapshotId};
+ 
+-use super::semantic_score_for_purpose;
+ use super::ContextLearningStore;
++use super::{
++    context_embedding_text, semantic_score_for_purpose, LocalHashEmbeddingProvider, VectorIndex,
++};
+ use super::{
+     ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
+     ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
+@@ -304,6 +306,14 @@ impl ContextEngine for SnapshotContextEngine {
+             ContextQueryKind::SearchText => {
+                 let query = string_arg(&request.arguments, "query")?;
+                 let matches = search_evidence(&index.evidence, &index.file_contents, &query, limit);
++                let matches = merge_semantic_search(
++                    matches,
++                    &index.evidence,
++                    &index.file_contents,
++                    index.semantic_vectors.as_ref(),
++                    &query,
++                    limit,
++                )?;
+                 Ok(ContextQueryResult {
+                     kind: request.kind,
+                     evidence: matches,
+@@ -885,6 +895,45 @@ fn search_evidence(
+         .collect()
+ }
+ 
++fn merge_semantic_search(
++    mut lexical: Vec<ContextEvidence>,
++    evidence: &[ContextEvidence],
++    file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
++    semantic_vectors: Option<&crate::context_engine::InMemoryVectorIndex>,
++    query: &str,
++    limit: usize,
++) -> RuntimeResult<Vec<ContextEvidence>> {
++    let Some(semantic_vectors) = semantic_vectors else {
++        return Ok(lexical);
++    };
++    let provider = LocalHashEmbeddingProvider::new(256)?;
++    let query_vector = provider.embed_text(query);
++    let semantic_hits = semantic_vectors.search(&query_vector, limit)?;
++    for (id, score) in semantic_hits {
++        if score <= 0.0 || lexical.iter().any(|candidate| candidate.id.0 == id) {
++            continue;
++        }
++        if let Some(candidate) = evidence.iter().find(|candidate| candidate.id.0 == id) {
++            let content = candidate
++                .path
++                .as_ref()
++                .and_then(|path| file_contents.get(path))
++                .map(String::as_str);
++            let candidate_text = context_embedding_text(candidate, content).to_ascii_lowercase();
++            if query
++                .split_whitespace()
++                .any(|term| candidate_text.contains(&term.to_ascii_lowercase()))
++            {
++                lexical.push(candidate.clone());
++            }
++        }
++        if lexical.len() >= limit {
++            break;
++        }
++    }
++    Ok(lexical)
++}
++
+ fn read_line_span(content: &str, start_line: usize, end_line: usize) -> RuntimeResult<String> {
+     if start_line == 0 || end_line < start_line {
+         return Err(RuntimeError::InvalidInput(
+diff --git a/src/context_engine/index.rs b/src/context_engine/index.rs
+index c88b526..6ff2055 100644
+--- a/src/context_engine/index.rs
++++ b/src/context_engine/index.rs
+@@ -11,9 +11,10 @@ use crate::runtime::contracts::{
+ use crate::runtime::repo::{FileMeta, RepoSnapshot};
+ 
+ use super::{
+-    ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextEvidenceSource,
+-    ContextIndexId, ContextProvenance, ContextRevision, ContextScope, ContextSensitivity,
+-    ContextSymbolGraph, ContextTrust,
++    context_embedding_text, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
++    ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRevision, ContextScope,
++    ContextSemanticConfig, ContextSemanticMode, ContextSensitivity, ContextSymbolGraph,
++    ContextTrust, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
+ };
+ 
+ pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
+@@ -29,6 +30,7 @@ pub struct ContextIndexRequest {
+     pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+     pub allowed_cross_repo_resources: BTreeSet<String>,
+     pub include_host_context: bool,
++    pub semantic: ContextSemanticConfig,
+     pub limits: ContextLimits,
+ }
+ 
+@@ -43,6 +45,7 @@ impl ContextIndexRequest {
+             cross_repo_contracts: Vec::new(),
+             allowed_cross_repo_resources: BTreeSet::new(),
+             include_host_context: config.include_host_context,
++            semantic: config.semantic.clone(),
+             limits: ContextLimits::from_config(config),
+         }
+     }
+@@ -150,6 +153,7 @@ pub struct ContextIndex {
+     pub evidence: Vec<ContextEvidence>,
+     pub file_contents: BTreeMap<RepoPath, String>,
+     pub symbol_graph: ContextSymbolGraph,
++    pub semantic_vectors: Option<InMemoryVectorIndex>,
+     pub denied_cross_repo_contracts: usize,
+     pub skips: Vec<ContextIndexSkip>,
+     pub report: ContextIndexReport,
+@@ -300,6 +304,9 @@ impl ContextIndex {
+             }
+         }
+ 
++        let semantic_vectors =
++            build_semantic_vectors(&request.semantic, &evidence, &file_contents)?;
++
+         let index_id = ContextIndexId(stable_id(&[
+             &snapshot.snapshot_id.0,
+             &snapshot.manifest_hash,
+@@ -346,6 +353,7 @@ impl ContextIndex {
+             evidence,
+             file_contents,
+             symbol_graph,
++            semantic_vectors,
+             denied_cross_repo_contracts,
+             skips,
+             report,
+@@ -354,6 +362,31 @@ impl ContextIndex {
+     }
+ }
+ 
++fn build_semantic_vectors(
++    semantic: &ContextSemanticConfig,
++    evidence: &[ContextEvidence],
++    file_contents: &BTreeMap<RepoPath, String>,
++) -> RuntimeResult<Option<InMemoryVectorIndex>> {
++    if semantic.mode != ContextSemanticMode::Local {
++        return Ok(None);
++    }
++    let max_inputs = semantic.max_embedding_inputs.min(evidence.len());
++    let provider = LocalHashEmbeddingProvider::new(256)?;
++    let mut index = InMemoryVectorIndex::new();
++    for evidence in evidence.iter().take(max_inputs) {
++        let content = evidence
++            .path
++            .as_ref()
++            .and_then(|path| file_contents.get(path))
++            .map(String::as_str);
++        index.put(
++            evidence.id.0.clone(),
++            provider.embed_text(&context_embedding_text(evidence, content)),
++        )?;
++    }
++    Ok(Some(index))
++}
++
+ fn cross_repo_contract_evidence(
+     snapshot: &RepoSnapshot,
+     candidate: &CrossRepoContractCandidate,
+diff --git a/src/context_engine/semantic.rs b/src/context_engine/semantic.rs
+index d77a971..7b1b338 100644
+--- a/src/context_engine/semantic.rs
++++ b/src/context_engine/semantic.rs
+@@ -59,7 +59,7 @@ impl LocalHashEmbeddingProvider {
+         Ok(Self { dimensions })
+     }
+ 
+-    fn embed_text(&self, text: &str) -> EmbeddingVector {
++    pub fn embed_text(&self, text: &str) -> EmbeddingVector {
+         let mut values = vec![0.0; self.dimensions];
+         for token in semantic_tokens(text) {
+             let index = stable_token_hash(token) as usize % self.dimensions;
+@@ -69,6 +69,20 @@ impl LocalHashEmbeddingProvider {
+     }
+ }
+ 
++pub fn context_embedding_text(evidence: &ContextEvidence, file_content: Option<&str>) -> String {
++    let mut parts = Vec::new();
++    if let Some(summary) = &evidence.summary {
++        parts.push(summary.clone());
++    }
++    if let Some(path) = &evidence.path {
++        parts.push(path.display());
++    }
++    if let Some(content) = file_content {
++        parts.push(content.to_string());
++    }
++    parts.join("\n")
++}
++
+ #[async_trait]
+ impl EmbeddingProvider for LocalHashEmbeddingProvider {
+     fn kind(&self) -> ContextEmbeddingProviderKind {
+@@ -201,7 +215,7 @@ pub fn validate_embedding_batch(
+ }
+ 
+ fn semantic_tokens(text: &str) -> impl Iterator<Item = &str> {
+-    text.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
++    text.split(|ch: char| !ch.is_ascii_alphanumeric())
+         .filter(|token| token.len() >= 2)
+ }
+ 
+diff --git a/src/context_engine/tests.rs b/src/context_engine/tests.rs
+index 151cfcd..12417ab 100644
+--- a/src/context_engine/tests.rs
++++ b/src/context_engine/tests.rs
+@@ -397,6 +397,55 @@ async fn snapshot_engine_queries_indexed_evidence() {
+         == "src/auth/routes.rs"));
+ }
+ 
++#[tokio::test]
++async fn local_semantic_mode_builds_vector_index_for_search() {
++    let repo = tempfile::tempdir().unwrap();
++    std::fs::write(
++        repo.path().join("lib.rs"),
++        "pub fn authorize_mobile_token() -> bool { true }\n",
++    )
++    .unwrap();
++    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
++    let mut config = ContextEngineConfig::snapshot_v0();
++    config.semantic.mode = ContextSemanticMode::Local;
++    config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
++    config.semantic.max_embedding_inputs = 32;
++    let engine = SnapshotContextEngine::new(config);
++    engine
++        .index_snapshot(
++            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
++            CancellationToken::new(),
++        )
++        .await
++        .unwrap();
++    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
++    assert!(index.semantic_vectors.is_some());
++
++    let result = engine
++        .query(
++            ContextQuery {
++                run_id: None,
++                snapshot_id: snapshot.snapshot_id.clone(),
++                session_id: None,
++                purpose: Some(ContextPackPurpose::Correctness),
++                kind: ContextQueryKind::SearchText,
++                arguments: serde_json::json!({"query": "mobile token"}),
++                current_evidence: Vec::new(),
++                limits: ContextQueryLimits {
++                    max_results: 10,
++                    max_tokens: 1000,
++                },
++            },
++            CancellationToken::new(),
++        )
++        .await
++        .unwrap();
++    assert!(result
++        .evidence
++        .iter()
++        .any(|evidence| evidence.path.as_ref().unwrap().display() == "lib.rs"));
++}
++
+ #[tokio::test]
+ async fn read_span_redacts_known_secret_patterns() {
+     let repo = tempfile::tempdir().unwrap();

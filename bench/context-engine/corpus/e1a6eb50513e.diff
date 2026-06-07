@@ -1,0 +1,348 @@
+diff --git a/apps/web/src/lib/argus-search/sdk-client-utils.ts b/apps/web/src/lib/argus-search/sdk-client-utils.ts
+new file mode 100644
+index 00000000..97ad4b8e
+--- /dev/null
++++ b/apps/web/src/lib/argus-search/sdk-client-utils.ts
+@@ -0,0 +1,49 @@
++import { realpath } from "node:fs/promises"
++import path from "node:path"
++
++export const asRecord = (value: unknown): Record<string, unknown> | null => {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return null
++  }
++  return value as Record<string, unknown>
++}
++
++export const toBoolean = (value: unknown, fallback: boolean): boolean =>
++  typeof value === "boolean" ? value : fallback
++
++export const clampPositiveInt = (value: unknown, fallback: number): number => {
++  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
++    return fallback
++  }
++  return Math.floor(value)
++}
++
++export const resolveProjectRoot = async (projectRoot: string): Promise<string> => {
++  const absoluteRoot = path.resolve(projectRoot)
++  try {
++    return await realpath(absoluteRoot)
++  } catch {
++    return absoluteRoot
++  }
++}
++
++export const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
++  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
++    return promise
++  }
++
++  let timer: NodeJS.Timeout | null = null
++  const timeoutPromise = new Promise<never>((_, reject) => {
++    timer = setTimeout(() => {
++      reject(new Error(message))
++    }, timeoutMs)
++  })
++
++  try {
++    return await Promise.race([promise, timeoutPromise])
++  } finally {
++    if (timer) {
++      clearTimeout(timer)
++    }
++  }
++}
+diff --git a/apps/web/src/lib/argus-search/sdk-client.ts b/apps/web/src/lib/argus-search/sdk-client.ts
+index 292bdf82..86240c36 100644
+--- a/apps/web/src/lib/argus-search/sdk-client.ts
++++ b/apps/web/src/lib/argus-search/sdk-client.ts
+@@ -1,9 +1,17 @@
+ import { EventEmitter } from "node:events"
+-import { readFile, realpath } from "node:fs/promises"
++import { readFile } from "node:fs/promises"
+ import { createRequire } from "node:module"
+ import path from "node:path"
+ 
+ import { errorMessage } from "@argus/shared-core"
++import {
++  asRecord,
++  clampPositiveInt,
++  resolveProjectRoot,
++  toBoolean,
++  withTimeout,
++} from "@/lib/argus-search/sdk-client-utils"
++import { collectTraceImpactGraph } from "@/lib/argus-search/trace-impact-graph"
+ 
+ type SdkErrorCode = "sdk_missing" | "operation_failed"
+ 
+@@ -62,17 +70,9 @@ export type CodeIntelWatchStreamHandle = {
+   ) => unknown
+ }
+ 
+-const asRecord = (value: unknown): Record<string, unknown> | null => {
+-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+-    return null
+-  }
+-  return value as Record<string, unknown>
+-}
+-
+ const requireFromModule = createRequire(import.meta.url)
+ 
+ type AnyFunction = (...args: unknown[]) => unknown
+-type TraceSearchResult = Array<{ depth: number; node: Record<string, unknown> }>
+ type ArgusSearchSdkModule = {
+   indexToKiteDb?: AnyFunction
+   indexStream?: AnyFunction
+@@ -122,16 +122,6 @@ const resolveSdkFunction = (operation: string, names: Array<keyof ArgusSearchSdk
+   })
+ }
+ 
+-const toBoolean = (value: unknown, fallback: boolean): boolean =>
+-  typeof value === "boolean" ? value : fallback
+-
+-const clampPositiveInt = (value: unknown, fallback: number): number => {
+-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+-    return fallback
+-  }
+-  return Math.floor(value)
+-}
+-
+ const parseConfig = async (configPath: string): Promise<Record<string, unknown>> => {
+   const raw = await readFile(configPath, "utf8")
+   const parsed = JSON.parse(raw) as unknown
+@@ -143,15 +133,6 @@ const resolveStorePath = (projectRoot: string, explicit: string | undefined): st
+   return path.isAbsolute(storePath) ? storePath : path.join(projectRoot, storePath)
+ }
+ 
+-const resolveProjectRoot = async (projectRoot: string): Promise<string> => {
+-  const absoluteRoot = path.resolve(projectRoot)
+-  try {
+-    return await realpath(absoluteRoot)
+-  } catch {
+-    return absoluteRoot
+-  }
+-}
+-
+ const resolvePhaseOptions = (
+   configPhases: Record<string, unknown> | null,
+   phaseSet: Set<string>,
+@@ -187,27 +168,6 @@ const resolveIndexOptions = async (options: WatchOptions): Promise<Record<string
+   }
+ }
+ 
+-const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+-    return promise
+-  }
+-
+-  let timer: NodeJS.Timeout | null = null
+-  const timeoutPromise = new Promise<never>((_, reject) => {
+-    timer = setTimeout(() => {
+-      reject(new Error(message))
+-    }, timeoutMs)
+-  })
+-
+-  try {
+-    return await Promise.race([promise, timeoutPromise])
+-  } finally {
+-    if (timer) {
+-      clearTimeout(timer)
+-    }
+-  }
+-}
+-
+ const mapSdkError = (error: unknown, message: string): CodeIntelSdkError => {
+   if (error instanceof CodeIntelSdkError) {
+     return error
+@@ -399,9 +359,6 @@ export const runTraceGraph = async (options: TraceOptions): Promise<unknown> =>
+     }
+ 
+     const maxDepth = clampPositiveInt(options.depth, 3)
+-    const visited = new Set<string>()
+-    const queue: Array<{ nodeId: string; depth: number }> = []
+-    const out: TraceSearchResult = []
+ 
+     const fetchCallers = async (nextNodeId?: string, nextName?: string): Promise<unknown[]> =>
+       extractTraceArray(
+@@ -416,71 +373,16 @@ export const runTraceGraph = async (options: TraceOptions): Promise<unknown> =>
+         ),
+       )
+ 
+-    if (nodeId) {
+-      visited.add(nodeId)
+-      queue.push({ nodeId, depth: 0 })
+-    } else {
+-      const seeds = await withTimeout(
+-        Promise.resolve(fetchCallers(undefined, symbol)),
+-        options.timeoutMs,
+-        TRACE_TIMEOUT_MESSAGE,
+-      )
+-      for (const seed of seeds) {
+-        const seedRecord = asRecord(seed)
+-        if (!seedRecord) {
+-          continue
+-        }
+-        const seedId = seedRecord?.id ? String(seedRecord.id) : ""
+-        if (!seedId || visited.has(seedId)) {
+-          continue
+-        }
+-        visited.add(seedId)
+-        out.push({
+-          depth: 1,
+-          node: normalizeTraceNode(seedRecord),
+-        })
+-        if (out.length >= limit || maxDepth <= 1) {
+-          return out
+-        }
+-        queue.push({ nodeId: seedId, depth: 1 })
+-      }
+-    }
+-
+-    while (queue.length > 0) {
+-      const current = queue.shift()
+-      if (!current || current.depth >= maxDepth) {
+-        continue
+-      }
+-
+-      const callers = await withTimeout(
+-        Promise.resolve(fetchCallers(current.nodeId)),
+-        options.timeoutMs,
+-        TRACE_TIMEOUT_MESSAGE,
+-      )
+-
+-      for (const caller of callers) {
+-        const callerRecord = asRecord(caller)
+-        if (!callerRecord) {
+-          continue
+-        }
+-        const callerId = callerRecord?.id ? String(callerRecord.id) : ""
+-        if (!callerId || visited.has(callerId)) {
+-          continue
+-        }
+-        const nextDepth = current.depth + 1
+-        visited.add(callerId)
+-        out.push({
+-          depth: nextDepth,
+-          node: normalizeTraceNode(callerRecord),
+-        })
+-        if (out.length >= limit) {
+-          return out
+-        }
+-        queue.push({ nodeId: callerId, depth: nextDepth })
+-      }
+-    }
+-
+-    return out
++    return collectTraceImpactGraph({
++      nodeId,
++      symbol,
++      limit,
++      maxDepth,
++      timeoutMs: options.timeoutMs,
++      timeoutMessage: TRACE_TIMEOUT_MESSAGE,
++      fetchCallers,
++      normalizeNode: normalizeTraceNode,
++    })
+   } catch (error) {
+     throw mapSdkError(error, "Failed to execute SDK trace operation.")
+   }
+diff --git a/apps/web/src/lib/argus-search/trace-impact-graph.ts b/apps/web/src/lib/argus-search/trace-impact-graph.ts
+new file mode 100644
+index 00000000..9f4e6446
+--- /dev/null
++++ b/apps/web/src/lib/argus-search/trace-impact-graph.ts
+@@ -0,0 +1,93 @@
++import { asRecord, withTimeout } from "@/lib/argus-search/sdk-client-utils"
++
++type TraceImpactNode = { depth: number; node: Record<string, unknown> }
++
++type CollectTraceImpactGraphOptions = {
++  nodeId?: string
++  symbol?: string
++  limit: number
++  maxDepth: number
++  timeoutMs: number
++  timeoutMessage: string
++  fetchCallers: (nextNodeId?: string, nextName?: string) => Promise<unknown[]>
++  normalizeNode: (node: Record<string, unknown>) => Record<string, unknown>
++}
++
++export const collectTraceImpactGraph = async (
++  options: CollectTraceImpactGraphOptions,
++): Promise<TraceImpactNode[]> => {
++  const visited = new Set<string>()
++  const queue: Array<{ nodeId: string; depth: number }> = []
++  const out: TraceImpactNode[] = []
++
++  if (options.nodeId) {
++    visited.add(options.nodeId)
++    queue.push({ nodeId: options.nodeId, depth: 0 })
++  } else {
++    const seeds = await withTimeout(
++      Promise.resolve(options.fetchCallers(undefined, options.symbol)),
++      options.timeoutMs,
++      options.timeoutMessage,
++    )
++
++    for (const seed of seeds) {
++      const seedRecord = asRecord(seed)
++      if (!seedRecord) {
++        continue
++      }
++
++      const seedId = seedRecord.id ? String(seedRecord.id) : ""
++      if (!seedId || visited.has(seedId)) {
++        continue
++      }
++
++      visited.add(seedId)
++      out.push({
++        depth: 1,
++        node: options.normalizeNode(seedRecord),
++      })
++      if (out.length >= options.limit || options.maxDepth <= 1) {
++        return out
++      }
++      queue.push({ nodeId: seedId, depth: 1 })
++    }
++  }
++
++  while (queue.length > 0) {
++    const current = queue.shift()
++    if (!current || current.depth >= options.maxDepth) {
++      continue
++    }
++
++    const callers = await withTimeout(
++      Promise.resolve(options.fetchCallers(current.nodeId)),
++      options.timeoutMs,
++      options.timeoutMessage,
++    )
++
++    for (const caller of callers) {
++      const callerRecord = asRecord(caller)
++      if (!callerRecord) {
++        continue
++      }
++
++      const callerId = callerRecord.id ? String(callerRecord.id) : ""
++      if (!callerId || visited.has(callerId)) {
++        continue
++      }
++
++      const nextDepth = current.depth + 1
++      visited.add(callerId)
++      out.push({
++        depth: nextDepth,
++        node: options.normalizeNode(callerRecord),
++      })
++      if (out.length >= options.limit) {
++        return out
++      }
++      queue.push({ nodeId: callerId, depth: nextDepth })
++    }
++  }
++
++  return out
++}

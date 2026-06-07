@@ -1,0 +1,336 @@
+diff --git a/src/components/merge-request-diff-viewer.tsx b/src/components/merge-request-diff-viewer.tsx
+index 683336f5..de9d60c9 100644
+--- a/src/components/merge-request-diff-viewer.tsx
++++ b/src/components/merge-request-diff-viewer.tsx
+@@ -2,7 +2,9 @@
+ 
+ import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs"
+ import { FileDiff, WorkerPoolContextProvider } from "@pierre/diffs/react"
++import { useTheme } from "next-themes"
+ import { useCallback, useEffect, useMemo, useState } from "react"
++import { ChevronDown, ChevronRight, Columns2, MonitorCog, Moon, Rows2, Sun } from "lucide-react"
+ 
+ import { Badge } from "@/components/ui/badge"
+ import { Button } from "@/components/ui/button"
+@@ -32,6 +34,11 @@ const INITIAL_FILE_BATCH_SIZE = 12
+ const FILE_BATCH_SIZE = 8
+ const DIFF_CACHE_SIZE = 400
+ const DEFAULT_WORKER_COUNT = 4
++type DiffThemeMode = "system" | "light" | "dark"
++const DIFF_THEME = {
++  light: "pierre-light",
++  dark: "pierre-dark",
++} as const
+ 
+ const getErrorMessage = (value: unknown) => {
+   if (typeof value === "string") {
+@@ -51,32 +58,6 @@ const getFileLabel = (file: FileDiffMetadata) => {
+   return file.name
+ }
+ 
+-const getChangeTypeLabel = (type: FileDiffMetadata["type"]) => {
+-  switch (type) {
+-    case "new":
+-      return "new"
+-    case "deleted":
+-      return "deleted"
+-    case "rename-pure":
+-      return "renamed"
+-    case "rename-changed":
+-      return "renamed+changed"
+-    default:
+-      return "changed"
+-  }
+-}
+-
+-const getChangeTypeBadgeVariant = (type: FileDiffMetadata["type"]) => {
+-  switch (type) {
+-    case "new":
+-      return "secondary"
+-    case "deleted":
+-      return "destructive"
+-    default:
+-      return "outline"
+-  }
+-}
+-
+ export function MergeRequestDiffViewer({
+   instanceUrl,
+   token,
+@@ -87,12 +68,30 @@ export function MergeRequestDiffViewer({
+   const [loadError, setLoadError] = useState("")
+   const [patchText, setPatchText] = useState("")
+   const [dataSource, setDataSource] = useState<DiffDataSource | null>(null)
++  const [diffThemeMode, setDiffThemeMode] = useState<DiffThemeMode>("system")
++  const [collapsedFileKeys, setCollapsedFileKeys] = useState<Set<string>>(new Set())
+ 
+   const [filenameFilter, setFilenameFilter] = useState("")
+   const [diffStyle, setDiffStyle] = useState<DiffStyle>("split")
+   const [wrapLines, setWrapLines] = useState(false)
+   const [showLineNumbers, setShowLineNumbers] = useState(true)
+   const [visibleFileCount, setVisibleFileCount] = useState(INITIAL_FILE_BATCH_SIZE)
++  const { resolvedTheme } = useTheme()
++
++  const effectiveDiffThemeType: "system" | "light" | "dark" = useMemo(() => {
++    if (diffThemeMode !== "system") {
++      return diffThemeMode
++    }
++
++    if (resolvedTheme === "dark" || resolvedTheme === "argus-dark") {
++      return "dark"
++    }
++    if (resolvedTheme === "light" || resolvedTheme === "argus-light") {
++      return "light"
++    }
++
++    return "system"
++  }, [diffThemeMode, resolvedTheme])
+ 
+   const loadDiff = useCallback(async () => {
+     setIsLoading(true)
+@@ -193,6 +192,151 @@ export function MergeRequestDiffViewer({
+   const visibleFiles = filteredFiles.slice(0, visibleFileCount)
+   const canLoadMore = visibleFileCount < filteredFiles.length
+ 
++  const getFileKey = useCallback((file: FileDiffMetadata) => {
++    return file.cacheKey ?? `${file.prevName ?? ""}->${file.name}`
++  }, [])
++
++  const toggleFileCollapsed = useCallback(
++    (file: FileDiffMetadata) => {
++      const key = getFileKey(file)
++      setCollapsedFileKeys((current) => {
++        const next = new Set(current)
++        if (next.has(key)) {
++          next.delete(key)
++        } else {
++          next.add(key)
++        }
++        return next
++      })
++    },
++    [getFileKey],
++  )
++
++  const renderFileHeader = useCallback(
++    (file: FileDiffMetadata) => {
++      const key = getFileKey(file)
++      const isCollapsed = collapsedFileKeys.has(key)
++
++      const [themeIcon, themeLabel] = (() => {
++        switch (diffThemeMode) {
++          case "light":
++            return [<Sun className="size-4" aria-hidden="true" />, "Light theme"]
++          case "dark":
++            return [<Moon className="size-4" aria-hidden="true" />, "Dark theme"]
++          default:
++            return [
++              <MonitorCog className="size-4" aria-hidden="true" />,
++              "System theme",
++            ]
++        }
++      })()
++      const [additions, deletions] = file.hunks.reduce(
++        (counts, hunk) => {
++          counts[0] += hunk.additionCount
++          counts[1] += hunk.deletionCount
++          return counts
++        },
++        [0, 0] as [number, number],
++      )
++
++      return (
++        <div
++          className="flex flex-wrap items-center gap-2 border-b px-2 py-2"
++          style={{ backgroundColor: "var(--diffs-bg, var(--background))" }}
++          onClick={() => toggleFileCollapsed(file)}
++          onKeyDown={(event) => {
++            if (event.key === "Enter" || event.key === " ") {
++              event.preventDefault()
++              toggleFileCollapsed(file)
++            }
++          }}
++          role="button"
++          tabIndex={0}
++        >
++          <Button
++            type="button"
++            size="icon-sm"
++            variant="outline"
++            onClick={(event) => {
++              event.stopPropagation()
++              toggleFileCollapsed(file)
++            }}
++            title={isCollapsed ? "Expand diff" : "Collapse diff"}
++          >
++            {isCollapsed ? (
++              <ChevronRight className="size-4" aria-hidden="true" />
++            ) : (
++              <ChevronDown className="size-4" aria-hidden="true" />
++            )}
++            <span className="sr-only">
++              {isCollapsed ? "Expand diff" : "Collapse diff"}
++            </span>
++          </Button>
++          <span className="min-w-0 grow truncate font-medium">{getFileLabel(file)}</span>
++          <span className="text-xs font-medium text-destructive">-{deletions}</span>
++          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
++            +{additions}
++          </span>
++          <span className="text-xs capitalize text-muted-foreground">{file.type}</span>
++          <Button
++            type="button"
++            size="icon-sm"
++            variant={diffStyle === "split" ? "default" : "outline"}
++            onClick={(event) => {
++              event.stopPropagation()
++              setDiffStyle("split")
++            }}
++            title="Side by side view"
++          >
++            <Columns2 className="size-4" aria-hidden="true" />
++            <span className="sr-only">Side by side</span>
++          </Button>
++          <Button
++            type="button"
++            size="icon-sm"
++            variant={diffStyle === "unified" ? "default" : "outline"}
++            onClick={(event) => {
++              event.stopPropagation()
++              setDiffStyle("unified")
++            }}
++            title="Unified view"
++          >
++            <Rows2 className="size-4" aria-hidden="true" />
++            <span className="sr-only">Unified</span>
++          </Button>
++          <Button
++            type="button"
++            size="icon-sm"
++            variant={diffThemeMode === "system" ? "default" : "outline"}
++            onClick={(event) => {
++              event.stopPropagation()
++              setDiffThemeMode((current) => {
++                if (current === "system") {
++                  return "light"
++                }
++                if (current === "light") {
++                  return "dark"
++                }
++                return "system"
++              })
++            }}
++            title={`Theme mode: ${themeLabel}`}
++          >
++            {themeIcon}
++            <span className="sr-only">{themeLabel}</span>
++          </Button>
++        </div>
++      )
++    },
++    [
++      collapsedFileKeys,
++      diffStyle,
++      diffThemeMode,
++      getFileKey,
++      toggleFileCollapsed,
++    ],
++  )
++
+   const workerPoolSize = useMemo(() => {
+     if (typeof navigator === "undefined") {
+       return DEFAULT_WORKER_COUNT
+@@ -205,20 +349,18 @@ export function MergeRequestDiffViewer({
+   const diffOptions = useMemo(
+     () => ({
+       diffStyle,
++      disableFileHeader: true,
+       overflow: (wrapLines ? "wrap" : "scroll") as "wrap" | "scroll",
+       disableLineNumbers: !showLineNumbers,
+       lineDiffType: "word" as const,
+-      diffIndicators: "classic" as const,
++      diffIndicators: "bars" as const,
+       hunkSeparators: "line-info" as const,
+       expansionLineCount: 20,
+       tokenizeMaxLineLength: 1500,
+-      theme: {
+-        light: "github-light",
+-        dark: "github-dark",
+-      },
+-      themeType: "system" as const,
++      theme: DIFF_THEME,
++      themeType: effectiveDiffThemeType,
+     }),
+-    [diffStyle, showLineNumbers, wrapLines],
++    [diffStyle, showLineNumbers, wrapLines, effectiveDiffThemeType],
+   )
+ 
+   const poolOptions = useMemo(
+@@ -235,10 +377,7 @@ export function MergeRequestDiffViewer({
+ 
+   const highlighterOptions = useMemo(
+     () => ({
+-      theme: {
+-        light: "github-light",
+-        dark: "github-dark",
+-      },
++      theme: DIFF_THEME,
+       lineDiffType: "word" as const,
+       tokenizeMaxLineLength: 1500,
+     }),
+@@ -278,22 +417,6 @@ export function MergeRequestDiffViewer({
+           <div className="grid gap-1.5">
+             <Label>Viewer controls</Label>
+             <div className="flex flex-wrap gap-2">
+-              <Button
+-                type="button"
+-                size="sm"
+-                variant={diffStyle === "split" ? "default" : "outline"}
+-                onClick={() => setDiffStyle("split")}
+-              >
+-                Split
+-              </Button>
+-              <Button
+-                type="button"
+-                size="sm"
+-                variant={diffStyle === "unified" ? "default" : "outline"}
+-                onClick={() => setDiffStyle("unified")}
+-              >
+-                Unified
+-              </Button>
+               <Button
+                 type="button"
+                 size="sm"
+@@ -347,20 +470,18 @@ export function MergeRequestDiffViewer({
+           >
+             <div className="space-y-4">
+               {visibleFiles.map((file) => (
+-                <div key={file.cacheKey ?? getFileLabel(file)} className="space-y-2">
+-                  <div className="flex flex-wrap items-center gap-2 text-xs">
+-                    <span className="rounded bg-muted px-2 py-1 font-medium text-foreground">
+-                      {getFileLabel(file)}
+-                    </span>
+-                    <Badge variant={getChangeTypeBadgeVariant(file.type)}>
+-                      {getChangeTypeLabel(file.type)}
+-                    </Badge>
+-                  </div>
+-                  <FileDiff
+-                    fileDiff={file}
+-                    options={diffOptions}
+-                    className="rounded-lg border"
+-                  />
++                <div
++                  key={getFileKey(file)}
++                  className="overflow-hidden rounded-lg border"
++                >
++                  {renderFileHeader(file)}
++                  {!collapsedFileKeys.has(getFileKey(file)) ? (
++                    <FileDiff
++                      fileDiff={file}
++                      options={diffOptions}
++                      className="rounded-b-lg"
++                    />
++                  ) : null}
+                 </div>
+               ))}
+             </div>

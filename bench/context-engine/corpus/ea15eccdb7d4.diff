@@ -1,0 +1,335 @@
+diff --git a/Readme.md b/Readme.md
+index 4f441f9..114d02e 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -93,6 +93,8 @@ Implemented now:
+ - TypeScript remote client preview with review, workspace profile, event,
+   result, cancellation, and artifact APIs.
+ - TypeScript framework-facing webhook delivery response helpers.
++- TypeScript remote webhook request facade:
++  `createMuzenClient(...).webhooks.github.response(request)`.
+ - Python SDK local preview over `muzen-runner`.
+ - Python remote client preview with review and workspace profile APIs.
+ - Python framework-neutral webhook delivery response helpers.
+@@ -101,8 +103,8 @@ Still in progress:
+ 
+ - Production database persistence for durable sessions and workspace profiles.
+ - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
+-- The high-level TypeScript webhook handler facade:
+-  `muzen.webhooks.github.response(request)`.
++- The local/host TypeScript webhook handler facade:
++  `createMuzen().webhooks.github.response(request)`.
+ - The high-level TypeScript worker facade: `muzen.workers.start()`.
+ - A bound Rust web server/router around the core HTTP/SSE response primitives.
+ 
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index 0d4d531..1111cb6 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -261,7 +261,9 @@ Exit criteria:
+   - [x] Add Rust framework-agnostic HTTP response helper.
+   - [x] Add framework-facing SDK response helpers.
+ - [ ] Implement high-level SDK webhook request handlers.
+-  - [ ] Add TypeScript `muzen.webhooks.github.response(request)` facade.
++  - [x] Add TypeScript remote `muzen.webhooks.github.response(request)` facade.
++  - [ ] Add local/host TypeScript `createMuzen().webhooks.github.response(request)`
++    facade once the Rust host/router exists.
+ - [x] Define remote HTTP API contract.
+ - [x] Implement `createMuzenClient({ baseUrl })`.
+ - [x] Add SSE event response support.
+@@ -302,6 +304,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | d90e6f7 | Rust review HTTP/SSE response core for webhook deliveries and event replay/stream routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+ | 2026-06-05 | 5378435 | TypeScript and Python webhook delivery response helpers | `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | 4b3ce54 | README aligned to the intended production SDK flow while labeling preview gaps | Documentation-only commit |
++| 2026-06-05 | pending | TypeScript remote webhook request facade and HTTP contract routes | `npm test` |
+ 
+ ## Open Decisions
+ 
+@@ -336,7 +339,10 @@ Record every milestone with the commands that were run.
+   queued workspace reviews, and return delivery JSON bodies plus
+   framework-agnostic HTTP responses. TypeScript and Python SDK response helpers
+   now turn webhook deliveries into framework-facing HTTP responses. The
+-  high-level `muzen.webhooks.github.response(request)` SDK facade remains open.
++  TypeScript remote client forwards
++  `muzen.webhooks.github.response(request)` calls to the remote service. The
++  local `createMuzen().webhooks.github.response(request)` facade still depends
++  on a bound Rust host/router.
+ - TypeScript event and Python notebook examples are present. The
+   `scripts/verify-rfc-0001-examples.sh` gate builds the runner, runs the
+   TypeScript SDK tests, typechecks TypeScript examples, runs Python SDK tests,
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+index 8d9f20a..c4a9354 100644
+--- a/docs/rfcs/0001-remote-http-api-contract.md
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -147,6 +147,39 @@ Request and response shapes match `POST /v1/reviews`, but the host schedules
+ the review in the named workspace and captures workspace-owned model/provider
+ profile snapshots.
+ 
++## Webhooks
++
++`POST /v1/webhooks/github`
++
++`POST /v1/webhooks/gitlab`
++
++Hosts receive the original webhook request body and provider headers. The host
++MUST verify signatures/tokens in Rust core, map supported provider events to
++review sources, schedule a durable review, and return a webhook delivery body:
++
++```json
++{
++  "type": "review_created",
++  "deliveryId": "delivery-1",
++  "reviewId": "review-123",
++  "status": "queued"
++}
++```
++
++`review_deduped` responses use status `200 OK`; `review_created` and
++`ignored` responses use status `202 Accepted`.
++
++Hosts MAY also expose workspace-scoped webhook routes:
++
++`POST /v1/workspaces/{workspaceId}/webhooks/github`
++
++`POST /v1/workspaces/{workspaceId}/webhooks/gitlab`
++
++The TypeScript remote SDK forwards `muzen.webhooks.github.response(request)`
++and `muzen.webhooks.gitlab.response(request)` to these routes, preserving the
++raw body and provider headers. Passing `{ workspaceId }` selects the
++workspace-scoped route.
++
+ ## Workspace Model Profiles
+ 
+ `PUT /v1/workspaces/{workspaceId}/models/{name}`
+diff --git a/sdk/typescript/packages/muzen-sdk/src/index.ts b/sdk/typescript/packages/muzen-sdk/src/index.ts
+index 67e5ed6..c625e8d 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/index.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/index.ts
+@@ -32,6 +32,10 @@ export type {
+   ModelProfileInput,
+   ModelProviderKind,
+   Muzen,
++  MuzenWebhookHandler,
++  MuzenWebhookProvider,
++  MuzenWebhookResponseOptions,
++  MuzenWebhooks,
+   MuzenWorkspace,
+   ProviderProfile,
+   ProviderProfileInput,
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+index 800dc65..20afc28 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+@@ -360,6 +360,72 @@ describe("remote Muzen client", () => {
+       "/v1/workspaces/acme/reviews",
+     ]);
+   });
++
++  it("forwards webhook requests to the remote HTTP contract", async () => {
++    const requests: Array<{
++      method: string;
++      path: string;
++      authorization: string | null;
++      githubEvent: string | null;
++      body: string;
++    }> = [];
++    const fetchMock: typeof fetch = async (input, init = {}) => {
++      const url = new URL(input instanceof Request ? input.url : String(input));
++      const headers = new Headers(init.headers);
++      const body = await new Response(init.body).text();
++      requests.push({
++        method: init.method ?? "GET",
++        path: `${url.pathname}${url.search}`,
++        authorization: headers.get("authorization"),
++        githubEvent: headers.get("x-github-event"),
++        body,
++      });
++      return Response.json(
++        {
++          type: "review_created",
++          deliveryId: "delivery-1",
++          reviewId: "review-1",
++          status: "queued",
++        },
++        { status: 202 },
++      );
++    };
++    const muzen = createMuzenClient({
++      baseUrl: "https://muzen.example",
++      token: "test-token",
++      fetch: fetchMock,
++    });
++    const request = new Request("https://app.example/webhooks/github", {
++      method: "POST",
++      headers: {
++        "Content-Type": "application/json",
++        "X-GitHub-Event": "pull_request",
++        "X-GitHub-Delivery": "delivery-1",
++      },
++      body: JSON.stringify({ action: "opened" }),
++    });
++
++    const response = await muzen.webhooks.github.response(request, {
++      workspaceId: "acme",
++    });
++
++    assert.equal(response.status, 202);
++    assert.deepEqual(await response.json(), {
++      type: "review_created",
++      deliveryId: "delivery-1",
++      reviewId: "review-1",
++      status: "queued",
++    });
++    assert.deepEqual(requests, [
++      {
++        method: "POST",
++        path: "/v1/workspaces/acme/webhooks/github",
++        authorization: "Bearer test-token",
++        githubEvent: "pull_request",
++        body: '{"action":"opened"}',
++      },
++    ]);
++  });
+ });
+ 
+ describe("webhook response helpers", () => {
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+index 03fe209..6335d7e 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+@@ -17,6 +17,10 @@ import type {
+   ModelProfile,
+   ModelProfileInput,
+   Muzen,
++  MuzenWebhookHandler,
++  MuzenWebhookProvider,
++  MuzenWebhooks,
++  MuzenWebhookResponseOptions,
+   MuzenWorkspace,
+   ProviderProfile,
+   ProviderProfileInput,
+@@ -78,6 +82,7 @@ export class MuzenUnsupportedFeatureError extends Error {
+ class RemoteMuzen implements Muzen {
+   private readonly baseUrl: URL;
+   private readonly fetch: typeof globalThis.fetch;
++  readonly webhooks: MuzenWebhooks;
+ 
+   constructor(private readonly options: CreateMuzenClientOptions) {
+     this.baseUrl = new URL(options.baseUrl);
+@@ -87,6 +92,7 @@ class RemoteMuzen implements Muzen {
+         "createMuzenClient({ baseUrl }) requires a fetch implementation",
+       );
+     }
++    this.webhooks = new RemoteMuzenWebhooks(this);
+   }
+ 
+   async review(
+@@ -169,6 +175,44 @@ class RemoteMuzen implements Muzen {
+   }
+ }
+ 
++class RemoteMuzenWebhooks implements MuzenWebhooks {
++  readonly github: MuzenWebhookHandler;
++  readonly gitlab: MuzenWebhookHandler;
++
++  constructor(client: RemoteMuzen) {
++    this.github = new RemoteMuzenWebhookHandler(client, "github");
++    this.gitlab = new RemoteMuzenWebhookHandler(client, "gitlab");
++  }
++}
++
++class RemoteMuzenWebhookHandler implements MuzenWebhookHandler {
++  constructor(
++    private readonly client: RemoteMuzen,
++    private readonly provider: MuzenWebhookProvider,
++  ) {}
++
++  async response(
++    request: Request,
++    options: MuzenWebhookResponseOptions = {},
++  ): Promise<Response> {
++    if (request.method !== "POST") {
++      throw new MuzenUnsupportedFeatureError(
++        `Muzen ${this.provider} webhook handlers expect POST requests`,
++      );
++    }
++    const body = await request.arrayBuffer();
++    const path = options.workspaceId
++      ? `/v1/workspaces/${encodeURIComponent(options.workspaceId)}/webhooks/${this.provider}`
++      : `/v1/webhooks/${this.provider}`;
++    return this.client.rawRequest(path, {
++      method: "POST",
++      headers: request.headers,
++      body,
++      signal: options.signal ?? request.signal,
++    });
++  }
++}
++
+ class RemoteWorkspace implements MuzenWorkspace {
+   readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
+   readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
+@@ -439,6 +483,7 @@ class RemoteReviewSession implements ReviewSession {
+ 
+ class RunnerBackedMuzen implements Muzen {
+   private readonly sessions = new Map<string, RunnerBackedReviewSession>();
++  readonly webhooks: MuzenWebhooks = new UnsupportedMuzenWebhooks();
+ 
+   constructor(private readonly runner: RunnerStdioClient) {}
+ 
+@@ -510,6 +555,23 @@ class RunnerBackedMuzen implements Muzen {
+   }
+ }
+ 
++class UnsupportedMuzenWebhooks implements MuzenWebhooks {
++  readonly github: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("github");
++  readonly gitlab: MuzenWebhookHandler = new UnsupportedMuzenWebhookHandler("gitlab");
++}
++
++class UnsupportedMuzenWebhookHandler implements MuzenWebhookHandler {
++  constructor(private readonly provider: MuzenWebhookProvider) {}
++
++  response(_request: Request): Promise<Response> {
++    return Promise.reject(
++      new MuzenUnsupportedFeatureError(
++        `createMuzen().webhooks.${this.provider}.response(request) requires the production Rust host/router; the local runner preview cannot verify provider webhooks or schedule durable provider reviews`,
++      ),
++    );
++  }
++}
++
+ class RunnerBackedWorkspace implements MuzenWorkspace {
+   readonly models = new UnsupportedWorkspaceProfileCollection<
+     ModelProfileInput,
+diff --git a/sdk/typescript/packages/muzen-sdk/src/types.ts b/sdk/typescript/packages/muzen-sdk/src/types.ts
+index 2f92f56..f50835d 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/types.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/types.ts
+@@ -286,7 +286,27 @@ export interface CreateReviewSessionResult {
+   review: ReviewSession;
+ }
+ 
++export type MuzenWebhookProvider = "github" | "gitlab";
++
++export interface MuzenWebhookResponseOptions {
++  workspaceId?: string;
++  signal?: AbortSignal;
++}
++
++export interface MuzenWebhookHandler {
++  response(
++    request: Request,
++    options?: MuzenWebhookResponseOptions,
++  ): Promise<Response>;
++}
++
++export interface MuzenWebhooks {
++  readonly github: MuzenWebhookHandler;
++  readonly gitlab: MuzenWebhookHandler;
++}
++
+ export interface Muzen {
++  readonly webhooks: MuzenWebhooks;
+   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
+   workspace(id: string): MuzenWorkspace;
+   resumeReview(id: string): Promise<ReviewSession>;

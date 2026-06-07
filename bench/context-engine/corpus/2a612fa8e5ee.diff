@@ -1,0 +1,39 @@
+diff --git a/src/components/app-shell.tsx b/src/components/app-shell.tsx
+index 4a58bdcb..e019159c 100644
+--- a/src/components/app-shell.tsx
++++ b/src/components/app-shell.tsx
+@@ -4,7 +4,12 @@ import { SiteHeader } from "@/components/site-header"
+ import { TooltipProvider } from "@/components/ui/tooltip"
+ import type { CSSProperties, ReactNode } from "react"
+ 
+-const SIDEBAR_STYLE: CSSProperties = {
++type SidebarStyle = CSSProperties & {
++  "--sidebar-width": string
++  "--header-height": string
++}
++
++const SIDEBAR_STYLE: SidebarStyle = {
+   "--sidebar-width": "calc(var(--spacing) * 72)",
+   "--header-height": "calc(var(--spacing) * 12)",
+ }
+@@ -18,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
+           <SiteHeader />
+           <div className="flex flex-1 flex-col">
+             <div className="@container/main flex flex-1 flex-col gap-2">
+-              <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
++              <div className="flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6">
+                 {children}
+               </div>
+             </div>
+diff --git a/src/lib/db/schema/auth/index.ts b/src/lib/db/schema/auth/index.ts
+index dde00c61..67ba5b53 100644
+--- a/src/lib/db/schema/auth/index.ts
++++ b/src/lib/db/schema/auth/index.ts
+@@ -3,6 +3,7 @@ import { session } from "./session";
+ import { user } from "./user";
+ import { verification } from "./verification";
+ export { accountRelations, sessionRelations, userRelations } from "./relations";
++export { user } from "./user";
+ 
+ export const authSchema = {
+   account,

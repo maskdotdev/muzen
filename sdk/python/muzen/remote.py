@@ -19,6 +19,10 @@ from .runner_mapping import (
 from .sources import parse_review_source
 from .errors import MuzenUnsupportedFeatureError
 from .types import (
+    ContextEngineConfig,
+    ContextPackPurpose,
+    ContextQueryKind,
+    ContextQueryLimits,
     ModelProfileInput,
     OpenAIReviewModelSpec,
     ProviderProfileInput,
@@ -148,6 +152,7 @@ class RemoteWorkspace:
             _unwrap_provider_profiles,
             _provider_profile_input_to_remote,
         )
+        self.context = RemoteContextWorkspace(client, workspace_id)
 
     async def review(
         self,
@@ -166,6 +171,72 @@ class RemoteWorkspace:
             )
         )
         return RemoteReviewSession(self._client, snapshot)
+
+
+class RemoteContextWorkspace:
+    def __init__(self, client: RemoteClient, workspace_id: str) -> None:
+        self._client = client
+        self._workspace_id = workspace_id
+
+    async def index(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        return (
+            await self._client._request_json(
+                "POST",
+                self._path("index"),
+                _context_index_body(source, changed_files, config),
+            )
+        )["manifest"]
+
+    async def build_pack(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        max_tokens: Optional[int] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(source, changed_files, config)
+        payload["purpose"] = purpose
+        payload["maxTokens"] = max_tokens
+        return (
+            await self._client._request_json("POST", self._path("packs"), payload)
+        )["pack"]
+
+    async def query(
+        self,
+        *,
+        source: ReviewSourceLike,
+        kind: ContextQueryKind,
+        arguments: Optional[Dict[str, Any]] = None,
+        changed_files: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        current_evidence: Optional[List[str]] = None,
+        limits: Optional[ContextQueryLimits] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(source, changed_files, config)
+        payload["purpose"] = purpose
+        payload["kind"] = kind
+        payload["arguments"] = arguments or {}
+        payload["currentEvidence"] = current_evidence or []
+        if limits is not None:
+            payload["limits"] = {
+                "maxResults": limits.max_results,
+                "maxTokens": limits.max_tokens,
+            }
+        return (
+            await self._client._request_json("POST", self._path("query"), payload)
+        )["result"]
+
+    def _path(self, kind: str) -> str:
+        return f"/v1/workspaces/{_quote(self._workspace_id)}/context/{kind}"
 
 
 class RemoteWorkspaceProfileCollection:
@@ -375,6 +446,31 @@ def _model_to_remote(model: Any) -> Any:
             "topP": model.top_p,
         }
     return None
+
+
+def _context_index_body(
+    source_like: ReviewSourceLike,
+    changed_files: Optional[List[str]],
+    config: Optional[ContextEngineConfig],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "source": _source_to_remote(parse_review_source(source_like)),
+    }
+    if changed_files is not None:
+        payload["changedFiles"] = changed_files
+    if config is not None:
+        payload["config"] = {
+            "mode": config.mode,
+            "maxIndexedFiles": config.max_indexed_files,
+            "maxIndexedBytes": config.max_indexed_bytes,
+            "maxEvidenceItems": config.max_evidence_items,
+            "maxPackTokens": config.max_pack_tokens,
+            "maxQueryResults": config.max_query_results,
+            "includeRepositoryGuidance": config.include_repository_guidance,
+            "includeHostContext": config.include_host_context,
+            "strictEvidenceRequired": config.strict_evidence_required,
+        }
+    return payload
 
 
 def _model_profile_input_to_remote(input: ModelProfileInput) -> Dict[str, Any]:

@@ -1,0 +1,346 @@
+diff --git a/src/app/globals.css b/src/app/globals.css
+index ddfc8516..603256c9 100644
+--- a/src/app/globals.css
++++ b/src/app/globals.css
+@@ -2,7 +2,7 @@
+ @import "tw-animate-css";
+ @import "shadcn/tailwind.css";
+ 
+-@custom-variant dark (&:is(.dark *));
++@custom-variant dark (&:is(.dark *, .argus-dark *));
+ 
+ @theme inline {
+   --color-background: var(--background);
+@@ -116,6 +116,78 @@
+   --sidebar-ring: oklch(0.556 0 0);
+ }
+ 
++.argus-light {
++  --background: oklch(0.9791 0.0041 91.4459);
++  --foreground: oklch(0.2459 0.0513 262.4344);
++  --card: oklch(0.9938 0.0013 106.4231);
++  --card-foreground: oklch(0.2459 0.0513 262.4344);
++  --popover: oklch(0.9938 0.0013 106.4231);
++  --popover-foreground: oklch(0.2459 0.0513 262.4344);
++  --primary: oklch(0.8078 0.0741 90.9319);
++  --primary-foreground: oklch(0.2189 0.0426 261.6232);
++  --secondary: oklch(0.2927 0.0604 263.5595);
++  --secondary-foreground: oklch(0.967 0.0082 91.4829);
++  --muted: oklch(0.9435 0.0058 84.5667);
++  --muted-foreground: oklch(0.4757 0.0716 263.1349);
++  --accent: oklch(0.8442 0.0517 89.7673);
++  --accent-foreground: oklch(0.2459 0.0513 262.4344);
++  --destructive: oklch(0.5886 0.2305 28.2392);
++  --destructive-foreground: oklch(1 0 0);
++  --border: oklch(0.8849 0.0222 92.5255);
++  --input: var(--border);
++  --ring: oklch(0.8078 0.0741 90.9319);
++  --scrollbar-thumb: oklch(0.4 0 0);
++  --chart-1: oklch(0.3318 0.095 262.7097);
++  --chart-2: oklch(0.8249 0.1258 83.209);
++  --chart-3: oklch(0.5623 0.1105 236.0657);
++  --chart-4: oklch(0.6598 0.1537 32.5241);
++  --chart-5: oklch(0.9089 0.1301 108.7317);
++  --sidebar: oklch(0.9791 0.0041 91.4459);
++  --sidebar-foreground: oklch(0.2459 0.0513 262.4344);
++  --sidebar-primary: oklch(0.8078 0.0741 90.9319);
++  --sidebar-primary-foreground: oklch(0.2189 0.0426 261.6232);
++  --sidebar-accent: oklch(0.8442 0.0517 89.7673);
++  --sidebar-accent-foreground: oklch(0.2459 0.0513 262.4344);
++  --sidebar-border: oklch(0.8849 0.0222 92.5255);
++  --sidebar-ring: oklch(0.8078 0.0741 90.9319);
++}
++
++.argus-dark {
++  --background: oklch(0.1786 0.0335 262.1141);
++  --foreground: oklch(0.946 0.0083 91.4848);
++  --card: oklch(0.2189 0.0426 261.6232);
++  --card-foreground: oklch(0.946 0.0083 91.4848);
++  --popover: oklch(0.2189 0.0426 261.6232);
++  --popover-foreground: oklch(0.946 0.0083 91.4848);
++  --primary: oklch(0.8289 0.061 90.4291);
++  --primary-foreground: oklch(0.1786 0.0335 262.1141);
++  --secondary: oklch(0.2755 0.0556 263.0981);
++  --secondary-foreground: oklch(0.9336 0.0137 92.9875);
++  --muted: oklch(0.2495 0.0426 264.1462);
++  --muted-foreground: oklch(0.7447 0.029 90.9608);
++  --accent: oklch(0.7794 0.0695 90.5625);
++  --accent-foreground: oklch(0.2175 0.0414 259.2582);
++  --destructive: oklch(0.5886 0.2305 28.2392);
++  --destructive-foreground: oklch(1 0 0);
++  --border: oklch(0.2954 0.0526 263.9028);
++  --input: var(--border);
++  --scrollbar-thumb: oklch(0.4 0.04 263);
++  --ring: oklch(0.8289 0.061 90.4291);
++  --chart-1: oklch(0.8249 0.1258 83.209);
++  --chart-2: oklch(0.3318 0.095 262.7097);
++  --chart-3: oklch(0.5623 0.1105 236.0657);
++  --chart-4: oklch(0.6598 0.1537 32.5241);
++  --chart-5: oklch(0.9089 0.1301 108.7317);
++  --sidebar: oklch(0.1786 0.0335 262.1141);
++  --sidebar-foreground: oklch(0.946 0.0083 91.4848);
++  --sidebar-primary: oklch(0.8289 0.061 90.4291);
++  --sidebar-primary-foreground: oklch(0.1786 0.0335 262.1141);
++  --sidebar-accent: oklch(0.7794 0.0695 90.5625);
++  --sidebar-accent-foreground: oklch(0.2948 0.0509 263.348);
++  --sidebar-border: oklch(0.2954 0.0526 263.9028);
++  --sidebar-ring: oklch(0.8289 0.061 90.4291);
++}
++
+ @layer base {
+   * {
+     @apply border-border outline-ring/50;
+@@ -125,4 +197,4 @@
+     @apply bg-background text-foreground;
+     @apply bg-background text-foreground;
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 21c95930..97c697d0 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
+ import "./globals.css";
+ import { AppShell } from "@/components/app-shell";
+ import { QueryProvider } from "@/components/query-provider";
++import { ThemeProvider } from "@/components/theme-provider";
+ 
+ const geistSans = Geist({
+   variable: "--font-geist-sans",
+@@ -25,13 +26,21 @@ export default function RootLayout({
+   children: React.ReactNode;
+ }>) {
+   return (
+-    <html lang="en">
++    <html lang="en" suppressHydrationWarning>
+       <body
+         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
++        suppressHydrationWarning
+       >
+-        <QueryProvider>
+-        <AppShell>{children}</AppShell>
+-      </QueryProvider>
++        <ThemeProvider
++          attribute="class"
++          defaultTheme="system"
++          enableSystem
++          disableTransitionOnChange
++        >
++          <QueryProvider>
++            <AppShell>{children}</AppShell>
++          </QueryProvider>
++        </ThemeProvider>
+       </body>
+     </html>
+   );
+diff --git a/src/app/settings/page.tsx b/src/app/settings/page.tsx
+index cc3b52e7..b8a3144b 100644
+--- a/src/app/settings/page.tsx
++++ b/src/app/settings/page.tsx
+@@ -1,11 +1,19 @@
+ "use client"
+ 
+ import { useEffect, useRef, useState } from "react"
++import { useTheme } from "next-themes"
+ 
+ import { Button } from "@/components/ui/button"
+ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select"
+ import {
+   Tabs,
+   TabsContent,
+@@ -37,7 +45,7 @@ type AISettings = {
+   token: string
+ }
+ 
+-type ThemeMode = "system" | "light" | "dark"
++type ThemeMode = "system" | "light" | "dark" | "argus"
+ 
+ const AI_SETTINGS_STORAGE_KEY = "argus-ai-settings"
+ const THEME_SETTINGS_STORAGE_KEY = "argus-theme-mode"
+@@ -52,6 +60,7 @@ const THEME_MODES: Array<{ value: ThemeMode; label: string }> = [
+   { value: "system", label: "System" },
+   { value: "light", label: "Light" },
+   { value: "dark", label: "Dark" },
++  { value: "argus", label: "Argus" },
+ ] as const
+ 
+ const SETTINGS_AUTOSAVE_DEBOUNCE_MS = 100
+@@ -65,11 +74,25 @@ export default function SettingsPage() {
+   const [aiStatus, setAiStatus] = useState("")
+   const [themeMode, setThemeMode] = useState<ThemeMode>("system")
+   const [themeStatus, setThemeStatus] = useState("")
++  const { setTheme } = useTheme()
+   const gitlabAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+   const aiAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+   const themeAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+ 
+   useEffect(() => {
++    const isThemeMode = (value: string | null): value is ThemeMode =>
++      value === "system" || value === "light" || value === "dark" || value === "argus"
++
++    const getActualTheme = (mode: ThemeMode) => {
++      if (mode === "argus") {
++        const prefersDark =
++          typeof window !== "undefined" &&
++          window.matchMedia("(prefers-color-scheme: dark)").matches
++        return prefersDark ? "argus-dark" : "argus-light"
++      }
++      return mode
++    }
++
+     const readTokenValue = (raw: string | null, key: "us" | "global" | "public"): string => {
+       if (!raw) {
+         return ""
+@@ -108,12 +131,9 @@ export default function SettingsPage() {
+     }
+ 
+     const themeRaw = window.localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)
+-    if (themeRaw === "light" || themeRaw === "dark" || themeRaw === "system") {
+-      setThemeMode(themeRaw)
+-      applyThemeMode(themeRaw)
+-    } else {
+-      applyThemeMode("system")
+-    }
++    const initialThemeMode: ThemeMode = isThemeMode(themeRaw) ? themeRaw : "system"
++    setThemeMode(initialThemeMode)
++    setTheme(getActualTheme(initialThemeMode))
+ 
+     setIsHydrated(true)
+   }, [])
+@@ -153,27 +173,17 @@ export default function SettingsPage() {
+     clearStatusLater(setAiStatus)
+   }
+ 
+-  const applyThemeMode = (mode: ThemeMode) => {
+-    if (typeof document === "undefined") {
+-      return
+-    }
+-
+-    const root = document.documentElement
+-    if (mode === "dark") {
+-      root.classList.add("dark")
+-    } else if (mode === "light") {
+-      root.classList.remove("dark")
+-    } else {
+-      const systemIsDark = window.matchMedia
+-        ? window.matchMedia("(prefers-color-scheme: dark)").matches
+-        : false
+-      root.classList.toggle("dark", systemIsDark)
+-    }
+-  }
+-
+   const handleThemeModeChange = (value: ThemeMode) => {
+     setThemeMode(value)
+-    applyThemeMode(value)
++  }
++
++  const getActualThemeMode = (mode: ThemeMode) => {
++    if (mode === "argus") {
++      const prefersDark = typeof window !== "undefined" &&
++        window.matchMedia("(prefers-color-scheme: dark)").matches
++      return prefersDark ? "argus-dark" : "argus-light"
++    }
++    return mode
+   }
+ 
+   useEffect(() => {
+@@ -236,6 +246,7 @@ export default function SettingsPage() {
+     }
+     themeAutoSaveTimer.current = window.setTimeout(() => {
+       if (typeof window !== "undefined") {
++        setTheme(getActualThemeMode(themeMode))
+         window.localStorage.setItem(THEME_SETTINGS_STORAGE_KEY, themeMode)
+         setThemeStatus("Theme preference auto-saved.")
+         clearStatusLater(setThemeStatus)
+@@ -249,7 +260,23 @@ export default function SettingsPage() {
+         themeAutoSaveTimer.current = null
+       }
+     }
+-  }, [isHydrated, themeMode])
++  }, [isHydrated, themeMode, setTheme])
++
++  useEffect(() => {
++    if (!isHydrated || themeMode !== "argus") {
++      return
++    }
++
++    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
++    const handleSystemThemeChange = () => {
++      setTheme(getActualThemeMode("argus"))
++    }
++    mediaQuery.addEventListener("change", handleSystemThemeChange)
++
++    return () => {
++      mediaQuery.removeEventListener("change", handleSystemThemeChange)
++    }
++  }, [isHydrated, themeMode, setTheme])
+ 
+   return (
+     <div className="space-y-4">
+@@ -369,18 +396,21 @@ export default function SettingsPage() {
+             <CardContent className="space-y-4">
+               <div className="space-y-2">
+                 <Label htmlFor="theme-mode">Theme mode</Label>
+-                <select
+-                  id="theme-mode"
++                <Select
+                   value={themeMode}
+-                  onChange={(event) => handleThemeModeChange(event.target.value as ThemeMode)}
+-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
++                  onValueChange={(value) => handleThemeModeChange(value as ThemeMode)}
+                 >
+-                  {THEME_MODES.map((mode) => (
+-                    <option key={mode.value} value={mode.value}>
+-                      {mode.label}
+-                    </option>
+-                  ))}
+-                </select>
++                  <SelectTrigger id="theme-mode" className="w-full md:w-72">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    {THEME_MODES.map((mode) => (
++                      <SelectItem key={mode.value} value={mode.value}>
++                        {mode.label}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
+               </div>
+               {!isHydrated ? null : (
+                 <p className="text-xs text-muted-foreground">{themeStatus || "Auto-loaded from local storage."}</p>
+diff --git a/src/components/theme-provider.tsx b/src/components/theme-provider.tsx
+new file mode 100644
+index 00000000..14bf42b3
+--- /dev/null
++++ b/src/components/theme-provider.tsx
+@@ -0,0 +1,18 @@
++"use client"
++
++import { ThemeProvider as NextThemesProvider } from "next-themes"
++import { type ComponentProps } from "react"
++
++export function ThemeProvider({
++  children,
++  ...props
++}: ComponentProps<typeof NextThemesProvider>) {
++  return (
++    <NextThemesProvider
++      themes={["light", "dark", "system", "argus-light", "argus-dark"]}
++      {...props}
++    >
++      {children}
++    </NextThemesProvider>
++  )
++}

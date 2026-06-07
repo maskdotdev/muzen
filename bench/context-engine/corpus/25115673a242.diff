@@ -1,0 +1,22 @@
+diff --git a/apps/web/src/features/review/components/diff/toolbar.tsx b/apps/web/src/features/review/components/diff/toolbar.tsx
+index 9a89f4fc..552822c5 100644
+--- a/apps/web/src/features/review/components/diff/toolbar.tsx
++++ b/apps/web/src/features/review/components/diff/toolbar.tsx
+@@ -173,7 +173,7 @@ export function MergeRequestDiffToolbar({
+ 									size="icon"
+ 									variant="ghost"
+ 									className="size-5"
+-									disabled={commentNavigation.total < 2}
++									disabled={commentNavigation.total === 0}
+ 									onClick={commentNavigation.onPrevious}
+ 								>
+ 									<ChevronLeft className="size-3" aria-hidden="true" />
+@@ -187,7 +187,7 @@ export function MergeRequestDiffToolbar({
+ 									size="icon"
+ 									variant="ghost"
+ 									className="size-5"
+-									disabled={commentNavigation.total < 2}
++									disabled={commentNavigation.total === 0}
+ 									onClick={commentNavigation.onNext}
+ 								>
+ 									<ChevronRight className="size-3" aria-hidden="true" />

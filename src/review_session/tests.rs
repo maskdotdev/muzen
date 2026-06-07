@@ -1150,6 +1150,92 @@ fn review_http_router_handles_workspace_profile_routes() {
 }
 
 #[test]
+fn review_http_router_serves_workspace_context_routes() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src/auth")).unwrap();
+    std::fs::write(
+        repo.path().join("src/auth/token.rs"),
+        "pub fn authorize_request() {}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo.path().join("tests/auth")).unwrap();
+    std::fs::write(
+        repo.path().join("tests/auth/token_test.rs"),
+        "#[test]\nfn authorize_request_test() {}\n",
+    )
+    .unwrap();
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let source = json!({
+        "type": "local",
+        "repo": repo.path(),
+        "changedFiles": ["src/auth/token.rs"]
+    });
+
+    let index_response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/index")
+            .json(&json!({ "source": source }))
+            .unwrap(),
+    );
+    let pack_response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/packs")
+            .json(&json!({
+                "source": source,
+                "purpose": "tests"
+            }))
+            .unwrap(),
+    );
+    let query_response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+            .json(&json!({
+                "source": source,
+                "kind": "related_tests",
+                "arguments": { "path": "src/auth/token.rs" },
+                "limits": { "maxResults": 10, "maxTokens": 1000 }
+            }))
+            .unwrap(),
+    );
+    let index_body: Value = serde_json::from_str(&index_response.body).unwrap();
+    let pack_body: Value = serde_json::from_str(&pack_response.body).unwrap();
+    let query_body: Value = serde_json::from_str(&query_response.body).unwrap();
+
+    assert_eq!(index_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        index_body["manifest"]["schemaVersion"],
+        json!("muzen.context_manifest.v1")
+    );
+    assert_eq!(pack_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(pack_body["pack"]["purpose"], json!("tests"));
+    assert!(pack_body["pack"]["evidence"].as_array().unwrap().len() >= 2);
+    assert_eq!(query_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(query_body["result"]["kind"], json!("related_tests"));
+    assert!(query_body["result"]["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["path"] == json!("tests/auth/token_test.rs")));
+}
+
+#[test]
+fn review_http_router_rejects_provider_context_sources_without_materialization() {
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/index")
+            .json(&json!({
+                "source": {
+                    "type": "github_pull_request",
+                    "owner": "maskdotdev",
+                    "repo": "muzen",
+                    "number": 1
+                }
+            }))
+            .unwrap(),
+    );
+
+    assert_eq!(response.status_code, HTTP_STATUS_BAD_REQUEST);
+    assert!(response.body.contains("local or raw_snapshot source"));
+}
+
+#[test]
 fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
     let muzen = Muzen::new();
     let router = ReviewHttpRouter::with_options(

@@ -24,9 +24,16 @@ import {
 } from "./wire-validation.js";
 import type {
   CreateMuzenClientOptions,
+  ContextIndexOptions,
+  ContextManifest,
+  ContextPack,
+  ContextPackOptions,
+  ContextQueryOptions,
+  ContextQueryResult,
   ModelProfile,
   ModelProfileInput,
   Muzen,
+  MuzenContextWorkspace,
   MuzenWorkers,
   MuzenWebhookHandler,
   MuzenWebhookProvider,
@@ -206,6 +213,7 @@ class RemoteWorkspace implements MuzenWorkspace {
     ProviderProfileInput,
     ProviderProfile
   >;
+  readonly context: MuzenContextWorkspace;
 
   constructor(
     private readonly client: RemoteMuzen,
@@ -225,6 +233,7 @@ class RemoteWorkspace implements MuzenWorkspace {
       unwrapProviderProfile,
       unwrapProviderProfiles,
     );
+    this.context = new RemoteContextWorkspace(client, id);
   }
 
   async review(
@@ -245,6 +254,61 @@ class RemoteWorkspace implements MuzenWorkspace {
     );
     return new RemoteReviewSession(this.client, unwrapReviewSnapshot(response));
   }
+}
+
+class RemoteContextWorkspace implements MuzenContextWorkspace {
+  constructor(
+    private readonly client: RemoteMuzen,
+    private readonly workspaceId: string,
+  ) {}
+
+  async index(options: ContextIndexOptions): Promise<ContextManifest> {
+    const value = await this.client.requestJson(this.contextPath("index"), {
+      method: "POST",
+      body: contextIndexBody(options),
+    });
+    return (value as { manifest: ContextManifest }).manifest;
+  }
+
+  async buildPack(options: ContextPackOptions): Promise<ContextPack> {
+    const value = await this.client.requestJson(this.contextPath("packs"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        purpose: options.purpose,
+        maxTokens: options.maxTokens,
+      },
+    });
+    return (value as { pack: ContextPack }).pack;
+  }
+
+  async query(options: ContextQueryOptions): Promise<ContextQueryResult> {
+    const value = await this.client.requestJson(this.contextPath("query"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        purpose: options.purpose,
+        kind: options.kind,
+        arguments: options.arguments ?? {},
+        currentEvidence: options.currentEvidence ?? [],
+        limits: options.limits,
+      },
+    });
+    return (value as { result: ContextQueryResult }).result;
+  }
+
+  private contextPath(kind: "index" | "packs" | "query"): string {
+    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/context/${kind}`;
+  }
+}
+
+function contextIndexBody(options: ContextIndexOptions): Record<string, unknown> {
+  const source = parseReviewSource(options.source);
+  return {
+    source,
+    changedFiles: options.changedFiles,
+    config: options.config,
+  };
 }
 
 class RemoteWorkspaceProfileCollection<Input, Profile>

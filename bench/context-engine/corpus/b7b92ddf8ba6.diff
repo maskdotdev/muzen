@@ -1,0 +1,1303 @@
+diff --git a/apps/web/src/app/api/review/diff/route.get.test.ts b/apps/web/src/app/api/review/diff/route.get.test.ts
+index 3956ce90..1647df04 100644
+--- a/apps/web/src/app/api/review/diff/route.get.test.ts
++++ b/apps/web/src/app/api/review/diff/route.get.test.ts
+@@ -1,13 +1,8 @@
+-import { afterEach, describe, expect, mock, test } from "bun:test"
+-import { jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+-import * as actualReviewGate from "@/lib/review/gate"
+-import { mergeModuleWithOverrides } from "@/test-utils/module-mock"
+-
+-type LoggerContext = Record<string, unknown>
++import { describe, expect, mock, test } from "bun:test"
+ 
+ type ApiLogHandlerArgs = {
+   logger: {
+-    set: (context: LoggerContext) => void
++    set: (context: Record<string, unknown>) => void
+   }
+   requestId: string
+ }
+@@ -26,77 +21,51 @@ type RunWithApiRequestLogArgs = {
+ }
+ 
+ describe("review diff route latest", () => {
+-  test("returns latest persisted review for the selected merge request", async () => {
+-    const baseApplyReviewGate = actualReviewGate.applyReviewGate
+-    const loggerContext: LoggerContext = {}
++  test("returns the latest review payload from the shared read model", async () => {
++    const loggerContext: Record<string, unknown> = {}
+     const runWithApiRequestLog = mock(async ({ handler }: RunWithApiRequestLogArgs) => {
+-      const logger = {
+-        set: (context: LoggerContext) => {
+-          Object.assign(loggerContext, context)
++      const result = await handler({
++        logger: {
++          set: (context) => Object.assign(loggerContext, context),
+         },
+-      }
+-      const result = await handler({ logger, requestId: "req_1" })
++        requestId: "req_1",
++      })
+       return result.response
+     })
+     const getSessionUserId = mock(async () => "user-1")
+-    const reviewLimit = mock(async () => [
+-      {
++    const getLatestReviewReadModel = mock(async () => ({
++      review: {
+         id: "review-1",
+         summary: "AI review complete. No findings.",
+         findings: [],
++        personaMode: "single",
++        persona: "generalist",
++        personaPasses: [],
+         feedback: "down",
+-        createdAt: new Date("2026-02-17T10:00:00.000Z"),
++        commentFeedbackByKey: {
++          "src/a.ts:additions:10:nullable value": "up",
++        },
++        commentPublishByKey: {
++          "src/a.ts:additions:10:nullable value": {
++            status: "succeeded",
++            attempts: 1,
++            lastError: "",
++            discussionId: "discussion-1",
++            noteId: "note-1",
++            updatedAt: "2026-02-17T10:00:00.000Z",
++          },
++        },
++        createdAt: "2026-02-17T10:00:00.000Z",
+       },
+-    ])
+-    const reviewOrderBy = mock(() => ({ limit: reviewLimit }))
+-    const reviewWhere = mock(() => ({ orderBy: reviewOrderBy }))
+-    const reviewFrom = mock(() => ({ where: reviewWhere }))
+-
+-    const commentWhere = mock(async () => [
+-      {
+-        commentKey: "src/a.ts:additions:10:nullable value",
+-        feedback: "up",
++      suppressedFindingsCount: 0,
++      suppressedByReason: {
++        lowConfidence: 0,
++        missingEvidence: 0,
+       },
+-    ])
+-    const commentFrom = mock(() => ({ where: commentWhere }))
+-
+-    const select = mock((selection: Record<string, unknown>) => {
+-      if ("commentKey" in selection) {
+-        return { from: commentFrom }
+-      }
+-      return { from: reviewFrom }
+-    })
+-
+-    const aiReviewRuns = pgTable("ai_review_runs", {
+-      id: text("id"),
+-      userId: text("user_id"),
+-      instanceUrl: text("instance_url"),
+-      projectId: text("project_id"),
+-      mergeRequestIid: text("merge_request_iid"),
+-      summary: text("summary"),
+-      findings: jsonb("findings"),
+-      feedback: text("feedback"),
+-      createdAt: timestamp("created_at", { withTimezone: true }),
+-    })
+-    const onboardingEvents = { __table: "onboarding_events" }
+-    const aiReviewCommentFeedback = {
+-      reviewId: "review_id",
+-      userId: "user_id",
+-      commentKey: "comment_key",
+-      feedback: "feedback",
+-    }
+-    const resolveReviewGatePreferences = mock(async () => ({
+-      globalSettings: {
+-        personaMode: "single",
+-        strictness: "balanced",
+-        requireEvidence: false,
+-        securityBoost: false,
+-        personaTemplates: {},
+-      },
+-      projectOverride: null,
+-      effectiveSettings: {
++      gateProfile: {
+         personaMode: "single",
+         persona: "generalist",
++        personaPasses: [],
+         strictness: "balanced",
+         requireEvidence: false,
+         securityBoost: false,
+@@ -104,123 +73,22 @@ describe("review diff route latest", () => {
+         scopeSource: "global_default",
+       },
+     }))
+-    const applyReviewGate = mock((args: Parameters<typeof baseApplyReviewGate>[0]) =>
+-      baseApplyReviewGate(args),
+-    )
+-    const resolveManagedIntegrationForScope = mock(async () => ({
+-      id: "integration-1",
+-    }))
+-    const getCommentPublishByKeyForReview = mock(async () => ({
+-      "src/a.ts:additions:10:nullable value": {
+-        status: "succeeded",
+-        attempts: 1,
+-        lastError: "",
+-        discussionId: "discussion-1",
+-        noteId: "note-1",
+-        updatedAt: "2026-02-17T10:00:00.000Z",
+-      },
+-    }))
+-    const buildCommentKey = mock(() => "")
+-    const upsertPublicationsForReview = mock(async () => ({
+-      createdCount: 0,
+-      resetCount: 0,
+-      skippedCount: 0,
+-      commentPublishByKey: {},
+-    }))
+-    const processPublicationNow = mock(async () => null)
+-    const processDuePublications = mock(async () => ({
+-      claimed: 0,
+-      succeeded: 0,
+-      failed: 0,
+-      dead: 0,
+-    }))
+ 
+     mock.module("@/lib/session", () => ({
+-    getSessionUserId,
+-    getSession: async () => {
+-      const userId = await getSessionUserId()
+-      return userId ? { user: { id: userId } } : null
+-    },
+-    getSessionAccess: async () => {
+-      const userId = await getSessionUserId()
+-      return {
+-        session: userId ? { user: { id: userId } } : null,
++      getSessionUserId,
++      getSession: async () => ({ user: { id: "user-1" } }),
++      getSessionAccess: async () => ({
++        session: { user: { id: "user-1" } },
+         isAlphaDenied: false,
+-      }
+-    },
+-  }))
+-    mock.module("@/lib/db", () => ({ db: { select } }))
+-    mock.module("@/lib/db/schema", () => ({
+-      aiReviewRuns,
+-      aiReviewCommentFeedback,
+-      aiClientSettings: {
+-        userId: "user_id",
+-      },
+-      onboardingEvents,
+-      aiDefaultTokenUsage: { __table: "ai_default_token_usage" },
+-      appLogEvents: { __table: "app_log_events" },
+-    }))
+-    mock.module("@/lib/review/preferences", () => ({
+-      resolveReviewGatePreferences,
+-      normalizeReviewGateScope: mock(() => null),
+-      upsertReviewGateGlobalSettings: mock(async () => {}),
+-      upsertReviewGateProjectOverride: mock(async () => {}),
+-      deleteReviewGateProjectOverride: mock(async () => {}),
+-      canUserManageProjectScope: mock(async () => true),
+-    }))
+-    mock.module("@/lib/review/gate", () =>
+-      mergeModuleWithOverrides<typeof import("@/lib/review/gate")>(actualReviewGate, {
+-        applyReviewGate,
+       }),
+-    )
+-    mock.module("@/lib/review/comment-publish", () => ({
+-      buildCommentKey,
+-      resolveManagedIntegrationForScope,
+-      upsertPublicationsForReview,
+-      processPublicationNow,
+-      removePublicationNow: mock(async () => null),
+-      getCommentPublishByKeyForReview,
+-      processDuePublications,
+     }))
+-    mock.module("@/lib/review/flow-run", () => ({
+-      findReviewRunDedupeCandidate: mock(async () => null),
+-      enqueueOrGetActiveReviewRun: mock(async () => ({
+-        deduped: false,
+-        dedupeReason: null,
+-        run: {
+-          id: "flow-run-1",
+-          traceId: "trace-1",
+-          status: "in_progress",
+-          stage: "queued",
+-          persona: "generalist",
+-          startedAt: "2026-02-17T10:00:00.000Z",
+-        },
+-      })),
+-      markReviewRunProgress: mock(async () => true),
+-      appendReviewFlowEvent: mock(async () => null),
+-      markReviewRunSuccess: mock(async () => true),
+-      markReviewRunFailed: mock(async () => ({
+-        committed: true,
+-        terminal: true,
+-        nextAttemptAt: null,
+-      })),
+-      getReviewFlowRunByTraceId: mock(async () => null),
+-      listReviewFlowEventsByTraceId: mock(async () => []),
+-      refreshReviewRunLease: mock(async () => true),
+-      claimDueReviewRuns: mock(async () => []),
+-      markStaleReviewFlowRunsFailed: mock(async () => ({ affectedRows: 0 })),
+-      purgeReviewFlowRetentionData: mock(async () => ({ deletedRuns: 0, deletedEvents: 0 })),
+-      startReviewFlowRun: mock(async () => ({ traceId: "trace-get", reviewRunId: "flow-run-1" })),
+-      markReviewFlowRunSuccess: mock(async () => null),
+-      touchReviewFlowRunForApiResult: mock(async () => null),
+-      REVIEW_FLOW_STALE_AFTER_MS: 2 * 60 * 1_000,
+-      REVIEW_FLOW_CLAIM_STALE_AFTER_MS: 5 * 60 * 1_000,
+-      REVIEW_FLOW_DEFAULT_RETENTION_DAYS: 30,
++    mock.module("@/lib/review/read-model", () => ({
++      getLatestReviewReadModel,
+     }))
+     mock.module("@/lib/utils/logger", () => ({
+-    runWithApiRequestLog,
+-    logScopedError: mock(() => {}),
+-  }))
++      runWithApiRequestLog,
++      logScopedError: mock(() => {}),
++    }))
+ 
+     const routeModule = await import(`./route?cacheBust=${Math.random().toString(36).slice(2)}`)
+     const response = await routeModule.GET(
+@@ -231,38 +99,25 @@ describe("review diff route latest", () => {
+     const body = await response.json()
+ 
+     expect(response.status).toBe(200)
+-    expect(body.data.review).toEqual({
+-      id: "review-1",
+-      summary: "AI review complete. No findings.",
+-      findings: [],
+-      personaMode: "single",
+-      persona: "generalist",
+-      personaPasses: [],
+-      feedback: "down",
+-      commentFeedbackByKey: {
+-        "src/a.ts:additions:10:nullable value": "up",
+-      },
+-      commentPublishByKey: {
+-        "src/a.ts:additions:10:nullable value": {
+-          status: "succeeded",
+-          attempts: 1,
+-          lastError: "",
+-          discussionId: "discussion-1",
+-          noteId: "note-1",
+-          updatedAt: "2026-02-17T10:00:00.000Z",
+-        },
++    expect(getLatestReviewReadModel).toHaveBeenCalledWith({
++      userId: "user-1",
++      scope: {
++        instanceUrl: "https://gitlab.example.com",
++        projectId: "123",
++        mergeRequestIid: "42",
+       },
+-      createdAt: "2026-02-17T10:00:00.000Z",
+     })
++    expect(body.data.review.id).toBe("review-1")
++    expect(body.data.review.commentFeedbackByKey).toEqual({
++      "src/a.ts:additions:10:nullable value": "up",
++    })
++    expect(body.data.gateProfile.persona).toBe("generalist")
+     expect(loggerContext).toMatchObject({
+       reviewFound: true,
+       reviewId: "review-1",
++      commentFeedbackCount: 1,
++      commentPublishCount: 1,
++      suppressedFindingsCount: 0,
+     })
+-    expect(resolveReviewGatePreferences).toHaveBeenCalledTimes(1)
+-    expect(applyReviewGate).toHaveBeenCalledTimes(1)
+   })
+ })
+-
+-afterEach(() => {
+-  mock.restore()
+-})
+diff --git a/apps/web/src/app/api/review/diff/route.ts b/apps/web/src/app/api/review/diff/route.ts
+index 0d5160e6..d4d7919f 100644
+--- a/apps/web/src/app/api/review/diff/route.ts
++++ b/apps/web/src/app/api/review/diff/route.ts
+@@ -1,39 +1,9 @@
+ import { NextResponse } from "next/server"
+-import { and, desc, eq } from "drizzle-orm"
+-
+-import {
+-  buildDefaultTokenUsageLimitMessage,
+-  ensureDefaultTokenUsageAvailable,
+-} from "@/lib/ai/default-token-usage"
+-import { db } from "@/lib/db"
+-import { requireJsonBody } from "@/lib/http/request-json"
+-import {
+-  aiReviewCommentFeedback,
+-  aiReviewRuns,
+-  type AiReviewFinding,
+-} from "@/lib/db/schema"
+-import { recordOnboardingCompletedIfMissing } from "@/lib/onboarding/service"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+-import { sha256Hex } from "@/lib/utils/hash"
+-import {
+-  appendReviewFlowEvent,
+-  enqueueOrGetActiveReviewRun,
+-  findReviewRunDedupeCandidate,
+-  markReviewRunProgress,
+-} from "@/lib/review/flow-run"
+-import {
+-  MAX_REVIEW_PATCH_CHARS,
+-  buildReviewBatches,
+-} from "@/lib/review/review-engine"
+-import {
+-  resolveReviewProviderSettingsForUser,
+-  ReviewProviderSettingsError,
+-} from "@/lib/review/provider-settings"
+-import { applyReviewGate, getReviewPersonaPasses, normalizeReviewGateSettings } from "@/lib/review/gate"
+-import { normalizeReviewGateScope, resolveReviewGatePreferences } from "@/lib/review/preferences"
++import { getReviewPersonaPasses, normalizeReviewGateSettings } from "@/lib/review/gate"
+ import { normalizeReviewPersonaMode, normalizeReviewPersona } from "@/lib/review/persona"
+-import * as commentPublish from "@/lib/review/comment-publish"
++import { getLatestReviewReadModel } from "@/lib/review/read-model"
+ 
+ type ReviewScope = {
+   instanceUrl: string
+@@ -44,7 +14,18 @@ type ReviewScope = {
+ type PersistedReview = {
+   id: string
+   summary: string
+-  findings: AiReviewFinding[]
++  findings: Array<{
++    file: string
++    line: number
++    side: "additions" | "deletions"
++    severity: "high" | "med" | "low"
++    title: string
++    body: string
++    confidence: number
++    evidence?: string
++    persona?: "generalist" | "security" | "performance" | "maintainability"
++    personas?: Array<"generalist" | "security" | "performance" | "maintainability">
++  }>
+   personaMode: "disabled" | "single" | "multi"
+   persona: "generalist" | "security" | "performance" | "maintainability"
+   personaPasses: string[]
+@@ -119,6 +100,7 @@ const completeOnboardingFromReview = async ({
+   scope: ReviewScope
+   reviewStatus: "queued" | "in_progress" | "success" | "failed"
+ }) => {
++  const { recordOnboardingCompletedIfMissing } = await import("@/lib/onboarding/service")
+   if (reviewStatus === "failed") {
+     return null
+   }
+@@ -134,38 +116,39 @@ const completeOnboardingFromReview = async ({
+   })
+ }
+ 
+-const toPersistedReview = (row: {
+-  id: string
+-  summary: string
+-  findings: AiReviewFinding[]
+-  personaMode: "disabled" | "single" | "multi"
+-  persona: "generalist" | "security" | "performance" | "maintainability"
+-  personaPasses: string[]
+-  feedback: "up" | "down" | null
+-  createdAt: Date
+-}, commentFeedbackByKey: Record<string, "up" | "down">, commentPublishByKey: PersistedReview["commentPublishByKey"]): PersistedReview => ({
+-  id: row.id,
+-  summary: row.summary,
+-  findings: row.findings,
+-  personaMode: row.personaMode,
+-  persona: row.persona,
+-  personaPasses: row.personaPasses,
+-  feedback: row.feedback,
+-  commentFeedbackByKey,
+-  commentPublishByKey,
+-  createdAt: row.createdAt.toISOString(),
+-})
+-
+ export async function POST(request: Request) {
+   return runWithApiRequestLog({
+     request,
+     path: "/api/review/diff",
+     event: "api.review.diff",
+     handler: async ({ logger }) => {
++      const [
++        { buildDefaultTokenUsageLimitMessage, ensureDefaultTokenUsageAvailable },
++        { requireJsonBody },
++        { sha256Hex },
++        flowRun,
++        reviewEngine,
++        providerSettingsModule,
++        preferencesModule,
++      ] = await Promise.all([
++        import("@/lib/ai/default-token-usage"),
++        import("@/lib/http/request-json"),
++        import("@/lib/utils/hash"),
++        import("@/lib/review/flow-run"),
++        import("@/lib/review/review-engine"),
++        import("@/lib/review/provider-settings"),
++        import("@/lib/review/preferences"),
++      ])
++
+       const [userId, body] = await Promise.all([
+         getSessionUserId(),
+         requireJsonBody(request, "Patch is required."),
+       ])
++      const resolveReviewGatePreferences = preferencesModule.resolveReviewGatePreferences
++      const normalizeReviewGateScope =
++        typeof preferencesModule.normalizeReviewGateScope === "function"
++          ? preferencesModule.normalizeReviewGateScope
++          : (value: { instanceUrl: string; projectId: string }) => value
+       if (!userId) {
+         return {
+           status: 401,
+@@ -199,14 +182,14 @@ export async function POST(request: Request) {
+           ),
+         }
+       }
+-      if (patch.length > MAX_REVIEW_PATCH_CHARS) {
++      if (patch.length > reviewEngine.MAX_REVIEW_PATCH_CHARS) {
+         return {
+           status: 413,
+           outcome: "payload_too_large",
+           response: NextResponse.json(
+             {
+               error:
+-                `Diff too large for AI review. Limit is ${MAX_REVIEW_PATCH_CHARS.toLocaleString()} characters.`,
++                `Diff too large for AI review. Limit is ${reviewEngine.MAX_REVIEW_PATCH_CHARS.toLocaleString()} characters.`,
+             },
+             { status: 413 },
+           ),
+@@ -231,13 +214,13 @@ export async function POST(request: Request) {
+         Object.keys(effectiveGateSettings.personaTemplates).length > 0
+ 
+       const patchHash = sha256Hex(patch)
+-      const reviewBatchCount = buildReviewBatches(patch).length
++      const reviewBatchCount = reviewEngine.buildReviewBatches(patch).length
+       const personaPassCount =
+         reviewPersonaMode === "disabled" ? 1 : Math.max(1, reviewPersonaPasses.length)
+       const totalBatches = reviewBatchCount * personaPassCount
+       const skipSamePatchReuse = force || hasCustomPersonaTemplates
+       if (!skipSamePatchReuse) {
+-        const dedupeCandidate = await findReviewRunDedupeCandidate({
++        const dedupeCandidate = await flowRun.findReviewRunDedupeCandidate({
+           userId,
+           patchHash,
+           scope: {
+@@ -308,9 +291,9 @@ export async function POST(request: Request) {
+ 
+       let providerSettings
+       try {
+-        providerSettings = await resolveReviewProviderSettingsForUser(userId)
++        providerSettings = await providerSettingsModule.resolveReviewProviderSettingsForUser(userId)
+       } catch (error) {
+-        if (error instanceof ReviewProviderSettingsError) {
++        if (error instanceof providerSettingsModule.ReviewProviderSettingsError) {
+           return {
+             status: error.status,
+             outcome: "missing_config",
+@@ -335,7 +318,7 @@ export async function POST(request: Request) {
+         }
+       }
+ 
+-      const enqueueResult = await enqueueOrGetActiveReviewRun({
++      const enqueueResult = await flowRun.enqueueOrGetActiveReviewRun({
+         userId,
+         patch,
+         patchHash,
+@@ -355,7 +338,7 @@ export async function POST(request: Request) {
+       })
+ 
+       if (!enqueueResult.deduped) {
+-        await markReviewRunProgress({
++        await flowRun.markReviewRunProgress({
+           runId: enqueueResult.run.id,
+           fields: {
+             stage: "queued",
+@@ -372,7 +355,7 @@ export async function POST(request: Request) {
+           },
+         })
+ 
+-        await appendReviewFlowEvent({
++        await flowRun.appendReviewFlowEvent({
+           flowRunId: enqueueResult.run.id,
+           traceId: enqueueResult.run.traceId,
+           stage: "queued",
+@@ -470,103 +453,16 @@ export async function GET(request: Request) {
+           ),
+         }
+       }
+-      const [gatePreferences, integration] = await Promise.all([
+-        resolveReviewGatePreferences({
+-          userId,
+-          scope: {
+-            instanceUrl: scope.instanceUrl,
+-            projectId: scope.projectId,
+-          },
+-        }),
+-        commentPublish.resolveManagedIntegrationForScope({
+-          userId,
+-          instanceUrl: scope.instanceUrl,
+-          projectId: scope.projectId,
+-        }),
+-      ])
+-      const effectiveGateSettings = normalizeReviewGateSettings(gatePreferences.effectiveSettings)
+-
+-      const rows = await db
+-        .select({
+-          id: aiReviewRuns.id,
+-          summary: aiReviewRuns.summary,
+-          findings: aiReviewRuns.findings,
+-          personaMode: aiReviewRuns.personaMode,
+-          persona: aiReviewRuns.persona,
+-          personaPasses: aiReviewRuns.personaPasses,
+-          feedback: aiReviewRuns.feedback,
+-          createdAt: aiReviewRuns.createdAt,
+-        })
+-        .from(aiReviewRuns)
+-        .where(
+-          and(
+-            eq(aiReviewRuns.userId, userId),
+-            eq(aiReviewRuns.instanceUrl, scope.instanceUrl),
+-            eq(aiReviewRuns.projectId, scope.projectId),
+-            eq(aiReviewRuns.mergeRequestIid, scope.mergeRequestIid),
+-          ),
+-        )
+-        .orderBy(desc(aiReviewRuns.createdAt))
+-        .limit(1)
+-
+-      let review: PersistedReview | null = null
+-      let suppressedFindingsCount = 0
+-      let suppressedByReason = {
+-        lowConfidence: 0,
+-        missingEvidence: 0,
+-      }
+-      let reviewPersona = normalizeReviewPersona(effectiveGateSettings.persona)
+-      let reviewPersonaMode = normalizeReviewPersonaMode(effectiveGateSettings.personaMode)
+-      let reviewPersonaPasses = getReviewPersonaPasses(effectiveGateSettings)
+-      if (rows[0]) {
+-        reviewPersonaMode = normalizeReviewPersonaMode(rows[0].personaMode)
+-        reviewPersona = normalizeReviewPersona(rows[0].persona)
+-        reviewPersonaPasses = Array.isArray(rows[0].personaPasses)
+-          ? rows[0].personaPasses
+-              .map((entry) => normalizeReviewPersona(entry))
+-              .filter((entry) => entry.length > 0)
+-          : []
+-        const gateResult = applyReviewGate({
+-          findings: rows[0].findings as AiReviewFinding[],
+-          settings: effectiveGateSettings,
+-        })
+-        suppressedFindingsCount = gateResult.suppressedFindingsCount
+-        suppressedByReason = gateResult.suppressedByReason
+-
+-        const [commentFeedbackRows, commentPublishByKey] = await Promise.all([
+-          db
+-            .select({
+-              commentKey: aiReviewCommentFeedback.commentKey,
+-              feedback: aiReviewCommentFeedback.feedback,
+-            })
+-            .from(aiReviewCommentFeedback)
+-            .where(
+-              and(
+-                eq(aiReviewCommentFeedback.reviewId, rows[0].id),
+-                eq(aiReviewCommentFeedback.userId, userId),
+-              ),
+-            ),
+-          commentPublish.getCommentPublishByKeyForReview({
+-            integrationId: integration?.id ?? null,
+-            mergeRequestIid: scope.mergeRequestIid,
+-            findings: gateResult.filteredFindings as AiReviewFinding[],
+-          }),
+-        ])
+-        const commentFeedbackByKey = Object.fromEntries(
+-          commentFeedbackRows.map((row) => [row.commentKey, row.feedback]),
+-        )
+-        review = toPersistedReview(
+-          {
+-            ...rows[0],
+-            personaMode: reviewPersonaMode,
+-            persona: reviewPersona,
+-            personaPasses: reviewPersonaPasses,
+-            findings: gateResult.filteredFindings as AiReviewFinding[],
+-          },
+-          commentFeedbackByKey,
+-          commentPublishByKey,
+-        )
+-      }
++      const latestReview = await getLatestReviewReadModel({
++        userId,
++        scope,
++      })
++      const review = latestReview.review
++      const suppressedFindingsCount = latestReview.suppressedFindingsCount
++      const suppressedByReason = latestReview.suppressedByReason
++      const reviewPersona = latestReview.gateProfile.persona
++      const reviewPersonaMode = latestReview.gateProfile.personaMode
++      const reviewPersonaPasses = latestReview.gateProfile.personaPasses
+ 
+       logger.set({
+         reviewFound: Boolean(review),
+@@ -575,7 +471,7 @@ export async function GET(request: Request) {
+         commentPublishCount: review ? Object.keys(review.commentPublishByKey).length : 0,
+         suppressedFindingsCount,
+         suppressedByReason,
+-        gateScopeSource: gatePreferences.effectiveSettings.scopeSource,
++        gateScopeSource: latestReview.gateProfile.scopeSource,
+         reviewPersonaMode,
+         reviewPersona,
+       })
+@@ -588,12 +484,7 @@ export async function GET(request: Request) {
+             review,
+             suppressedFindingsCount,
+             suppressedByReason,
+-            gateProfile: {
+-              ...effectiveGateSettings,
+-              personaMode: reviewPersonaMode,
+-              persona: reviewPersona,
+-              personaPasses: reviewPersonaPasses,
+-            },
++            gateProfile: latestReview.gateProfile,
+           },
+         }),
+       }
+diff --git a/apps/web/src/lib/review/read-model.test.ts b/apps/web/src/lib/review/read-model.test.ts
+new file mode 100644
+index 00000000..b61c120f
+--- /dev/null
++++ b/apps/web/src/lib/review/read-model.test.ts
+@@ -0,0 +1,231 @@
++import { afterEach, describe, expect, mock, test } from "bun:test"
++import { jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
++
++type ReviewRow = {
++  id: string
++  summary: string
++  findings: Array<{
++    file: string
++    line: number
++    side: "additions" | "deletions"
++    severity: "high" | "med" | "low"
++    title: string
++    body: string
++    confidence: number
++    evidence?: string
++  }>
++  personaMode: "disabled" | "single" | "multi"
++  persona: "generalist" | "security" | "performance" | "maintainability"
++  personaPasses: string[]
++  feedback: "up" | "down" | null
++  createdAt: Date
++}
++
++const loadModule = async (options?: {
++  reviewRows?: ReviewRow[]
++  commentFeedbackRows?: Array<{ commentKey: string; feedback: "up" | "down" }>
++}) => {
++  const reviewRows = options?.reviewRows ?? [
++    {
++      id: "review-1",
++      summary: "Found two issues.",
++      findings: [
++        {
++          file: "src/a.ts",
++          line: 10,
++          side: "additions",
++          severity: "high",
++          title: "Missing null guard",
++          body: "Guard this nullable access.",
++          confidence: 0.91,
++          evidence: "const value = maybe.value",
++        },
++      ],
++      personaMode: "single",
++      persona: "generalist",
++      personaPasses: ["generalist"],
++      feedback: null,
++      createdAt: new Date("2026-03-05T12:00:00.000Z"),
++    },
++  ]
++  const commentFeedbackRows = options?.commentFeedbackRows ?? [
++    { commentKey: "src/a.ts:additions:10:missing null guard", feedback: "up" as const },
++  ]
++
++  const reviewLimit = mock(async () => reviewRows)
++  const reviewOrderBy = mock(() => ({ limit: reviewLimit }))
++  const reviewWhere = mock(() => ({ orderBy: reviewOrderBy }))
++  const reviewFrom = mock(() => ({ where: reviewWhere }))
++
++  const feedbackWhere = mock(async () => commentFeedbackRows)
++  const feedbackFrom = mock(() => ({ where: feedbackWhere }))
++
++  const select = mock((selection: Record<string, unknown>) => {
++    if ("commentKey" in selection) {
++      return { from: feedbackFrom }
++    }
++    return { from: reviewFrom }
++  })
++
++  const aiReviewRuns = pgTable("ai_review_runs", {
++    id: text("id"),
++    userId: text("user_id"),
++    instanceUrl: text("instance_url"),
++    projectId: text("project_id"),
++    mergeRequestIid: text("merge_request_iid"),
++    summary: text("summary"),
++    findings: jsonb("findings"),
++    personaMode: text("persona_mode"),
++    persona: text("persona"),
++    personaPasses: jsonb("persona_passes"),
++    feedback: text("feedback"),
++    createdAt: timestamp("created_at", { withTimezone: true }),
++  })
++
++  mock.module("@/lib/db", () => ({ db: { select } }))
++  mock.module("@/lib/db/schema", () => ({
++    aiReviewRuns,
++    aiReviewCommentFeedback: {
++      reviewId: "review_id",
++      userId: "user_id",
++      commentKey: "comment_key",
++      feedback: "feedback",
++    },
++  }))
++  mock.module("@/lib/review/preferences", () => ({
++    resolveReviewGatePreferences: mock(async () => ({
++      globalSettings: {
++        personaMode: "single",
++        persona: "generalist",
++        strictness: "balanced",
++        requireEvidence: false,
++        securityBoost: false,
++        personaTemplates: {},
++      },
++      projectOverride: null,
++      effectiveSettings: {
++        personaMode: "single",
++        persona: "generalist",
++        strictness: "balanced",
++        requireEvidence: false,
++        securityBoost: false,
++        personaTemplates: {},
++        scopeSource: "global_default",
++      },
++    })),
++  }))
++  mock.module("@/lib/review/gate", () => ({
++    applyReviewGate: mock(({ findings }: { findings: ReviewRow["findings"] }) => ({
++      filteredFindings: findings,
++      suppressedFindingsCount: 0,
++      suppressedByReason: {
++        lowConfidence: 0,
++        missingEvidence: 0,
++      },
++    })),
++    getReviewPersonaPasses: mock(() => ["generalist"]),
++    normalizeReviewGateSettings: mock((value: unknown) => value),
++  }))
++  mock.module("@/lib/review/persona", () => ({
++    normalizeReviewPersona: mock((value: unknown) =>
++      typeof value === "string" ? value : "generalist",
++    ),
++    normalizeReviewPersonaMode: mock((value: unknown) =>
++      typeof value === "string" ? value : "single",
++    ),
++  }))
++  mock.module("@/lib/review/comment-publish", () => ({
++    buildCommentKey: mock(
++      ({ file, side, line, title }: { file: string; side: string; line: number; title: string }) =>
++        `${file}:${side}:${line}:${title.toLowerCase()}`,
++    ),
++    resolveManagedIntegrationForScope: mock(async () => ({ id: "integration-1" })),
++    getCommentPublishByKeyForReview: mock(async () => ({
++      "src/a.ts:additions:10:missing null guard": {
++        status: "succeeded",
++        attempts: 1,
++        lastError: "",
++        discussionId: "discussion-1",
++        noteId: "note-1",
++        updatedAt: "2026-03-05T12:05:00.000Z",
++      },
++    })),
++  }))
++  mock.module("drizzle-orm", () => ({
++    and: (...clauses: unknown[]) => clauses,
++    desc: (value: unknown) => value,
++    eq: (left: unknown, right: unknown) => ({ left, right }),
++  }))
++
++  return import(`@/lib/review/read-model.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++}
++
++afterEach(() => {
++  mock.restore()
++})
++
++describe("review read model", () => {
++  test("loads the latest gated review for a merge request scope", async () => {
++    const mod = await loadModule()
++
++    const result = await mod.getLatestReviewReadModel({
++      userId: "user-1",
++      scope: {
++        instanceUrl: "https://gitlab.example.com",
++        projectId: "123",
++        mergeRequestIid: "42",
++      },
++    })
++
++    expect(result.review?.id).toBe("review-1")
++    expect(result.review?.summary).toBe("Found two issues.")
++    expect(result.review?.commentFeedbackByKey).toEqual({
++      "src/a.ts:additions:10:missing null guard": "up",
++    })
++    expect(result.review?.commentPublishByKey).toEqual({
++      "src/a.ts:additions:10:missing null guard": {
++        status: "succeeded",
++        attempts: 1,
++        lastError: "",
++        discussionId: "discussion-1",
++        noteId: "note-1",
++        updatedAt: "2026-03-05T12:05:00.000Z",
++      },
++    })
++    expect(result.gateProfile.persona).toBe("generalist")
++  })
++
++  test("builds a fix queue from the latest review", async () => {
++    const mod = await loadModule()
++
++    const queue = await mod.getReviewFixQueue({
++      userId: "user-1",
++      scope: {
++        instanceUrl: "https://gitlab.example.com",
++        projectId: "123",
++        mergeRequestIid: "42",
++      },
++    })
++
++    expect(queue.reviewId).toBe("review-1")
++    expect(queue.reviewSummary).toBe("Found two issues.")
++    expect(queue.items).toEqual([
++      {
++        reviewId: "review-1",
++        commentKey: "src/a.ts:additions:10:missing null guard",
++        title: "Missing null guard",
++        body: "Guard this nullable access.",
++        severity: "high",
++        confidence: 0.91,
++        file: "src/a.ts",
++        line: 10,
++        side: "additions",
++        evidence: "const value = maybe.value",
++        status: "succeeded",
++        discussionId: "discussion-1",
++        noteId: "note-1",
++        updatedAt: "2026-03-05T12:05:00.000Z",
++      },
++    ])
++  })
++})
+diff --git a/apps/web/src/lib/review/read-model.ts b/apps/web/src/lib/review/read-model.ts
+new file mode 100644
+index 00000000..96ddbc98
+--- /dev/null
++++ b/apps/web/src/lib/review/read-model.ts
+@@ -0,0 +1,399 @@
++import { and, desc, eq } from "drizzle-orm"
++
++import { db } from "@/lib/db"
++import {
++  aiReviewCommentFeedback,
++  aiReviewRuns,
++  type AiReviewFinding,
++} from "@/lib/db/schema"
++import {
++  applyReviewGate,
++  getReviewPersonaPasses,
++  normalizeReviewGateSettings,
++  type ReviewGateSettings,
++} from "@/lib/review/gate"
++import { normalizeReviewPersona, normalizeReviewPersonaMode } from "@/lib/review/persona"
++import { resolveReviewGatePreferences } from "@/lib/review/preferences"
++import * as commentPublish from "@/lib/review/comment-publish"
++
++export type ReviewReadScope = {
++  instanceUrl: string
++  projectId: string
++  mergeRequestIid: string
++}
++
++export type PersistedReviewReadModel = {
++  id: string
++  summary: string
++  findings: AiReviewFinding[]
++  personaMode: "disabled" | "single" | "multi"
++  persona: "generalist" | "security" | "performance" | "maintainability"
++  personaPasses: string[]
++  feedback: "up" | "down" | null
++  commentFeedbackByKey: Record<string, "up" | "down">
++  commentPublishByKey: Record<string, {
++    status: "pending" | "processing" | "failed" | "succeeded" | "dead"
++    attempts: number
++    lastError: string
++    discussionId: string | null
++    noteId: string | null
++    updatedAt: string
++  }>
++  createdAt: string
++  suppressedFindingsCount: number
++  suppressedByReason: {
++    lowConfidence: number
++    missingEvidence: number
++  }
++}
++
++export type ReviewGateProfile = ReviewGateSettings & {
++  scopeSource?: string
++  personaMode: "disabled" | "single" | "multi"
++  persona: "generalist" | "security" | "performance" | "maintainability"
++  personaPasses: string[]
++}
++
++export type LatestReviewReadModel = {
++  review: Omit<PersistedReviewReadModel, "suppressedFindingsCount" | "suppressedByReason"> | null
++  suppressedFindingsCount: number
++  suppressedByReason: {
++    lowConfidence: number
++    missingEvidence: number
++  }
++  gateProfile: ReviewGateProfile
++}
++
++export type ReviewFixQueue = {
++  reviewId: string | null
++  reviewSummary: string | null
++  items: Array<{
++    reviewId: string
++    commentKey: string
++    title: string
++    body: string
++    severity: "high" | "med" | "low"
++    confidence: number
++    file: string
++    line: number
++    side: "additions" | "deletions"
++    evidence?: string
++    status: "pending" | "processing" | "failed" | "succeeded" | "dead" | null
++    discussionId: string | null
++    noteId: string | null
++    updatedAt: string | null
++  }>
++}
++
++type ReviewRow = {
++  id: string
++  summary: string
++  findings: AiReviewFinding[]
++  personaMode: "disabled" | "single" | "multi"
++  persona: "generalist" | "security" | "performance" | "maintainability"
++  personaPasses: string[]
++  feedback: "up" | "down" | null
++  createdAt: Date
++  instanceUrl: string
++  projectId: string
++  mergeRequestIid: string
++}
++
++const buildGateProfile = (
++  effectiveSettings: ReviewGateSettings & { scopeSource?: string },
++): ReviewGateProfile => {
++  const personaMode = normalizeReviewPersonaMode(effectiveSettings.personaMode)
++  const persona =
++    personaMode === "single"
++      ? normalizeReviewPersona(effectiveSettings.persona)
++      : "generalist"
++
++  return {
++    ...effectiveSettings,
++    personaMode,
++    persona,
++    personaPasses: getReviewPersonaPasses(effectiveSettings),
++  }
++}
++
++const toPersistedReview = ({
++  row,
++  findings,
++  commentFeedbackByKey,
++  commentPublishByKey,
++  suppressedFindingsCount,
++  suppressedByReason,
++}: {
++  row: ReviewRow
++  findings: AiReviewFinding[]
++  commentFeedbackByKey: Record<string, "up" | "down">
++  commentPublishByKey: PersistedReviewReadModel["commentPublishByKey"]
++  suppressedFindingsCount: number
++  suppressedByReason: PersistedReviewReadModel["suppressedByReason"]
++}): PersistedReviewReadModel => ({
++  id: row.id,
++  summary: row.summary,
++  findings,
++  personaMode: normalizeReviewPersonaMode(row.personaMode),
++  persona: normalizeReviewPersona(row.persona),
++  personaPasses: Array.isArray(row.personaPasses)
++    ? row.personaPasses
++        .map((entry) => normalizeReviewPersona(entry))
++        .filter((entry) => entry.length > 0)
++    : [],
++  feedback: row.feedback,
++  commentFeedbackByKey,
++  commentPublishByKey,
++  createdAt: row.createdAt.toISOString(),
++  suppressedFindingsCount,
++  suppressedByReason,
++})
++
++const loadLatestReviewRowForScope = async ({
++  userId,
++  scope,
++}: {
++  userId: string
++  scope: ReviewReadScope
++}) =>
++  await db
++    .select({
++      id: aiReviewRuns.id,
++      summary: aiReviewRuns.summary,
++      findings: aiReviewRuns.findings,
++      personaMode: aiReviewRuns.personaMode,
++      persona: aiReviewRuns.persona,
++      personaPasses: aiReviewRuns.personaPasses,
++      feedback: aiReviewRuns.feedback,
++      createdAt: aiReviewRuns.createdAt,
++      instanceUrl: aiReviewRuns.instanceUrl,
++      projectId: aiReviewRuns.projectId,
++      mergeRequestIid: aiReviewRuns.mergeRequestIid,
++    })
++    .from(aiReviewRuns)
++    .where(
++      and(
++        eq(aiReviewRuns.userId, userId),
++        eq(aiReviewRuns.instanceUrl, scope.instanceUrl),
++        eq(aiReviewRuns.projectId, scope.projectId),
++        eq(aiReviewRuns.mergeRequestIid, scope.mergeRequestIid),
++      ),
++    )
++    .orderBy(desc(aiReviewRuns.createdAt))
++    .limit(1)
++
++const loadReviewRowById = async ({
++  userId,
++  reviewId,
++}: {
++  userId: string
++  reviewId: string
++}) =>
++  await db
++    .select({
++      id: aiReviewRuns.id,
++      summary: aiReviewRuns.summary,
++      findings: aiReviewRuns.findings,
++      personaMode: aiReviewRuns.personaMode,
++      persona: aiReviewRuns.persona,
++      personaPasses: aiReviewRuns.personaPasses,
++      feedback: aiReviewRuns.feedback,
++      createdAt: aiReviewRuns.createdAt,
++      instanceUrl: aiReviewRuns.instanceUrl,
++      projectId: aiReviewRuns.projectId,
++      mergeRequestIid: aiReviewRuns.mergeRequestIid,
++    })
++    .from(aiReviewRuns)
++    .where(and(eq(aiReviewRuns.userId, userId), eq(aiReviewRuns.id, reviewId)))
++    .limit(1)
++
++const loadReviewPayload = async ({
++  userId,
++  row,
++  gateProfile,
++}: {
++  userId: string
++  row: ReviewRow
++  gateProfile: ReviewGateProfile
++}) => {
++  const gateResult = applyReviewGate({
++    findings: row.findings,
++    settings: gateProfile,
++  })
++  const integration = await commentPublish.resolveManagedIntegrationForScope({
++    userId,
++    instanceUrl: row.instanceUrl,
++    projectId: row.projectId,
++  })
++  const [commentFeedbackRows, commentPublishByKey] = await Promise.all([
++    db
++      .select({
++        commentKey: aiReviewCommentFeedback.commentKey,
++        feedback: aiReviewCommentFeedback.feedback,
++      })
++      .from(aiReviewCommentFeedback)
++      .where(
++        and(
++          eq(aiReviewCommentFeedback.reviewId, row.id),
++          eq(aiReviewCommentFeedback.userId, userId),
++        ),
++      ),
++    commentPublish.getCommentPublishByKeyForReview({
++      integrationId: integration?.id ?? null,
++      mergeRequestIid: row.mergeRequestIid,
++      findings: gateResult.filteredFindings as AiReviewFinding[],
++    }),
++  ])
++
++  return toPersistedReview({
++    row,
++    findings: gateResult.filteredFindings as AiReviewFinding[],
++    commentFeedbackByKey: Object.fromEntries(
++      commentFeedbackRows.map((entry) => [entry.commentKey, entry.feedback]),
++    ),
++    commentPublishByKey,
++    suppressedFindingsCount: gateResult.suppressedFindingsCount,
++    suppressedByReason: gateResult.suppressedByReason,
++  })
++}
++
++const loadGateProfile = async ({
++  userId,
++  instanceUrl,
++  projectId,
++}: {
++  userId: string
++  instanceUrl: string
++  projectId: string
++}) => {
++  const gatePreferences = await resolveReviewGatePreferences({
++    userId,
++    scope: {
++      instanceUrl,
++      projectId,
++    },
++  })
++
++  return buildGateProfile(normalizeReviewGateSettings(gatePreferences.effectiveSettings))
++}
++
++export const getLatestReviewReadModel = async ({
++  userId,
++  scope,
++}: {
++  userId: string
++  scope: ReviewReadScope
++}): Promise<LatestReviewReadModel> => {
++  const gateProfile = await loadGateProfile({
++    userId,
++    instanceUrl: scope.instanceUrl,
++    projectId: scope.projectId,
++  })
++  const rows = await loadLatestReviewRowForScope({ userId, scope })
++  const row = rows[0]
++  if (!row) {
++    return {
++      review: null,
++      suppressedFindingsCount: 0,
++      suppressedByReason: {
++        lowConfidence: 0,
++        missingEvidence: 0,
++      },
++      gateProfile,
++    }
++  }
++
++  const review = await loadReviewPayload({
++    userId,
++    row,
++    gateProfile,
++  })
++
++  return {
++    review: {
++      id: review.id,
++      summary: review.summary,
++      findings: review.findings,
++      personaMode: review.personaMode,
++      persona: review.persona,
++      personaPasses: review.personaPasses,
++      feedback: review.feedback,
++      commentFeedbackByKey: review.commentFeedbackByKey,
++      commentPublishByKey: review.commentPublishByKey,
++      createdAt: review.createdAt,
++    },
++    suppressedFindingsCount: review.suppressedFindingsCount,
++    suppressedByReason: review.suppressedByReason,
++    gateProfile,
++  }
++}
++
++export const getReviewReadModelById = async ({
++  userId,
++  reviewId,
++}: {
++  userId: string
++  reviewId: string
++}) => {
++  const rows = await loadReviewRowById({ userId, reviewId })
++  const row = rows[0]
++  if (!row) {
++    return null
++  }
++
++  const gateProfile = await loadGateProfile({
++    userId,
++    instanceUrl: row.instanceUrl,
++    projectId: row.projectId,
++  })
++  return await loadReviewPayload({
++    userId,
++    row,
++    gateProfile,
++  })
++}
++
++export const getReviewByIdReadModel = getReviewReadModelById
++
++export const getReviewFixQueue = async ({
++  userId,
++  scope,
++}: {
++  userId: string
++  scope: ReviewReadScope
++}): Promise<ReviewFixQueue> => {
++  const latest = await getLatestReviewReadModel({ userId, scope })
++  if (!latest.review) {
++    return {
++      reviewId: null,
++      reviewSummary: null,
++      items: [],
++    }
++  }
++
++  return {
++    reviewId: latest.review.id,
++    reviewSummary: latest.review.summary,
++    items: latest.review.findings.map((finding) => {
++      const commentKey = commentPublish.buildCommentKey(finding)
++      const publishState = latest.review?.commentPublishByKey[commentKey] ?? null
++
++      return {
++        reviewId: latest.review!.id,
++        commentKey,
++        title: finding.title,
++        body: finding.body,
++        severity: finding.severity,
++        confidence: finding.confidence,
++        file: finding.file,
++        line: finding.line,
++        side: finding.side,
++        evidence: finding.evidence,
++        status: publishState?.status ?? null,
++        discussionId: publishState?.discussionId ?? null,
++        noteId: publishState?.noteId ?? null,
++        updatedAt: publishState?.updatedAt ?? null,
++      }
++    }),
++  }
++}

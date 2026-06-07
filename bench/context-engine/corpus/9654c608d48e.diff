@@ -1,0 +1,61 @@
+diff --git a/next.config.ts b/next.config.ts
+index e9ffa308..66e15661 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
+ 
+ const nextConfig: NextConfig = {
+   /* config options here */
++  reactCompiler: true,
+ };
+ 
+ export default nextConfig;
+diff --git a/src/app/api/gitlab/route.ts b/src/app/api/gitlab/route.ts
+index 6e31c13e..d7af52fe 100644
+--- a/src/app/api/gitlab/route.ts
++++ b/src/app/api/gitlab/route.ts
+@@ -8,6 +8,7 @@ type GitLabProjectPayload = {
+   token: string
+   projectId?: string
+   mergeRequestIid?: string
++  perPage?: number
+ }
+ 
+ type Project = {
+@@ -27,6 +28,7 @@ type MergeRequest = {
+ }
+ 
+ const MAX_PATCH_BYTES = 2_500_000
++const MERGE_REQUESTS_PER_PAGE_DEFAULT = 100
+ 
+ class GitLabRouteError extends Error {
+   status: number
+@@ -40,6 +42,15 @@ class GitLabRouteError extends Error {
+ const isNonEmptyString = (value: unknown): value is string =>
+   typeof value === "string" && value.trim().length > 0
+ 
++const normalizePerPage = (value: unknown, fallback = MERGE_REQUESTS_PER_PAGE_DEFAULT) => {
++  if (typeof value !== "number" || Number.isNaN(value)) {
++    return fallback
++  }
++
++  const normalized = Math.floor(value)
++  return Math.min(MERGE_REQUESTS_PER_PAGE_DEFAULT, Math.max(1, normalized))
++}
++
+ const normalizeInstanceUrl = (input: string) => {
+   const trimmed = input.trim().replace(/\/+$/, "")
+   if (!trimmed) {
+@@ -258,10 +269,11 @@ export async function POST(request: Request) {
+     }
+ 
+     if (payload.action === "merge-requests") {
++      const perPage = normalizePerPage(payload.perPage)
+       const responseData = await getGitLabJson<Array<Record<string, unknown>>>(
+         normalizedInstanceUrl,
+         payload.token,
+-        `/api/v4/projects/${encodeURIComponent(payload.projectId)}/merge_requests?state=opened&per_page=100&order_by=updated_at&sort=desc`,
++        `/api/v4/projects/${encodeURIComponent(payload.projectId)}/merge_requests?state=opened&per_page=${perPage}&order_by=updated_at&sort=desc`,
+       )
+ 
+       const mergeRequests: MergeRequest[] = responseData

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::context_engine::ContextEngineConfig;
 use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
@@ -62,6 +63,8 @@ pub struct RunStartParams {
     /// "planned_review" (default) or "direct_sessions".
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub context_engine: Option<ContextEngineConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -268,6 +271,16 @@ pub struct SnapshotReadTextParams {
     pub path: String,
     #[serde(default)]
     pub max_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerContextIndexParams {
+    pub repo: PathBuf,
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub config: Option<ContextEngineConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -17,6 +17,7 @@ import {
   type ReviewOptions,
   type ReviewResult,
 } from "./index.js";
+import { RunnerBackedMuzen } from "./local.js";
 
 const runnerPath = process.env.MUZEN_RUNNER_PATH;
 const tempDirs: string[] = [];
@@ -30,6 +31,78 @@ after(async () => {
 });
 
 describe("runner-backed Muzen preview", () => {
+  it("uses runner context RPCs for local workspace context methods", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const runner = {
+      request: async (method: string, params: unknown) => {
+        calls.push({ method, params });
+        if (method === "context.index") {
+          return {
+            schemaVersion: "muzen.context_manifest.v1",
+            engineVersion: "0.1.0",
+            snapshotId: "snap-1",
+            ruleCount: 1,
+            evidenceCount: 2,
+            relationshipCount: 0,
+            skippedCount: 0,
+            createdAtUtc: "1780620000.000000000Z",
+          };
+        }
+        if (method === "context.pack") {
+          return {
+            id: "ctxpack-1",
+            snapshotId: "snap-1",
+            purpose: "security",
+            evidence: [],
+            relationships: [],
+            omittedCandidates: [],
+            budget: { maxTokens: 4000, usedTokens: 0 },
+            sufficiency: { status: "probably_sufficient", missing: [] },
+            compilerVersion: "0.1.0",
+            createdAtUtc: "1780620000.000000000Z",
+          };
+        }
+        if (method === "context.query") {
+          return {
+            kind: "related_tests",
+            evidence: [],
+            omitted: 0,
+          };
+        }
+        throw new Error(`unexpected method ${method}`);
+      },
+      onNotification: () => () => {},
+      close: async () => {},
+    };
+    const muzen = new RunnerBackedMuzen(runner as never);
+    const workspace = muzen.workspace("local");
+
+    const manifest = await workspace.context.index({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+    });
+    const pack = await workspace.context.buildPack({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      purpose: "security",
+      maxTokens: 4000,
+    });
+    const query = await workspace.context.query({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      kind: "related_tests",
+      arguments: { path: "src/auth.ts" },
+    });
+
+    assert.equal(manifest.snapshotId, "snap-1");
+    assert.equal(pack.purpose, "security");
+    assert.equal(query.kind, "related_tests");
+    assert.deepEqual(calls.map((call) => call.method), [
+      "context.index",
+      "context.index",
+      "context.pack",
+      "context.index",
+      "context.query",
+    ]);
+  });
+
   it(
     "runs a local review, replays events, and waits for a result",
     { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
@@ -477,6 +550,54 @@ describe("remote Muzen client", () => {
           },
         });
       }
+      if (
+        url.pathname === "/v1/workspaces/acme/context/index" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          manifest: {
+            schemaVersion: "muzen.context_manifest.v1",
+            engineVersion: "0.1.0",
+            snapshotId: "snap-1",
+            ruleCount: 1,
+            evidenceCount: 3,
+            relationshipCount: 0,
+            skippedCount: 0,
+            createdAtUtc: "1780620000.000000000Z",
+          },
+        });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/context/packs" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          pack: {
+            id: "ctxpack-1",
+            snapshotId: "snap-1",
+            purpose: body.purpose,
+            evidence: [],
+            relationships: [],
+            omittedCandidates: [],
+            budget: { maxTokens: body.maxTokens, usedTokens: 0 },
+            sufficiency: { status: "probably_sufficient", missing: [] },
+            compilerVersion: "0.1.0",
+            createdAtUtc: "1780620000.000000000Z",
+          },
+        });
+      }
+      if (
+        url.pathname === "/v1/workspaces/acme/context/query" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          result: {
+            kind: body.kind,
+            evidence: [],
+            omitted: 0,
+          },
+        });
+      }
       return new Response("not found", { status: 404, statusText: "Not Found" });
     };
     const workspace = createMuzenClient({
@@ -508,6 +629,20 @@ describe("remote Muzen client", () => {
         baseUrl: "https://models.example.test",
       }),
     });
+    const manifest = await workspace.context.index({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+    });
+    const pack = await workspace.context.buildPack({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      purpose: "security",
+      maxTokens: 4000,
+    });
+    const query = await workspace.context.query({
+      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      kind: "related_tests",
+      arguments: { path: "src/auth.ts" },
+      limits: { maxResults: 10, maxTokens: 1000 },
+    });
 
     assert.equal(workspace.id, "acme");
     assert.equal(savedModel.model, "gpt-5");
@@ -520,6 +655,9 @@ describe("remote Muzen client", () => {
     );
     assert.equal(providerProfiles.length, 1);
     assert.equal(review.id, "review-workspace-1");
+    assert.equal(manifest.schemaVersion, "muzen.context_manifest.v1");
+    assert.equal(pack.purpose, "security");
+    assert.equal(query.kind, "related_tests");
     assert.deepEqual(requests.map((request) => request.path), [
       "/v1/workspaces/acme/models/default",
       "/v1/workspaces/acme/models/default",
@@ -528,7 +666,14 @@ describe("remote Muzen client", () => {
       "/v1/workspaces/acme/providers/github",
       "/v1/workspaces/acme/providers",
       "/v1/workspaces/acme/reviews",
+      "/v1/workspaces/acme/context/index",
+      "/v1/workspaces/acme/context/packs",
+      "/v1/workspaces/acme/context/query",
     ]);
+    assert.equal(
+      (requests.at(-1)?.body as { kind?: string }).kind,
+      "related_tests",
+    );
   });
 
   it("forwards webhook requests to the remote HTTP contract", async () => {

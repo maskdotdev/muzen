@@ -19,6 +19,10 @@ from .runner_mapping import (
 )
 from .sources import parse_review_source
 from .types import (
+    ContextEngineConfig,
+    ContextPackPurpose,
+    ContextQueryKind,
+    ContextQueryLimits,
     ReviewArtifact,
     ReviewArtifactExport,
     ReviewArtifactExportOptions,
@@ -128,6 +132,7 @@ class RunnerBackedWorkspace:
         self.id = workspace_id
         self.models = UnsupportedWorkspaceProfileCollection("model")
         self.providers = UnsupportedWorkspaceProfileCollection("provider")
+        self.context = RunnerBackedContextWorkspace(client._runner)
 
     async def review(
         self,
@@ -135,6 +140,123 @@ class RunnerBackedWorkspace:
         options: Optional[ReviewOptions] = None,
     ) -> "ReviewSession":
         return await self._client.review(source_like, options)
+
+
+class RunnerBackedContextWorkspace:
+    def __init__(self, runner: RunnerStdioClient) -> None:
+        self._runner = runner
+
+    async def index(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        return await self._runner.request(
+            "context.index",
+            _context_index_params(source, changed_files, config),
+        )
+
+    async def build_pack(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        max_tokens: Optional[int] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            config=config,
+        )
+        return await self._runner.request(
+            "context.pack",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "purpose": purpose or "general_review",
+                "maxTokens": max_tokens
+                or (config.max_pack_tokens if config is not None else 12_000),
+                "seedEvidence": [],
+            },
+        )
+
+    async def query(
+        self,
+        *,
+        source: ReviewSourceLike,
+        kind: ContextQueryKind,
+        arguments: Optional[Dict[str, Any]] = None,
+        changed_files: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        current_evidence: Optional[List[str]] = None,
+        limits: Optional[ContextQueryLimits] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            config=config,
+        )
+        runner_limits = (
+            {
+                "maxResults": limits.max_results,
+                "maxTokens": limits.max_tokens,
+            }
+            if limits is not None
+            else {
+                "maxResults": config.max_query_results if config is not None else 120,
+                "maxTokens": config.max_pack_tokens if config is not None else 12_000,
+            }
+        )
+        return await self._runner.request(
+            "context.query",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "purpose": purpose,
+                "kind": kind,
+                "arguments": arguments or {},
+                "currentEvidence": current_evidence or [],
+                "limits": runner_limits,
+            },
+        )
+
+
+def _context_index_params(
+    source_like: ReviewSourceLike,
+    changed_files: Optional[List[str]],
+    config: Optional[ContextEngineConfig],
+) -> Dict[str, Any]:
+    source = parse_review_source(source_like)
+    if source.type == "local":
+        repo = source.repo
+        default_changed_files = source.changed_files or []
+    elif source.type == "raw_snapshot":
+        repo = source.root
+        default_changed_files = source.changed_files or []
+    else:
+        raise MuzenUnsupportedFeatureError(
+            "local context methods require a local or raw_snapshot source"
+        )
+    payload: Dict[str, Any] = {
+        "repo": repo,
+        "changedFiles": changed_files if changed_files is not None else default_changed_files,
+    }
+    if config is not None:
+        payload["config"] = {
+            "mode": config.mode,
+            "maxIndexedFiles": config.max_indexed_files,
+            "maxIndexedBytes": config.max_indexed_bytes,
+            "maxEvidenceItems": config.max_evidence_items,
+            "maxPackTokens": config.max_pack_tokens,
+            "maxQueryResults": config.max_query_results,
+            "includeRepositoryGuidance": config.include_repository_guidance,
+            "includeHostContext": config.include_host_context,
+            "strictEvidenceRequired": config.strict_evidence_required,
+        }
+    return payload
 
 
 class UnsupportedWorkspaceProfileCollection:

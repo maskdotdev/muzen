@@ -12,11 +12,11 @@ pub struct ConcurrentArtifactStore {
 }
 
 impl ConcurrentArtifactStore {
-    pub(super) fn insert(&self, key: ArtifactKey, content: String) -> ArtifactId {
+    pub(crate) fn insert(&self, key: ArtifactKey, content: String) -> ArtifactId {
         self.insert_views(key, content.clone(), content)
     }
 
-    pub(super) fn insert_views(
+    pub(crate) fn insert_views(
         &self,
         key: ArtifactKey,
         raw_content: String,

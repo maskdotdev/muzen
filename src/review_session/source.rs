@@ -10,12 +10,12 @@ use super::{ReviewScope, ReviewSessionError};
 pub enum ReviewSource {
     Local {
         repo: PathBuf,
-        #[serde(default)]
+        #[serde(default, alias = "changedFiles")]
         changed_files: Vec<String>,
     },
     RawSnapshot {
         root: PathBuf,
-        #[serde(default)]
+        #[serde(default, alias = "changedFiles")]
         changed_files: Vec<String>,
     },
     GithubPullRequest {

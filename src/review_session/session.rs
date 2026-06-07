@@ -343,6 +343,7 @@ impl CreateReviewSessionInput {
             tools: self.options.runner_tools(),
             heartbeat: None,
             mode: None,
+            context_engine: self.options.context_engine,
         })
     }
 }

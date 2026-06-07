@@ -1,0 +1,79 @@
+diff --git a/apps/indexer/src/lib/indexing/runner/scheduling.ts b/apps/indexer/src/lib/indexing/runner/scheduling.ts
+index 4ba84c77..862e1b78 100644
+--- a/apps/indexer/src/lib/indexing/runner/scheduling.ts
++++ b/apps/indexer/src/lib/indexing/runner/scheduling.ts
+@@ -1,7 +1,7 @@
+ import { parsePositiveInt } from '@argus/shared-runtime/config-env'
+ import { toError } from '@argus/shared-runtime/core-error'
+ import { WORKER_EVENTS } from '@argus/shared-runtime/worker-events'
+-import { runGitCacheJanitor } from '@argus/adapters'
++import { runGitCacheJanitor } from '@argus/adapters/git/repo-cache-retention'
+ 
+ import { cleanupIndexArtifacts } from '@/lib/indexing/artifact-retention'
+ import { enqueueDueReconcileJobs, reclaimStaleIndexJobs } from '@/lib/indexing/job-queue'
+diff --git a/apps/indexer/src/lib/indexing/sources/gitlab-source.ts b/apps/indexer/src/lib/indexing/sources/gitlab-source.ts
+index fac11203..91e217f4 100644
+--- a/apps/indexer/src/lib/indexing/sources/gitlab-source.ts
++++ b/apps/indexer/src/lib/indexing/sources/gitlab-source.ts
+@@ -5,7 +5,10 @@ import path from 'node:path'
+ import { Readable } from 'node:stream'
+ import type { ReadableStream as WebReadableStream } from 'node:stream/web'
+ import { pipeline } from 'node:stream/promises'
+-import { createGitRepoCacheClient, type GitDetachedWorktree } from '@argus/adapters'
++import {
++  createGitRepoCacheClient,
++  type GitDetachedWorktree,
++} from '@argus/adapters/git/git-repo-cache'
+ import { parsePositiveInt } from '@argus/shared-runtime/config-env'
+ 
+ import { GitLabApiError } from '@/lib/gitlab/client'
+diff --git a/apps/web/src/features/gitlab/server/git-repo-cache.test.ts b/apps/web/src/features/gitlab/server/git-repo-cache.test.ts
+index 84382656..fa64d1c0 100644
+--- a/apps/web/src/features/gitlab/server/git-repo-cache.test.ts
++++ b/apps/web/src/features/gitlab/server/git-repo-cache.test.ts
+@@ -26,7 +26,7 @@ describe("git repo cache", () => {
+     const resolveManagedIntegrationToken = mock(async () => "instance-token")
+     let loadIntegration: LoadIntegration | null = null
+ 
+-    mock.module("@argus/adapters", () => ({
++    mock.module("@argus/adapters/git/git-repo-cache", () => ({
+       createGitRepoCacheClient: (args: {
+         loadIntegration: LoadIntegration
+       }) => {
+diff --git a/apps/web/src/features/gitlab/server/git-repo-cache.ts b/apps/web/src/features/gitlab/server/git-repo-cache.ts
+index fe64a991..4950bf42 100644
+--- a/apps/web/src/features/gitlab/server/git-repo-cache.ts
++++ b/apps/web/src/features/gitlab/server/git-repo-cache.ts
+@@ -1,4 +1,4 @@
+-import { createGitRepoCacheClient } from "@argus/adapters"
++import { createGitRepoCacheClient } from "@argus/adapters/git/git-repo-cache"
+ 
+ import {
+   getIntegrationById,
+diff --git a/apps/web/src/features/gitlab/server/gitlab-job-runner.ts b/apps/web/src/features/gitlab/server/gitlab-job-runner.ts
+index eb6cf81f..4e44280d 100644
+--- a/apps/web/src/features/gitlab/server/gitlab-job-runner.ts
++++ b/apps/web/src/features/gitlab/server/gitlab-job-runner.ts
+@@ -1,5 +1,5 @@
+ import { and, eq, sql } from "drizzle-orm"
+-import { deriveGitRepoCacheKey, runGitCacheJanitor } from "@argus/adapters"
++import { deriveGitRepoCacheKey, runGitCacheJanitor } from "@argus/adapters/git/repo-cache-retention"
+ 
+ import { db } from "@/server/db"
+ import { gitlabJobs, indexBranchStates } from "@/server/db/schema"
+diff --git a/apps/web/src/features/review/server/review-worker-runtime.ts b/apps/web/src/features/review/server/review-worker-runtime.ts
+index b2927e81..0be16248 100644
+--- a/apps/web/src/features/review/server/review-worker-runtime.ts
++++ b/apps/web/src/features/review/server/review-worker-runtime.ts
+@@ -1,7 +1,10 @@
+ import { toError } from "@argus/shared-runtime/core-error"
+ import { WORKER_EVENTS } from "@argus/shared-runtime/worker-events"
+ import { resolveWorkerLeaseSettings } from "@argus/shared-runtime/worker-lease"
+-import { runGitCacheJanitor, resolveGitCacheRetentionConfig } from "@argus/adapters"
++import {
++  runGitCacheJanitor,
++  resolveGitCacheRetentionConfig,
++} from "@argus/adapters/git/repo-cache-retention"
+ import type { AiReviewFinding } from "@/server/db/schema"
+ import {
+   appendReviewFlowEvent,

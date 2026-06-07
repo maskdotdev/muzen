@@ -1,0 +1,190 @@
+diff --git a/apps/web/src/components/onboarding/hooks/use-onboarding-flow-controller.ts b/apps/web/src/components/onboarding/hooks/use-onboarding-flow-controller.ts
+index 48fcabe6..ae719088 100644
+--- a/apps/web/src/components/onboarding/hooks/use-onboarding-flow-controller.ts
++++ b/apps/web/src/components/onboarding/hooks/use-onboarding-flow-controller.ts
+@@ -1,5 +1,6 @@
+ "use client"
+ 
++import { useEffect, useRef } from "react"
+ import { useRouter } from "next/navigation"
+ import { useQueryClient } from "@tanstack/react-query"
+ 
+@@ -24,6 +25,7 @@ export function useOnboardingFlowController({
+   const router = useRouter()
+   const currentStep = routeStepPosition[routeStep]
+   const queryClient = useQueryClient()
++  const projectsAutoloadKeyRef = useRef<string | null>(null)
+   const state = useOnboardingFlowState()
+   const { isHydrated } = useOnboardingPersistence({
+     gitlabInstance: state.gitlabInstance,
+@@ -105,6 +107,37 @@ export function useOnboardingFlowController({
+     handleMergeRequestSelection,
+   })
+ 
++  useEffect(() => {
++    if (routeStep !== "projects") {
++      projectsAutoloadKeyRef.current = null
++      return
++    }
++
++    if (!isHydrated || !canLoadProjects || !projectsCacheKey) {
++      return
++    }
++
++    if (state.projects.length > 0 || state.actionBusy) {
++      return
++    }
++
++    const autoloadKey = `${routeStep}::${projectsCacheKey}`
++    if (projectsAutoloadKeyRef.current === autoloadKey) {
++      return
++    }
++
++    projectsAutoloadKeyRef.current = autoloadKey
++    void loadProjects({ setBusy: false }).catch(() => null)
++  }, [
++    canLoadProjects,
++    isHydrated,
++    loadProjects,
++    projectsCacheKey,
++    routeStep,
++    state.actionBusy,
++    state.projects.length,
++  ])
++
+   return buildOnboardingFlowStepContentProps({
+     routeStep,
+     currentStep,
+diff --git a/apps/web/src/components/onboarding/tests/use-onboarding-flow-controller.test.ts b/apps/web/src/components/onboarding/tests/use-onboarding-flow-controller.test.ts
+new file mode 100644
+index 00000000..de235606
+--- /dev/null
++++ b/apps/web/src/components/onboarding/tests/use-onboarding-flow-controller.test.ts
+@@ -0,0 +1,127 @@
++import { describe, expect, mock, test } from "bun:test"
++
++const noop = () => {}
++
++const loadModule = async (deps: {
++  state: ReturnType<typeof createState>
++  loadProjects: ReturnType<typeof mock>
++}) => {
++  const router = {
++    push: mock(() => {}),
++    replace: mock(() => {}),
++    prefetch: mock(() => {}),
++  }
++
++  mock.module("react", () => ({
++    useEffect: (fn: () => void) => {
++      fn()
++    },
++    useRef: <T,>(value: T) => ({ current: value }),
++  }))
++  mock.module("next/navigation", () => ({
++    useRouter: () => router,
++  }))
++  mock.module("@tanstack/react-query", () => ({
++    useQueryClient: () => ({}) as never,
++  }))
++  mock.module("@/components/onboarding/hooks/use-onboarding-flow-state", () => ({
++    useOnboardingFlowState: () => deps.state,
++  }))
++  mock.module("@/components/onboarding/hooks/use-onboarding-persistence", () => ({
++    useOnboardingPersistence: () => ({ isHydrated: true }),
++  }))
++  mock.module("@/components/onboarding/hooks/use-onboarding-flow-model", () => ({
++    useOnboardingFlowModel: () => ({
++      selectedProject: undefined,
++      canLoadProjects: true,
++      normalizedProjectSearchQuery: "",
++      recentProjects: [],
++      resolvedGitLabInstance: "https://gitlab.com",
++      tokenCacheHash: "hash-1",
++      projectsCacheKey: "https://gitlab.com::hash-1",
++      trackEvent: noop,
++      callGitLab: mock(async () => []),
++      validateToken: mock(async () => undefined),
++      mergeRequestsQueryKey: mock(() => ["onboarding", "merge-requests", "", "", 5] as const),
++      fetchProjects: mock(async () => []),
++      applyLoadedProjects: noop,
++      preloadProjectsForContinue: noop,
++      loadProjects: deps.loadProjects,
++      loadMergeRequests: mock(async () => undefined),
++      handleTokenSubmit: mock(async () => undefined),
++      handleInstanceChange: noop,
++      handleTokenChange: noop,
++      handleCustomInstanceChange: noop,
++      handleProjectSelection: mock(async () => undefined),
++      handleMergeRequestSelection: noop,
++      reviewMode: "quick" as const,
++      indexingStatusLabel: "",
++    }),
++  }))
++  mock.module("@/components/onboarding/hooks/use-onboarding-flow-wiring", () => ({
++    useOnboardingFlowWiring: () => ({ triggerTokenAutotestNow: noop }),
++  }))
++  mock.module("@/components/onboarding/build-onboarding-flow-step-content-props", () => ({
++    buildOnboardingFlowStepContentProps: (options: unknown) => options,
++  }))
++
++  const mod = await import(
++    `@/components/onboarding/hooks/use-onboarding-flow-controller.ts?cacheBust=${Math.random()
++      .toString(36)
++      .slice(2)}`,
++  )
++
++  return { mod, router }
++}
++
++const createState = () => ({
++  gitlabInstance: "https://gitlab.com",
++  setGitlabInstance: noop,
++  customInstance: "https://",
++  setCustomInstance: noop,
++  instanceTokens: {},
++  setInstanceTokens: noop,
++  token: "token",
++  setToken: noop,
++  projects: [] as Array<{ id: string }>,
++  setProjects: noop,
++  projectsError: "",
++  setProjectsError: noop,
++  selectedProjectId: "",
++  setSelectedProjectId: noop,
++  projectSearchQuery: "",
++  setProjectSearchQuery: noop,
++  mergeRequests: [] as Array<{ id: string }>,
++  setMergeRequests: noop,
++  mergeRequestsError: "",
++  setMergeRequestsError: noop,
++  selectedMergeRequestId: "",
++  setSelectedMergeRequestId: noop,
++  actionBusy: false,
++  setActionBusy: noop,
++  tokenTestBusy: false,
++  setTokenTestBusy: noop,
++  tokenTestFeedback: null,
++  setTokenTestFeedback: noop,
++  webhookSetupFeedback: null,
++  setWebhookSetupFeedback: noop,
++  tokenTestResultCacheRef: { current: new Map() },
++  projectSelectionHandlerRef: { current: null },
++  mergeRequestSelectionHandlerRef: { current: null },
++  tokenTestSignatureRef: { current: null },
++  tokenTestRunRef: { current: 0 },
++  tokenAutoTestTimeoutRef: { current: null },
++})
++
++describe("use-onboarding-flow-controller", () => {
++  test("autoloads projects on projects route when token exists and local state is empty", async () => {
++    const loadProjects = mock(async () => true)
++    const state = createState()
++    const { mod } = await loadModule({ state, loadProjects })
++
++    mod.useOnboardingFlowController({ routeStep: "projects" })
++
++    expect(loadProjects).toHaveBeenCalledTimes(1)
++    expect(loadProjects).toHaveBeenCalledWith({ setBusy: false })
++  })
++})

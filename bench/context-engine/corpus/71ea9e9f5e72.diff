@@ -1,0 +1,966 @@
+diff --git a/Readme.md b/Readme.md
+index 8d3e717..495ad4b 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -150,6 +150,48 @@ Runnable examples:
+ - `examples/python/basic_review.py`
+ - `examples/python/notebook-review/notebook_review.ipynb`
+ 
++Remote client preview:
++
++```py
++import os
++
++from muzen import (
++    ModelProfileInput,
++    ProviderProfileInput,
++    ReviewOptions,
++    create_muzen_client,
++)
++
++muzen = create_muzen_client(
++    base_url="https://muzen.example",
++    token=os.environ.get("MUZEN_TOKEN"),
++)
++
++workspace = muzen.workspace("acme")
++
++await workspace.models.set(
++    "default",
++    ModelProfileInput(
++        provider="openai_compatible",
++        model="gpt-5",
++        secret_ref="vault://workspaces/acme/models/default",
++    ),
++)
++
++await workspace.providers.set(
++    "github",
++    ProviderProfileInput(
++        provider="github",
++        secret_ref="vault://workspaces/acme/providers/github",
++    ),
++)
++
++review = await workspace.review(
++    "github:maskdotdev/heimdaal#123",
++    ReviewOptions(model="default"),
++)
++```
++
+ ## RFC Progress
+ 
+ The implementation ledger lives at
+@@ -167,6 +209,7 @@ Current completed slices:
+ - TypeScript SDK preview over stdio JSON-RPC.
+ - TypeScript remote client preview with workspace profile APIs.
+ - Python SDK preview over stdio JSON-RPC.
++- Python remote client preview with workspace profile APIs.
+ 
+ Major open slices:
+ 
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index f77b64b..552e705 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -181,7 +181,7 @@ Exit criteria:
+ - [x] Implement Python `Client.create()`.
+ - [x] Implement Python review session event iteration and final result access.
+ - [x] Add a notebook-friendly basic review example.
+-- [ ] Add Python remote/workspace profile wrappers.
++- [x] Add Python remote/workspace profile wrappers.
+ 
+ Exit criteria:
+ 
+@@ -292,6 +292,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | 56f1af7 | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
+ | 2026-06-05 | a3384a6 | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
+ | 2026-06-05 | f42dbb6 | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
++| 2026-06-05 | pending | Python remote client and workspace review/model/provider profile APIs | `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests` |
+ 
+ ## Open Decisions
+ 
+@@ -333,8 +334,8 @@ Record every milestone with the commands that were run.
+   resume, wait for, cancel, replay events for, stream events for, and read/export
+   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+   Service-side HTTP/SSE handlers remain open.
+-- Workspace-owned profile APIs exist in Rust core and the TypeScript remote SDK.
+-  Python remote/workspace profile wrappers remain open.
++- Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
++  and the Python remote SDK.
+ 
+ ## Notes For Reviewers
+ 
+diff --git a/sdk/python/muzen/__init__.py b/sdk/python/muzen/__init__.py
+index 03eb9fb..40dfc23 100644
+--- a/sdk/python/muzen/__init__.py
++++ b/sdk/python/muzen/__init__.py
+@@ -1,6 +1,11 @@
+-from .client import Client, create_muzen
++from .client import Client, RemoteClient, create_muzen, create_muzen_client
+ from .sources import github, gitlab, local, parse_review_source, source_key
+ from .types import (
++    ModelProfile,
++    ModelProfileInput,
++    ModelProviderKind,
++    ProviderProfile,
++    ProviderProfileInput,
+     ReviewAgentBudget,
+     ReviewAgentSession,
+     ReviewArtifact,
+@@ -17,10 +22,17 @@ from .types import (
+     ReviewResult,
+     ReviewSessionSnapshot,
+     ReviewSource,
++    SourceProviderKind,
+ )
+ 
+ __all__ = [
+     "Client",
++    "ModelProfile",
++    "ModelProfileInput",
++    "ModelProviderKind",
++    "ProviderProfile",
++    "ProviderProfileInput",
++    "RemoteClient",
+     "ReviewAgentBudget",
+     "ReviewAgentSession",
+     "ReviewArtifact",
+@@ -37,7 +49,9 @@ __all__ = [
+     "ReviewResult",
+     "ReviewSessionSnapshot",
+     "ReviewSource",
++    "SourceProviderKind",
+     "create_muzen",
++    "create_muzen_client",
+     "github",
+     "gitlab",
+     "local",
+diff --git a/sdk/python/muzen/client.py b/sdk/python/muzen/client.py
+index fc9a4aa..0f7d1a2 100644
+--- a/sdk/python/muzen/client.py
++++ b/sdk/python/muzen/client.py
+@@ -1,7 +1,12 @@
+ from __future__ import annotations
+ 
+ import asyncio
++import inspect
++import json
+ import os
++import urllib.error
++import urllib.parse
++import urllib.request
+ import uuid
+ from dataclasses import asdict
+ from datetime import datetime, timezone
+@@ -10,6 +15,10 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
+ from .runner import RunnerStdioClient
+ from .sources import parse_review_source, source_key
+ from .types import (
++    ModelProfile,
++    ModelProfileInput,
++    ProviderProfile,
++    ProviderProfileInput,
+     ReviewCancelOptions,
+     ReviewCoverage,
+     ReviewEvent,
+@@ -28,6 +37,11 @@ from .types import (
+     ReviewStatus,
+ )
+ 
++RemoteTransport = Callable[
++    [str, str, Optional[Dict[str, Any]], Dict[str, str]],
++    Union[None, Dict[str, Any], List[Any]],
++]
++
+ 
+ class MuzenUnsupportedFeatureError(RuntimeError):
+     pass
+@@ -48,6 +62,15 @@ async def create_muzen(
+     )
+ 
+ 
++def create_muzen_client(
++    *,
++    base_url: str,
++    token: Optional[str] = None,
++    transport: Optional[RemoteTransport] = None,
++) -> "RemoteClient":
++    return RemoteClient(base_url=base_url, token=token, transport=transport)
++
++
+ class Client:
+     def __init__(self, runner: RunnerStdioClient) -> None:
+         self._runner = runner
+@@ -122,6 +145,314 @@ class Client:
+     async def close(self) -> None:
+         await self._runner.close()
+ 
++    def workspace(self, workspace_id: str) -> "RunnerBackedWorkspace":
++        return RunnerBackedWorkspace(self, workspace_id)
++
++
++class RemoteClient:
++    def __init__(
++        self,
++        *,
++        base_url: str,
++        token: Optional[str] = None,
++        transport: Optional[RemoteTransport] = None,
++    ) -> None:
++        self._base_url = base_url.rstrip("/")
++        self._token = token
++        self._transport = transport
++
++    async def review(
++        self,
++        source_like: ReviewSourceLike,
++        options: Optional[ReviewOptions] = None,
++    ) -> "RemoteReviewSession":
++        source = parse_review_source(source_like)
++        payload = {
++            "source": _source_to_remote(source),
++            "options": _review_options_to_remote(options or ReviewOptions()),
++        }
++        snapshot = _unwrap_review_snapshot(
++            await self._request_json("POST", "/v1/reviews", payload)
++        )
++        return RemoteReviewSession(self, snapshot)
++
++    async def create_review_session(
++        self,
++        *,
++        source: ReviewSourceLike,
++        options: Optional[ReviewOptions] = None,
++    ) -> "RemoteReviewSession":
++        return await self.review(source, options)
++
++    async def resume_review(self, review_id: str) -> "RemoteReviewSession":
++        snapshot = _unwrap_review_snapshot(
++            await self._request_json("GET", f"/v1/reviews/{_quote(review_id)}")
++        )
++        return RemoteReviewSession(self, snapshot)
++
++    def workspace(self, workspace_id: str) -> "RemoteWorkspace":
++        return RemoteWorkspace(self, workspace_id)
++
++    async def close(self) -> None:
++        return None
++
++    async def _request_json(
++        self,
++        method: str,
++        path: str,
++        body: Optional[Dict[str, Any]] = None,
++    ) -> Any:
++        headers = {"Content-Type": "application/json"}
++        if self._token:
++            headers["Authorization"] = f"Bearer {self._token}"
++        if self._transport is not None:
++            result = self._transport(method, path, body, headers)
++            if inspect.isawaitable(result):
++                return await result
++            return result
++        return await asyncio.to_thread(
++            _http_json,
++            method,
++            f"{self._base_url}{path}",
++            body,
++            headers,
++        )
++
++
++class RemoteWorkspace:
++    def __init__(self, client: RemoteClient, workspace_id: str) -> None:
++        self._client = client
++        self.id = workspace_id
++        self.models = RemoteWorkspaceProfileCollection(
++            client,
++            workspace_id,
++            "models",
++            _unwrap_model_profile,
++            _unwrap_model_profiles,
++            _model_profile_input_to_remote,
++        )
++        self.providers = RemoteWorkspaceProfileCollection(
++            client,
++            workspace_id,
++            "providers",
++            _unwrap_provider_profile,
++            _unwrap_provider_profiles,
++            _provider_profile_input_to_remote,
++        )
++
++    async def review(
++        self,
++        source_like: ReviewSourceLike,
++        options: Optional[ReviewOptions] = None,
++    ) -> "RemoteReviewSession":
++        source = parse_review_source(source_like)
++        snapshot = _unwrap_review_snapshot(
++            await self._client._request_json(
++                "POST",
++                f"/v1/workspaces/{_quote(self.id)}/reviews",
++                {
++                    "source": _source_to_remote(source),
++                    "options": _review_options_to_remote(options or ReviewOptions()),
++                },
++            )
++        )
++        return RemoteReviewSession(self._client, snapshot)
++
++
++class RemoteWorkspaceProfileCollection:
++    def __init__(
++        self,
++        client: RemoteClient,
++        workspace_id: str,
++        kind: str,
++        unwrap_one: Callable[[Any], Any],
++        unwrap_many: Callable[[Any], List[Any]],
++        encode_input: Callable[[Any], Dict[str, Any]],
++    ) -> None:
++        self._client = client
++        self._workspace_id = workspace_id
++        self._kind = kind
++        self._unwrap_one = unwrap_one
++        self._unwrap_many = unwrap_many
++        self._encode_input = encode_input
++
++    async def set(self, name: str, input: Any) -> Any:
++        return self._unwrap_one(
++            await self._client._request_json(
++                "PUT",
++                self._profile_path(name),
++                self._encode_input(input),
++            )
++        )
++
++    async def get(self, name: str) -> Any:
++        response = await self._client._request_json("GET", self._profile_path(name))
++        if response is None:
++            return None
++        return self._unwrap_one(response)
++
++    async def list(self) -> List[Any]:
++        return self._unwrap_many(
++            await self._client._request_json("GET", self._collection_path())
++        )
++
++    def _collection_path(self) -> str:
++        return f"/v1/workspaces/{_quote(self._workspace_id)}/{self._kind}"
++
++    def _profile_path(self, name: str) -> str:
++        return f"{self._collection_path()}/{_quote(name)}"
++
++
++class RunnerBackedWorkspace:
++    def __init__(self, client: Client, workspace_id: str) -> None:
++        self._client = client
++        self.id = workspace_id
++        self.models = UnsupportedWorkspaceProfileCollection("model")
++        self.providers = UnsupportedWorkspaceProfileCollection("provider")
++
++    async def review(
++        self,
++        source_like: ReviewSourceLike,
++        options: Optional[ReviewOptions] = None,
++    ) -> "ReviewSession":
++        return await self._client.review(source_like, options)
++
++
++class UnsupportedWorkspaceProfileCollection:
++    def __init__(self, kind: str) -> None:
++        self._kind = kind
++
++    async def set(self, name: str, input: Any) -> Any:
++        raise self._error()
++
++    async def get(self, name: str) -> Any:
++        raise self._error()
++
++    async def list(self) -> List[Any]:
++        raise self._error()
++
++    def _error(self) -> MuzenUnsupportedFeatureError:
++        return MuzenUnsupportedFeatureError(
++            f"workspace {self._kind} profiles require remote workspace storage; Client.create() only supports local runner review execution in this preview"
++        )
++
++
++class RemoteReviewSession:
++    def __init__(self, client: RemoteClient, snapshot: ReviewSessionSnapshot) -> None:
++        self._client = client
++        self.id = snapshot.id
++        self.status = snapshot.status
++        self.source = snapshot.source
++        self._result = snapshot.result
++
++    def subscribe(
++        self,
++        listener: Callable[[ReviewEvent], None],
++        *,
++        replay: bool = True,
++    ) -> Callable[[], None]:
++        cancelled = False
++
++        async def replay_events() -> None:
++            async for event in self.events():
++                if cancelled:
++                    return
++                listener(event)
++
++        if replay:
++            asyncio.create_task(replay_events())
++
++        def unsubscribe() -> None:
++            nonlocal cancelled
++            cancelled = True
++
++        return unsubscribe
++
++    async def events(self, *, after: Optional[str] = None) -> AsyncIterator[ReviewEvent]:
++        path = f"/v1/reviews/{_quote(self.id)}/events"
++        if after:
++            path = f"{path}?after={_quote(after)}"
++        for event in _unwrap_review_events(
++            await self._client._request_json("GET", path)
++        ):
++            yield event
++
++    async def wait(
++        self,
++        *,
++        timeout: Optional[Union[int, float, str]] = None,
++    ) -> ReviewResult:
++        timeout_seconds = _parse_timeout_seconds(timeout)
++        return await asyncio.wait_for(self._wait_for_result(), timeout=timeout_seconds)
++
++    async def _wait_for_result(self) -> ReviewResult:
++        while True:
++            result = await self.result()
++            if result is not None:
++                return result
++            await asyncio.sleep(0.25)
++
++    async def result(self) -> Optional[ReviewResult]:
++        if self._result is not None:
++            return self._result
++        self._result = _unwrap_optional_review_result(
++            await self._client._request_json("GET", f"/v1/reviews/{_quote(self.id)}/result")
++        )
++        if self._result is not None:
++            self.status = self._result.status
++        return self._result
++
++    async def cancel(
++        self,
++        reason: Optional[Union[str, ReviewCancelOptions]] = None,
++    ) -> None:
++        cancel_reason = reason.reason if isinstance(reason, ReviewCancelOptions) else reason
++        await self._client._request_json(
++            "POST",
++            f"/v1/reviews/{_quote(self.id)}/cancel",
++            {"reason": cancel_reason or "cancelled"},
++        )
++        self.status = "cancelled"
++
++    async def refresh(self) -> ReviewSessionSnapshot:
++        snapshot = _unwrap_review_snapshot(
++            await self._client._request_json("GET", f"/v1/reviews/{_quote(self.id)}")
++        )
++        self.status = snapshot.status
++        self._result = snapshot.result
++        return snapshot
++
++    async def read_artifact(
++        self,
++        artifact_id: str,
++        options: Optional[ReviewArtifactReadOptions] = None,
++    ) -> ReviewArtifact:
++        options = options or ReviewArtifactReadOptions()
++        return _unwrap_review_artifact(
++            await self._client._request_json(
++                "GET",
++                f"/v1/reviews/{_quote(self.id)}/artifacts/{_quote(artifact_id)}?view={_quote(options.view)}",
++            )
++        )
++
++    async def export_artifacts(
++        self,
++        options: Optional[ReviewArtifactExportOptions] = None,
++    ) -> ReviewArtifactExport:
++        options = options or ReviewArtifactExportOptions()
++        return _unwrap_artifact_export(
++            await self._client._request_json(
++                "POST",
++                f"/v1/reviews/{_quote(self.id)}/artifacts/export",
++                {
++                    "view": options.view,
++                    "artifactIds": options.artifact_ids,
++                    "maxArtifacts": options.max_artifacts,
++                    "maxBytes": options.max_bytes,
++                },
++            )
++        )
++
+ 
+ class ReviewSession:
+     def __init__(
+@@ -458,5 +789,238 @@ def _camel_dict(value: Dict[str, Any]) -> Dict[str, Any]:
+     }
+ 
+ 
++def _source_to_remote(source: ReviewSource) -> Dict[str, Any]:
++    if source.type == "local":
++        return {
++            "type": "local",
++            "repo": source.repo,
++            "changedFiles": source.changed_files,
++        }
++    if source.type == "github_pull_request":
++        return {
++            "type": "github_pull_request",
++            "owner": source.owner,
++            "repo": source.repo,
++            "number": source.number,
++        }
++    return {
++        "type": "gitlab_merge_request",
++        "owner": source.owner,
++        "repo": source.repo,
++        "number": source.number,
++    }
++
++
++def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
++    return {
++        "dedupe": options.dedupe,
++        "cancelSuperseded": options.cancel_superseded,
++        "model": options.model,
++        "scope": {
++            "files": options.scope_files,
++            "include": options.scope_include,
++            "exclude": options.scope_exclude,
++        },
++        "metadata": options.metadata,
++        "sessions": [_session_to_runner(session, options.model) for session in options.sessions],
++        "limits": _limits_to_runner(options.limits),
++    }
++
++
++def _model_profile_input_to_remote(input: ModelProfileInput) -> Dict[str, Any]:
++    return {
++        "provider": input.provider,
++        "model": input.model,
++        "secretRef": input.secret_ref,
++        "baseUrl": input.base_url,
++        "routing": input.routing,
++    }
++
++
++def _provider_profile_input_to_remote(input: ProviderProfileInput) -> Dict[str, Any]:
++    return {
++        "provider": input.provider,
++        "secretRef": input.secret_ref,
++        "baseUrl": input.base_url,
++        "routing": input.routing,
++    }
++
++
++def _unwrap_review_snapshot(value: Any) -> ReviewSessionSnapshot:
++    snapshot = value.get("review") if isinstance(value, dict) and isinstance(value.get("review"), dict) else value
++    if not isinstance(snapshot, dict):
++        raise RuntimeError("Muzen remote returned an invalid review session snapshot")
++    return ReviewSessionSnapshot(
++        id=snapshot["id"],
++        status=_map_runner_status(snapshot["status"]),
++        source=_remote_source(snapshot["source"]),
++        result=_unwrap_optional_review_result(snapshot.get("result")),
++    )
++
++
++def _unwrap_optional_review_result(value: Any) -> Optional[ReviewResult]:
++    if value is None:
++        return None
++    result = value.get("result") if isinstance(value, dict) and "result" in value else value
++    if result is None:
++        return None
++    if not isinstance(result, dict):
++        raise RuntimeError("Muzen remote returned an invalid review result")
++    return _remote_result(result)
++
++
++def _unwrap_review_events(value: Any) -> List[ReviewEvent]:
++    events = value.get("events") if isinstance(value, dict) and isinstance(value.get("events"), list) else value
++    if not isinstance(events, list):
++        raise RuntimeError("Muzen remote returned invalid review events")
++    return [
++        ReviewEvent(
++            cursor=str(event["cursor"]),
++            type=event["type"],
++            review_id=event["reviewId"],
++            timestamp_utc=event["timestampUtc"],
++            payload=event.get("payload"),
++        )
++        for event in events
++    ]
++
++
++def _unwrap_review_artifact(value: Any) -> ReviewArtifact:
++    artifact = value.get("artifact") if isinstance(value, dict) and isinstance(value.get("artifact"), dict) else value
++    if not isinstance(artifact, dict):
++        raise RuntimeError("Muzen remote returned an invalid review artifact")
++    return _map_runner_artifact(artifact)
++
++
++def _unwrap_artifact_export(value: Any) -> ReviewArtifactExport:
++    if not isinstance(value, dict):
++        raise RuntimeError("Muzen remote returned an invalid artifact export")
++    return ReviewArtifactExport(
++        view=value.get("view", "redacted"),
++        artifact_count=value.get("artifactCount", 0),
++        total_bytes=value.get("totalBytes", 0),
++        artifacts=[
++            _map_runner_artifact(artifact)
++            for artifact in value.get("artifacts", [])
++            if isinstance(artifact, dict)
++        ],
++    )
++
++
++def _unwrap_model_profile(value: Any) -> ModelProfile:
++    profile = value.get("profile") if isinstance(value, dict) and isinstance(value.get("profile"), dict) else value
++    if not isinstance(profile, dict):
++        raise RuntimeError("Muzen remote returned an invalid model profile")
++    return ModelProfile(
++        workspace_id=profile["workspaceId"],
++        name=profile["name"],
++        version=profile["version"],
++        provider=profile["provider"],
++        model=profile["model"],
++        secret_ref=profile.get("secretRef"),
++        base_url=profile.get("baseUrl"),
++        routing=profile.get("routing") or {},
++        updated_at_utc=profile.get("updatedAtUtc", ""),
++    )
++
++
++def _unwrap_model_profiles(value: Any) -> List[ModelProfile]:
++    profiles = value.get("profiles") if isinstance(value, dict) and isinstance(value.get("profiles"), list) else value
++    if not isinstance(profiles, list):
++        raise RuntimeError("Muzen remote returned invalid model profiles")
++    return [_unwrap_model_profile(profile) for profile in profiles]
++
++
++def _unwrap_provider_profile(value: Any) -> ProviderProfile:
++    profile = value.get("profile") if isinstance(value, dict) and isinstance(value.get("profile"), dict) else value
++    if not isinstance(profile, dict):
++        raise RuntimeError("Muzen remote returned an invalid provider profile")
++    return ProviderProfile(
++        workspace_id=profile["workspaceId"],
++        name=profile["name"],
++        version=profile["version"],
++        provider=profile["provider"],
++        secret_ref=profile.get("secretRef"),
++        base_url=profile.get("baseUrl"),
++        routing=profile.get("routing") or {},
++        updated_at_utc=profile.get("updatedAtUtc", ""),
++    )
++
++
++def _unwrap_provider_profiles(value: Any) -> List[ProviderProfile]:
++    profiles = value.get("profiles") if isinstance(value, dict) and isinstance(value.get("profiles"), list) else value
++    if not isinstance(profiles, list):
++        raise RuntimeError("Muzen remote returned invalid provider profiles")
++    return [_unwrap_provider_profile(profile) for profile in profiles]
++
++
++def _remote_source(value: Dict[str, Any]) -> ReviewSource:
++    if value["type"] == "local":
++        return ReviewSource(
++            type="local",
++            repo=value["repo"],
++            changed_files=value.get("changedFiles", []),
++        )
++    return ReviewSource(
++        type=value["type"],
++        owner=value.get("owner"),
++        repo=value["repo"],
++        number=value.get("number"),
++    )
++
++
++def _remote_result(value: Dict[str, Any]) -> ReviewResult:
++    return ReviewResult(
++        review_id=value["reviewId"],
++        session_id=value["sessionId"],
++        status=_map_runner_status(value["status"]),
++        conclusion=value["conclusion"],
++        summary=value["summary"],
++        findings=[
++            ReviewFinding(
++                id=finding.get("id", ""),
++                severity=finding.get("severity", "info"),
++                category=finding.get("category", "other"),
++                title=finding.get("title", ""),
++                message=finding.get("message", ""),
++                location=finding.get("location"),
++                suggested_fix=finding.get("suggestedFix"),
++                confidence=finding.get("confidence"),
++            )
++            for finding in value.get("findings", [])
++        ],
++        coverage=ReviewCoverage(
++            files_considered=value.get("coverage", {}).get("filesConsidered", 0),
++            files_reviewed=value.get("coverage", {}).get("filesReviewed", 0),
++            files_skipped=value.get("coverage", {}).get("filesSkipped", 0),
++        ),
++        metadata=value.get("metadata") or {},
++    )
++
++
++def _http_json(
++    method: str,
++    url: str,
++    body: Optional[Dict[str, Any]],
++    headers: Dict[str, str],
++) -> Any:
++    data = json.dumps(body).encode("utf-8") if body is not None else None
++    request = urllib.request.Request(url, data=data, headers=headers, method=method)
++    try:
++        with urllib.request.urlopen(request) as response:
++            if response.status == 204:
++                return None
++            payload = response.read()
++    except urllib.error.HTTPError as error:
++        raise RuntimeError(f"Muzen remote request failed: {error.code} {error.reason}") from error
++    if not payload:
++        return None
++    return json.loads(payload.decode("utf-8"))
++
++
++def _quote(value: str) -> str:
++    return urllib.parse.quote(value, safe="")
++
++
+ def _timestamp_utc() -> str:
+     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+diff --git a/sdk/python/muzen/types.py b/sdk/python/muzen/types.py
+index 66d3404..301be64 100644
+--- a/sdk/python/muzen/types.py
++++ b/sdk/python/muzen/types.py
+@@ -47,6 +47,8 @@ ReviewEventType = Literal[
+ ]
+ 
+ ReviewArtifactView = Literal["redacted", "raw"]
++ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
++SourceProviderKind = Literal["github", "gitlab"]
+ 
+ 
+ @dataclass(frozen=True)
+@@ -86,6 +88,48 @@ class ReviewLimits:
+     max_search_matches: Optional[int] = None
+ 
+ 
++@dataclass(frozen=True)
++class ModelProfileInput:
++    provider: ModelProviderKind
++    model: str
++    secret_ref: Optional[str] = None
++    base_url: Optional[str] = None
++    routing: Dict[str, str] = field(default_factory=dict)
++
++
++@dataclass(frozen=True)
++class ProviderProfileInput:
++    provider: SourceProviderKind
++    secret_ref: Optional[str] = None
++    base_url: Optional[str] = None
++    routing: Dict[str, str] = field(default_factory=dict)
++
++
++@dataclass(frozen=True)
++class ModelProfile:
++    workspace_id: str
++    name: str
++    version: str
++    provider: ModelProviderKind
++    model: str
++    secret_ref: Optional[str] = None
++    base_url: Optional[str] = None
++    routing: Dict[str, str] = field(default_factory=dict)
++    updated_at_utc: str = ""
++
++
++@dataclass(frozen=True)
++class ProviderProfile:
++    workspace_id: str
++    name: str
++    version: str
++    provider: SourceProviderKind
++    secret_ref: Optional[str] = None
++    base_url: Optional[str] = None
++    routing: Dict[str, str] = field(default_factory=dict)
++    updated_at_utc: str = ""
++
++
+ @dataclass(frozen=True)
+ class ReviewOptions:
+     dedupe: Union[str, Dict[str, str]] = "none"
+diff --git a/sdk/python/tests/test_client.py b/sdk/python/tests/test_client.py
+index d40f400..8d11334 100644
+--- a/sdk/python/tests/test_client.py
++++ b/sdk/python/tests/test_client.py
+@@ -3,7 +3,15 @@ import tempfile
+ import unittest
+ from pathlib import Path
+ 
+-from muzen import Client, ReviewAgentSession, ReviewOptions, local
++from muzen import (
++    Client,
++    ModelProfileInput,
++    ProviderProfileInput,
++    ReviewAgentSession,
++    ReviewOptions,
++    create_muzen_client,
++    local,
++)
+ from muzen.client import MuzenUnsupportedFeatureError
+ 
+ 
+@@ -54,5 +62,134 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
+             await self.client.review("github:maskdotdev/heimdaal#123")
+ 
+ 
++class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
++    async def test_remote_workspace_profiles_and_review_contract(self) -> None:
++        requests = []
++
++        def transport(method, path, body, headers):
++            requests.append(
++                {
++                    "method": method,
++                    "path": path,
++                    "body": body,
++                    "authorization": headers.get("Authorization"),
++                }
++            )
++            model_profile = {
++                "workspaceId": "acme",
++                "name": "default",
++                "version": "1",
++                "provider": "openai_compatible",
++                "model": "gpt-5",
++                "secretRef": "vault://workspaces/acme/models/default",
++                "baseUrl": "https://models.example.test",
++                "routing": {"region": "us-east"},
++                "updatedAtUtc": "1780620000.000000000Z",
++            }
++            provider_profile = {
++                "workspaceId": "acme",
++                "name": "github",
++                "version": "1",
++                "provider": "github",
++                "secretRef": "vault://workspaces/acme/providers/github",
++                "baseUrl": "https://api.github.com",
++                "routing": {"installation": "123"},
++                "updatedAtUtc": "1780620000.000000000Z",
++            }
++            if path == "/v1/workspaces/acme/models/default" and method == "PUT":
++                return {"profile": model_profile}
++            if path == "/v1/workspaces/acme/models/default" and method == "GET":
++                return model_profile
++            if path == "/v1/workspaces/acme/models":
++                return {"profiles": [model_profile]}
++            if path == "/v1/workspaces/acme/providers/github" and method == "PUT":
++                return {"profile": provider_profile}
++            if path == "/v1/workspaces/acme/providers/github" and method == "GET":
++                return provider_profile
++            if path == "/v1/workspaces/acme/providers":
++                return {"profiles": [provider_profile]}
++            if path == "/v1/workspaces/acme/reviews" and method == "POST":
++                return {
++                    "review": {
++                        "id": "review-workspace-1",
++                        "status": "queued",
++                        "source": body["source"],
++                    }
++                }
++            if path == "/v1/reviews/review-workspace-1/result":
++                return {
++                    "result": {
++                        "reviewId": "review-workspace-1",
++                        "sessionId": "review-workspace-1",
++                        "status": "completed",
++                        "conclusion": "approved",
++                        "summary": "Remote review completed.",
++                        "findings": [],
++                        "coverage": {
++                            "filesConsidered": 1,
++                            "filesReviewed": 1,
++                            "filesSkipped": 0,
++                        },
++                    }
++                }
++            raise AssertionError(f"unexpected request {method} {path}")
++
++        workspace = create_muzen_client(
++            base_url="https://muzen.example",
++            token="test-token",
++            transport=transport,
++        ).workspace("acme")
++
++        model = await workspace.models.set(
++            "default",
++            ModelProfileInput(
++                provider="openai_compatible",
++                model="gpt-5",
++                secret_ref="vault://workspaces/acme/models/default",
++                base_url="https://models.example.test",
++                routing={"region": "us-east"},
++            ),
++        )
++        loaded_model = await workspace.models.get("default")
++        models = await workspace.models.list()
++        provider = await workspace.providers.set(
++            "github",
++            ProviderProfileInput(
++                provider="github",
++                secret_ref="vault://workspaces/acme/providers/github",
++                base_url="https://api.github.com",
++                routing={"installation": "123"},
++            ),
++        )
++        loaded_provider = await workspace.providers.get("github")
++        providers = await workspace.providers.list()
++        review = await workspace.review("github:maskdotdev/heimdaal#123", ReviewOptions(model="default"))
++        result = await review.wait(timeout="1s")
++
++        self.assertEqual(workspace.id, "acme")
++        self.assertEqual(model.model, "gpt-5")
++        self.assertEqual(loaded_model.secret_ref, "vault://workspaces/acme/models/default")
++        self.assertEqual(len(models), 1)
++        self.assertEqual(provider.provider, "github")
++        self.assertEqual(loaded_provider.secret_ref, "vault://workspaces/acme/providers/github")
++        self.assertEqual(len(providers), 1)
++        self.assertEqual(review.id, "review-workspace-1")
++        self.assertEqual(result.conclusion, "approved")
++        self.assertEqual(requests[0]["authorization"], "Bearer test-token")
++        self.assertEqual(
++            [request["path"] for request in requests],
++            [
++                "/v1/workspaces/acme/models/default",
++                "/v1/workspaces/acme/models/default",
++                "/v1/workspaces/acme/models",
++                "/v1/workspaces/acme/providers/github",
++                "/v1/workspaces/acme/providers/github",
++                "/v1/workspaces/acme/providers",
++                "/v1/workspaces/acme/reviews",
++                "/v1/reviews/review-workspace-1/result",
++            ],
++        )
++
++
+ if __name__ == "__main__":
+     unittest.main()

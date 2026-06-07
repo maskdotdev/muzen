@@ -1,0 +1,713 @@
+diff --git a/Readme.md b/Readme.md
+index 2392cfa..8d3e717 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -78,6 +78,34 @@ Runnable examples:
+ - `examples/typescript/basic-review`
+ - `examples/typescript/events`
+ 
++Remote client preview:
++
++```ts
++import { createMuzenClient } from "@muzen/sdk";
++
++const muzen = createMuzenClient({
++  baseUrl: "https://muzen.example",
++  token: process.env.MUZEN_TOKEN,
++});
++
++const workspace = muzen.workspace("acme");
++
++await workspace.models.set("default", {
++  provider: "openai_compatible",
++  model: "gpt-5",
++  secretRef: "vault://workspaces/acme/models/default",
++});
++
++await workspace.providers.set("github", {
++  provider: "github",
++  secretRef: "vault://workspaces/acme/providers/github",
++});
++
++const review = await workspace.review("github:maskdotdev/heimdaal#123", {
++  model: "default",
++});
++```
++
+ ## Python Preview
+ 
+ ```sh
+@@ -137,6 +165,7 @@ Current completed slices:
+   secret-reference-only config snapshots.
+ - Rust GitHub/GitLab webhook verification and source mapping helpers.
+ - TypeScript SDK preview over stdio JSON-RPC.
++- TypeScript remote client preview with workspace profile APIs.
+ - Python SDK preview over stdio JSON-RPC.
+ 
+ Major open slices:
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index b32726b..b243f7d 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -57,7 +57,7 @@ pressure, and commit-sized milestones.
+   `result`, `cancel`, and `refresh`.
+ - [x] Source string shorthand parses into typed source descriptors.
+ - [x] Typed source builders exist for GitHub and GitLab.
+-- [ ] Workspace-owned profile APIs exist.
++- [x] Workspace-owned profile APIs exist.
+ - [x] Webhook helpers exist.
+ - [ ] Developer docs and examples run against the implementation.
+ 
+@@ -181,6 +181,7 @@ Exit criteria:
+ - [x] Implement Python `Client.create()`.
+ - [x] Implement Python review session event iteration and final result access.
+ - [x] Add a notebook-friendly basic review example.
++- [ ] Add Python remote/workspace profile wrappers.
+ 
+ Exit criteria:
+ 
+@@ -290,6 +291,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+ | 2026-06-05 | 56f1af7 | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
+ | 2026-06-05 | a3384a6 | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
++| 2026-06-05 | pending | TypeScript remote workspace review/model/provider profile APIs and HTTP contract endpoints | `npm test` |
+ 
+ ## Open Decisions
+ 
+@@ -331,6 +333,8 @@ Record every milestone with the commands that were run.
+   resume, wait for, cancel, replay events for, stream events for, and read/export
+   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+   Service-side HTTP/SSE handlers remain open.
++- Workspace-owned profile APIs exist in Rust core and the TypeScript remote SDK.
++  Python remote/workspace profile wrappers remain open.
+ 
+ ## Notes For Reviewers
+ 
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+index 0909950..8d9f20a 100644
+--- a/docs/rfcs/0001-remote-http-api-contract.md
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -139,6 +139,110 @@ Request:
+ 
+ Returns `ReviewArtifactExport`.
+ 
++## Workspace Reviews
++
++`POST /v1/workspaces/{workspaceId}/reviews`
++
++Request and response shapes match `POST /v1/reviews`, but the host schedules
++the review in the named workspace and captures workspace-owned model/provider
++profile snapshots.
++
++## Workspace Model Profiles
++
++`PUT /v1/workspaces/{workspaceId}/models/{name}`
++
++Request:
++
++```json
++{
++  "provider": "openai_compatible",
++  "model": "gpt-5",
++  "secretRef": "vault://workspaces/acme/models/default",
++  "baseUrl": "https://models.example.test",
++  "routing": {
++    "region": "us-east"
++  }
++}
++```
++
++Response:
++
++```json
++{
++  "profile": {
++    "workspaceId": "acme",
++    "name": "default",
++    "version": "1",
++    "provider": "openai_compatible",
++    "model": "gpt-5",
++    "secretRef": "vault://workspaces/acme/models/default",
++    "baseUrl": "https://models.example.test",
++    "routing": {
++      "region": "us-east"
++    },
++    "updatedAtUtc": "1780620000.000000000Z"
++  }
++}
++```
++
++The response MAY also be the profile object directly.
++
++`GET /v1/workspaces/{workspaceId}/models/{name}`
++
++Returns `{ "profile": ModelProfile }`, `ModelProfile` directly, or
++`204 No Content` when absent.
++
++`GET /v1/workspaces/{workspaceId}/models`
++
++Returns `{ "profiles": ModelProfile[] }` or the array directly.
++
++## Workspace Provider Profiles
++
++`PUT /v1/workspaces/{workspaceId}/providers/{name}`
++
++Request:
++
++```json
++{
++  "provider": "github",
++  "secretRef": "vault://workspaces/acme/providers/github",
++  "baseUrl": "https://api.github.com",
++  "routing": {
++    "installation": "123"
++  }
++}
++```
++
++Response:
++
++```json
++{
++  "profile": {
++    "workspaceId": "acme",
++    "name": "github",
++    "version": "1",
++    "provider": "github",
++    "secretRef": "vault://workspaces/acme/providers/github",
++    "baseUrl": "https://api.github.com",
++    "routing": {
++      "installation": "123"
++    },
++    "updatedAtUtc": "1780620000.000000000Z"
++  }
++}
++```
++
++The response MAY also be the profile object directly.
++
++`GET /v1/workspaces/{workspaceId}/providers/{name}`
++
++Returns `{ "profile": ProviderProfile }`, `ProviderProfile` directly, or
++`204 No Content` when absent.
++
++`GET /v1/workspaces/{workspaceId}/providers`
++
++Returns `{ "profiles": ProviderProfile[] }` or the array directly.
++
+ ## Webhooks
+ 
+ Framework-facing SDK webhook helpers should verify provider signatures/tokens,
+diff --git a/sdk/typescript/packages/muzen-sdk/src/index.ts b/sdk/typescript/packages/muzen-sdk/src/index.ts
+index 627f43d..2ef39a3 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/index.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/index.ts
+@@ -21,7 +21,13 @@ export type {
+   GithubPullRequestSource,
+   GitlabMergeRequestSource,
+   LocalReviewSource,
++  ModelProfile,
++  ModelProfileInput,
++  ModelProviderKind,
+   Muzen,
++  MuzenWorkspace,
++  ProviderProfile,
++  ProviderProfileInput,
+   ReviewAgentBudget,
+   ReviewAgentSession,
+   ReviewArtifact,
+@@ -47,4 +53,6 @@ export type {
+   ReviewSourceLike,
+   ReviewStatus,
+   ReviewSuggestedFix,
++  SourceProviderKind,
++  WorkspaceProfileCollection,
+ } from "./types.js";
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+index d7949f2..425d970 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+@@ -229,4 +229,133 @@ describe("remote Muzen client", () => {
+       "/v1/reviews/review-remote-1",
+     ]);
+   });
++
++  it("manages workspace profiles through the preview HTTP contract", async () => {
++    const requests: Array<{
++      method: string;
++      path: string;
++      body?: unknown;
++    }> = [];
++    const modelProfile = {
++      workspaceId: "acme",
++      name: "default",
++      version: "1",
++      provider: "openai_compatible",
++      model: "gpt-5",
++      secretRef: "vault://workspaces/acme/models/default",
++      baseUrl: "https://models.example.test",
++      routing: { region: "us-east" },
++      updatedAtUtc: "1780620000.000000000Z",
++    };
++    const providerProfile = {
++      workspaceId: "acme",
++      name: "github",
++      version: "1",
++      provider: "github",
++      secretRef: "vault://workspaces/acme/providers/github",
++      baseUrl: "https://api.github.com",
++      routing: { installation: "123" },
++      updatedAtUtc: "1780620000.000000000Z",
++    };
++    const fetchMock: typeof fetch = async (input, init = {}) => {
++      const url = new URL(input instanceof Request ? input.url : String(input));
++      const method = init.method ?? "GET";
++      const body =
++        typeof init.body === "string" ? JSON.parse(init.body) : undefined;
++      requests.push({
++        method,
++        path: `${url.pathname}${url.search}`,
++        body,
++      });
++      if (
++        url.pathname === "/v1/workspaces/acme/models/default" &&
++        method === "PUT"
++      ) {
++        return Response.json({ profile: modelProfile });
++      }
++      if (
++        url.pathname === "/v1/workspaces/acme/models/default" &&
++        method === "GET"
++      ) {
++        return Response.json(modelProfile);
++      }
++      if (url.pathname === "/v1/workspaces/acme/models") {
++        return Response.json({ profiles: [modelProfile] });
++      }
++      if (
++        url.pathname === "/v1/workspaces/acme/providers/github" &&
++        method === "PUT"
++      ) {
++        return Response.json({ profile: providerProfile });
++      }
++      if (
++        url.pathname === "/v1/workspaces/acme/providers/github" &&
++        method === "GET"
++      ) {
++        return Response.json(providerProfile);
++      }
++      if (url.pathname === "/v1/workspaces/acme/providers") {
++        return Response.json({ profiles: [providerProfile] });
++      }
++      if (
++        url.pathname === "/v1/workspaces/acme/reviews" &&
++        method === "POST"
++      ) {
++        return Response.json({
++          review: {
++            id: "review-workspace-1",
++            status: "queued",
++            source: body.source,
++          },
++        });
++      }
++      return new Response("not found", { status: 404, statusText: "Not Found" });
++    };
++    const workspace = createMuzenClient({
++      baseUrl: "https://muzen.example",
++      fetch: fetchMock,
++    }).workspace("acme");
++
++    const savedModel = await workspace.models.set("default", {
++      provider: "openai_compatible",
++      model: "gpt-5",
++      secretRef: "vault://workspaces/acme/models/default",
++      baseUrl: "https://models.example.test",
++      routing: { region: "us-east" },
++    });
++    const loadedModel = await workspace.models.get("default");
++    const modelProfiles = await workspace.models.list();
++    const savedProvider = await workspace.providers.set("github", {
++      provider: "github",
++      secretRef: "vault://workspaces/acme/providers/github",
++      baseUrl: "https://api.github.com",
++      routing: { installation: "123" },
++    });
++    const loadedProvider = await workspace.providers.get("github");
++    const providerProfiles = await workspace.providers.list();
++    const review = await workspace.review("github:maskdotdev/heimdaal#123", {
++      model: "default",
++    });
++
++    assert.equal(workspace.id, "acme");
++    assert.equal(savedModel.model, "gpt-5");
++    assert.equal(loadedModel?.secretRef, "vault://workspaces/acme/models/default");
++    assert.equal(modelProfiles.length, 1);
++    assert.equal(savedProvider.provider, "github");
++    assert.equal(
++      loadedProvider?.secretRef,
++      "vault://workspaces/acme/providers/github",
++    );
++    assert.equal(providerProfiles.length, 1);
++    assert.equal(review.id, "review-workspace-1");
++    assert.deepEqual(requests.map((request) => request.path), [
++      "/v1/workspaces/acme/models/default",
++      "/v1/workspaces/acme/models/default",
++      "/v1/workspaces/acme/models",
++      "/v1/workspaces/acme/providers/github",
++      "/v1/workspaces/acme/providers/github",
++      "/v1/workspaces/acme/providers",
++      "/v1/workspaces/acme/reviews",
++    ]);
++  });
+ });
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+index 0c9192b..03fe209 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+@@ -14,7 +14,12 @@ import type {
+   CreateMuzenOptions,
+   CreateReviewSessionInput,
+   CreateReviewSessionResult,
++  ModelProfile,
++  ModelProfileInput,
+   Muzen,
++  MuzenWorkspace,
++  ProviderProfile,
++  ProviderProfileInput,
+   ReviewCancelOptions,
+   ReviewEvent,
+   ReviewEventType,
+@@ -31,6 +36,7 @@ import type {
+   ReviewSource,
+   ReviewSourceLike,
+   ReviewStatus,
++  WorkspaceProfileCollection,
+ } from "./types.js";
+ 
+ export async function createMuzen(
+@@ -90,6 +96,10 @@ class RemoteMuzen implements Muzen {
+     return this.createReviewSession({ source: sourceLike, options });
+   }
+ 
++  workspace(id: string): MuzenWorkspace {
++    return new RemoteWorkspace(this, id);
++  }
++
+   async createReviewSession(input: {
+     source: ReviewSourceLike;
+     options?: ReviewOptions;
+@@ -159,6 +169,90 @@ class RemoteMuzen implements Muzen {
+   }
+ }
+ 
++class RemoteWorkspace implements MuzenWorkspace {
++  readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
++  readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
++
++  constructor(
++    private readonly client: RemoteMuzen,
++    readonly id: string,
++  ) {
++    this.models = new RemoteWorkspaceProfileCollection(
++      client,
++      id,
++      "models",
++      unwrapModelProfile,
++      unwrapModelProfiles,
++    );
++    this.providers = new RemoteWorkspaceProfileCollection(
++      client,
++      id,
++      "providers",
++      unwrapProviderProfile,
++      unwrapProviderProfiles,
++    );
++  }
++
++  async review(
++    sourceLike: ReviewSourceLike,
++    options: ReviewOptions = {},
++  ): Promise<ReviewSession> {
++    const source = parseReviewSource(sourceLike);
++    const response = await this.client.requestJson(
++      `/v1/workspaces/${encodeURIComponent(this.id)}/reviews`,
++      {
++        method: "POST",
++        body: {
++          source,
++          options,
++        },
++      },
++    );
++    return new RemoteReviewSession(this.client, unwrapReviewSnapshot(response));
++  }
++}
++
++class RemoteWorkspaceProfileCollection<Input, Profile>
++  implements WorkspaceProfileCollection<Input, Profile>
++{
++  constructor(
++    private readonly client: RemoteMuzen,
++    private readonly workspaceId: string,
++    private readonly kind: "models" | "providers",
++    private readonly unwrapOne: (value: unknown) => Profile,
++    private readonly unwrapMany: (value: unknown) => Profile[],
++  ) {}
++
++  async set(name: string, input: Input): Promise<Profile> {
++    return this.unwrapOne(
++      await this.client.requestJson(this.profilePath(name), {
++        method: "PUT",
++        body: input,
++      }),
++    );
++  }
++
++  async get(name: string): Promise<Profile | undefined> {
++    const response = await this.client.requestJson(this.profilePath(name));
++    if (response === undefined || response === null) {
++      return undefined;
++    }
++    return this.unwrapOne(response);
++  }
++
++  async list(): Promise<Profile[]> {
++    return this.unwrapMany(await this.client.requestJson(this.collectionPath()));
++  }
++
++  private collectionPath(): string {
++    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/${this.kind}`;
++  }
++
++  private profilePath(name: string): string {
++    return `${this.collectionPath()}/${encodeURIComponent(name)}`;
++  }
++}
++
+ class RemoteReviewSession implements ReviewSession {
+   private currentStatus: ReviewStatus;
+   private currentResult?: ReviewResult;
+@@ -355,6 +449,10 @@ class RunnerBackedMuzen implements Muzen {
+     return this.createReviewSession({ source: sourceLike, options });
+   }
+ 
++  workspace(id: string): MuzenWorkspace {
++    return new RunnerBackedWorkspace(this, id);
++  }
++
+   async createReviewSession(input: {
+     source: ReviewSourceLike;
+     options?: ReviewOptions;
+@@ -412,6 +510,53 @@ class RunnerBackedMuzen implements Muzen {
+   }
+ }
+ 
++class RunnerBackedWorkspace implements MuzenWorkspace {
++  readonly models = new UnsupportedWorkspaceProfileCollection<
++    ModelProfileInput,
++    ModelProfile
++  >("model");
++  readonly providers = new UnsupportedWorkspaceProfileCollection<
++    ProviderProfileInput,
++    ProviderProfile
++  >("provider");
++
++  constructor(
++    private readonly muzen: Muzen,
++    readonly id: string,
++  ) {}
++
++  review(
++    source: ReviewSourceLike,
++    options?: ReviewOptions,
++  ): Promise<ReviewSession> {
++    return this.muzen.review(source, options);
++  }
++}
++
++class UnsupportedWorkspaceProfileCollection<Input, Profile>
++  implements WorkspaceProfileCollection<Input, Profile>
++{
++  constructor(private readonly kind: string) {}
++
++  set(_name: string, _input: Input): Promise<Profile> {
++    return Promise.reject(this.error());
++  }
++
++  get(_name: string): Promise<Profile | undefined> {
++    return Promise.reject(this.error());
++  }
++
++  list(): Promise<Profile[]> {
++    return Promise.reject(this.error());
++  }
++
++  private error(): MuzenUnsupportedFeatureError {
++    return new MuzenUnsupportedFeatureError(
++      `workspace ${this.kind} profiles require remote workspace storage; createMuzen() only supports local runner review execution in this preview`,
++    );
++  }
++}
++
+ class RunnerBackedReviewSession implements ReviewSession {
+   private readonly listeners = new Set<(event: ReviewEvent) => void>();
+ 
+@@ -903,6 +1048,38 @@ function unwrapReviewArtifactExport(value: unknown): ReviewArtifactExport {
+   return value;
+ }
+ 
++function unwrapModelProfile(value: unknown): ModelProfile {
++  const profile = isRecord(value) && isRecord(value.profile) ? value.profile : value;
++  if (!isModelProfile(profile)) {
++    throw new Error("Muzen remote returned an invalid model profile");
++  }
++  return profile;
++}
++
++function unwrapModelProfiles(value: unknown): ModelProfile[] {
++  const profiles = isRecord(value) && Array.isArray(value.profiles) ? value.profiles : value;
++  if (!Array.isArray(profiles) || !profiles.every(isModelProfile)) {
++    throw new Error("Muzen remote returned invalid model profiles");
++  }
++  return profiles;
++}
++
++function unwrapProviderProfile(value: unknown): ProviderProfile {
++  const profile = isRecord(value) && isRecord(value.profile) ? value.profile : value;
++  if (!isProviderProfile(profile)) {
++    throw new Error("Muzen remote returned an invalid provider profile");
++  }
++  return profile;
++}
++
++function unwrapProviderProfiles(value: unknown): ProviderProfile[] {
++  const profiles = isRecord(value) && Array.isArray(value.profiles) ? value.profiles : value;
++  if (!Array.isArray(profiles) || !profiles.every(isProviderProfile)) {
++    throw new Error("Muzen remote returned invalid provider profiles");
++  }
++  return profiles;
++}
++
+ function isReviewSessionSnapshot(value: unknown): value is ReviewSessionSnapshot {
+   return (
+     isRecord(value) &&
+@@ -979,6 +1156,41 @@ function isReviewStatus(value: unknown): value is ReviewStatus {
+   );
+ }
+ 
++function isModelProfile(value: unknown): value is ModelProfile {
++  return (
++    isRecord(value) &&
++    typeof value.workspaceId === "string" &&
++    typeof value.name === "string" &&
++    typeof value.version === "string" &&
++    isModelProviderKind(value.provider) &&
++    typeof value.model === "string" &&
++    typeof value.updatedAtUtc === "string"
++  );
++}
++
++function isProviderProfile(value: unknown): value is ProviderProfile {
++  return (
++    isRecord(value) &&
++    typeof value.workspaceId === "string" &&
++    typeof value.name === "string" &&
++    typeof value.version === "string" &&
++    isSourceProviderKind(value.provider) &&
++    typeof value.updatedAtUtc === "string"
++  );
++}
++
++function isModelProviderKind(value: unknown): value is ModelProfile["provider"] {
++  return (
++    value === "openai" ||
++    value === "anthropic" ||
++    value === "openai_compatible"
++  );
++}
++
++function isSourceProviderKind(value: unknown): value is ProviderProfile["provider"] {
++  return value === "github" || value === "gitlab";
++}
++
+ interface RunnerReviewEventRecord {
+   seq: number;
+   timestampUtc: string;
+diff --git a/sdk/typescript/packages/muzen-sdk/src/types.ts b/sdk/typescript/packages/muzen-sdk/src/types.ts
+index 52271cf..2f92f56 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/types.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/types.ts
+@@ -88,6 +88,64 @@ export interface ReviewLimits {
+   maxSearchMatches?: number;
+ }
+ 
++export type ModelProviderKind =
++  | "openai"
++  | "anthropic"
++  | "openai_compatible";
++
++export type SourceProviderKind = "github" | "gitlab";
++
++export interface ModelProfileInput {
++  provider: ModelProviderKind;
++  model: string;
++  secretRef?: string;
++  baseUrl?: string;
++  routing?: Record<string, string>;
++}
++
++export interface ProviderProfileInput {
++  provider: SourceProviderKind;
++  secretRef?: string;
++  baseUrl?: string;
++  routing?: Record<string, string>;
++}
++
++export interface ModelProfile {
++  workspaceId: string;
++  name: string;
++  version: string;
++  provider: ModelProviderKind;
++  model: string;
++  secretRef?: string;
++  baseUrl?: string;
++  routing?: Record<string, string>;
++  updatedAtUtc: string;
++}
++
++export interface ProviderProfile {
++  workspaceId: string;
++  name: string;
++  version: string;
++  provider: SourceProviderKind;
++  secretRef?: string;
++  baseUrl?: string;
++  routing?: Record<string, string>;
++  updatedAtUtc: string;
++}
++
++export interface WorkspaceProfileCollection<Input, Profile> {
++  set(name: string, input: Input): Promise<Profile>;
++  get(name: string): Promise<Profile | undefined>;
++  list(): Promise<Profile[]>;
++}
++
++export interface MuzenWorkspace {
++  readonly id: string;
++  readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
++  readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
++  review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
++}
++
+ export interface ReviewSessionSnapshot {
+   id: string;
+   status: ReviewStatus;
+@@ -230,6 +288,7 @@ export interface CreateReviewSessionResult {
+ 
+ export interface Muzen {
+   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
++  workspace(id: string): MuzenWorkspace;
+   resumeReview(id: string): Promise<ReviewSession>;
+   createReviewSession(input: {
+     source: ReviewSourceLike;

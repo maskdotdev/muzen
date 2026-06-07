@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::context_engine::ContextEngineConfig;
 use crate::contracts::{AgentBudget, Role};
 use crate::runner::{
     RunAgentBudgetParams, RunChangeFileParams, RunChangeParams, RunInstructionParams,
@@ -39,6 +40,8 @@ pub struct ReviewOptions {
     #[serde(default)]
     pub limits: Option<ReviewLimits>,
     #[serde(default)]
+    pub context_engine: Option<ContextEngineConfig>,
+    #[serde(default)]
     pub config_snapshot: Option<EffectiveConfigSnapshot>,
 }
 
@@ -56,6 +59,7 @@ impl Default for ReviewOptions {
             tools: Vec::new(),
             sessions: Vec::new(),
             limits: None,
+            context_engine: None,
             config_snapshot: None,
         }
     }

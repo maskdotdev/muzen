@@ -28,6 +28,17 @@ implementation plans.
   profile APIs.
 - **Reviewer Kernel**: Core repository-review execution engine behind the
   runner and service adapters.
+- **Context Engine**: Core evidence-compilation module that turns materialized
+  review sources, changed-file manifests, repository guidance, host metadata,
+  tool results, and feedback into ranked, cited, permission-aware context packs
+  and context query results.
+- **Context Evidence**: Typed, provenance-carrying review evidence such as a
+  diff hunk, file span, rule, test, host issue, historical finding, or tool
+  output. Evidence records carry trust, sensitivity, source, and content hash
+  metadata.
+- **Context Pack**: Durable, session-specific compiled artifact containing the
+  evidence selected for a review purpose, the evidence relationships, the
+  omitted candidates, budget usage, and a sufficiency assessment.
 
 ## Architecture Quality Target
 

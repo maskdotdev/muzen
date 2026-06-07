@@ -54,6 +54,7 @@ def _to_runner_start_params(
         "limits": _limits_to_runner(options.limits),
         "model": model_plan["runnerModel"],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
+        "contextEngine": _context_engine_to_runner(options.context_engine),
     }
     if source.type == "local":
         payload["repo"] = source.repo
@@ -191,6 +192,22 @@ def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]
         "maxActiveSessions": limits.max_active_sessions,
         "maxFileBytes": limits.max_file_bytes,
         "maxSearchMatches": limits.max_search_matches,
+    }
+
+
+def _context_engine_to_runner(config: Any) -> Optional[Dict[str, Any]]:
+    if config is None:
+        return None
+    return {
+        "mode": config.mode,
+        "maxIndexedFiles": config.max_indexed_files,
+        "maxIndexedBytes": config.max_indexed_bytes,
+        "maxEvidenceItems": config.max_evidence_items,
+        "maxPackTokens": config.max_pack_tokens,
+        "maxQueryResults": config.max_query_results,
+        "includeRepositoryGuidance": config.include_repository_guidance,
+        "includeHostContext": config.include_host_context,
+        "strictEvidenceRequired": config.strict_evidence_required,
     }
 
 

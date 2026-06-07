@@ -1,0 +1,923 @@
+diff --git a/src/runtime/policy.rs b/src/runtime/policy.rs
+index 7e68bd4..1f45034 100644
+--- a/src/runtime/policy.rs
++++ b/src/runtime/policy.rs
+@@ -1953,113 +1953,6 @@ mod tests {
+         ArtifactId, CacheInfo, CacheStatus, LimitInfo, SessionId, SnapshotId, ToolCallId,
+         ToolErrorInfo, ToolProviderId,
+     };
+-    use crate::runtime::tools::ToolRegistry;
+-
+-    #[test]
+-    fn exposure_policy_keeps_exploration_tools_available_before_terminal_evidence() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let transcript = vec![successful_tool_result(ToolName::ReadDiff)];
+-        let capabilities = CapabilitySet::review_read_only();
+-
+-        let names = schema_names(ReviewerPolicy::new().tool_schemas_for_transcript(
+-            &registry,
+-            &transcript,
+-            &capabilities,
+-        ));
+-
+-        assert_eq!(
+-            names,
+-            vec![
+-                "list_changed_files",
+-                "read_diff",
+-                "list_files",
+-                "read_file",
+-                "read_file_range",
+-                "read_base_file",
+-                "read_head_file",
+-                "search_text",
+-                "find_related_files",
+-                "find_tests_for_file",
+-                "list_imports",
+-            ],
+-        );
+-        assert!(!names.contains(&"record_finding"));
+-        assert!(!names.contains(&"finish"));
+-    }
+-
+-    #[test]
+-    fn exposure_policy_filters_every_stage_by_capabilities() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let transcript = Vec::new();
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities
+-            .tool_grants
+-            .remove(&ToolId::from(ToolName::ReadDiff));
+-
+-        let names = schema_names(ReviewerPolicy::new().tool_schemas_for_transcript(
+-            &registry,
+-            &transcript,
+-            &capabilities,
+-        ));
+-
+-        assert_eq!(
+-            names,
+-            vec![
+-                "list_changed_files",
+-                "list_files",
+-                "read_file",
+-                "read_file_range",
+-                "read_base_file",
+-                "read_head_file",
+-                "search_text",
+-                "find_related_files",
+-                "find_tests_for_file",
+-                "list_imports",
+-            ],
+-        );
+-        assert!(!names.contains(&"read_diff"));
+-    }
+-
+-    #[test]
+-    fn exposure_policy_excludes_denied_terminal_tools() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let transcript = vec![
+-            successful_tool_result(ToolName::ReadDiff),
+-            successful_tool_result(ToolName::ReadFile),
+-            successful_tool_result(ToolName::SearchText),
+-        ];
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities
+-            .tool_grants
+-            .remove(&ToolId::from(ToolName::Finish));
+-
+-        let names = schema_names(ReviewerPolicy::new().tool_schemas_for_transcript(
+-            &registry,
+-            &transcript,
+-            &capabilities,
+-        ));
+-
+-        assert_eq!(
+-            names,
+-            vec![
+-                "list_changed_files",
+-                "read_diff",
+-                "list_files",
+-                "read_file",
+-                "read_file_range",
+-                "read_base_file",
+-                "read_head_file",
+-                "search_text",
+-                "find_related_files",
+-                "find_tests_for_file",
+-                "list_imports",
+-                "record_finding",
+-                "record_file_review",
+-            ],
+-        );
+-        assert!(!names.contains(&"finish"));
+-    }
+-
+     #[test]
+     fn transcript_policy_compacts_model_visible_tool_output() {
+         let result = ToolResultEnvelope {
+@@ -2135,48 +2028,6 @@ mod tests {
+         assert_eq!(compact["data"]["truncated"].as_bool(), Some(true));
+     }
+ 
+-    #[test]
+-    fn transcript_policy_plans_runtime_append_items() {
+-        let policy = ReviewerPolicy::new();
+-        let assistant_text =
+-            policy.plan_assistant_text_transcript_item("review complete".to_string());
+-        match assistant_text {
+-            ConversationItem::AssistantText { content } => {
+-                assert_eq!(content, "review complete");
+-            }
+-            item => panic!("unexpected item: {item:?}"),
+-        }
+-
+-        let calls = vec![model_call("call-read", 0, ToolName::ReadFile)];
+-        let assistant_calls = policy.plan_assistant_tool_calls_transcript_item(&calls);
+-        match assistant_calls {
+-            ConversationItem::AssistantToolCalls { calls: planned } => {
+-                assert_eq!(planned.len(), 1);
+-                assert_eq!(planned[0].call_id.0, "call-read");
+-                assert_eq!(planned[0].name, ToolId::from(ToolName::ReadFile));
+-            }
+-            item => panic!("unexpected item: {item:?}"),
+-        }
+-
+-        let result = successful_result(ToolName::SearchText);
+-        let expected_call_id = result.tool_call_id.clone();
+-        let expected_tool_name = result.tool_name.clone();
+-        let tool_result = policy.plan_tool_result_transcript_item(result);
+-        match tool_result {
+-            ConversationItem::ToolResult {
+-                call_id,
+-                name,
+-                content,
+-            } => {
+-                assert_eq!(call_id, expected_call_id);
+-                assert_eq!(name, expected_tool_name);
+-                assert_eq!(content.tool_call_id, expected_call_id);
+-                assert_eq!(content.tool_name, expected_tool_name);
+-            }
+-            item => panic!("unexpected item: {item:?}"),
+-        }
+-    }
+-
+     #[test]
+     fn evidence_policy_blocks_terminal_tools_until_evidence_ready() {
+         let policy = ReviewerPolicy::new();
+@@ -2377,122 +2228,6 @@ mod tests {
+             .is_none());
+     }
+ 
+-    #[test]
+-    fn diff_risk_hints_identify_async_iteration_and_contract_changes() {
+-        let hints = diff_risk_hints(
+-            r#"
+-diff --git a/src/a.ts b/src/a.ts
+---- a/src/a.ts
+-+++ b/src/a.ts
+--export const getCalendar = (credential: CredentialPayload | null): Calendar | null => {
+-+export const getCalendar = async (credential: CredentialPayload | null): Promise<Calendar | null> => {
+-+  payments.forEach(async (payment) => {
+-+    await deletePayment(payment.id);
+-+  });
+-"#,
+-        );
+-
+-        assert!(hints.contains("async callbacks in array/collection iteration"));
+-        assert!(hints.contains("src/a.ts `.forEach(async`"));
+-        assert!(hints.contains("sync-to-async API contract changes"));
+-        assert!(hints.contains("`getCalendar`"));
+-        assert!(bootstrap_search_query(
+-            r#"
+-diff --git a/src/a.ts b/src/a.ts
+---- a/src/a.ts
+-+++ b/src/a.ts
+--export const getCalendar = (credential: CredentialPayload | null): Calendar | null => {
+-+export const getCalendar = async (credential: CredentialPayload | null): Promise<Calendar | null> => {
+-"#
+-        )
+-        .contains("getCalendar"));
+-    }
+-
+-    #[test]
+-    fn scoped_diff_content_limits_risk_hints_to_assigned_files() {
+-        let diff = r#"
+-diff --git a/app/frame.rb b/app/frame.rb
+---- a/app/frame.rb
+-+++ b/app/frame.rb
+-+response.headers["X-Frame-Options"] = "ALLOWALL"
+-diff --git a/db/migrate/1_create_widgets.rb b/db/migrate/1_create_widgets.rb
+---- a/db/migrate/1_create_widgets.rb
+-+++ b/db/migrate/1_create_widgets.rb
+-+create_table :widgets do |t|
+-+  t.string :name, null: false
+-+end
+-"#;
+-        let assigned = BTreeSet::from(["db/migrate/1_create_widgets.rb".to_string()]);
+-        let scoped = scoped_diff_content(diff, &assigned);
+-        let hints = diff_risk_hints(&scoped);
+-
+-        assert!(!scoped.contains("X-Frame-Options"));
+-        assert!(!hints.contains("frame boundary"));
+-    }
+-
+-    #[test]
+-    fn diff_risk_hints_identify_security_boundary_changes() {
+-        let diff = r#"
+-diff --git a/app/embed.rb b/app/embed.rb
+---- a/app/embed.rb
+-+++ b/app/embed.rb
+-+contents = open(params[:url]).read
+-+if request.referrer.indexOf(site_url) >= 0
+-+  response.headers["X-Frame-Options"] = "ALLOWALL"
+-+end
+-+window.parent.postMessage(message, document.referrer)
+-"#;
+-        let hints = diff_risk_hints(diff);
+-
+-        assert!(hints.contains("changed URL fetching/opening boundary"));
+-        assert!(hints.contains("changed origin/referrer/postMessage/frame boundary"));
+-        assert!(bootstrap_search_query(diff).contains("open("));
+-        assert!(bootstrap_search_query(diff).contains("postMessage"));
+-        assert!(diff_risk_hint_paths(diff).contains("*"));
+-    }
+-
+-    #[test]
+-    fn diff_risk_hints_identify_template_rendering_changes() {
+-        let diff = r#"
+-diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+---- a/app/views/embed/show.html.erb
+-+++ b/app/views/embed/show.html.erb
+-+<%= render html: params[:contents].html_safe %>
+-+<% if topic.nil? %>
+-"#;
+-        let hints = diff_risk_hints(diff);
+-
+-        assert!(hints.contains("changed template/rendering or string-to-HTML boundary"));
+-        assert!(bootstrap_search_query(diff).contains("html_safe"));
+-        assert!(bootstrap_search_query(diff).contains("NoMethodError"));
+-        assert!(diff_risk_hint_paths(diff).contains("*"));
+-    }
+-
+-    #[test]
+-    fn diff_risk_hints_ignore_context_only_async_iteration() {
+-        let hints = diff_risk_hints(
+-            r#"
+- context.forEach(async (item) => {
+-   await item.run();
+- });
+-"#,
+-        );
+-
+-        assert!(hints.is_empty());
+-    }
+-
+-    #[test]
+-    fn diff_risk_hints_ignore_context_only_security_boundaries() {
+-        let hints = diff_risk_hints(
+-            r#"
+- context.open(url)
+- context.postMessage(message, origin)
+-"#,
+-        );
+-
+-        assert!(hints.is_empty());
+-    }
+-
+     #[test]
+     fn evidence_policy_plans_tool_batch_denials_before_terminal_evidence() {
+         let policy = ReviewerPolicy::new();
+@@ -2572,85 +2307,6 @@ diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+         assert!(!plan.denied_calls[1].denial.retryable);
+     }
+ 
+-    #[test]
+-    fn session_policy_tracks_evidence_and_terminal_summary() {
+-        let policy = ReviewerPolicy::new();
+-        let mut evidence = SessionEvidence::default();
+-        for result in [
+-            successful_result(ToolName::ReadDiff),
+-            successful_result(ToolName::ReadFile),
+-            successful_result(ToolName::SearchText),
+-        ] {
+-            policy.observe_evidence_result(&mut evidence, &result);
+-        }
+-
+-        assert!(evidence.ready());
+-        assert!(evidence.saw_diff());
+-        assert!(evidence.saw_file());
+-        assert!(evidence.saw_search());
+-        assert_eq!(evidence.results().len(), 3);
+-
+-        let mut terminal = SessionTerminal::default();
+-        let terminal_seen = policy.observe_terminal_batch(
+-            &mut terminal,
+-            &[successful_terminal_result(
+-                ToolName::Finish,
+-                "policy-owned terminal summary",
+-            )],
+-        );
+-
+-        assert!(terminal_seen);
+-        assert!(terminal.seen());
+-        assert_eq!(terminal.tool().as_deref(), Some("finish"));
+-        assert_eq!(
+-            terminal.summary().as_deref(),
+-            Some("policy-owned terminal summary")
+-        );
+-        assert_eq!(
+-            policy.session_state(true, terminal.seen(), false, false),
+-            "done"
+-        );
+-
+-        let tool_counts = ToolCounts {
+-            read_diff: 1,
+-            read_file: 1,
+-            search_text: 1,
+-            finish: 1,
+-            ..ToolCounts::default()
+-        };
+-        let scope = test_scope("diagnostic-session");
+-        let diagnostic =
+-            policy.session_terminal_diagnostic(&scope, true, &evidence, &terminal, 2, tool_counts);
+-        assert_eq!(diagnostic.session_id, "diagnostic-session");
+-        assert!(diagnostic.completed);
+-        assert_eq!(diagnostic.terminal_tool.as_deref(), Some("finish"));
+-        assert_eq!(
+-            diagnostic.terminal_summary.as_deref(),
+-            Some("policy-owned terminal summary")
+-        );
+-        assert!(diagnostic.saw_diff);
+-        assert!(diagnostic.saw_file);
+-        assert!(diagnostic.saw_search);
+-        assert_eq!(diagnostic.model_calls, 2);
+-        assert_eq!(diagnostic.tool_counts.finish, 1);
+-
+-        let early = policy.empty_session_terminal_diagnostic(
+-            &scope,
+-            false,
+-            Some("model router failed".to_string()),
+-        );
+-        assert_eq!(early.session_id, "diagnostic-session");
+-        assert!(!early.completed);
+-        assert_eq!(
+-            early.terminal_summary.as_deref(),
+-            Some("model router failed")
+-        );
+-        assert!(!early.saw_diff);
+-        assert!(!early.saw_file);
+-        assert!(!early.saw_search);
+-        assert_eq!(early.model_calls, 0);
+-    }
+-
+     #[test]
+     fn session_policy_fails_after_repeated_terminal_denials() {
+         let policy = ReviewerPolicy::new();
+@@ -2675,471 +2331,6 @@ diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+         assert!(!policy.should_fail_after_terminal_errors(&retryable_terminal));
+     }
+ 
+-    #[test]
+-    fn runtime_event_policy_plans_lifecycle_events() {
+-        let policy = ReviewerPolicy::new();
+-        let scope = test_scope("lifecycle-session");
+-        let turn_id = TurnId(4);
+-
+-        let legacy_started = policy.plan_session_started_event(&scope);
+-        assert!(matches!(
+-            legacy_started.event_type,
+-            EventType::SessionStarted
+-        ));
+-        assert!(matches!(legacy_started.level, EventLevel::Info));
+-        assert_eq!(
+-            legacy_started.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(legacy_started.payload["objective"], scope.objective);
+-
+-        let session_started = policy.plan_session_started_runtime_event(&scope);
+-        assert_eq!(session_started.context.session_id.as_ref(), Some(&scope.id));
+-        assert!(matches!(
+-            session_started.event,
+-            RuntimeEvent::SessionStarted { .. }
+-        ));
+-
+-        let model_started = policy.plan_model_started_runtime_event(&scope, turn_id);
+-        assert_eq!(model_started.context.session_id.as_ref(), Some(&scope.id));
+-        assert_eq!(model_started.context.turn_id, Some(turn_id));
+-        assert!(matches!(
+-            model_started.event,
+-            RuntimeEvent::ModelStarted { .. }
+-        ));
+-
+-        let legacy_model_started = policy.plan_model_started_event(&scope, 4, 2);
+-        assert!(matches!(
+-            legacy_model_started.event_type,
+-            EventType::ModelCallStarted
+-        ));
+-        assert!(matches!(legacy_model_started.level, EventLevel::Debug));
+-        assert_eq!(
+-            legacy_model_started.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(legacy_model_started.payload["turn"], 4);
+-        assert_eq!(legacy_model_started.payload["attempt"], 2);
+-
+-        let model_completed = policy.plan_model_completed_runtime_event(&scope, turn_id, 3);
+-        assert_eq!(model_completed.context.session_id.as_ref(), Some(&scope.id));
+-        assert_eq!(model_completed.context.turn_id, Some(turn_id));
+-        match model_completed.event {
+-            RuntimeEvent::ModelCompleted {
+-                tool_call_count, ..
+-            } => assert_eq!(tool_call_count, 3),
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-
+-        let usage = TokenUsage {
+-            input_tokens: 5,
+-            output_tokens: 7,
+-            total_tokens: 12,
+-        };
+-        let legacy_model_completed = policy.plan_model_completed_event(&scope, 4, usage);
+-        assert!(matches!(
+-            legacy_model_completed.event_type,
+-            EventType::ModelCallCompleted
+-        ));
+-        assert!(matches!(legacy_model_completed.level, EventLevel::Debug));
+-        assert_eq!(
+-            legacy_model_completed.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(legacy_model_completed.payload["turn"], 4);
+-        assert_eq!(legacy_model_completed.payload["tokens"]["inputTokens"], 5);
+-        assert_eq!(legacy_model_completed.payload["tokens"]["outputTokens"], 7);
+-        assert_eq!(legacy_model_completed.payload["tokens"]["totalTokens"], 12);
+-
+-        let model_error = RuntimeError::Provider {
+-            status: Some(503),
+-            retryable: true,
+-        };
+-        let router_error = policy.plan_model_router_error_event(&scope, &model_error);
+-        assert!(matches!(router_error.event_type, EventType::Error));
+-        assert!(matches!(router_error.level, EventLevel::Error));
+-        assert_eq!(
+-            router_error.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert!(router_error.payload["error"]
+-            .as_str()
+-            .is_some_and(|error| error.contains("provider error")));
+-        assert!(router_error.payload.get("retrying").is_none());
+-
+-        let retry_error = policy.plan_model_attempt_error_event(&scope, 4, 1, true, &model_error);
+-        assert!(matches!(retry_error.event_type, EventType::Error));
+-        assert!(matches!(retry_error.level, EventLevel::Warn));
+-        assert_eq!(retry_error.payload["turn"], 4);
+-        assert_eq!(retry_error.payload["attempt"], 1);
+-        assert_eq!(retry_error.payload["retrying"], true);
+-        assert!(retry_error.payload["error"]
+-            .as_str()
+-            .is_some_and(|error| error.contains("provider error")));
+-
+-        let final_error = policy.plan_model_attempt_error_event(&scope, 4, 3, false, &model_error);
+-        assert!(matches!(final_error.event_type, EventType::Error));
+-        assert!(matches!(final_error.level, EventLevel::Error));
+-        assert_eq!(final_error.payload["turn"], 4);
+-        assert_eq!(final_error.payload["attempt"], 3);
+-        assert_eq!(final_error.payload["retrying"], false);
+-
+-        let batch_started = policy
+-            .plan_tool_batch_started_runtime_event(&scope, turn_id, 2)
+-            .expect("batch event");
+-        assert_eq!(batch_started.context.session_id.as_ref(), Some(&scope.id));
+-        assert_eq!(batch_started.context.turn_id, Some(turn_id));
+-        match batch_started.event {
+-            RuntimeEvent::ToolBatchStarted { count, .. } => assert_eq!(count, 2),
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-        assert!(policy
+-            .plan_tool_batch_started_runtime_event(&scope, turn_id, 0)
+-            .is_none());
+-
+-        let legacy_finished =
+-            policy.plan_session_finished_event(&scope, "done", ToolCounts::default(), 2);
+-        assert!(matches!(
+-            legacy_finished.event_type,
+-            EventType::SessionFinished
+-        ));
+-        assert!(matches!(legacy_finished.level, EventLevel::Info));
+-        assert_eq!(
+-            legacy_finished.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(legacy_finished.payload["state"], "done");
+-        assert_eq!(legacy_finished.payload["modelCalls"], 2);
+-        assert!(legacy_finished.payload.get("toolCounts").is_some());
+-
+-        let session_finished = policy.plan_session_finished_runtime_event(&scope, "done");
+-        assert_eq!(
+-            session_finished.context.session_id.as_ref(),
+-            Some(&scope.id)
+-        );
+-        match session_finished.event {
+-            RuntimeEvent::SessionFinished { status, .. } => assert_eq!(status, "done"),
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-    }
+-
+-    #[test]
+-    fn runtime_event_policy_plans_denial_completion_and_search_events() {
+-        let policy = ReviewerPolicy::new();
+-        let scope = test_scope("event-session");
+-        let turn_id = TurnId(7);
+-        let denied = denied_result(ToolName::ReadFile);
+-
+-        let requested_call = model_call("requested-call", 0, ToolName::ReadFile);
+-        let requested = policy.plan_tool_call_requested_event(&scope, &requested_call);
+-        assert!(matches!(requested.event_type, EventType::ToolCallRequested));
+-        assert!(matches!(requested.level, EventLevel::Info));
+-        assert_eq!(requested.session_id.as_deref(), Some(scope.id.0.as_str()));
+-        assert_eq!(requested.tool_call_id.as_deref(), Some("requested-call"));
+-        assert_eq!(
+-            requested.payload["toolName"].as_str(),
+-            Some(ToolName::ReadFile.as_str())
+-        );
+-
+-        let legacy_denied_completed = policy.plan_tool_call_completed_event(&scope, &denied);
+-        assert!(matches!(
+-            legacy_denied_completed.event_type,
+-            EventType::ToolCallCompleted
+-        ));
+-        assert!(matches!(legacy_denied_completed.level, EventLevel::Warn));
+-        assert_eq!(
+-            legacy_denied_completed.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_denied_completed.tool_call_id.as_deref(),
+-            Some(denied.tool_call_id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_denied_completed.payload["toolName"].as_str(),
+-            Some(denied.tool_name.as_str())
+-        );
+-        assert_eq!(
+-            legacy_denied_completed.payload["status"].as_str(),
+-            Some("error")
+-        );
+-        assert!(legacy_denied_completed.payload["errorCode"].is_string());
+-
+-        let denied_plan =
+-            policy.plan_tool_result_runtime_events(&scope, turn_id, &denied, None, None);
+-
+-        assert_eq!(denied_plan.events.len(), 2);
+-        assert_eq!(
+-            denied_plan.events[0].context.session_id.as_ref(),
+-            Some(&scope.id)
+-        );
+-        assert_eq!(denied_plan.events[0].context.turn_id, Some(turn_id));
+-        assert_eq!(
+-            denied_plan.events[0].context.tool_call_id.as_ref(),
+-            Some(&denied.tool_call_id)
+-        );
+-        match &denied_plan.events[0].event {
+-            RuntimeEvent::ToolCallDenied {
+-                call_id,
+-                error_code,
+-                reason,
+-                ..
+-            } => {
+-                assert_eq!(call_id, &denied.tool_call_id);
+-                assert_eq!(*error_code, ToolErrorCode::ToolNotAllowed);
+-                assert_eq!(reason, "denied");
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-        match &denied_plan.events[1].event {
+-            RuntimeEvent::ToolCallCompleted {
+-                call_id,
+-                ok,
+-                error_code,
+-                ..
+-            } => {
+-                assert_eq!(call_id, &denied.tool_call_id);
+-                assert!(!ok);
+-                assert_eq!(*error_code, Some(ToolErrorCode::ToolNotAllowed));
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-
+-        let mut search = successful_result(ToolName::SearchText);
+-        search.artifact_id = None;
+-        search.limits.searched_files = 8;
+-        search.limits.skipped_files = 2;
+-        search.limits.bytes_scanned = 4096;
+-        let search_plan =
+-            policy.plan_tool_result_runtime_events(&scope, turn_id, &search, None, None);
+-
+-        let legacy_search_completed = policy.plan_tool_call_completed_event(&scope, &search);
+-        assert!(matches!(
+-            legacy_search_completed.event_type,
+-            EventType::ToolCallCompleted
+-        ));
+-        assert!(matches!(legacy_search_completed.level, EventLevel::Info));
+-        assert_eq!(
+-            legacy_search_completed.payload["status"].as_str(),
+-            Some("ok")
+-        );
+-        assert!(legacy_search_completed.payload["errorCode"].is_null());
+-
+-        assert_eq!(search_plan.events.len(), 2);
+-        assert!(matches!(
+-            search_plan.events[0].event,
+-            RuntimeEvent::ToolCallCompleted { ok: true, .. }
+-        ));
+-        match &search_plan.events[1].event {
+-            RuntimeEvent::SearchBatchCompleted {
+-                searched_files,
+-                skipped_files,
+-                bytes_scanned,
+-                ms,
+-            } => {
+-                assert_eq!(*searched_files, 8);
+-                assert_eq!(*skipped_files, 2);
+-                assert_eq!(*bytes_scanned, 4096);
+-                assert_eq!(*ms, 0);
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-    }
+-
+-    #[test]
+-    fn runtime_event_policy_plans_finding_and_artifact_events() {
+-        let policy = ReviewerPolicy::new();
+-        let scope = test_scope("event-session");
+-        let turn_id = TurnId(3);
+-        let finding_result =
+-            successful_terminal_result(ToolName::RecordFinding, "policy-owned event");
+-
+-        let legacy_finding =
+-            policy.plan_finding_validated_event(&scope, &finding_result, "finding-1");
+-        assert!(matches!(
+-            legacy_finding.event_type,
+-            EventType::FindingValidated
+-        ));
+-        assert!(matches!(legacy_finding.level, EventLevel::Info));
+-        assert_eq!(
+-            legacy_finding.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_finding.tool_call_id.as_deref(),
+-            Some(finding_result.tool_call_id.0.as_str())
+-        );
+-        assert_eq!(legacy_finding.finding_id.as_deref(), Some("finding-1"));
+-        assert_eq!(
+-            legacy_finding.payload["validationStatus"].as_str(),
+-            Some("validated")
+-        );
+-
+-        let finding_plan = policy.plan_tool_result_runtime_events(
+-            &scope,
+-            turn_id,
+-            &finding_result,
+-            None,
+-            Some("finding-1"),
+-        );
+-
+-        assert_eq!(finding_plan.events.len(), 2);
+-        match &finding_plan.events[0].event {
+-            RuntimeEvent::FindingRecorded {
+-                finding_id,
+-                session_id,
+-                tool_call_id,
+-            } => {
+-                assert_eq!(finding_id, "finding-1");
+-                assert_eq!(session_id, &scope.id);
+-                assert_eq!(tool_call_id, &finding_result.tool_call_id);
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-        assert_eq!(
+-            finding_plan.events[0].context.finding_id.as_deref(),
+-            Some("finding-1")
+-        );
+-        assert!(matches!(
+-            finding_plan.events[1].event,
+-            RuntimeEvent::ToolCallCompleted { ok: true, .. }
+-        ));
+-
+-        assert!(policy
+-            .plan_artifact_recorded_event(&scope, &finding_result)
+-            .is_none());
+-
+-        let mut artifact_result = successful_result(ToolName::ReadFile);
+-        artifact_result.data = Some(json!({"path": "src/lib.rs"}));
+-        let legacy_artifact = policy
+-            .plan_artifact_recorded_event(&scope, &artifact_result)
+-            .expect("artifact event");
+-        assert!(matches!(
+-            legacy_artifact.event_type,
+-            EventType::ArtifactRecorded
+-        ));
+-        assert!(matches!(legacy_artifact.level, EventLevel::Info));
+-        assert_eq!(
+-            legacy_artifact.session_id.as_deref(),
+-            Some(scope.id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_artifact.tool_call_id.as_deref(),
+-            Some(artifact_result.tool_call_id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_artifact.artifact_id.as_deref(),
+-            artifact_result
+-                .artifact_id
+-                .as_ref()
+-                .map(|artifact_id| artifact_id.0.as_str())
+-        );
+-        assert_eq!(
+-            legacy_artifact.payload["toolName"].as_str(),
+-            Some(artifact_result.tool_name.as_str())
+-        );
+-        assert_eq!(legacy_artifact.payload["status"].as_str(), Some("ok"));
+-        assert_eq!(
+-            legacy_artifact.payload["summary"].as_str(),
+-            Some("read file artifact src/lib.rs")
+-        );
+-
+-        let artifact = ArtifactView {
+-            artifact_id: artifact_result.artifact_id.clone().expect("artifact id"),
+-            bytes: 42,
+-            content_hash: "hash-redacted".to_string(),
+-            content: "redacted".to_string(),
+-        };
+-        let artifact_plan = policy.plan_tool_result_runtime_events(
+-            &scope,
+-            turn_id,
+-            &artifact_result,
+-            Some(&artifact),
+-            None,
+-        );
+-
+-        assert_eq!(artifact_plan.events.len(), 2);
+-        match &artifact_plan.events[0].event {
+-            RuntimeEvent::ArtifactCreated {
+-                artifact_id,
+-                tool_call_id,
+-                bytes,
+-                content_hash,
+-                ..
+-            } => {
+-                assert_eq!(artifact_id, &artifact.artifact_id);
+-                assert_eq!(tool_call_id, &artifact_result.tool_call_id);
+-                assert_eq!(*bytes, 42);
+-                assert_eq!(content_hash, "hash-redacted");
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-        assert_eq!(
+-            artifact_plan.events[0].context.artifact_id.as_ref(),
+-            Some(&artifact.artifact_id)
+-        );
+-        assert!(matches!(
+-            artifact_plan.events[1].event,
+-            RuntimeEvent::ToolCallCompleted { ok: true, .. }
+-        ));
+-
+-        let mut file_review_result = successful_result(ToolName::RecordFileReview);
+-        file_review_result.data = Some(json!({
+-            "path": "src/lib.rs",
+-            "verdict": "issue_found",
+-            "summary": "Linked to a concrete finding.",
+-            "findingId": "finding-linked",
+-            "relatedPaths": [],
+-        }));
+-        let file_review_artifact = ArtifactView {
+-            artifact_id: file_review_result.artifact_id.clone().expect("artifact id"),
+-            bytes: 12,
+-            content_hash: "hash-review".to_string(),
+-            content: "review".to_string(),
+-        };
+-        let file_review_plan = policy.plan_tool_result_runtime_events(
+-            &scope,
+-            turn_id,
+-            &file_review_result,
+-            Some(&file_review_artifact),
+-            None,
+-        );
+-        match &file_review_plan.events[0].event {
+-            RuntimeEvent::ArtifactCreated { details, .. } => {
+-                assert_eq!(
+-                    details
+-                        .as_ref()
+-                        .and_then(|details| details.get("findingId"))
+-                        .and_then(Value::as_str),
+-                    Some("finding-linked")
+-                );
+-            }
+-            event => panic!("unexpected event: {event:?}"),
+-        }
+-    }
+-
+-    fn successful_tool_result(tool: ToolName) -> ConversationItem {
+-        let tool_id = ToolId::from(tool);
+-        ConversationItem::ToolResult {
+-            call_id: ToolCallId(format!("call-{}", tool.as_str())),
+-            name: tool_id.clone(),
+-            content: Box::new(ToolResultEnvelope {
+-                ok: true,
+-                tool_call_id: ToolCallId(format!("call-{}", tool.as_str())),
+-                tool_name: tool_id,
+-                provider_id: ToolProviderId::builtin_review(),
+-                snapshot_id: SnapshotId("snapshot".to_string()),
+-                artifact_id: None,
+-                cache: CacheInfo {
+-                    status: CacheStatus::NotCacheable,
+-                    key_hash: None,
+-                },
+-                limits: LimitInfo::default(),
+-                data: None,
+-                error: None,
+-            }),
+-        }
+-    }
+ 
+     fn model_call(id: &str, index: usize, tool: ToolName) -> ModelToolCall {
+         ModelToolCall {
+@@ -3182,22 +2373,6 @@ diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+         }
+     }
+ 
+-    fn successful_terminal_result(tool: ToolName, summary: &str) -> ToolResultEnvelope {
+-        let mut result = successful_result(tool);
+-        result.artifact_id = None;
+-        result.data = Some(match tool {
+-            ToolName::RecordFinding => json!({
+-                "title": summary,
+-                "claim": "claim",
+-            }),
+-            ToolName::Finish => json!({
+-                "reason": summary,
+-            }),
+-            _ => Value::Null,
+-        });
+-        result
+-    }
+-
+     fn denied_result(tool: ToolName) -> ToolResultEnvelope {
+         let tool_id = ToolId::from(tool);
+         ToolResultEnvelope {
+@@ -3246,35 +2421,9 @@ diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+         }
+     }
+ 
+-    fn schema_names(schemas: Vec<Value>) -> Vec<&'static str> {
+-        schemas
+-            .into_iter()
+-            .map(|schema| {
+-                let name = schema["function"]["name"].as_str().expect("schema name");
+-                match name {
+-                    "list_changed_files" => "list_changed_files",
+-                    "read_diff" => "read_diff",
+-                    "list_files" => "list_files",
+-                    "read_file" => "read_file",
+-                    "read_file_range" => "read_file_range",
+-                    "read_base_file" => "read_base_file",
+-                    "read_head_file" => "read_head_file",
+-                    "search_text" => "search_text",
+-                    "find_related_files" => "find_related_files",
+-                    "find_tests_for_file" => "find_tests_for_file",
+-                    "list_imports" => "list_imports",
+-                    "record_file_review" => "record_file_review",
+-                    "record_finding" => "record_finding",
+-                    "finish" => "finish",
+-                    other => panic!("unexpected schema {other}"),
+-                }
+-            })
+-            .collect()
+-    }
+-
+-    fn test_scope(id: &str) -> SessionScope {
+-        SessionScope::review_read_only(
+-            SessionId(id.to_string()),
++    fn test_scope_with_changed_file_batch(path: &str) -> SessionScope {
++        let mut scope = SessionScope::review_read_only(
++            SessionId("batch-scope".to_string()),
+             Role::Generalist,
+             "policy diagnostic test",
+             AgentBudget {
+@@ -3283,11 +2432,7 @@ diff --git a/app/views/embed/show.html.erb b/app/views/embed/show.html.erb
+                 max_prompt_tokens: 32_000,
+                 max_output_tokens: 512,
+             },
+-        )
+-    }
+-
+-    fn test_scope_with_changed_file_batch(path: &str) -> SessionScope {
+-        let mut scope = test_scope("batch-scope");
++        );
+         scope
+             .instructions
+             .push(crate::runtime::contracts::SessionInstruction {

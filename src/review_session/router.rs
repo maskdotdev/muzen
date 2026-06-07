@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::{
     ModelProfile, ModelProfileInput, Muzen, ProviderProfile, ProviderProfileInput, ReviewArtifact,
@@ -8,7 +10,19 @@ use super::{
     HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND,
     HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
+use crate::context_engine::{
+    ContextEngine, ContextEngineConfig, ContextIndexRequest, ContextManifestArtifact, ContextPack,
+    ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
+    ContextQueryResult, SnapshotContextEngine,
+};
+use crate::contracts::{
+    ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
+    RenameDetection, SnapshotMode,
+};
+use crate::runtime::contracts::{EvidenceId, RuntimeError, SnapshotStoragePolicy};
+use crate::runtime::repo::RepoSnapshot;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewHttpRequest {
@@ -137,6 +151,15 @@ impl ReviewHttpRouter {
             }
             ["v1", "workspaces", workspace_id, "providers", name] => {
                 self.handle_provider_profile(request, workspace_id, name)
+            }
+            ["v1", "workspaces", workspace_id, "context", "index"] => {
+                self.handle_context_index(request, workspace_id)
+            }
+            ["v1", "workspaces", workspace_id, "context", "packs"] => {
+                self.handle_context_pack(request, workspace_id)
+            }
+            ["v1", "workspaces", workspace_id, "context", "query"] => {
+                self.handle_context_query(request, workspace_id)
             }
             _ => Err(ReviewHttpRouteError::NotFound(format!(
                 "no Muzen route matches {} {}",
@@ -391,6 +414,107 @@ impl ReviewHttpRouter {
         }
     }
 
+    fn handle_context_index(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextIndexBody = json_body(request)?;
+        let (_engine, _snapshot, manifest) = self.index_context_request(workspace_id, body)?;
+        response_json(HTTP_STATUS_OK, &ContextIndexResponse { manifest })
+    }
+
+    fn handle_context_pack(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextPackBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let pack_engine = engine.clone();
+        let pack = block_on_context(async move {
+            pack_engine
+                .build_pack(
+                    ContextPackRequest {
+                        run_id: None,
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        session_id: None,
+                        purpose: body.purpose.unwrap_or(ContextPackPurpose::GeneralReview),
+                        max_tokens: body
+                            .max_tokens
+                            .unwrap_or_else(|| pack_engine.config_ref().max_pack_tokens),
+                        seed_evidence: Vec::new(),
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextPackResponse { pack })
+    }
+
+    fn handle_context_query(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextQueryBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let query_engine = engine.clone();
+        let result = block_on_context(async move {
+            query_engine
+                .query(
+                    ContextQuery {
+                        run_id: None,
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        session_id: None,
+                        purpose: body.purpose,
+                        kind: body.kind,
+                        arguments: body.arguments,
+                        current_evidence: body.current_evidence,
+                        limits: body.limits.unwrap_or(ContextQueryLimits {
+                            max_results: query_engine.config_ref().max_query_results,
+                            max_tokens: query_engine.config_ref().max_pack_tokens,
+                        }),
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextQueryResponse { result })
+    }
+
+    fn index_context_request(
+        &self,
+        _workspace_id: &str,
+        body: ContextIndexBody,
+    ) -> Result<
+        (
+            SnapshotContextEngine,
+            Arc<RepoSnapshot>,
+            ContextManifestArtifact,
+        ),
+        ReviewHttpRouteError,
+    > {
+        let config = body.config.unwrap_or_else(ContextEngineConfig::snapshot_v0);
+        let snapshot = build_context_snapshot_from_source(body.source, body.changed_files)?;
+        let engine = SnapshotContextEngine::new(config);
+        let index_engine = engine.clone();
+        let index_snapshot = Arc::clone(&snapshot);
+        let request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
+        block_on_context(async move {
+            index_engine
+                .index_snapshot(request, CancellationToken::new())
+                .await
+        })?;
+        let index = engine.get_index(&snapshot.snapshot_id).ok_or_else(|| {
+            ReviewHttpRouteError::BadRequest("context index was not stored".to_string())
+        })?;
+        Ok((engine, snapshot, index.manifest_artifact.clone()))
+    }
+
     fn review_snapshot(
         &self,
         review_id: &str,
@@ -490,6 +614,61 @@ struct ReviewArtifactResponse {
     artifact: ReviewArtifact,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextIndexBody {
+    source: ReviewSource,
+    #[serde(default)]
+    changed_files: Vec<String>,
+    #[serde(default)]
+    config: Option<ContextEngineConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextPackBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    purpose: Option<ContextPackPurpose>,
+    #[serde(default)]
+    max_tokens: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextQueryBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    purpose: Option<ContextPackPurpose>,
+    kind: ContextQueryKind,
+    #[serde(default)]
+    arguments: serde_json::Value,
+    #[serde(default)]
+    current_evidence: Vec<EvidenceId>,
+    #[serde(default)]
+    limits: Option<ContextQueryLimits>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextIndexResponse {
+    manifest: ContextManifestArtifact,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextPackResponse {
+    pack: ContextPack,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextQueryResponse {
+    result: ContextQueryResult,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelProfileResponse {
@@ -572,6 +751,104 @@ fn artifact_view(request: &ReviewHttpRequest) -> Result<ReviewArtifactView, Revi
             "unsupported artifact view `{value}`"
         ))),
     }
+}
+
+fn build_context_snapshot_from_source(
+    source: ReviewSource,
+    changed_files_override: Vec<String>,
+) -> Result<Arc<RepoSnapshot>, ReviewHttpRouteError> {
+    let (root, source_changed_files) = match source {
+        ReviewSource::Local {
+            repo,
+            changed_files,
+        } => (repo, changed_files),
+        ReviewSource::RawSnapshot {
+            root,
+            changed_files,
+        } => (root, changed_files),
+        other => {
+            return Err(ReviewHttpRouteError::BadRequest(format!(
+                "context HTTP routes require local or raw_snapshot source, got {}",
+                other.source_key()
+            )))
+        }
+    };
+    let changed_files = if changed_files_override.is_empty() {
+        source_changed_files
+    } else {
+        changed_files_override
+    };
+    if changed_files.is_empty() {
+        return Err(ReviewHttpRouteError::BadRequest(
+            "context request requires at least one changed file".to_string(),
+        ));
+    }
+    let changed_files = changed_files
+        .into_iter()
+        .map(|path| ChangedFileEntryV1 {
+            status: ChangedFileStatus::Modified,
+            old_path: Some(PathBuf::from(&path)),
+            new_path: Some(PathBuf::from(path)),
+            old_content_hash: None,
+            new_content_hash: None,
+            is_binary: false,
+            is_generated: false,
+        })
+        .collect::<Vec<_>>();
+    let change = ChangeScopeV1 {
+        kind: ChangeKind::LocalDiff,
+        change_id: "context-http".to_string(),
+        source_ref: "head".to_string(),
+        target_ref: "base".to_string(),
+        base_revision_id: "base".to_string(),
+        head_revision_id: "head".to_string(),
+        merge_base_revision_id: None,
+        changed_files_manifest_ref: None,
+        diff_manifest_ref: None,
+        inline_diff: None,
+        snapshot_mode: SnapshotMode::WorktreeHead,
+        rename_detection: RenameDetection::None,
+        changed_files,
+    };
+    RepoSnapshot::build_with_storage(
+        &root,
+        &PathPolicyV1::bench(200, 120),
+        &change,
+        SnapshotStoragePolicy::default(),
+    )
+    .map_err(|error| ReviewHttpRouteError::BadRequest(error.to_string()))
+}
+
+fn block_on_context<T>(
+    future: impl std::future::Future<Output = Result<T, RuntimeError>> + Send + 'static,
+) -> Result<T, ReviewHttpRouteError>
+where
+    T: Send + 'static,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        std::thread::spawn(move || run_context_future(future))
+            .join()
+            .map_err(|_| {
+                ReviewHttpRouteError::BadRequest("context worker thread panicked".to_string())
+            })?
+    } else {
+        run_context_future(future)
+    }
+}
+
+fn run_context_future<T>(
+    future: impl std::future::Future<Output = Result<T, RuntimeError>>,
+) -> Result<T, ReviewHttpRouteError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| ReviewHttpRouteError::BadRequest(error.to_string()))?
+        .block_on(future)
+        .map_err(context_runtime_error)
+}
+
+fn context_runtime_error(error: RuntimeError) -> ReviewHttpRouteError {
+    ReviewHttpRouteError::BadRequest(error.to_string())
 }
 
 fn route_error_status(error: &ReviewSessionError) -> (u16, String) {
