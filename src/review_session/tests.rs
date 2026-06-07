@@ -1,13 +1,7 @@
 use super::*;
-use crate::contracts::Role;
-use crate::runner::{
-    RunnerFinding, RunnerFindingLocation, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
-    RUNNER_PROTOCOL_VERSION,
-};
 use crate::util::timestamp_utc;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::str::FromStr;
 
 #[test]

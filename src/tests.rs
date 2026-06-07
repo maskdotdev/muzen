@@ -5,29 +5,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::bench::bench_job;
-use crate::cli::{
-    BenchArgs, BenchTerminalPolicy, CanaryManifestArgs, CanaryVerifyArgs, Cli, Command,
-};
+use crate::cli::{BenchArgs, BenchTerminalPolicy, CanaryManifestArgs, CanaryVerifyArgs};
 use crate::contracts::*;
-use crate::events::{EventEmitter, EventEmitterState};
 use crate::repo::RepoContext;
-use crate::reviewer::capabilities_from_mask;
-use crate::runtime::bench::optimization_failures;
 use crate::runtime::contracts::{
-    ArtifactId as ConcurrentArtifactId, ArtifactKey, CacheInfo, CacheStatus, CapabilitySet,
-    ConcurrentCounters, ConcurrentRunReport, ConversationItem, FsScope, LimitInfo,
-    ModelCostEstimate, ModelToolCall, ModelTurn, ProviderResourceId, ProviderResourceScope,
-    RepoPath, RuntimeError, RuntimeLimits, RuntimeResult, SessionId, SessionInstruction,
-    SessionScope, SnapshotId, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant, ToolId,
+    ArtifactKey, CapabilitySet, ConcurrentCounters, ConcurrentRunReport, ConversationItem,
+    FsScope, LimitInfo, ModelCostEstimate, ModelToolCall, ModelTurn, ProviderResourceId,
+    ProviderResourceScope, RepoPath, RuntimeError, RuntimeLimits, RuntimeResult, SessionId,
+    SessionInstruction, SessionScope, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant, ToolId,
     ToolMetricKey, ToolProviderHealthState, ToolProviderId, TurnId,
 };
-use crate::runtime::dispatch::RuntimeEventDispatcher;
-use crate::runtime::model::{
-    openai_provider_canary_protocols, run_openai_provider_canaries, ConcurrentModelClient,
-    EnvCredentialResolver, MockReviewModel, ModelProviderCanaryEvidence,
-    OpenAiProviderCanaryConfig, StaticModelRouter,
-};
-use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::model::{ConcurrentModelClient, MockReviewModel};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tools::ToolEngine;
 use crate::runtime::tools::{
@@ -40,8 +28,6 @@ use async_trait::async_trait;
 #[cfg(test)]
 mod suite {
     use super::*;
-    use clap::Parser;
-
 
     #[test]
     fn path_policy_blocks_parent_escape() {
@@ -4814,21 +4800,6 @@ mod suite {
     struct EchoCustomTool;
 
     #[derive(Debug)]
-    struct PrematureTerminalModel;
-
-    #[derive(Debug)]
-    struct EvidenceOnlyModel;
-
-    #[derive(Debug)]
-    struct ConcreteFindingWithVerdictModel;
-
-    #[derive(Debug)]
-    struct BugHiddenInCleanVerdictModel;
-
-    #[derive(Debug)]
-    struct CleanFileReviewModel;
-
-    #[derive(Debug)]
     struct PublicFacadeModel {
         path: String,
         query: String,
@@ -5252,212 +5223,6 @@ mod suite {
         }
     }
 
-    #[async_trait]
-    impl ConcurrentModelClient for EvidenceOnlyModel {
-        async fn complete(
-            &self,
-            scope: &SessionScope,
-            _transcript: &[ConversationItem],
-            turn_id: TurnId,
-            _cancel: tokio_util::sync::CancellationToken,
-        ) -> RuntimeResult<ModelTurn> {
-            let session_id = &scope.id;
-            Ok(ModelTurn::ToolCalls {
-                usage: TokenUsage {
-                    input_tokens: 1,
-                    output_tokens: 1,
-                    total_tokens: 2,
-                },
-                calls: vec![
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-diff", session_id.0, turn_id.0)),
-                        index: 0,
-                        name: ToolId::from(ToolName::ReadDiff),
-                        raw_arguments: "{}".to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-file", session_id.0, turn_id.0)),
-                        index: 1,
-                        name: ToolId::from(ToolName::ReadFile),
-                        raw_arguments: serde_json::json!({ "path": "README.md" }).to_string(),
-                    },
-                    ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-search", session_id.0, turn_id.0)),
-                        index: 2,
-                        name: ToolId::from(ToolName::SearchText),
-                        raw_arguments: serde_json::json!({ "query": "needle" }).to_string(),
-                    },
-                ],
-            })
-        }
-    }
-
-    #[async_trait]
-    impl ConcurrentModelClient for ConcreteFindingWithVerdictModel {
-        async fn complete(
-            &self,
-            scope: &SessionScope,
-            transcript: &[ConversationItem],
-            turn_id: TurnId,
-            _cancel: tokio_util::sync::CancellationToken,
-        ) -> RuntimeResult<ModelTurn> {
-            let session_id = &scope.id;
-            let usage = TokenUsage {
-                input_tokens: transcript.len() as u64,
-                output_tokens: 1,
-                total_tokens: transcript.len() as u64 + 1,
-            };
-            if !has_any_tool_result(transcript) {
-                return Ok(evidence_turn(session_id, turn_id, usage));
-            }
-            if let Some(finding_id) = finding_id_from_transcript(transcript) {
-                return Ok(ModelTurn::ToolCalls {
-                    usage,
-                    calls: vec![ModelToolCall {
-                        call_id: ToolCallId(format!("{}-{}-review", session_id.0, turn_id.0)),
-                        index: 0,
-                        name: ToolId::from(ToolName::RecordFileReview),
-                        raw_arguments: serde_json::json!({
-                            "path": "README.md",
-                            "verdict": "issue_found",
-                            "summary": "Concrete async cleanup bug recorded for this changed file.",
-                            "finding_id": finding_id,
-                            "related_paths": []
-                        })
-                        .to_string(),
-                    }],
-                });
-            }
-            Ok(ModelTurn::ToolCalls {
-                usage,
-                calls: vec![ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-finding", session_id.0, turn_id.0)),
-                    index: 0,
-                    name: ToolId::from(ToolName::RecordFinding),
-                    raw_arguments: serde_json::json!({
-                        "title": "Dropped async cleanup promises",
-                        "claim": "The changed cleanup path starts deletion promises but never awaits them, so realistic cleanup work can be lost before completion.",
-                        "path": "README.md",
-                        "start_line": 1,
-                        "end_line": 1
-                    })
-                    .to_string(),
-                }],
-            })
-        }
-    }
-
-    #[async_trait]
-    impl ConcurrentModelClient for BugHiddenInCleanVerdictModel {
-        async fn complete(
-            &self,
-            scope: &SessionScope,
-            transcript: &[ConversationItem],
-            turn_id: TurnId,
-            _cancel: tokio_util::sync::CancellationToken,
-        ) -> RuntimeResult<ModelTurn> {
-            let session_id = &scope.id;
-            if !has_any_tool_result(transcript) {
-                return Ok(evidence_turn(
-                    session_id,
-                    turn_id,
-                    TokenUsage {
-                        input_tokens: transcript.len() as u64,
-                        output_tokens: 1,
-                        total_tokens: transcript.len() as u64 + 1,
-                    },
-                ));
-            }
-            Ok(ModelTurn::ToolCalls {
-                usage: TokenUsage {
-                    input_tokens: transcript.len() as u64,
-                    output_tokens: 1,
-                    total_tokens: transcript.len() as u64 + 1,
-                },
-                calls: vec![ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-bad-clean", session_id.0, turn_id.0)),
-                    index: 0,
-                    name: ToolId::from(ToolName::RecordFileReview),
-                    raw_arguments: serde_json::json!({
-                        "path": "README.md",
-                        "verdict": "clean",
-                        "summary": "The changed cleanup path drops async deletion promises and can lose cleanup work before completion.",
-                        "finding_id": null,
-                        "related_paths": []
-                    })
-                    .to_string(),
-                }],
-            })
-        }
-    }
-
-    #[async_trait]
-    impl ConcurrentModelClient for CleanFileReviewModel {
-        async fn complete(
-            &self,
-            scope: &SessionScope,
-            transcript: &[ConversationItem],
-            turn_id: TurnId,
-            _cancel: tokio_util::sync::CancellationToken,
-        ) -> RuntimeResult<ModelTurn> {
-            let session_id = &scope.id;
-            let usage = TokenUsage {
-                input_tokens: transcript.len() as u64,
-                output_tokens: 1,
-                total_tokens: transcript.len() as u64 + 1,
-            };
-            if !has_any_tool_result(transcript) {
-                return Ok(evidence_turn(session_id, turn_id, usage));
-            }
-            Ok(ModelTurn::ToolCalls {
-                usage,
-                calls: vec![ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-clean", session_id.0, turn_id.0)),
-                    index: 0,
-                    name: ToolId::from(ToolName::RecordFileReview),
-                    raw_arguments: serde_json::json!({
-                        "path": "README.md",
-                        "verdict": "clean",
-                        "summary": "Reviewed the changed file with diff, file, and targeted search evidence; the changed behavior is internally consistent.",
-                        "finding_id": null,
-                        "related_paths": []
-                    })
-                    .to_string(),
-                }],
-            })
-        }
-    }
-
-    #[async_trait]
-    impl ConcurrentModelClient for PrematureTerminalModel {
-        async fn complete(
-            &self,
-            scope: &SessionScope,
-            _transcript: &[ConversationItem],
-            turn_id: TurnId,
-            _cancel: tokio_util::sync::CancellationToken,
-        ) -> RuntimeResult<ModelTurn> {
-            let session_id = &scope.id;
-            Ok(ModelTurn::ToolCalls {
-                usage: TokenUsage {
-                    input_tokens: 1,
-                    output_tokens: 1,
-                    total_tokens: 2,
-                },
-                calls: vec![ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-finding", session_id.0, turn_id.0)),
-                    index: 0,
-                    name: ToolId::from(ToolName::RecordFinding),
-                    raw_arguments: serde_json::json!({
-                        "title": "premature finding",
-                        "claim": "terminal call before evidence"
-                    })
-                    .to_string(),
-                }],
-            })
-        }
-    }
-
     #[derive(Clone)]
     struct SharedWriter(Arc<std::sync::Mutex<Vec<u8>>>);
 
@@ -5753,56 +5518,6 @@ mod suite {
             index: 0,
             name: ToolId::from(ToolName::SearchText),
             raw_arguments: r#"{"query":"needle"}"#.to_string(),
-        }
-    }
-
-    fn finding_id_from_transcript(transcript: &[ConversationItem]) -> Option<String> {
-        transcript.iter().find_map(|item| {
-            let ConversationItem::ToolResult { content, .. } = item else {
-                return None;
-            };
-            if content.tool_name.as_builtin() != Some(ToolName::RecordFinding) {
-                return None;
-            }
-            content
-                .data
-                .as_ref()
-                .and_then(|data| data.get("findingId"))
-                .and_then(|value| value.as_str())
-                .map(ToOwned::to_owned)
-        })
-    }
-
-    fn has_any_tool_result(transcript: &[ConversationItem]) -> bool {
-        transcript
-            .iter()
-            .any(|item| matches!(item, ConversationItem::ToolResult { .. }))
-    }
-
-    fn evidence_turn(session_id: &SessionId, turn_id: TurnId, usage: TokenUsage) -> ModelTurn {
-        ModelTurn::ToolCalls {
-            usage,
-            calls: vec![
-                ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-diff", session_id.0, turn_id.0)),
-                    index: 0,
-                    name: ToolId::from(ToolName::ReadDiff),
-                    raw_arguments: "{}".to_string(),
-                },
-                ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-file", session_id.0, turn_id.0)),
-                    index: 1,
-                    name: ToolId::from(ToolName::ReadFile),
-                    raw_arguments: serde_json::json!({ "path": "README.md" }).to_string(),
-                },
-                ModelToolCall {
-                    call_id: ToolCallId(format!("{}-{}-search", session_id.0, turn_id.0)),
-                    index: 2,
-                    name: ToolId::from(ToolName::SearchText),
-                    raw_arguments: serde_json::json!({ "query": "async deletion promises" })
-                        .to_string(),
-                },
-            ],
         }
     }
 

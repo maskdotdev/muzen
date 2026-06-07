@@ -1005,9 +1005,7 @@ mod tests {
         ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
         RenameDetection, SnapshotMode,
     };
-    use crate::review_plan::{
-        PlannedFileContentState, PlannedReviewFile, ReviewPlanCounts, ReviewPlanReason,
-    };
+    use crate::review_plan::ReviewPlanReason;
     use crate::runtime::model::StaticModelRouter;
     use crate::runtime::repo::RepoSnapshot;
 
@@ -1104,69 +1102,5 @@ mod tests {
             report.findings[0].title,
             "Token validation accepts empty token"
         );
-    }
-
-
-
-
-
-    fn tool_result(tool_name: &str, artifact_id: &str, path: Option<&str>) -> ToolResultEnvelope {
-        ToolResultEnvelope {
-            ok: true,
-            tool_call_id: ToolCallId(format!("{tool_name}-call")),
-            tool_name: ToolId::parse(tool_name).unwrap(),
-            provider_id: ToolProviderId::builtin_review(),
-            snapshot_id: SnapshotId("snapshot".to_string()),
-            artifact_id: Some(ArtifactId(artifact_id.to_string())),
-            cache: CacheInfo {
-                status: CacheStatus::Miss,
-                key_hash: None,
-            },
-            limits: LimitInfo::default(),
-            data: path.map(|path| json!({ "path": path })),
-            error: None,
-        }
-    }
-
-    fn planned_file(
-        path: &str,
-        mode: ReviewPlanFileMode,
-        reason_code: &'static str,
-    ) -> PlannedReviewFile {
-        PlannedReviewFile {
-            file_id: path.to_string(),
-            path: RepoPath::parse(path).unwrap(),
-            status: ChangedFileStatus::Modified,
-            content_state: PlannedFileContentState::Available,
-            estimated_bytes: Some(10),
-            mode,
-            score: if mode == ReviewPlanFileMode::Full {
-                35
-            } else {
-                0
-            },
-            reasons: vec![ReviewPlanReason {
-                code: reason_code,
-                detail: format!("{reason_code} test reason"),
-            }],
-        }
-    }
-
-    fn test_scope(id: &str) -> SessionScope {
-        SessionScope {
-            id: SessionId(id.to_string()),
-            role: Role::Generalist,
-            objective: "review".to_string(),
-            instructions: Vec::new(),
-            snapshot_id: Some(SnapshotId("snapshot".to_string())),
-            model_profile_id: None,
-            capabilities: CapabilitySet::review_read_only(),
-            budget: crate::contracts::AgentBudget {
-                max_turns: 2,
-                max_tool_calls: 8,
-                max_prompt_tokens: 64_000,
-                max_output_tokens: 8_000,
-            },
-        }
     }
 }
