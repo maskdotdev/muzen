@@ -11,7 +11,9 @@ use crate::runtime::contracts::{stable_id, EvidenceId, RuntimeError, RuntimeResu
 
 use super::ContextLearningStore;
 use super::{
-    context_embedding_text, semantic_score_for_purpose, LocalHashEmbeddingProvider, VectorIndex,
+    context_embedding_text, semantic_score_for_purpose, ContextSemanticConfig, ContextSemanticMode,
+    ContextSensitivity, EmbeddingInput, EmbeddingProvider, HostedEmbeddingProvider,
+    LocalHashEmbeddingProvider, VectorIndex,
 };
 use super::{
     ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
@@ -219,7 +221,7 @@ impl ContextEngine for SnapshotContextEngine {
                 "context engine is disabled".to_string(),
             ));
         }
-        let index = ContextIndex::build(request)?;
+        let index = ContextIndex::build(request).await?;
         let report = index.report.clone();
         self.store.put_index(index)?;
         Ok(report)
@@ -310,10 +312,12 @@ impl ContextEngine for SnapshotContextEngine {
                     matches,
                     &index.evidence,
                     &index.file_contents,
+                    &index.semantic,
                     index.semantic_vectors.as_ref(),
                     &query,
                     limit,
-                )?;
+                )
+                .await?;
                 Ok(ContextQueryResult {
                     kind: request.kind,
                     evidence: matches,
@@ -895,10 +899,11 @@ fn search_evidence(
         .collect()
 }
 
-fn merge_semantic_search(
+async fn merge_semantic_search(
     mut lexical: Vec<ContextEvidence>,
     evidence: &[ContextEvidence],
     file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
+    semantic: &ContextSemanticConfig,
     semantic_vectors: Option<&crate::context_engine::InMemoryVectorIndex>,
     query: &str,
     limit: usize,
@@ -906,8 +911,7 @@ fn merge_semantic_search(
     let Some(semantic_vectors) = semantic_vectors else {
         return Ok(lexical);
     };
-    let provider = LocalHashEmbeddingProvider::new(256)?;
-    let query_vector = provider.embed_text(query);
+    let query_vector = embed_query(semantic, query).await?;
     let semantic_hits = semantic_vectors.search(&query_vector, limit)?;
     for (id, score) in semantic_hits {
         if score <= 0.0 || lexical.iter().any(|candidate| candidate.id.0 == id) {
@@ -932,6 +936,42 @@ fn merge_semantic_search(
         }
     }
     Ok(lexical)
+}
+
+async fn embed_query(
+    semantic: &ContextSemanticConfig,
+    query: &str,
+) -> RuntimeResult<crate::context_engine::EmbeddingVector> {
+    match semantic.mode {
+        ContextSemanticMode::NoVector => {
+            LocalHashEmbeddingProvider::new(256)?.embed(vec![]).await?
+        }
+        ContextSemanticMode::Local => {
+            let provider = LocalHashEmbeddingProvider::new(256)?;
+            provider
+                .embed(vec![EmbeddingInput {
+                    id: "query".to_string(),
+                    text: query.to_string(),
+                    sensitivity: ContextSensitivity::Private,
+                }])
+                .await?
+        }
+        ContextSemanticMode::Hosted => {
+            let provider = HostedEmbeddingProvider::from_config(semantic)?;
+            provider
+                .embed(vec![EmbeddingInput {
+                    id: "query".to_string(),
+                    text: query.to_string(),
+                    sensitivity: ContextSensitivity::Private,
+                }])
+                .await?
+        }
+    }
+    .into_iter()
+    .next()
+    .ok_or(RuntimeError::Invariant(
+        "query embedding provider returned no vectors",
+    ))
 }
 
 fn read_line_span(content: &str, start_line: usize, end_line: usize) -> RuntimeResult<String> {

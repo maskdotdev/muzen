@@ -382,6 +382,9 @@ export type ContextEmbeddingProviderKind = "local" | "hosted";
 export interface ContextSemanticConfig {
   mode: ContextSemanticMode;
   provider?: ContextEmbeddingProviderKind;
+  hostedBaseUrl?: string;
+  hostedModel?: string;
+  hostedCredentialRef?: string;
   allowRestrictedHostedInputs: boolean;
   maxEmbeddingInputs: number;
 }

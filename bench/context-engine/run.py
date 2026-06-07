@@ -100,6 +100,22 @@ def run_context_case(
                 str(case.get("maxEmbeddingInputs", 512)),
             ]
         )
+    if case.get("hostedSemantic"):
+        command.append("--hosted-semantic")
+        command.extend(
+            [
+                "--max-embedding-inputs",
+                str(case.get("maxEmbeddingInputs", 512)),
+            ]
+        )
+        if case.get("hostedEmbeddingBaseUrl"):
+            command.extend(["--hosted-embedding-base-url", case["hostedEmbeddingBaseUrl"]])
+        if case.get("hostedEmbeddingModel"):
+            command.extend(["--hosted-embedding-model", case["hostedEmbeddingModel"]])
+        if case.get("hostedEmbeddingCredentialRef"):
+            command.extend(
+                ["--hosted-embedding-credential-ref", case["hostedEmbeddingCredentialRef"]]
+            )
     if case.get("command") == "pack":
         command.extend(["--purpose", case.get("purpose", "general-review")])
         command.extend(["--max-tokens", str(case.get("maxTokens", 12000))])

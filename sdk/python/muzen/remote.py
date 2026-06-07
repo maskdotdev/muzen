@@ -571,6 +571,9 @@ def _context_config_payload(config: ContextEngineConfig) -> Dict[str, Any]:
         payload["semantic"] = {
             "mode": config.semantic.mode,
             "provider": config.semantic.provider,
+            "hostedBaseUrl": config.semantic.hosted_base_url,
+            "hostedModel": config.semantic.hosted_model,
+            "hostedCredentialRef": config.semantic.hosted_credential_ref,
             "allowRestrictedHostedInputs": config.semantic.allow_restricted_hosted_inputs,
             "maxEmbeddingInputs": config.semantic.max_embedding_inputs,
         }

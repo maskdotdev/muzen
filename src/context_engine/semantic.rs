@@ -1,11 +1,14 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::runtime::contracts::{RuntimeError, RuntimeResult};
+use crate::util::resolve_credential_ref;
 
 use super::{
     ContextEmbeddingProviderKind, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
-    ContextPackPurpose, ContextSemanticMode, ContextSensitivity,
+    ContextPackPurpose, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +96,119 @@ impl EmbeddingProvider for LocalHashEmbeddingProvider {
         Ok(inputs
             .into_iter()
             .map(|input| self.embed_text(&input.text))
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HostedEmbeddingProvider {
+    http: reqwest::Client,
+    base_url: String,
+    model: String,
+    api_key: String,
+}
+
+impl HostedEmbeddingProvider {
+    pub fn from_config(config: &ContextSemanticConfig) -> RuntimeResult<Self> {
+        let credential_ref = config
+            .hosted_credential_ref
+            .as_deref()
+            .unwrap_or("env:OPENAI_API_KEY");
+        let api_key = resolve_credential_ref(credential_ref).map_err(|_| {
+            RuntimeError::InvalidInput("hosted context embedding credential is unavailable".into())
+        })?;
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|_| RuntimeError::Invariant("failed to build async HTTP client"))?;
+        Ok(Self {
+            http,
+            base_url: config
+                .hosted_base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1")
+                .trim_end_matches('/')
+                .to_string(),
+            model: config
+                .hosted_model
+                .as_deref()
+                .unwrap_or("text-embedding-3-small")
+                .to_string(),
+            api_key,
+        })
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct HostedEmbeddingRequest {
+    model: String,
+    input: Vec<String>,
+    encoding_format: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedEmbeddingResponse {
+    data: Vec<HostedEmbeddingData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedEmbeddingData {
+    embedding: Vec<f32>,
+    index: usize,
+}
+
+#[async_trait]
+impl EmbeddingProvider for HostedEmbeddingProvider {
+    fn kind(&self) -> ContextEmbeddingProviderKind {
+        ContextEmbeddingProviderKind::Hosted
+    }
+
+    async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let request = HostedEmbeddingRequest {
+            model: self.model.clone(),
+            input: inputs.into_iter().map(|input| input.text).collect(),
+            encoding_format: "float",
+        };
+        let response = self
+            .http
+            .post(format!("{}/embeddings", self.base_url))
+            .bearer_auth(&self.api_key)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|error| RuntimeError::ProviderMessage {
+                status: None,
+                retryable: error.is_timeout() || error.is_connect(),
+                message: error.to_string(),
+            })?;
+        let status = response.status();
+        if !status.is_success() {
+            let retryable = status.is_server_error()
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT;
+            let message = response.text().await.unwrap_or_default();
+            return Err(RuntimeError::ProviderMessage {
+                status: Some(status.as_u16()),
+                retryable,
+                message,
+            });
+        }
+        let mut data = response
+            .json::<HostedEmbeddingResponse>()
+            .await
+            .map_err(|error| RuntimeError::ProviderMessage {
+                status: Some(status.as_u16()),
+                retryable: false,
+                message: error.to_string(),
+            })?
+            .data;
+        data.sort_by_key(|item| item.index);
+        Ok(data
+            .into_iter()
+            .map(|item| EmbeddingVector::normalized(item.embedding))
             .collect())
     }
 }

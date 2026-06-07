@@ -111,6 +111,30 @@ fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
     );
 }
 
+#[test]
+fn hosted_semantic_config_serializes_and_requires_credential() {
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.semantic.mode = ContextSemanticMode::Hosted;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Hosted);
+    config.semantic.hosted_base_url = Some("https://embeddings.example/v1".to_string());
+    config.semantic.hosted_model = Some("text-embedding-3-small".to_string());
+    config.semantic.hosted_credential_ref =
+        Some("env:MUZEN_TEST_MISSING_CONTEXT_EMBEDDING_KEY".to_string());
+    config.semantic.max_embedding_inputs = 8;
+
+    let serialized = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        serialized
+            .pointer("/semantic/hostedBaseUrl")
+            .and_then(serde_json::Value::as_str),
+        Some("https://embeddings.example/v1")
+    );
+    assert!(matches!(
+        HostedEmbeddingProvider::from_config(&config.semantic),
+        Err(RuntimeError::InvalidInput(_))
+    ));
+}
+
 #[tokio::test]
 async fn noop_engine_reports_disabled() {
     let repo = tempfile::tempdir().unwrap();

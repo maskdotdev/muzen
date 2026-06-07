@@ -48,9 +48,10 @@ Implemented on `feat/context-engine`:
 - Optional semantic retrieval scaffolding is present: no-vector mode is the
   default, embedding provider/vector-index traits are defined, a deterministic
   local hashed embedding provider, in-memory vector index, local-mode semantic
-  index lifecycle, and search merge are available, semantic score is an
-  additive ranking signal, and hosted embedding inputs reject restricted
-  evidence unless explicitly allowed.
+  index lifecycle, hosted OpenAI-compatible embedding provider, and provider-
+  matched search merge are available, semantic score is an additive ranking
+  signal, and hosted embedding inputs reject restricted evidence unless
+  explicitly allowed.
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
   import extraction feeds a per-index symbol graph used by `related_symbols`,
   including common re-export, alias, nested import, method-definition forms, and
@@ -60,12 +61,12 @@ Implemented on `feat/context-engine`:
   prompt-injection trust summaries, plus expected symbol-range checks and
   local semantic-mode cases driven through the public CLI.
 - The context CLI can opt into local semantic indexing with `--local-semantic`
-  and bound vector inputs with `--max-embedding-inputs`.
+  or hosted semantic indexing with `--hosted-semantic`, and bound vector inputs
+  with `--max-embedding-inputs`.
 
-Still pending from the full plan:
+Future hardening:
 
 - Broader parser coverage for more deeply nested module/class shapes.
-- Hosted embedding provider implementation and benchmarked hosted semantic
-  ranking improvements.
+- Live hosted semantic ranking benchmark results with provider credentials.
 - Broader replay/evaluation coverage for sufficiency calibration, cache hit
   rates, hosted semantic ranking, and larger multi-fixture regressions.

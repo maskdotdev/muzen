@@ -5,16 +5,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::review_plan::ReviewPlan;
 use crate::runtime::contracts::{
-    stable_id, ArtifactId, EvidenceId, RepoPath, RuntimeResult, SessionInstruction,
+    stable_id, ArtifactId, EvidenceId, RepoPath, RuntimeError, RuntimeResult, SessionInstruction,
     SnapshotCaptureStatus, SnapshotId,
 };
 use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
 use super::{
-    context_embedding_text, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
-    ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRevision, ContextScope,
-    ContextSemanticConfig, ContextSemanticMode, ContextSensitivity, ContextSymbolGraph,
-    ContextTrust, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
+    context_embedding_text, validate_embedding_batch, ContextEngineConfig, ContextEvidence,
+    ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRevision,
+    ContextScope, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
+    ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider, HostedEmbeddingProvider,
+    InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
@@ -153,6 +154,7 @@ pub struct ContextIndex {
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
     pub symbol_graph: ContextSymbolGraph,
+    pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
     pub skips: Vec<ContextIndexSkip>,
@@ -161,7 +163,7 @@ pub struct ContextIndex {
 }
 
 impl ContextIndex {
-    pub fn build(request: ContextIndexRequest) -> RuntimeResult<Self> {
+    pub async fn build(request: ContextIndexRequest) -> RuntimeResult<Self> {
         let started = std::time::Instant::now();
         let _review_plan = &request.review_plan;
         let snapshot = request.snapshot;
@@ -310,7 +312,7 @@ impl ContextIndex {
         }
 
         let semantic_vectors =
-            build_semantic_vectors(&request.semantic, &evidence, &file_contents)?;
+            build_semantic_vectors(&request.semantic, &evidence, &file_contents).await?;
 
         let index_id = ContextIndexId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -358,6 +360,7 @@ impl ContextIndex {
             evidence,
             file_contents,
             symbol_graph,
+            semantic: request.semantic,
             semantic_vectors,
             denied_cross_repo_contracts,
             skips,
@@ -367,27 +370,59 @@ impl ContextIndex {
     }
 }
 
-fn build_semantic_vectors(
+async fn build_semantic_vectors(
     semantic: &ContextSemanticConfig,
     evidence: &[ContextEvidence],
     file_contents: &BTreeMap<RepoPath, String>,
 ) -> RuntimeResult<Option<InMemoryVectorIndex>> {
-    if semantic.mode != ContextSemanticMode::Local {
+    if semantic.mode == ContextSemanticMode::NoVector {
         return Ok(None);
     }
     let max_inputs = semantic.max_embedding_inputs.min(evidence.len());
-    let provider = LocalHashEmbeddingProvider::new(256)?;
+    let inputs = evidence
+        .iter()
+        .take(max_inputs)
+        .map(|evidence| {
+            let content = evidence
+                .path
+                .as_ref()
+                .and_then(|path| file_contents.get(path))
+                .map(String::as_str);
+            EmbeddingInput {
+                id: evidence.id.0.clone(),
+                text: context_embedding_text(evidence, content),
+                sensitivity: evidence.sensitivity,
+            }
+        })
+        .collect::<Vec<_>>();
+    validate_embedding_batch(
+        &ContextEngineConfig {
+            semantic: semantic.clone(),
+            ..ContextEngineConfig::snapshot_v0()
+        },
+        &inputs,
+    )?;
+    let vectors = match semantic.mode {
+        ContextSemanticMode::NoVector => Vec::new(),
+        ContextSemanticMode::Local => {
+            let provider = LocalHashEmbeddingProvider::new(256)?;
+            provider.embed(inputs.clone()).await?
+        }
+        ContextSemanticMode::Hosted => {
+            let provider = HostedEmbeddingProvider::from_config(semantic)?;
+            provider.embed(inputs.clone()).await?
+        }
+    };
     let mut index = InMemoryVectorIndex::new();
-    for evidence in evidence.iter().take(max_inputs) {
-        let content = evidence
-            .path
-            .as_ref()
-            .and_then(|path| file_contents.get(path))
-            .map(String::as_str);
-        index.put(
-            evidence.id.0.clone(),
-            provider.embed_text(&context_embedding_text(evidence, content)),
-        )?;
+    if vectors.len() != inputs.len() {
+        return Err(RuntimeError::ProviderMessage {
+            status: None,
+            retryable: false,
+            message: "context embedding provider returned an unexpected vector count".to_string(),
+        });
+    }
+    for (input, vector) in inputs.into_iter().zip(vectors) {
+        index.put(input.id, vector)?;
     }
     Ok(Some(index))
 }

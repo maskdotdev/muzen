@@ -154,6 +154,18 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long)]
     pub(crate) local_semantic: bool,
 
+    #[arg(long)]
+    pub(crate) hosted_semantic: bool,
+
+    #[arg(long)]
+    pub(crate) hosted_embedding_base_url: Option<String>,
+
+    #[arg(long)]
+    pub(crate) hosted_embedding_model: Option<String>,
+
+    #[arg(long)]
+    pub(crate) hosted_embedding_credential_ref: Option<String>,
+
     #[arg(long, default_value_t = 512)]
     pub(crate) max_embedding_inputs: usize,
 
@@ -745,7 +757,7 @@ async fn index_context_snapshot(
     crate::context_engine::ContextManifestArtifact,
 )> {
     let snapshot = build_context_snapshot(args)?;
-    let engine = SnapshotContextEngine::new(context_engine_config(args));
+    let engine = SnapshotContextEngine::new(context_engine_config(args)?);
     engine
         .index_snapshot(
             ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
@@ -759,14 +771,24 @@ async fn index_context_snapshot(
     Ok((engine, snapshot, index.manifest_artifact.clone()))
 }
 
-fn context_engine_config(args: &ContextSnapshotArgs) -> ContextEngineConfig {
+fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConfig> {
+    if args.local_semantic && args.hosted_semantic {
+        bail!("--local-semantic and --hosted-semantic are mutually exclusive");
+    }
     let mut config = ContextEngineConfig::snapshot_v0();
     if args.local_semantic {
         config.semantic.mode = ContextSemanticMode::Local;
         config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
         config.semantic.max_embedding_inputs = args.max_embedding_inputs;
+    } else if args.hosted_semantic {
+        config.semantic.mode = ContextSemanticMode::Hosted;
+        config.semantic.provider = Some(ContextEmbeddingProviderKind::Hosted);
+        config.semantic.hosted_base_url = args.hosted_embedding_base_url.clone();
+        config.semantic.hosted_model = args.hosted_embedding_model.clone();
+        config.semantic.hosted_credential_ref = args.hosted_embedding_credential_ref.clone();
+        config.semantic.max_embedding_inputs = args.max_embedding_inputs;
     }
-    config
+    Ok(config)
 }
 
 fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot>> {
