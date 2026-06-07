@@ -11,9 +11,10 @@ use crate::runtime::contracts::{
 use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
 use super::{
-    ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextEvidenceSource,
-    ContextIndexId, ContextProvenance, ContextRevision, ContextScope, ContextSensitivity,
-    ContextSymbolGraph, ContextTrust,
+    context_embedding_text, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
+    ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRevision, ContextScope,
+    ContextSemanticConfig, ContextSemanticMode, ContextSensitivity, ContextSymbolGraph,
+    ContextTrust, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
@@ -29,6 +30,7 @@ pub struct ContextIndexRequest {
     pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
     pub allowed_cross_repo_resources: BTreeSet<String>,
     pub include_host_context: bool,
+    pub semantic: ContextSemanticConfig,
     pub limits: ContextLimits,
 }
 
@@ -43,6 +45,7 @@ impl ContextIndexRequest {
             cross_repo_contracts: Vec::new(),
             allowed_cross_repo_resources: BTreeSet::new(),
             include_host_context: config.include_host_context,
+            semantic: config.semantic.clone(),
             limits: ContextLimits::from_config(config),
         }
     }
@@ -150,6 +153,7 @@ pub struct ContextIndex {
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
     pub symbol_graph: ContextSymbolGraph,
+    pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
     pub skips: Vec<ContextIndexSkip>,
     pub report: ContextIndexReport,
@@ -300,6 +304,9 @@ impl ContextIndex {
             }
         }
 
+        let semantic_vectors =
+            build_semantic_vectors(&request.semantic, &evidence, &file_contents)?;
+
         let index_id = ContextIndexId(stable_id(&[
             &snapshot.snapshot_id.0,
             &snapshot.manifest_hash,
@@ -346,12 +353,38 @@ impl ContextIndex {
             evidence,
             file_contents,
             symbol_graph,
+            semantic_vectors,
             denied_cross_repo_contracts,
             skips,
             report,
             manifest_artifact,
         })
     }
+}
+
+fn build_semantic_vectors(
+    semantic: &ContextSemanticConfig,
+    evidence: &[ContextEvidence],
+    file_contents: &BTreeMap<RepoPath, String>,
+) -> RuntimeResult<Option<InMemoryVectorIndex>> {
+    if semantic.mode != ContextSemanticMode::Local {
+        return Ok(None);
+    }
+    let max_inputs = semantic.max_embedding_inputs.min(evidence.len());
+    let provider = LocalHashEmbeddingProvider::new(256)?;
+    let mut index = InMemoryVectorIndex::new();
+    for evidence in evidence.iter().take(max_inputs) {
+        let content = evidence
+            .path
+            .as_ref()
+            .and_then(|path| file_contents.get(path))
+            .map(String::as_str);
+        index.put(
+            evidence.id.0.clone(),
+            provider.embed_text(&context_embedding_text(evidence, content)),
+        )?;
+    }
+    Ok(Some(index))
 }
 
 fn cross_repo_contract_evidence(

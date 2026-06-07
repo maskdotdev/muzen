@@ -9,8 +9,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::runtime::contracts::{stable_id, EvidenceId, RuntimeError, RuntimeResult, SnapshotId};
 
-use super::semantic_score_for_purpose;
 use super::ContextLearningStore;
+use super::{
+    context_embedding_text, semantic_score_for_purpose, LocalHashEmbeddingProvider, VectorIndex,
+};
 use super::{
     ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
     ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
@@ -304,6 +306,14 @@ impl ContextEngine for SnapshotContextEngine {
             ContextQueryKind::SearchText => {
                 let query = string_arg(&request.arguments, "query")?;
                 let matches = search_evidence(&index.evidence, &index.file_contents, &query, limit);
+                let matches = merge_semantic_search(
+                    matches,
+                    &index.evidence,
+                    &index.file_contents,
+                    index.semantic_vectors.as_ref(),
+                    &query,
+                    limit,
+                )?;
                 Ok(ContextQueryResult {
                     kind: request.kind,
                     evidence: matches,
@@ -883,6 +893,45 @@ fn search_evidence(
         .take(limit)
         .cloned()
         .collect()
+}
+
+fn merge_semantic_search(
+    mut lexical: Vec<ContextEvidence>,
+    evidence: &[ContextEvidence],
+    file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
+    semantic_vectors: Option<&crate::context_engine::InMemoryVectorIndex>,
+    query: &str,
+    limit: usize,
+) -> RuntimeResult<Vec<ContextEvidence>> {
+    let Some(semantic_vectors) = semantic_vectors else {
+        return Ok(lexical);
+    };
+    let provider = LocalHashEmbeddingProvider::new(256)?;
+    let query_vector = provider.embed_text(query);
+    let semantic_hits = semantic_vectors.search(&query_vector, limit)?;
+    for (id, score) in semantic_hits {
+        if score <= 0.0 || lexical.iter().any(|candidate| candidate.id.0 == id) {
+            continue;
+        }
+        if let Some(candidate) = evidence.iter().find(|candidate| candidate.id.0 == id) {
+            let content = candidate
+                .path
+                .as_ref()
+                .and_then(|path| file_contents.get(path))
+                .map(String::as_str);
+            let candidate_text = context_embedding_text(candidate, content).to_ascii_lowercase();
+            if query
+                .split_whitespace()
+                .any(|term| candidate_text.contains(&term.to_ascii_lowercase()))
+            {
+                lexical.push(candidate.clone());
+            }
+        }
+        if lexical.len() >= limit {
+            break;
+        }
+    }
+    Ok(lexical)
 }
 
 fn read_line_span(content: &str, start_line: usize, end_line: usize) -> RuntimeResult<String> {
