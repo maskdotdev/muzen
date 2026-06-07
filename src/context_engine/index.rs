@@ -206,13 +206,18 @@ impl ContextIndex {
                             let parsed_symbols =
                                 symbol_graph.add_file(file.rel_path.clone(), &content);
                             if file.is_changed {
-                                for symbol in parsed_symbols.definitions.into_iter().take(
+                                for symbol in parsed_symbols.definitions.iter().take(
                                     request
                                         .limits
                                         .max_evidence_items
                                         .saturating_sub(evidence.len()),
                                 ) {
-                                    evidence.push(symbol_evidence(&snapshot, file, &symbol));
+                                    evidence.push(symbol_evidence(
+                                        &snapshot,
+                                        file,
+                                        symbol,
+                                        parsed_symbols.definition_ranges.get(symbol).copied(),
+                                    ));
                                     if evidence.len() >= request.limits.max_evidence_items {
                                         break;
                                     }
@@ -566,7 +571,12 @@ fn concise_text(text: &str) -> String {
     output
 }
 
-fn symbol_evidence(snapshot: &RepoSnapshot, file: &FileMeta, symbol: &str) -> ContextEvidence {
+fn symbol_evidence(
+    snapshot: &RepoSnapshot,
+    file: &FileMeta,
+    symbol: &str,
+    range: Option<super::ContextRange>,
+) -> ContextEvidence {
     ContextEvidence {
         id: EvidenceId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -581,7 +591,7 @@ fn symbol_evidence(snapshot: &RepoSnapshot, file: &FileMeta, symbol: &str) -> Co
         scope: ContextScope::Snapshot,
         path: Some(file.rel_path.clone()),
         revision: Some(ContextRevision::head()),
-        range: None,
+        range,
         content_hash: file.content_hash.clone(),
         summary: Some(format!("symbol {symbol} in {}", file.rel_path.display())),
         token_estimate: estimate_tokens(symbol.len()),
