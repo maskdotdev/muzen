@@ -11,8 +11,10 @@ import {
   createMuzen,
   createMuzenClient,
   local,
+  openai,
   MuzenUnsupportedFeatureError,
   type Muzen,
+  type ReviewOptions,
   type ReviewResult,
 } from "./index.js";
 
@@ -43,6 +45,7 @@ describe("runner-backed Muzen preview", () => {
       const review = await muzen.review(
         local(repo, { changedFiles: ["Cargo.toml"] }),
         {
+          model: smokeReviewModel("Cargo.toml"),
           sessions: [
             {
               id: "security",
@@ -112,6 +115,37 @@ describe("runner-backed Muzen preview", () => {
     },
   );
 });
+
+function smokeReviewModel(path: string): ReviewOptions["model"] {
+  return {
+    kind: "callback",
+    handler: (request) => {
+      const toolResults = request.transcript.filter(
+        (item) => isRecord(item) && item.kind === "tool_result",
+      );
+      if (toolResults.length === 0) {
+        return {
+          toolCalls: [
+            { toolId: "read_diff", arguments: {} },
+            { toolId: "read_file", arguments: { path } },
+            { toolId: "search_text", arguments: { query: "fixture" } },
+          ],
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        };
+      }
+      return {
+        toolCalls: [
+          { toolId: "finish", arguments: { reason: "smoke review completed" } },
+        ],
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      };
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 describe("remote Muzen client", () => {
   it("uses the preview HTTP contract for reviews, events, results, and artifacts", async () => {
@@ -367,7 +401,11 @@ describe("remote Muzen client", () => {
     const loadedProvider = await workspace.providers.get("github");
     const providerProfiles = await workspace.providers.list();
     const review = await workspace.review("github:maskdotdev/heimdaal#123", {
-      model: "default",
+      model: openai({
+        model: "gpt-5",
+        credential: { secretRef: "vault://workspaces/acme/models/default" },
+        baseUrl: "https://models.example.test",
+      }),
     });
 
     assert.equal(workspace.id, "acme");

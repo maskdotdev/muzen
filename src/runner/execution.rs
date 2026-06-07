@@ -1,27 +1,29 @@
-use std::fs;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::contracts::{AgentBudget, Role};
-use crate::reviewer::{
-    capabilities, ids::ToolId, paths, runtime_events::EventSink as RuntimeEventSink, ChangeSpec,
-    ChangedFileSpec, ReviewEventRecord, ReviewEventSink, ReviewRunLimits, ReviewRunSummary,
-    ReviewSessionSpec, ReviewToolRegistry, Run, RunSpec, SnapshotPathPolicy, SnapshotSpec,
-};
+use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
+use crate::reviewer::report::{ReviewRunSummary, RunReport};
+use crate::reviewer::run::Run;
+use crate::reviewer::runtime_events::EventSink as RuntimeEventSink;
+use crate::runtime::contracts::ToolEffects;
 
-use super::adapters::{
-    CallbackReviewModel, CallbackReviewTool, DeterministicRunnerModel, StreamingRunnerEventSink,
-};
-use super::materialize::materialize_run_source;
+use super::adapters::StreamingRunnerEventSink;
+use super::planning::plan_run_start;
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
-    RunSessionParams, RunStartParams, RunnerFinding, RunnerRunResult, RunnerRunSummary,
-    RunnerSnapshotSummary,
+    RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
+    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult,
+    RunnerRunSummary, RunnerSnapshotSummary,
 };
+use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
 
 pub(crate) struct ExecutedRun {
@@ -33,105 +35,39 @@ pub(crate) struct ExecutedRun {
 pub(crate) fn execute_run_start(
     params: RunStartParams,
     transport: Option<Arc<dyn RunnerCallbackTransport>>,
+    cancel: CancellationToken,
 ) -> Result<ExecutedRun> {
     if let Some(protocol_version) = &params.protocol_version {
         if protocol_version != RUNNER_PROTOCOL_VERSION {
             anyhow::bail!("unsupported protocolVersion {protocol_version}");
         }
     }
-    let run_id = params.run_id.unwrap_or_else(|| "muzen-run".to_string());
-    let materialized = materialize_run_source(
-        params.repo.as_deref(),
-        params.source.as_ref(),
-        &params.changed_files,
-        params.source_provider.as_ref(),
+    let heartbeat = start_heartbeat(
+        params.run_id.as_deref().unwrap_or("muzen-run"),
+        params.heartbeat.as_ref(),
+        transport.clone(),
+        cancel.clone(),
     )?;
-    let repo_root = materialized.repo_root().to_path_buf();
-    let target_path = select_target_path(&repo_root, materialized.changed_files())?;
-    let changed_files = changed_file_specs(&repo_root, materialized.changed_files(), &target_path);
-    let change = ChangeSpec::local("sdk-run", "head", changed_files);
-    let max_file_bytes = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_file_bytes)
-        .unwrap_or(200 * 1024);
-    let max_search_matches = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_search_matches)
-        .unwrap_or(120);
-    let max_active_sessions = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_active_sessions)
-        .unwrap_or_else(|| params.sessions.len().max(1));
-    let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
-        SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
-    );
-    let sessions = if params.sessions.is_empty() {
-        vec![RunSessionParams {
-            id: "generalist".to_string(),
-            role: Role::Generalist,
-            objective: "Review the repository change.".to_string(),
-            cwd: None,
-            model_profile_id: None,
-            budget: None,
-        }]
-    } else {
-        params.sessions
-    };
-    let callback_tool_ids = params
-        .tools
-        .iter()
-        .map(|tool| tool.id.clone())
-        .collect::<Vec<_>>();
-    let session_specs = sessions
-        .into_iter()
-        .map(|session| run_session_spec(session, &callback_tool_ids))
-        .collect::<Result<Vec<_>>>()?;
-    let limits = ReviewRunLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
-    let spec = RunSpec::single_snapshot(run_id.clone(), snapshot, session_specs, limits);
+    let model = params.model.clone();
+    let tools = params.tools.clone();
+    let plan = plan_run_start(params, transport.as_ref())?;
+    let model = model.ok_or_else(|| {
+        anyhow::anyhow!("run requires a model; pass a callback or hosted provider model")
+    })?;
     let event_sink = Arc::new(RecordingReviewEventSink::default());
     let streaming_sink = transport.as_ref().map(|transport| {
         Arc::new(StreamingRunnerEventSink::new(transport.clone())) as Arc<dyn RuntimeEventSink>
     });
-    let mut builder = Run::builder(spec);
-    let use_callback_model = params.model.as_ref().is_some_and(|model| model.callback);
-    if use_callback_model {
-        let transport = transport
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("callback model requires interactive stdio"))?;
-        builder = builder.review_model(Arc::new(CallbackReviewModel::new(
-            run_id.clone(),
-            transport,
-        )));
-    } else {
-        builder = builder.review_model(Arc::new(DeterministicRunnerModel::new(
-            target_path,
-            "TODO|fn|class|export|pub".to_string(),
-        )));
-    }
-    if !params.tools.is_empty() {
-        let transport = transport
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("callback tools require interactive stdio"))?;
-        let mut registry = ReviewToolRegistry::review_defaults()
-            .map_err(|error| anyhow::anyhow!("failed to create review tool registry: {error}"))?;
-        for tool in params.tools {
-            registry
-                .register_read_only_tool(
-                    &tool.id,
-                    tool.description,
-                    tool.parameters,
-                    tool.cacheable,
-                    Arc::new(CallbackReviewTool::new(run_id.clone(), transport.clone())),
-                )
-                .map_err(|error| {
-                    anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
-                })?;
-        }
-        builder = builder.review_tool_registry(registry);
-    }
+    let wiring = RunnerWiring::new(&plan.run_id, &tools, transport.clone())?;
+    let builder = wiring.wire_model(
+        Run::builder(plan.spec),
+        &plan.run_id,
+        &model,
+        plan.max_active_sessions,
+        transport.clone(),
+        #[cfg(test)]
+        plan.target_path,
+    )?;
     let run = if let Some(streaming_sink) = streaming_sink {
         builder.event_sink(streaming_sink).build()
     } else {
@@ -142,8 +78,9 @@ pub(crate) fn execute_run_start(
         .enable_all()
         .build()
         .context("failed to build runner tokio runtime")?;
-    let report = runtime.block_on(run.execute_with_cancel(CancellationToken::new()));
-    let result = runner_result_from_report(&report);
+    let report = runtime.block_on(run.execute_with_cancel(cancel));
+    heartbeat.stop();
+    let result = runner_result_from_report(&report, plan.metadata);
     let stored = RunnerStoredRun::from_report(&report, result.clone());
     Ok(ExecutedRun {
         result,
@@ -152,44 +89,100 @@ pub(crate) fn execute_run_start(
     })
 }
 
-fn run_session_spec(
-    params: RunSessionParams,
-    callback_tool_ids: &[String],
-) -> Result<ReviewSessionSpec> {
-    let budget = params.budget.map_or(
-        AgentBudget {
-            max_turns: 7,
-            max_tool_calls: 14,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-        },
-        |budget| AgentBudget {
-            max_turns: budget.max_turns,
-            max_tool_calls: budget.max_tool_calls,
-            max_prompt_tokens: budget.max_prompt_tokens,
-            max_output_tokens: budget.max_output_tokens,
-        },
-    );
-    let mut spec =
-        ReviewSessionSpec::review_read_only(params.id, params.role, params.objective, budget);
-    if let Some(model_profile_id) = params.model_profile_id {
-        spec = spec.with_model_profile_id(model_profile_id);
-    }
-    if let Some(cwd) = params.cwd {
-        let repo_path = paths::RepoPath::parse(&cwd).map_err(|error| anyhow::anyhow!("{error}"))?;
-        let capabilities = capabilities::CapabilitySet::review_read_only()
-            .with_fs_scope(capabilities::FsScope::subtree(repo_path));
-        spec = spec.with_capabilities(capabilities);
-    }
-    for tool_id in callback_tool_ids {
-        let tool_id = ToolId::parse(tool_id).map_err(|error| anyhow::anyhow!("{error}"))?;
-        spec = spec.grant_custom_read_only_tool(tool_id);
-    }
-    Ok(spec)
+struct HeartbeatGuard {
+    stop: Arc<AtomicBool>,
 }
 
-fn runner_result_from_report(report: &crate::reviewer::RunReport) -> RunnerRunResult {
-    let summary = runner_summary_from_review(&report.summary);
+impl HeartbeatGuard {
+    fn noop() -> Self {
+        Self {
+            stop: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+fn start_heartbeat(
+    run_id: &str,
+    config: Option<&RunHeartbeatConfigParams>,
+    transport: Option<Arc<dyn RunnerCallbackTransport>>,
+    cancel: CancellationToken,
+) -> Result<HeartbeatGuard> {
+    let Some(config) = config else {
+        return Ok(HeartbeatGuard::noop());
+    };
+    if !config.callback {
+        return Ok(HeartbeatGuard::noop());
+    }
+    let transport = transport
+        .ok_or_else(|| anyhow::anyhow!("heartbeat callback requires interactive stdio"))?;
+    let interval = Duration::from_millis(config.interval_ms.unwrap_or(30_000).max(1));
+    let lease_seconds = config.lease_seconds;
+    let run_id = run_id.to_string();
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    thread::spawn(move || {
+        let started = Instant::now();
+        let mut sequence = 0u64;
+        while !thread_stop.load(Ordering::SeqCst) && !cancel.is_cancelled() {
+            thread::sleep(interval);
+            if thread_stop.load(Ordering::SeqCst) || cancel.is_cancelled() {
+                break;
+            }
+            sequence += 1;
+            let params = RunHeartbeatParams {
+                protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
+                run_id: run_id.clone(),
+                sequence,
+                elapsed_ms: started.elapsed().as_micros().div_ceil(1000) as u64,
+                lease_seconds,
+            };
+            let should_continue = transport
+                .request("run.heartbeat", json!(params))
+                .ok()
+                .and_then(|value| serde_json::from_value::<RunHeartbeatResult>(value).ok())
+                .map(|result| result.continue_run)
+                .unwrap_or(false);
+            if !should_continue {
+                cancel.cancel();
+                break;
+            }
+        }
+    });
+    Ok(HeartbeatGuard { stop })
+}
+
+fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
+    if effects.is_empty() {
+        return Ok(ToolEffects::custom_read_only());
+    }
+    let mut parsed = ToolEffects::default();
+    for effect in effects {
+        match effect.as_str() {
+            "read_repo" | "read_diff" => parsed.repo_read = true,
+            "read_artifact" => parsed.artifact_read = true,
+            "write_artifact" => parsed.artifact_write = true,
+            "read_host" => parsed.host_read = true,
+            "read_network" => parsed.network_read = true,
+            "read_scratch" => parsed.scratch_read = true,
+            "write_scratch" => parsed.scratch_write = true,
+            "external_side_effect" => {
+                anyhow::bail!("external_side_effect tools are not supported in V1")
+            }
+            unknown => anyhow::bail!("unknown tool effect {unknown}"),
+        }
+    }
+    Ok(parsed)
+}
+
+fn runner_result_from_report(
+    report: &RunReport,
+    metadata: BTreeMap<String, Value>,
+) -> RunnerRunResult {
+    let mut summary = runner_summary_from_review(&report.summary);
     let snapshots = report
         .snapshot_manifests()
         .into_iter()
@@ -203,22 +196,70 @@ fn runner_result_from_report(report: &crate::reviewer::RunReport) -> RunnerRunRe
                 .filter(|file| {
                     matches!(
                         file.capture_status,
-                        crate::reviewer::storage::SnapshotCaptureStatus::Captured
+                        crate::runtime::contracts::SnapshotCaptureStatus::Captured
                     )
                 })
                 .count(),
             captured_bytes: manifest.captured_text_bytes as u64,
         })
         .collect();
-    let findings = report
-        .findings()
+    let findings = dedupe_runner_findings(
+        report
+            .findings()
+            .into_iter()
+            .map(|finding| RunnerFinding {
+                id: finding.id,
+                title: finding.title,
+                claim: finding.claim,
+                evidence_count: finding.evidence_count,
+                publishable: finding.publishable,
+                severity: Some(finding.severity),
+                confidence: Some(finding.confidence),
+                validation_status: Some(finding.validation_status),
+                evidence: finding
+                    .evidence
+                    .into_iter()
+                    .map(|evidence| RunnerFindingEvidence {
+                        evidence_id: evidence.evidence_id,
+                        artifact_id: evidence.artifact_id.0,
+                        kind: evidence.kind,
+                        content_hash: evidence.content_hash,
+                        producing_tool_call_id: evidence.producing_tool_call_id.0,
+                    })
+                    .collect(),
+                discovered_by: finding.discovered_by,
+                validated_by: finding.validated_by,
+                challenged_by: finding.challenged_by,
+                location: finding.location.map(|location| RunnerFindingLocation {
+                    path: location.path,
+                    revision: None,
+                    start_line: location.start_line,
+                    end_line: location.end_line,
+                    start_column: None,
+                    end_column: None,
+                    side: None,
+                    provider_anchor: None,
+                }),
+            })
+            .collect(),
+    );
+    summary.findings = findings.len();
+    summary.publishable_findings = findings
+        .iter()
+        .filter(|finding| finding.publishable)
+        .count();
+    let file_reviews = report
+        .file_reviews()
         .into_iter()
-        .map(|finding| RunnerFinding {
-            id: finding.id,
-            title: finding.title,
-            claim: finding.claim,
-            evidence_count: finding.evidence_count,
-            publishable: finding.publishable,
+        .map(|review| RunnerFileReview {
+            path: review.path,
+            verdict: review.verdict,
+            summary: review.summary,
+            related_paths: review.related_paths,
+            evidence_artifact_ids: review.evidence_artifact_ids,
+            evidence_count: review.evidence_count,
+            session_id: review.session_id,
+            unit_id: review.unit_id,
         })
         .collect();
     RunnerRunResult {
@@ -226,8 +267,110 @@ fn runner_result_from_report(report: &crate::reviewer::RunReport) -> RunnerRunRe
         run_id: report.run_id.clone(),
         status: summary_status(&summary),
         summary,
+        file_reviews,
         findings,
         snapshots,
+        metadata,
+    }
+}
+
+fn dedupe_runner_findings(findings: Vec<RunnerFinding>) -> Vec<RunnerFinding> {
+    let mut by_key: BTreeMap<String, RunnerFinding> = BTreeMap::new();
+    let mut order = Vec::new();
+    for finding in findings {
+        let key = finding_dedupe_key(&finding);
+        if let Some(existing) = by_key.get_mut(&key) {
+            merge_runner_finding(existing, finding);
+            continue;
+        }
+        order.push(key.clone());
+        by_key.insert(key, finding);
+    }
+    order
+        .into_iter()
+        .filter_map(|key| by_key.remove(&key))
+        .collect()
+}
+
+fn finding_dedupe_key(finding: &RunnerFinding) -> String {
+    let text = normalize_finding_text(&format!("{} {}", finding.title, finding.claim));
+    if text.contains("foreach")
+        && text.contains("async")
+        && (text.contains("await") || text.contains("promise"))
+        && (text.contains("cleanup") || text.contains("delete") || text.contains("deletion"))
+    {
+        return "root-cause:unawaited-async-iteration-cleanup".to_string();
+    }
+    format!("text:{text}")
+}
+
+fn normalize_finding_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn merge_runner_finding(existing: &mut RunnerFinding, duplicate: RunnerFinding) {
+    existing.confidence = match (existing.confidence, duplicate.confidence) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (None, right) => right,
+        (left, None) => left,
+    };
+    existing.publishable |= duplicate.publishable;
+    append_unique(&mut existing.discovered_by, duplicate.discovered_by);
+    append_unique(&mut existing.validated_by, duplicate.validated_by);
+    append_unique(&mut existing.challenged_by, duplicate.challenged_by);
+
+    let mut seen_evidence = existing
+        .evidence
+        .iter()
+        .map(|evidence| evidence.evidence_id.clone())
+        .collect::<BTreeSet<_>>();
+    for evidence in duplicate.evidence {
+        if seen_evidence.insert(evidence.evidence_id.clone()) {
+            existing.evidence.push(evidence);
+        }
+    }
+    existing.evidence_count = existing.evidence.len();
+
+    if let Some(path) = duplicate
+        .location
+        .as_ref()
+        .map(|location| location.path.clone())
+    {
+        append_related_location(&mut existing.claim, &path);
+    }
+}
+
+fn append_unique(values: &mut Vec<String>, additions: Vec<String>) {
+    let mut seen = values.iter().cloned().collect::<BTreeSet<_>>();
+    for value in additions {
+        if seen.insert(value.clone()) {
+            values.push(value);
+        }
+    }
+}
+
+fn append_related_location(claim: &mut String, path: &str) {
+    if claim.contains(path) {
+        return;
+    }
+    if claim.contains("Also observed in:") {
+        claim.push_str(", ");
+        claim.push_str(path);
+    } else {
+        claim.push_str(" Also observed in: ");
+        claim.push_str(path);
     }
 }
 
@@ -257,101 +400,6 @@ fn summary_status(summary: &RunnerRunSummary) -> String {
     }
 }
 
-fn changed_file_specs(
-    repo_root: &Path,
-    changed_files: &[String],
-    target_path: &str,
-) -> Vec<ChangedFileSpec> {
-    let files = if changed_files.is_empty() {
-        vec![target_path.to_string()]
-    } else {
-        changed_files.to_vec()
-    };
-    files
-        .into_iter()
-        .filter(|path| repo_root.join(path).is_file())
-        .map(ChangedFileSpec::modified)
-        .collect()
-}
-
-fn select_target_path(repo_root: &Path, changed_files: &[String]) -> Result<String> {
-    for path in changed_files {
-        if repo_root.join(path).is_file() {
-            return Ok(path.clone());
-        }
-    }
-    for candidate in ["Cargo.toml", "package.json", "README.md", "pyproject.toml"] {
-        if repo_root.join(candidate).is_file() {
-            return Ok(candidate.to_string());
-        }
-    }
-    find_first_text_candidate(repo_root)
-        .ok_or_else(|| anyhow::anyhow!("repo has no obvious text file to review"))
-}
-
-fn find_first_text_candidate(repo_root: &Path) -> Option<String> {
-    fn visit(root: &Path, dir: &Path, depth: usize) -> Option<String> {
-        if depth > 4 {
-            return None;
-        }
-        let entries = fs::read_dir(dir).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if matches!(
-                name.as_ref(),
-                ".git" | "node_modules" | "target" | "dist" | "build" | ".next"
-            ) {
-                continue;
-            }
-            if path.is_file() && looks_textual(&path) {
-                return path
-                    .strip_prefix(root)
-                    .ok()
-                    .map(|path| path.to_string_lossy().into_owned());
-            }
-            if path.is_dir() {
-                if let Some(found) = visit(root, &path, depth + 1) {
-                    return Some(found);
-                }
-            }
-        }
-        None
-    }
-    visit(repo_root, repo_root, 0)
-}
-
-fn looks_textual(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| {
-            matches!(
-                extension,
-                "rs" | "ts"
-                    | "tsx"
-                    | "js"
-                    | "jsx"
-                    | "json"
-                    | "toml"
-                    | "md"
-                    | "py"
-                    | "go"
-                    | "java"
-                    | "kt"
-                    | "rb"
-                    | "php"
-                    | "c"
-                    | "h"
-                    | "cpp"
-                    | "hpp"
-                    | "cs"
-                    | "swift"
-            )
-        })
-        .unwrap_or(false)
-}
-
 #[derive(Default)]
 struct RecordingReviewEventSink {
     records: std::sync::Mutex<Vec<ReviewEventRecord>>,
@@ -372,5 +420,167 @@ impl ReviewEventSink for RecordingReviewEventSink {
             .lock()
             .expect("review event sink poisoned")
             .push(record);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[test]
+    fn empty_tool_effects_keep_legacy_custom_read_only_authority() {
+        let effects = parse_tool_effects(&[]).expect("default effects");
+
+        assert_eq!(effects, ToolEffects::custom_read_only());
+    }
+
+    #[test]
+    fn parses_explicit_provider_neutral_tool_effects() {
+        let effects = parse_tool_effects(&[
+            "read_host".to_string(),
+            "read_network".to_string(),
+            "write_artifact".to_string(),
+            "write_scratch".to_string(),
+        ])
+        .expect("explicit effects");
+
+        assert!(effects.host_read);
+        assert!(effects.network_read);
+        assert!(effects.artifact_write);
+        assert!(effects.scratch_write);
+        assert!(!effects.repo_read);
+        assert!(!effects.artifact_read);
+        assert!(!effects.scratch_read);
+        assert!(!effects.external_side_effect);
+    }
+
+    #[test]
+    fn rejects_external_side_effect_tools_in_runner_v1() {
+        let error = parse_tool_effects(&["external_side_effect".to_string()])
+            .expect_err("external side effects are unsupported");
+
+        assert!(error
+            .to_string()
+            .contains("external_side_effect tools are not supported in V1"));
+    }
+
+    #[test]
+    fn rejects_unknown_tool_effects() {
+        let error = parse_tool_effects(&["write_host".to_string()])
+            .expect_err("unknown effects are rejected");
+
+        assert!(error.to_string().contains("unknown tool effect write_host"));
+    }
+
+    #[test]
+    fn dedupes_unawaited_async_iteration_cleanup_findings() {
+        let findings = dedupe_runner_findings(vec![
+            test_finding(
+                "finding-a",
+                "Unawaited reschedule cleanup deletions can be lost",
+                "src/a.ts starts async cleanup deletions inside forEach(async ...) without awaiting returned promises.",
+                "src/a.ts",
+            ),
+            test_finding(
+                "finding-b",
+                "Reschedule fires deletion promises without awaiting them",
+                "src/b.ts starts deletion promises from forEach(async ...) and never awaits them.",
+                "src/b.ts",
+            ),
+        ]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "finding-a");
+        assert!(findings[0].claim.contains("Also observed in: src/b.ts"));
+        assert_eq!(
+            findings[0].discovered_by,
+            vec!["session-finding-a", "session-finding-b"]
+        );
+    }
+
+    fn test_finding(id: &str, title: &str, claim: &str, path: &str) -> RunnerFinding {
+        RunnerFinding {
+            id: id.to_string(),
+            title: title.to_string(),
+            claim: claim.to_string(),
+            evidence_count: 0,
+            publishable: true,
+            severity: Some("warning".to_string()),
+            confidence: Some(0.72),
+            validation_status: Some("validated".to_string()),
+            evidence: Vec::new(),
+            discovered_by: vec![format!("session-{id}")],
+            validated_by: Vec::new(),
+            challenged_by: Vec::new(),
+            location: Some(RunnerFindingLocation {
+                path: path.to_string(),
+                revision: None,
+                start_line: Some(1),
+                end_line: Some(2),
+                start_column: None,
+                end_column: None,
+                side: None,
+                provider_anchor: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn heartbeat_callback_can_cancel_active_run() {
+        struct HeartbeatTransport {
+            requests: Mutex<Vec<(String, Value)>>,
+        }
+
+        impl RunnerCallbackTransport for HeartbeatTransport {
+            fn request(&self, method: &str, params: Value) -> Result<Value> {
+                self.requests
+                    .lock()
+                    .expect("heartbeat requests poisoned")
+                    .push((method.to_string(), params));
+                Ok(json!({ "continueRun": false }))
+            }
+
+            fn notify(&self, _method: &str, _params: Value) -> Result<()> {
+                Ok(())
+            }
+
+            fn respond(&self, _response: &crate::runner::JsonRpcResponse) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let transport = Arc::new(HeartbeatTransport {
+            requests: Mutex::new(Vec::new()),
+        });
+        let cancel = CancellationToken::new();
+        let config = RunHeartbeatConfigParams {
+            callback: true,
+            interval_ms: Some(1),
+            lease_seconds: Some(30),
+        };
+
+        let guard = start_heartbeat(
+            "review-heartbeat",
+            Some(&config),
+            Some(transport.clone()),
+            cancel.clone(),
+        )
+        .expect("heartbeat starts");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !cancel.is_cancelled() {
+            assert!(Instant::now() < deadline, "heartbeat did not cancel run");
+            thread::sleep(Duration::from_millis(5));
+        }
+        guard.stop();
+
+        let requests = transport
+            .requests
+            .lock()
+            .expect("heartbeat requests poisoned");
+        assert_eq!(requests[0].0, "run.heartbeat");
+        assert_eq!(requests[0].1["runId"], "review-heartbeat");
+        assert_eq!(requests[0].1["leaseSeconds"], 30);
     }
 }

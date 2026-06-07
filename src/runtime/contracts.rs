@@ -26,6 +26,12 @@ pub enum RuntimeError {
         status: Option<u16>,
         retryable: bool,
     },
+    #[error("provider error: {status:?}: {message}")]
+    ProviderMessage {
+        status: Option<u16>,
+        retryable: bool,
+        message: String,
+    },
     #[error("repository access denied")]
     RepoAccessDenied,
     #[error("repository unavailable: {0}")]
@@ -198,7 +204,7 @@ impl ToolId {
         }
         if !input
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
         {
             return Err(RuntimeError::InvalidInput("invalid tool id".to_string()));
         }
@@ -219,15 +225,13 @@ impl ToolId {
             "read_diff" => Some(ToolName::ReadDiff),
             "list_files" => Some(ToolName::ListFiles),
             "read_file" => Some(ToolName::ReadFile),
+            "read_file_range" => Some(ToolName::ReadFileRange),
             "read_base_file" => Some(ToolName::ReadBaseFile),
             "read_head_file" => Some(ToolName::ReadHeadFile),
             "search_text" => Some(ToolName::SearchText),
             "find_related_files" => Some(ToolName::FindRelatedFiles),
             "find_tests_for_file" => Some(ToolName::FindTestsForFile),
             "list_imports" => Some(ToolName::ListImports),
-            "record_finding" => Some(ToolName::RecordFinding),
-            "challenge_finding" => Some(ToolName::ChallengeFinding),
-            "finish" => Some(ToolName::Finish),
             _ => None,
         }
     }
@@ -819,10 +823,18 @@ pub struct SessionScope {
     pub id: SessionId,
     pub role: Role,
     pub objective: String,
+    pub instructions: Vec<SessionInstruction>,
     pub snapshot_id: Option<SnapshotId>,
     pub model_profile_id: Option<String>,
     pub capabilities: CapabilitySet,
     pub budget: AgentBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInstruction {
+    pub kind: String,
+    pub text: String,
+    pub trusted: bool,
 }
 
 impl SessionScope {
@@ -836,6 +848,7 @@ impl SessionScope {
             id,
             role,
             objective: objective.into(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
             capabilities: CapabilitySet::review_read_only(),
@@ -904,6 +917,7 @@ pub(crate) struct ToolInvocation {
     pub(crate) args: ToolArgs,
     pub(crate) capabilities: CapabilitySet,
     pub(crate) scope_key: ScopeKey,
+    pub(crate) assigned_changed_files: Vec<RepoPath>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -913,19 +927,13 @@ pub enum ToolArgs {
     ReadFile {
         path: RepoPath,
     },
+    ReadFileRange {
+        path: RepoPath,
+        start_line: usize,
+        end_line: usize,
+    },
     SearchText {
         query: String,
-    },
-    RecordFinding {
-        title: String,
-        claim: String,
-    },
-    ChallengeFinding {
-        finding_id: String,
-        rationale: String,
-    },
-    Finish {
-        reason: String,
     },
     Raw(Value),
 }
@@ -1038,6 +1046,8 @@ pub struct RuntimeLimits {
     pub max_active_sessions: usize,
     pub max_model_concurrency_global: usize,
     pub max_model_concurrency_per_key: usize,
+    #[serde(default = "default_max_model_turn_ms")]
+    pub max_model_turn_ms: u64,
     pub max_tool_calls_per_turn: usize,
     pub max_tool_parallelism_per_session: usize,
     pub max_tool_provider_concurrency_per_provider: usize,
@@ -1064,6 +1074,7 @@ impl RuntimeLimits {
             max_active_sessions: sessions.max(1),
             max_model_concurrency_global: 16,
             max_model_concurrency_per_key: 4,
+            max_model_turn_ms: default_max_model_turn_ms(),
             max_tool_calls_per_turn: 4,
             max_tool_parallelism_per_session: 2,
             max_tool_provider_concurrency_per_provider: 8,
@@ -1082,6 +1093,10 @@ impl RuntimeLimits {
             search_threads: num_cpus::get().clamp(2, 8),
         }
     }
+}
+
+fn default_max_model_turn_ms() -> u64 {
+    180_000
 }
 
 fn default_max_tool_output_bytes() -> usize {
@@ -1119,6 +1134,13 @@ pub enum RuntimeEvent {
         turn_id: TurnId,
         tool_call_count: usize,
     },
+    ModelFailed {
+        session_id: SessionId,
+        turn_id: TurnId,
+        attempt: usize,
+        retrying: bool,
+        message: String,
+    },
     ToolBatchStarted {
         session_id: SessionId,
         turn_id: TurnId,
@@ -1132,6 +1154,9 @@ pub enum RuntimeEvent {
         output_bytes: usize,
         ok: bool,
         error_code: Option<ToolErrorCode>,
+        error_message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
     },
     ToolCallDenied {
         call_id: ToolCallId,
@@ -1147,6 +1172,10 @@ pub enum RuntimeEvent {
         provider_id: ToolProviderId,
         bytes: usize,
         content_hash: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
     },
     FindingRecorded {
         finding_id: String,
@@ -1207,6 +1236,11 @@ impl RuntimeEventContext {
                 turn_id,
             }
             | RuntimeEvent::ModelCompleted {
+                session_id,
+                turn_id,
+                ..
+            }
+            | RuntimeEvent::ModelFailed {
                 session_id,
                 turn_id,
                 ..
@@ -1368,11 +1402,11 @@ pub struct ArtifactView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionTerminalDiagnostic {
+pub struct SessionCompletionDiagnostic {
     pub session_id: String,
     pub completed: bool,
-    pub terminal_tool: Option<String>,
-    pub terminal_summary: Option<String>,
+    pub completion_kind: Option<String>,
+    pub completion_summary: Option<String>,
     pub saw_diff: bool,
     pub saw_file: bool,
     pub saw_search: bool,
@@ -1415,7 +1449,7 @@ pub struct ConcurrentRunReport {
     pub provider_health: Vec<ToolProviderHealthSnapshot>,
     pub snapshot_metrics: Vec<SnapshotMetricsSnapshot>,
     pub model_metrics: ModelMetricsSnapshot,
-    pub terminal_diagnostics: Vec<SessionTerminalDiagnostic>,
+    pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
     pub benchmark_valid: bool,
     pub benchmark_failures: Vec<String>,
 }

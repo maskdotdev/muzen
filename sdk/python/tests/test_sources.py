@@ -1,6 +1,15 @@
 import unittest
 
-from muzen import github, gitlab, local, parse_review_source, source_key
+from muzen import (
+    custom_source,
+    github,
+    gitlab,
+    local,
+    parse_review_source,
+    perforce,
+    raw_snapshot,
+    source_key,
+)
 from muzen.sources import MuzenSourceError
 
 
@@ -35,6 +44,32 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(
             local(".", changed_files=["Cargo.toml"]).changed_files,
             ["Cargo.toml"],
+        )
+        self.assertEqual(
+            source_key(raw_snapshot("/tmp/snapshot")),
+            "raw_snapshot:/tmp/snapshot",
+        )
+        self.assertEqual(
+            source_key(perforce("perforce.example:1666", "12345")),
+            "perforce:perforce.example:1666@12345",
+        )
+        self.assertEqual(
+            source_key(custom_source("acme", "review-1")),
+            "custom:acme:review-1",
+        )
+
+    def test_parse_non_git_source_shorthands(self) -> None:
+        self.assertEqual(
+            parse_review_source("raw_snapshot:/tmp/snapshot").type,
+            "raw_snapshot",
+        )
+        self.assertEqual(
+            parse_review_source("perforce:perforce.example:1666@12345").changelist,
+            "12345",
+        )
+        self.assertEqual(
+            parse_review_source("custom:acme:review-1").provider,
+            "acme",
         )
 
     def test_rejects_invalid_source_shorthand(self) -> None:

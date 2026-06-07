@@ -2,7 +2,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
-use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tools::ToolEngine;
 
 pub(crate) struct ToolBatchRunner<'a> {
@@ -29,13 +29,13 @@ impl<'a> ToolBatchRunner<'a> {
         scope: SessionScope,
         turn_id: TurnId,
         calls: Vec<ModelToolCall>,
-        evidence_ready: bool,
+        evidence: &SessionEvidence,
         remaining_tool_calls: usize,
         cancel: CancellationToken,
     ) -> Vec<ToolResultEnvelope> {
         let plan = self
             .policy
-            .plan_tool_batch(calls, evidence_ready, remaining_tool_calls);
+            .plan_tool_batch(calls, evidence, remaining_tool_calls);
         if let Some(planned) =
             self.policy
                 .plan_tool_batch_started_runtime_event(&scope, turn_id, plan.scheduled_count)
@@ -48,7 +48,7 @@ impl<'a> ToolBatchRunner<'a> {
                 denied.call_id,
                 denied.tool_id,
                 denied.denial.code,
-                denied.denial.message,
+                &denied.denial.message,
                 denied.denial.retryable,
             );
             self.tools
@@ -129,34 +129,31 @@ mod tests {
                 scope.clone(),
                 TurnId(3),
                 vec![
-                    model_call("finding", 0, ToolName::RecordFinding, "{}"),
-                    model_call("finish", 1, ToolName::Finish, "{}"),
-                    model_call("diff", 2, ToolName::ReadDiff, "{}"),
+                    model_call("diff", 0, ToolName::ReadDiff, "{}"),
+                    model_call("files", 1, ToolName::ListFiles, "{}"),
+                    model_call("changed", 2, ToolName::ListChangedFiles, "{}"),
                 ],
-                false,
-                usize::MAX,
+                &SessionEvidence::default(),
+                2,
                 CancellationToken::new(),
             )
             .await;
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].tool_call_id, ToolCallId("finding".to_string()));
+        assert_eq!(results[0].tool_call_id, ToolCallId("diff".to_string()));
+        assert!(results[0].ok);
+        assert_eq!(results[1].tool_call_id, ToolCallId("files".to_string()));
+        assert!(results[1].ok);
+        assert_eq!(results[2].tool_call_id, ToolCallId("changed".to_string()));
         assert_eq!(
-            results[0].error.as_ref().expect("denial").code,
-            ToolErrorCode::ToolNotAllowed
+            results[2].error.as_ref().expect("denial").code,
+            ToolErrorCode::BudgetExceeded
         );
-        assert_eq!(results[1].tool_call_id, ToolCallId("finish".to_string()));
-        assert_eq!(
-            results[1].error.as_ref().expect("denial").code,
-            ToolErrorCode::ToolNotAllowed
-        );
-        assert_eq!(results[2].tool_call_id, ToolCallId("diff".to_string()));
-        assert!(results[2].ok);
         let records = runtime_sink.records.lock().expect("sink lock");
         assert!(records.iter().any(|(context, event)| {
             context.session_id.as_ref() == Some(&scope.id)
                 && context.turn_id == Some(TurnId(3))
-                && matches!(event, RuntimeEvent::ToolBatchStarted { count: 3, .. })
+                && matches!(event, RuntimeEvent::ToolBatchStarted { count: 2, .. })
         }));
     }
 
@@ -194,6 +191,7 @@ mod tests {
             merge_base_revision_id: None,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
+            inline_diff: None,
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
             changed_files: vec![ChangedFileEntryV1 {

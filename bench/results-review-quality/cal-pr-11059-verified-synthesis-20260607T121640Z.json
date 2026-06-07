@@ -1,0 +1,540 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T12:18:16.829Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-VlZUA3/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-VlZUA3/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 11,
+    "completedSessions": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 28,
+      "issue_found": 4,
+      "needs_review": 7
+    },
+    "findings": 4,
+    "modelCalls": 78,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 2,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 10,
+      "readFile": 8,
+      "readFileRange": 9,
+      "readHeadFile": 31,
+      "searchText": 11
+    },
+    "tokens": {
+      "inputTokens": 333427,
+      "outputTokens": 4073,
+      "totalTokens": 337500
+    },
+    "artifactStats": {
+      "artifactBytes": 306452,
+      "artifacts": 59,
+      "contentRefs": 59
+    },
+    "elapsedMs": 94586
+  },
+  "benchmark": {
+    "elapsedMs": 94993,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 4,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 11,
+    "importCount": 0,
+    "needsReviewCount": 7,
+    "cleanCount": 28,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The GET branch builds the Zoho authorization URL with `state: encodeOAuthState(req)`, but the callback handler in this flow cannot recover the original app context because the add endpoint does not persist or otherwise pair that state with the eventual callback contract; this makes the round-trip state contract inconsistent with the other OAuth add/callback implementations and can break post-auth redirection/scoping.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-008"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_0bd5fb2fed993b20a235b0f733618b81ec50ee6d58bc043fc16261e8500eaa9b",
+          "byteRange": {
+            "endByte": 1202,
+            "startByte": 0
+          },
+          "contentHash": "d689f1f114c52707cbb7b2c4cf5bf5c84b5dcc4c839ce40fe2f551622e0cf266",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_0bd5fb2fed993b20a235b0f733618b81ec50ee6d58bc043fc16261e8500eaa9b",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoho-bigin/api/add.ts"
+          },
+          "producingToolCallId": "unit-008-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoho-bigin/api/add.ts"
+          },
+          "producingToolCallId": "unit-008-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_f703c4daf3e2ab4d278c8650d5a6e0cad0872392c97b08d5afcb420902ef6bb4",
+          "byteRange": {
+            "endByte": 13973,
+            "startByte": 0
+          },
+          "contentHash": "c590bd59c9dc0fcd1c699978b0a8e6c7fc3c38e569978bb88a5efc04ab091f67",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_f703c4daf3e2ab4d278c8650d5a6e0cad0872392c97b08d5afcb420902ef6bb4",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoho-bigin/api/add.ts"
+          },
+          "producingToolCallId": "unit-008-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/zoho-bigin/api/add.ts"
+        }
+      ],
+      "id": "9bc0542c0046a9b56fec089f52e544e20bd583f20ba3396b55ff5485aab340c3",
+      "locationLineRange": {
+        "endLine": 7,
+        "startLine": 7
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Zoho Bigin add endpoint drops the OAuth state it encodes",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The handler exchanges the code against Zoom using redirect_uri `WEBAPP_URL + \"/api/integrations/zoomvideo/callback\"`, but this file lives under `apps/web/pages/api/webhook/app-credential.ts` and is handling the app credential webhook flow. If this endpoint is meant to serve the callback route introduced by the change, using the old `/api/integrations/...` redirect target can break OAuth token exchange whenever Zoom validates the redirect URI strictly against the actual callback URL.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-010"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoomvideo/api/callback.ts"
+          },
+          "producingToolCallId": "unit-010-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_d74b16d5c2d106ea46f316a92e6326739803b09f9e9027c327615b77f4d7d487",
+          "byteRange": {
+            "endByte": 2487,
+            "startByte": 0
+          },
+          "contentHash": "54311cfe45a670bac10d53c363c44c3d66c1e9d86925a2c46fcdfe484332c3b9",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_d74b16d5c2d106ea46f316a92e6326739803b09f9e9027c327615b77f4d7d487",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoomvideo/api/callback.ts"
+          },
+          "producingToolCallId": "unit-010-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_e130cdf442c30f3834bf0185f684670c5c2c035c8441c6d3c2ab3c5903556f45",
+          "byteRange": {
+            "endByte": 2781,
+            "startByte": 0
+          },
+          "contentHash": "9402634ea55c0b755d4bc9ecdf9077437ba7c04533ca16327ee30666a1c7d140",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_e130cdf442c30f3834bf0185f684670c5c2c035c8441c6d3c2ab3c5903556f45",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 7,
+            "startLine": 7
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/zoomvideo/api/callback.ts"
+          },
+          "producingToolCallId": "unit-010-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/zoomvideo/api/callback.ts"
+        }
+      ],
+      "id": "7c51247bf04f9b6c8266845612ac1c2de51e7781390f5e6661c1919dddc5e604",
+      "locationLineRange": {
+        "endLine": 7,
+        "startLine": 7
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Zoom OAuth callback redirects to a path that likely does not match the registered callback endpoint",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "`refreshOAuthTokens` posts `calcomUserId` and `appSlug`, but the new webhook handler requires `userId` and `appSlug`. Because the field name for the user id changed, every sync request will fail schema parsing and never reach credential update/create.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_3402e31494af756394020e4a7aa3caa81524f30f044edd65c0f89efee71987f9",
+          "byteRange": {
+            "endByte": 851,
+            "startByte": 0
+          },
+          "contentHash": "b4644518715a0ca469b8eea2a3ede0e525fbd340304a32a9f3222a84fa152f97",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_3402e31494af756394020e4a7aa3caa81524f30f044edd65c0f89efee71987f9",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 16,
+            "startLine": 6
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_5941cfd658a4f6b66421791be4ee95f3124770c733032a290fce69f344737d62",
+          "byteRange": {
+            "endByte": 4776,
+            "startByte": 0
+          },
+          "contentHash": "12c1444a282556d3ee68862756c0f93559663143d8f70e73ec8b28c31898f7ea",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_5941cfd658a4f6b66421791be4ee95f3124770c733032a290fce69f344737d62",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 16,
+            "startLine": 6
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+        }
+      ],
+      "id": "c1e2c1ac7189b6714ee268f7d7c5a275577f30514bf1751b36f5aa4dc7856485",
+      "locationLineRange": {
+        "endLine": 16,
+        "startLine": 6
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Credential sync webhook and sender disagree on POST body shape",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "`parseRefreshTokenResponse` is now used as if it were a `safeParse` result (`if (!accessTokenParsed.success)`), but the helper may be returning a normalized token payload in other branches/callers. This mismatch makes the Salesforce refresh/update path fragile and can skip valid token updates or throw on valid responses depending on the branch taken.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_3c965d5321a3c914e0c4a368351441e80c6dcbc74ca2fb0d772a3de082767637",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 92,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_4db30911d0981727f727ab54bd371514604bc4b9f837e48b587c24626738d542",
+          "byteRange": {
+            "endByte": 11433,
+            "startByte": 0
+          },
+          "contentHash": "e4c78e8b5bbccf9937d94dbe9a5c9133d3d0becde4c389cb2f7e6b44cf81d3b3",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4db30911d0981727f727ab54bd371514604bc4b9f837e48b587c24626738d542",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 92,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_742bf7bc19f4df892b21b1ee056841beb7bbf47822874606a799a2908af363b1",
+          "byteRange": {
+            "endByte": 14536,
+            "startByte": 0
+          },
+          "contentHash": "9514487a7adb81d760889797285596d0f48043b27eebcec2a775c2a9a8f4ea3a",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_742bf7bc19f4df892b21b1ee056841beb7bbf47822874606a799a2908af363b1",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 92,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+        }
+      ],
+      "id": "8b1af244584e28d74f3f92b759878057db003c02bfd3fd09c92c3ce5755c54f0",
+      "locationLineRange": {
+        "endLine": 92,
+        "startLine": 72
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Salesforce refresh path still checks `.success` after parse helper no longer provides the expected contract",
+      "validationStatus": "validated"
+    }
+  ]
+}

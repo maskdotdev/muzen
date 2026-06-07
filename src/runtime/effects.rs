@@ -1,14 +1,15 @@
-use crate::contracts::{ToolCounts, ToolName};
+use serde_json::json;
+
+use crate::contracts::ToolCounts;
 use crate::runtime::contracts::{ConversationItem, SessionScope, ToolResultEnvelope, TurnId};
 use crate::runtime::dispatch::RuntimeEventDispatcher;
-use crate::runtime::policy::{ReviewerPolicy, SessionEvidence, SessionTerminal};
+use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tools::{count_tool_result, ToolEngine};
 
 pub(crate) struct ToolResultEffectProcessor<'a> {
     policy: &'a ReviewerPolicy,
     tools: &'a ToolEngine,
     events: &'a RuntimeEventDispatcher,
-    review_revision_id: &'a str,
 }
 
 impl<'a> ToolResultEffectProcessor<'a> {
@@ -16,13 +17,12 @@ impl<'a> ToolResultEffectProcessor<'a> {
         policy: &'a ReviewerPolicy,
         tools: &'a ToolEngine,
         events: &'a RuntimeEventDispatcher,
-        review_revision_id: &'a str,
+        _review_revision_id: &'a str,
     ) -> Self {
         Self {
             policy,
             tools,
             events,
-            review_revision_id,
         }
     }
 
@@ -38,11 +38,13 @@ impl<'a> ToolResultEffectProcessor<'a> {
                 self.policy.observe_evidence_result(state.evidence, result);
             }
         }
-        let terminal_seen = self.policy.observe_terminal_batch(state.terminal, &results);
         for result in results {
             self.apply_result(scope, turn_id, result, &mut state);
         }
-        ToolResultBatchOutcome { terminal_seen }
+        ToolResultBatchOutcome {
+            terminal_seen: false,
+            corrective_feedback: None,
+        }
     }
 
     fn apply_result(
@@ -52,26 +54,8 @@ impl<'a> ToolResultEffectProcessor<'a> {
         result: ToolResultEnvelope,
         state: &mut ToolResultBatchState<'_>,
     ) {
-        self.policy.observe_terminal_error(state.terminal, &result);
-        let mut finding_id = None;
         let mut artifact = None;
-        if result.ok && result.tool_name.as_builtin() == Some(ToolName::RecordFinding) {
-            let recorded_finding_id = self.tools.record_finding_result(
-                &scope.id,
-                &result,
-                state.evidence.results(),
-                self.review_revision_id,
-            );
-            if let Some(recorded_finding_id) = recorded_finding_id {
-                self.events
-                    .emit_legacy(self.policy.plan_finding_validated_event(
-                        scope,
-                        &result,
-                        &recorded_finding_id,
-                    ));
-                finding_id = Some(recorded_finding_id);
-            }
-        } else if let Some(artifact_id) = &result.artifact_id {
+        if let Some(artifact_id) = &result.artifact_id {
             if let Some(event) = self.policy.plan_artifact_recorded_event(scope, &result) {
                 self.events.emit_legacy(event);
             }
@@ -87,29 +71,58 @@ impl<'a> ToolResultEffectProcessor<'a> {
             turn_id,
             &result,
             artifact.as_ref(),
-            finding_id.as_deref(),
+            None,
         );
         for planned in runtime_events.events {
             self.events
                 .emit_runtime_with_context(planned.context, planned.event);
         }
         count_tool_result(state.tool_counts, &result);
-        state
-            .transcript
-            .push(self.policy.plan_tool_result_transcript_item(result));
+        let transcript_result = artifact
+            .as_ref()
+            .map(|artifact| {
+                tool_result_with_artifact_content(result.clone(), artifact.content.as_str())
+            })
+            .unwrap_or(result);
+        state.transcript.push(
+            self.policy
+                .plan_tool_result_transcript_item(transcript_result),
+        );
     }
+}
+
+fn tool_result_with_artifact_content(
+    mut result: ToolResultEnvelope,
+    artifact_content: &str,
+) -> ToolResultEnvelope {
+    let artifact_content = if artifact_content.len() > 45_000 {
+        format!(
+            "{}\n...[truncated]",
+            artifact_content.chars().take(45_000).collect::<String>()
+        )
+    } else {
+        artifact_content.to_string()
+    };
+    let mut data = result
+        .data
+        .take()
+        .and_then(|data| data.as_object().cloned())
+        .unwrap_or_default();
+    data.insert("artifactContent".to_string(), json!(artifact_content));
+    result.data = Some(serde_json::Value::Object(data));
+    result
 }
 
 pub(crate) struct ToolResultBatchState<'a> {
     pub(crate) evidence: &'a mut SessionEvidence,
-    pub(crate) terminal: &'a mut SessionTerminal,
     pub(crate) tool_counts: &'a mut ToolCounts,
     pub(crate) transcript: &'a mut Vec<ConversationItem>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolResultBatchOutcome {
     pub(crate) terminal_seen: bool,
+    pub(crate) corrective_feedback: Option<String>,
 }
 
 #[cfg(test)]
@@ -118,14 +131,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::contracts::ToolName;
     use crate::contracts::{
         AgentBudget, ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus,
         PathPolicyV1, RenameDetection, Role, SnapshotMode,
     };
     use crate::runtime::contracts::{
         CacheInfo, CacheStatus, CapabilitySet, LimitInfo, RuntimeEvent, RuntimeEventContext,
-        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolErrorCode,
-        ToolErrorInfo, ToolId, ToolProviderId,
+        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolId, ToolProviderId,
     };
     use crate::runtime::repo::RepoSnapshot;
 
@@ -164,100 +177,43 @@ mod tests {
             ToolResultEffectProcessor::new(&policy, &tools, &dispatcher, &change.head_revision_id);
         let scope = test_scope("effects-session");
         let mut evidence = SessionEvidence::default();
-        let mut terminal = SessionTerminal::default();
         let mut tool_counts = ToolCounts::default();
         let mut transcript = Vec::new();
 
         let outcome = processor.apply_batch(
             &scope,
             TurnId(2),
-            vec![
-                denied_result(ToolName::RecordFinding, "denied-record_finding-1"),
-                denied_result(ToolName::RecordFinding, "denied-record_finding-2"),
-                successful_search_result(&snapshot.snapshot_id),
-            ],
+            vec![successful_search_result(&snapshot.snapshot_id)],
             ToolResultBatchState {
                 evidence: &mut evidence,
-                terminal: &mut terminal,
                 tool_counts: &mut tool_counts,
                 transcript: &mut transcript,
             },
         );
 
         assert!(!outcome.terminal_seen);
-        assert!(policy.should_fail_after_terminal_errors(&terminal));
         assert!(evidence.saw_search());
         assert_eq!(tool_counts.search_text, 1);
-        assert_eq!(tool_counts.record_finding, 0);
-        assert_eq!(transcript.len(), 3);
+        assert_eq!(transcript.len(), 1);
         assert!(matches!(
             transcript[0],
-            ConversationItem::ToolResult { ref call_id, .. } if call_id.0 == "denied-record_finding-1"
-        ));
-        assert!(matches!(
-            transcript[1],
-            ConversationItem::ToolResult { ref call_id, .. } if call_id.0 == "denied-record_finding-2"
-        ));
-        assert!(matches!(
-            transcript[2],
             ConversationItem::ToolResult { ref call_id, .. } if call_id.0 == "search"
         ));
 
         let records = runtime_sink.records.lock().expect("sink lock");
-        assert_eq!(records.len(), 6);
+        assert_eq!(records.len(), 2);
         assert!(matches!(
             records[0].1,
-            RuntimeEvent::ToolCallDenied { ref call_id, .. } if call_id.0 == "denied-record_finding-1"
-        ));
-        assert!(matches!(
-            records[1].1,
-            RuntimeEvent::ToolCallCompleted { ref call_id, ok: false, .. }
-                if call_id.0 == "denied-record_finding-1"
-        ));
-        assert!(matches!(
-            records[2].1,
-            RuntimeEvent::ToolCallDenied { ref call_id, .. } if call_id.0 == "denied-record_finding-2"
-        ));
-        assert!(matches!(
-            records[3].1,
-            RuntimeEvent::ToolCallCompleted { ref call_id, ok: false, .. }
-                if call_id.0 == "denied-record_finding-2"
-        ));
-        assert!(matches!(
-            records[4].1,
             RuntimeEvent::ToolCallCompleted { ref call_id, ok: true, .. }
                 if call_id.0 == "search"
         ));
         assert!(matches!(
-            records[5].1,
+            records[1].1,
             RuntimeEvent::SearchBatchCompleted {
                 searched_files: 3,
                 ..
             }
         ));
-    }
-
-    fn denied_result(tool: ToolName, call_id: &str) -> ToolResultEnvelope {
-        ToolResultEnvelope {
-            ok: false,
-            tool_call_id: ToolCallId(call_id.to_string()),
-            tool_name: ToolId::from(tool),
-            provider_id: ToolProviderId::builtin_review(),
-            snapshot_id: SnapshotId("snapshot".to_string()),
-            artifact_id: None,
-            cache: CacheInfo {
-                status: CacheStatus::NotCacheable,
-                key_hash: None,
-            },
-            limits: LimitInfo::default(),
-            data: None,
-            error: Some(ToolErrorInfo {
-                code: ToolErrorCode::ToolNotAllowed,
-                message: "denied".to_string(),
-                retryable: false,
-                partial: false,
-            }),
-        }
     }
 
     fn successful_search_result(snapshot_id: &SnapshotId) -> ToolResultEnvelope {
@@ -288,6 +244,7 @@ mod tests {
             id: SessionId(id.to_string()),
             role: Role::Generalist,
             objective: "effects test".to_string(),
+            instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: Some("test-model".to_string()),
             capabilities: CapabilitySet::review_read_only(),
@@ -311,6 +268,7 @@ mod tests {
             merge_base_revision_id: None,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
+            inline_diff: None,
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
             changed_files: vec![ChangedFileEntryV1 {

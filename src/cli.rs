@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::bench::bench_job;
 use crate::contracts::*;
 use crate::events::EventEmitter;
+use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
 use crate::reviewer::canaries::{
     export_canary_evidence_manifest, export_model_provider_canary_evidence,
     export_remote_object_store_canary_evidence, load_canary_evidence_manifest,
@@ -20,13 +21,8 @@ use crate::reviewer::canaries::{
     run_remote_snapshot_object_store_canary, CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
     EnvCredentialResolver, ModelProviderCanaryEvidence, OpenAiProviderCanaryConfig,
 };
-use crate::reviewer::{
-    HttpRemoteObjectClient, InMemoryRemoteArtifactObjectClient, InMemoryRemoteSnapshotObjectClient,
-};
-use crate::runtime::bench::{
-    run_compare, run_job_concurrent, run_job_concurrent_with_events, run_real_bench,
-    ConcurrentBenchArgs, ConcurrentRealBenchArgs,
-};
+use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
+use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_events};
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 
 const CANARY_PROVIDER_EVIDENCE_FILE: &str = "model-provider.json";
@@ -60,10 +56,6 @@ pub(crate) enum Command {
     Bench(BenchArgs),
     /// Build the benchmark ReviewRunJobV1 JSON without executing it.
     BenchJob(BenchArgs),
-    /// Compare a serial concurrent-owned baseline against the async concurrent runtime.
-    CompareConcurrent(ConcurrentBenchArgs),
-    /// Run the async concurrent runtime against an OpenAI-compatible model.
-    BenchConcurrent(ConcurrentRealBenchArgs),
     /// Validate canary publication configuration without writing evidence.
     CanaryPreflight(CanaryPublishArgs),
     /// Publish provider, remote object-store, aggregate, status, and provenance canary evidence.
@@ -84,12 +76,6 @@ pub(crate) enum Command {
 pub(crate) struct RunArgs {
     #[arg(long, default_value = "-")]
     pub(crate) job: PathBuf,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
-pub(crate) enum BenchTerminalPolicy {
-    Normal,
-    FindingRequired,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -123,9 +109,6 @@ pub(crate) struct BenchArgs {
 
     #[arg(long, default_value_t = 256)]
     pub(crate) max_output_tokens: u32,
-
-    #[arg(long, value_enum, default_value_t = BenchTerminalPolicy::Normal)]
-    pub(crate) terminal_policy: BenchTerminalPolicy,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -478,23 +461,6 @@ pub(crate) fn run_main() -> Result<i32> {
         Command::BenchJob(args) => {
             let job = bench_job(&args)?;
             println!("{}", serde_json::to_string_pretty(&job)?);
-            Ok(0)
-        }
-        Command::CompareConcurrent(args) => {
-            let report = run_compare(args)?;
-            if !report.concurrent.benchmark_valid {
-                bail!("concurrent comparison proof gates failed");
-            }
-            Ok(0)
-        }
-        Command::BenchConcurrent(args) => {
-            let report = run_real_bench(args)?;
-            if !report.benchmark_valid {
-                bail!(
-                    "concurrent real benchmark gates failed: {:?}",
-                    report.benchmark_failures
-                );
-            }
             Ok(0)
         }
         Command::CanaryPreflight(args) => run_canary_preflight(args),

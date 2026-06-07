@@ -19,14 +19,23 @@ export type ReviewRole =
 
 export type ReviewSource =
   | LocalReviewSource
+  | RawSnapshotReviewSource
   | GithubPullRequestSource
-  | GitlabMergeRequestSource;
+  | GitlabMergeRequestSource
+  | PerforceChangelistSource
+  | CustomReviewSource;
 
 export type ReviewSourceLike = ReviewSource | string;
 
 export interface LocalReviewSource {
   type: "local";
   repo: string;
+  changedFiles?: string[];
+}
+
+export interface RawSnapshotReviewSource {
+  type: "raw_snapshot";
+  root: string;
   changedFiles?: string[];
 }
 
@@ -44,6 +53,20 @@ export interface GitlabMergeRequestSource {
   number: number;
 }
 
+export interface PerforceChangelistSource {
+  type: "perforce_changelist";
+  server: string;
+  changelist: string;
+  client?: string;
+  depotPaths?: string[];
+}
+
+export interface CustomReviewSource {
+  type: "custom";
+  provider: string;
+  id: string;
+}
+
 export type DedupePolicy =
   | "none"
   | "source"
@@ -53,11 +76,198 @@ export type DedupePolicy =
 export interface ReviewOptions {
   dedupe?: DedupePolicy;
   cancelSuperseded?: boolean;
-  model?: string;
+  model?: ReviewModelSpec;
+  sourceProvider?: ReviewSourceProvider;
+  hooks?: ReviewHooks;
+  heartbeat?: ReviewHeartbeatOptions;
+  signal?: AbortSignal;
+  change?: ReviewChangeSpec;
   scope?: ReviewScope;
   metadata?: Record<string, unknown>;
+  instructions?: ReviewInstruction[];
+  tools?: ReviewTool[];
   sessions?: ReviewAgentSession[];
   limits?: ReviewLimits;
+}
+
+export interface ReviewSourceProvider {
+  baseUrl?: string;
+  handler?: ReviewSourceMaterializeHandler;
+}
+
+export type ReviewSourceMaterializeHandler = (
+  request: ReviewSourceMaterializeRequest,
+) => ReviewSourceMaterializeResult | Promise<ReviewSourceMaterializeResult>;
+
+export interface ReviewSourceMaterializeRequest {
+  source: ReviewSource;
+  changedFiles: string[];
+  signal?: AbortSignal;
+}
+
+export interface ReviewSourceMaterializeResult {
+  root: string;
+  changedFiles?: string[];
+}
+
+export interface ReviewHooks {
+  onEvent?: ReviewEventHandler;
+  onHeartbeat?: ReviewHeartbeatHandler;
+}
+
+export type ReviewEventHandler = (event: ReviewEvent) => void;
+
+export interface ReviewHeartbeatOptions {
+  intervalMs?: number;
+  leaseSeconds?: number;
+}
+
+export type ReviewHeartbeatHandler = (
+  heartbeat: ReviewHeartbeat,
+) => boolean | { continueRun?: boolean } | void | Promise<boolean | { continueRun?: boolean } | void>;
+
+export interface ReviewHeartbeat {
+  runId: string;
+  sequence: number;
+  elapsedMs: number;
+  leaseSeconds?: number;
+  signal?: AbortSignal;
+}
+
+export type ReviewModelSpec = ReviewCallbackModelSpec | ReviewHostedModelSpec;
+
+export interface ReviewCallbackModelSpec {
+  kind: "callback";
+  handler: ReviewModelHandler;
+}
+
+export interface OpenAIReviewModelSpec {
+  kind: "provider";
+  provider: "openai";
+  model: string;
+  credential?: ReviewModelCredential;
+  baseUrl?: string;
+  apiProtocol?: "responses" | "chat_completions";
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  topP?: number;
+}
+
+export type ReviewHostedModelSpec = OpenAIReviewModelSpec;
+
+export type ReviewModelCredential =
+  | { env: string }
+  | { secretRef: string };
+
+export type ReviewModelHandler = (
+  request: ReviewModelRequest,
+) => ReviewModelResult | Promise<ReviewModelResult>;
+
+export interface ReviewModelRequest {
+  runId: string;
+  sessionId: string;
+  role: ReviewRole;
+  objective: string;
+  snapshotId?: string;
+  modelProfileId?: string;
+  turn: number;
+  transcript: unknown[];
+  signal?: AbortSignal;
+}
+
+export interface ReviewModelResult {
+  content?: string;
+  toolCalls?: ReviewModelToolCall[];
+  usage?: ReviewTokenUsage;
+}
+
+export interface ReviewModelToolCall {
+  callId?: string;
+  toolId: string;
+  arguments?: unknown;
+}
+
+export interface ReviewTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface ReviewChangeSpec {
+  kind: "revision_range" | "snapshot_pair" | "diff" | "provider_review" | string;
+  baseRevision?: string | null;
+  startRevision?: string | null;
+  headRevision?: string | null;
+  changedFiles?: ReviewChangedFile[];
+  diff?: string | null;
+  reviewTarget?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReviewChangedFile {
+  path: string;
+  status?: string;
+}
+
+export interface ReviewInstruction {
+  kind:
+    | "host_policy"
+    | "organization_policy"
+    | "repository_policy"
+    | "session_objective"
+    | "provider_context"
+    | string;
+  text: string;
+  trusted?: boolean;
+}
+
+export type JsonSchema = boolean | Record<string, unknown>;
+
+export interface ReviewTool {
+  id: string;
+  description: string;
+  parameters: JsonSchema;
+  effects?: ReviewToolEffect[];
+  cacheable?: boolean;
+  providerResources?: string[];
+  handler?: ReviewToolHandler;
+}
+
+export type ReviewToolEffect =
+  | "read_repo"
+  | "read_diff"
+  | "read_artifact"
+  | "read_host"
+  | "read_network"
+  | "read_scratch"
+  | "write_artifact"
+  | "write_scratch";
+
+export type ReviewToolHandler = (
+  context: ReviewToolExecutionContext,
+  arguments_: unknown,
+) => ReviewToolResult | Promise<ReviewToolResult>;
+
+export interface ReviewToolExecutionContext {
+  runId: string;
+  sessionId: string;
+  turn: number;
+  callId: string;
+  toolId: string;
+  snapshotId: string;
+  providerResources: string[];
+  signal?: AbortSignal;
+}
+
+export interface ReviewToolResult {
+  data?: unknown;
+  artifact?: ReviewToolArtifact;
+}
+
+export interface ReviewToolArtifact {
+  key: string;
+  content: string;
 }
 
 export interface ReviewScope {
@@ -71,7 +281,9 @@ export interface ReviewAgentSession {
   role: ReviewRole;
   objective: string;
   cwd?: string;
-  modelProfileId?: string;
+  model?: ReviewModelSpec;
+  instructions?: ReviewInstruction[];
+  toolGrants?: string[];
   budget?: ReviewAgentBudget;
 }
 
@@ -181,14 +393,30 @@ export interface ReviewFinding {
   location?: ReviewFindingLocation;
   suggestedFix?: ReviewSuggestedFix;
   confidence?: number;
+  validationStatus?: string;
+  evidence?: ReviewFindingEvidence[];
+  discoveredBy?: string[];
+  validatedBy?: string[];
+  challengedBy?: string[];
+}
+
+export interface ReviewFindingEvidence {
+  evidenceId: string;
+  artifactId: string;
+  kind: string;
+  contentHash: string;
+  producingToolCallId: string;
 }
 
 export interface ReviewFindingLocation {
   path: string;
+  revision?: "base" | "head" | string;
   startLine?: number;
   endLine?: number;
   startColumn?: number;
   endColumn?: number;
+  side?: "base" | "head" | "additions" | "deletions" | string;
+  providerAnchor?: Record<string, unknown>;
 }
 
 export interface ReviewSuggestedFix {
@@ -267,7 +495,14 @@ export interface CreateMuzenOptions {
   runnerArgs?: string[];
   clientName?: string;
   clientVersion?: string;
+  secrets?: MuzenSecretResolverOptions;
 }
+
+export interface MuzenSecretResolverOptions {
+  resolve: MuzenSecretResolver;
+}
+
+export type MuzenSecretResolver = (ref: string) => string | Promise<string>;
 
 export interface CreateMuzenClientOptions {
   baseUrl: string;

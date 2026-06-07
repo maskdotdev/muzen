@@ -68,14 +68,12 @@ pub(crate) fn tool_allowed(mask: ToolMask, tool: ToolName) -> bool {
         ToolName::ReadDiff => mask.read_diff,
         ToolName::ListFiles => mask.list_files,
         ToolName::ReadFile => mask.read_file,
+        ToolName::ReadFileRange => mask.read_file_range,
         ToolName::ReadBaseFile => mask.read_base_file,
         ToolName::ReadHeadFile => mask.read_head_file,
         ToolName::SearchText => mask.search_text,
         ToolName::FindRelatedFiles => mask.find_related_files,
         ToolName::FindTestsForFile => mask.find_tests_for_file,
         ToolName::ListImports => mask.list_imports,
-        ToolName::RecordFinding => mask.record_finding,
-        ToolName::ChallengeFinding => mask.challenge_finding,
-        ToolName::Finish => mask.finish,
     }
 }

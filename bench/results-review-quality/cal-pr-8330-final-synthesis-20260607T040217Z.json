@@ -1,0 +1,266 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T04:02:27.245Z",
+  "mode": "production-review-run",
+  "reviewValid": false,
+  "exitCode": 4,
+  "error": "{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-1\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":1,\"timestampUtc\":\"1780804939.297894000Z\",\"level\":\"info\",\"eventType\":\"run_started\",\"sessionId\":null,\"toolCallId\":null,\"artifactId\":null,\"findingId\":null,\"payload\":{\"projectId\":\"muzen-review-quality\",\"runtime\":\"concurrent\",\"sessions\":11},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-2\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":2,\"timestampUtc\":\"1780804939.298118000Z\",\"level\":\"info\",\"eventType\":\"tool_call_completed\",\"sessionId\":null,\"toolCallId\":null,\"artifactId\":null,\"findingId\":null,\"payload\":{\"plannedReview\":{\"contractRiskUnits\":1,\"contractSeedCount\":12,\"excludedFiles\":0,\"fullFiles\":4,\"totalFiles\":4,\"units\":1}},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-3\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":3,\"timestampUtc\":\"1780804939.298171000Z\",\"level\":\"warn\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-0-read_diff\",\"artifactId\":null,\"findingId\":null,\"payload\":{\"errorCode\":\"too_many_matches\",\"errorMessage\":\"too many tool calls in one model turn\",\"status\":\"error\",\"toolName\":\"read_diff\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-4\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":4,\"timestampUtc\":\"1780804939.298177000Z\",\"level\":\"warn\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-1-read_head_file\",\"artifactId\":null,\"findingId\":null,\"payload\":{\"errorCode\":\"too_many_matches\",\"errorMessage\":\"too many tool calls in one model turn\",\"status\":\"error\",\"toolName\":\"read_head_file\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-5\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":5,\"timestampUtc\":\"1780804939.298182000Z\",\"level\":\"warn\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-2-read_head_file\",\"artifactId\":null,\"findingId\":null,\"payload\":{\"errorCode\":\"too_many_matches\",\"errorMessage\":\"too many tool calls in one model turn\",\"status\":\"error\",\"toolName\":\"read_head_file\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T040219Z-event-6\",\"runId\":\"review-quality-20260607T040219Z\",\"attempt\":1,\"seq\":6,\"timestampUtc\":\"1780804939.298187000Z\",\"level\":\"warn\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-3-read_head_file\",\"artifactId\":null,\"findingId\":null,\"payload\":{\"errorCode\":\"too_many_matches\",\"errorMessage\":\"too many tool calls i...",
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-mCazd7/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-mCazd7/events.jsonl"
+  },
+  "review": {
+    "outcome": "failed_partial",
+    "publishability": "diagnostic_only",
+    "sessions": 2,
+    "completedSessions": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 2,
+      "issue_found": 2
+    },
+    "findings": 2,
+    "modelCalls": 8,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 1,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 0,
+      "readFile": 4,
+      "readFileRange": 0,
+      "readHeadFile": 0,
+      "searchText": 1
+    },
+    "tokens": {
+      "inputTokens": 25056,
+      "outputTokens": 572,
+      "totalTokens": 25628
+    },
+    "artifactStats": {
+      "artifactBytes": 77415,
+      "artifacts": 6,
+      "contentRefs": 6
+    },
+    "elapsedMs": 7941
+  },
+  "benchmark": {
+    "elapsedMs": 8005,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Working-hours availability checks the slot start as the slot end"
+      },
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 2,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 1,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 2,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`activeOverrides.flatMap(...)` no longer returns arrays, so the resulting `overrides` shape can be wrong or implementation-dependent; downstream `forEach`/slot masking logic expects a flattened list of override objects.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_dd3911aa8ec940656023b16e0489f90544924dbefda11cad8d303b436ed3ce74",
+          "byteRange": {
+            "endByte": 8931,
+            "startByte": 0
+          },
+          "contentHash": "f32b458f5b7f94b7e19fb9d0b9afb109de42294122ac01e1b9e07757a3bc772c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_dd3911aa8ec940656023b16e0489f90544924dbefda11cad8d303b436ed3ce74",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 222,
+            "startLine": 211
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        },
+        {
+          "artifactId": "art_fd8204ec43ba3f2a9a4586306fa05a2e73d91c03dfe79a866ded7938a393d505",
+          "byteRange": {
+            "endByte": 5814,
+            "startByte": 0
+          },
+          "contentHash": "1b9d0ce67be3e07f46c7b783d171d55ec3af4d0f46f29d75c0b74a28b31ce127",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fd8204ec43ba3f2a9a4586306fa05a2e73d91c03dfe79a866ded7938a393d505",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 222,
+            "startLine": 211
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/lib/slots.ts"
+        }
+      ],
+      "id": "5755c5b700f57380d607ee9e070dd888c3a71888bf4fdb651109bcff2da025d2",
+      "locationLineRange": {
+        "endLine": 222,
+        "startLine": 211
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "`flatMap` callback now returns an object, breaking override list construction",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new `checkIfIsAvailable` dateOverride logic compares formatted dates and returns `false` as soon as any matching override callback returns truthy, but the predicate mixes `date.start`/`date.end` with timezone-adjusted `slotStartTime`/`slotEndTime` and then unconditionally returns `true` when `dateOverrideExist` is set. This can invert availability for slots near boundaries or across organizer/invitee timezones.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_342f154ec2dcaa9bfe80131218a79be3e4c233b348087891e54c7421e2dbecad",
+          "byteRange": {
+            "endByte": 20639,
+            "startByte": 0
+          },
+          "contentHash": "9d2a6bc0095b6ec22cc03ff0744160b221294496b0367fc8be8fa1f790c14d2c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_342f154ec2dcaa9bfe80131218a79be3e4c233b348087891e54c7421e2dbecad",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 145,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        },
+        {
+          "artifactId": "art_fd8204ec43ba3f2a9a4586306fa05a2e73d91c03dfe79a866ded7938a393d505",
+          "byteRange": {
+            "endByte": 5814,
+            "startByte": 0
+          },
+          "contentHash": "1b9d0ce67be3e07f46c7b783d171d55ec3af4d0f46f29d75c0b74a28b31ce127",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fd8204ec43ba3f2a9a4586306fa05a2e73d91c03dfe79a866ded7938a393d505",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 145,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/trpc/server/routers/viewer/slots.ts"
+        }
+      ],
+      "id": "a929480a39bc8abb9807ffe60cfbd9e7701a2ba0f063e6b403ab95523c61ebac",
+      "locationLineRange": {
+        "endLine": 145,
+        "startLine": 99
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Date-override availability gate can short-circuit to unavailable based on timezone-shifted start comparison",
+      "validationStatus": "validated"
+    }
+  ]
+}

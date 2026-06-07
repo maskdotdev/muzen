@@ -1,0 +1,627 @@
+{
+  "schemaVersion": "muzen.sdk-memory-benchmark.v1",
+  "sdk": {
+    "language": "typescript",
+    "package": "@muzen/sdk",
+    "version": "0.1.0-preview.0",
+    "runtime": "node v26.0.0"
+  },
+  "mode": "local-runner-stdio",
+  "runner": {
+    "path": "/Users/e464543/code/muzen/target/release/muzen-runner"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/muzen",
+    "sessions": 100,
+    "maxActiveSessions": 100,
+    "maxTurns": 4,
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120,
+    "changedFiles": []
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-05T14:12:25.100Z",
+    "finishedAtUtc": "2026-06-05T14:12:26.951Z",
+    "elapsedMs": 1850,
+    "holdMs": 1000,
+    "sampleMs": 25
+  },
+  "memory": {
+    "peakClientRssBytes": 73891840,
+    "peakRunnerRssBytes": 18661376,
+    "peakCombinedRssBytes": 92389376,
+    "finalClientRssBytes": 73891840,
+    "finalRunnerRssBytes": 18497536,
+    "finalCombinedRssBytes": 92389376,
+    "sampleCount": 63,
+    "runnerPids": [
+      22585
+    ],
+    "samples": [
+      {
+        "atMs": 31,
+        "clientRssBytes": 59785216,
+        "runnerRssBytes": 0,
+        "combinedRssBytes": 59785216,
+        "runnerPids": []
+      },
+      {
+        "atMs": 72,
+        "clientRssBytes": 61259776,
+        "runnerRssBytes": 7176192,
+        "combinedRssBytes": 68435968,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 103,
+        "clientRssBytes": 61702144,
+        "runnerRssBytes": 9928704,
+        "combinedRssBytes": 71630848,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 133,
+        "clientRssBytes": 62341120,
+        "runnerRssBytes": 9928704,
+        "combinedRssBytes": 72269824,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 164,
+        "clientRssBytes": 62357504,
+        "runnerRssBytes": 9961472,
+        "combinedRssBytes": 72318976,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 189,
+        "clientRssBytes": 62701568,
+        "runnerRssBytes": 12288000,
+        "combinedRssBytes": 74989568,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 214,
+        "clientRssBytes": 63619072,
+        "runnerRssBytes": 17072128,
+        "combinedRssBytes": 80691200,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 239,
+        "clientRssBytes": 64389120,
+        "runnerRssBytes": 17956864,
+        "combinedRssBytes": 82345984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 264,
+        "clientRssBytes": 64798720,
+        "runnerRssBytes": 18628608,
+        "combinedRssBytes": 83427328,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 290,
+        "clientRssBytes": 64815104,
+        "runnerRssBytes": 18644992,
+        "combinedRssBytes": 83460096,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 315,
+        "clientRssBytes": 64831488,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 83492864,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 340,
+        "clientRssBytes": 64978944,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 83640320,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 365,
+        "clientRssBytes": 65028096,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 83689472,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 392,
+        "clientRssBytes": 65404928,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84066304,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 419,
+        "clientRssBytes": 65404928,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84066304,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 446,
+        "clientRssBytes": 65404928,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84066304,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 480,
+        "clientRssBytes": 65503232,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84164608,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 512,
+        "clientRssBytes": 65503232,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84164608,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 543,
+        "clientRssBytes": 65503232,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84164608,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 574,
+        "clientRssBytes": 65634304,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84295680,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 605,
+        "clientRssBytes": 65634304,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84295680,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 635,
+        "clientRssBytes": 65683456,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84344832,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 666,
+        "clientRssBytes": 65683456,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84344832,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 697,
+        "clientRssBytes": 65683456,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84344832,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 725,
+        "clientRssBytes": 65765376,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84426752,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 755,
+        "clientRssBytes": 65765376,
+        "runnerRssBytes": 18661376,
+        "combinedRssBytes": 84426752,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 786,
+        "clientRssBytes": 65765376,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 84262912,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 814,
+        "clientRssBytes": 70025216,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 88522752,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 844,
+        "clientRssBytes": 70500352,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 88997888,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 873,
+        "clientRssBytes": 71024640,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 89522176,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 904,
+        "clientRssBytes": 71548928,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90046464,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 933,
+        "clientRssBytes": 72040448,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90537984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 964,
+        "clientRssBytes": 72040448,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90537984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 994,
+        "clientRssBytes": 72040448,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90537984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1025,
+        "clientRssBytes": 72040448,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90537984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1055,
+        "clientRssBytes": 72040448,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90537984,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1084,
+        "clientRssBytes": 72433664,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 90931200,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1115,
+        "clientRssBytes": 72876032,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 91373568,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1146,
+        "clientRssBytes": 73334784,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 91832320,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1176,
+        "clientRssBytes": 73793536,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92291072,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1203,
+        "clientRssBytes": 73793536,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92291072,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1231,
+        "clientRssBytes": 73793536,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92291072,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1261,
+        "clientRssBytes": 73809920,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92307456,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1290,
+        "clientRssBytes": 73809920,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92307456,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1321,
+        "clientRssBytes": 73809920,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92307456,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1351,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1381,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1408,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1439,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1469,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1501,
+        "clientRssBytes": 73842688,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92340224,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1532,
+        "clientRssBytes": 73875456,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92372992,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1562,
+        "clientRssBytes": 73875456,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92372992,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1592,
+        "clientRssBytes": 73875456,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92372992,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1621,
+        "clientRssBytes": 73875456,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92372992,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1651,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1679,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1707,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1734,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1765,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1794,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1821,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      },
+      {
+        "atMs": 1849,
+        "clientRssBytes": 73891840,
+        "runnerRssBytes": 18497536,
+        "combinedRssBytes": 92389376,
+        "runnerPids": [
+          22585
+        ]
+      }
+    ]
+  },
+  "result": {
+    "status": "completed",
+    "conclusion": "approved",
+    "summary": "Review completed 100/100 session(s), produced 0 finding(s), used 200 model call(s), 400 tool call(s), and 57600 total token(s).",
+    "findings": 0,
+    "coverage": {
+      "filesConsidered": 136,
+      "filesReviewed": 127,
+      "filesSkipped": 9
+    },
+    "metadata": {
+      "runnerRunId": "review-6b0ad333-d3e9-4307-b16c-472354b1c814",
+      "runnerStatus": "completed",
+      "source": "local:/Users/e464543/code/muzen"
+    }
+  },
+  "benchmarkValid": true,
+  "benchmarkFailures": []
+}

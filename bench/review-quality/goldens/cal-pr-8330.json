@@ -1,0 +1,28 @@
+{
+  "issues": [
+    {
+      "id": "cal-8330-working-hours-end-boundary",
+      "title": "Working-hours availability checks the slot start as the slot end",
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "startLine": 131,
+      "endLine": 136,
+      "keywords": ["working", "hours", "end"]
+    },
+    {
+      "id": "cal-8330-selected-slot-date-overrides",
+      "title": "Selected-slot filtering drops candidate date overrides",
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "startLine": 579,
+      "endLine": 585,
+      "keywords": ["date", "overrides", "available"]
+    },
+    {
+      "id": "cal-8330-dayjs-reference-equality",
+      "title": "Zero-length date overrides compare Dayjs objects by reference",
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "startLine": 108,
+      "endLine": 109,
+      "keywords": ["dayjs", "date", "override"]
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "github/base-pr-8330",
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T22:04:18.735Z",
+    "finishedAtUtc": "2026-06-06T22:04:27.514Z",
+    "elapsedMs": 8779
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18379,
+    "outputTokens": 563,
+    "totalTokens": 18942,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Found correctness regressions in the new availability checks around working-hours validation and date-override handling. The test and type-only changes are clean based on the provided evidence.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"issues\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Availability check rejects slots that merely start inside working hours\",\"claim\":\"The new working-hours guard computes `end` from `slotStartTime` instead of the slot's actual end (`slotEndTime`). As a result, any slot whose start minute is within a working-hours window is treated as valid even if the meeting duration extends past `workingHour.endTime`. For example, a 60-minute event starting at 16:30 in a 09:00-17:00 window will pass because both `start` and `end` are set to 16:30. This introduces bookable slots that overflow the organizer's configured working hours.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":131,\"endLine\":136},{\"title\":\"Date overrides are applied to the wrong users during selected-slot filtering\",\"claim\":\"In the selected-slots filtering branch, `checkIfIsAvailable` is called with only `busy`, `eventLength`, and `currentSeats`; it no longer receives the candidate user's `dateOverrides` or `workingHours`. Because `checkIfIsAvailable` now defaults those to empty arrays and returns `true` before the busy check when a matching date override exists, this branch can keep a user available even when their normal hours or date override should exclude the slot. That means reserved-slot reconciliation can reintroduce slots outside a host's actual availability.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":579,\"endLine\":585},{\"title\":\"Zero-length date overrides are never recognized because Dayjs objects are compared by reference\",\"claim\":\"The new date-override logic tries to detect an all-day/zero-length override with `dayjs(date.start)... === dayjs(date.end)...`, but `===` compares object identity, not timestamp equality. This condition is therefore always false for distinct Dayjs instances, so zero-length overrides are never handled by the intended branch. The subsequent range checks then treat such overrides as excluding every slot on that day, which is a concrete behavior change from the intended special-case handling.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":108,\"endLine\":109}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67241,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_50e2a3bd58fd9bf18dd478ef1b3b7c1a073014dc3b8634c272712c95359dd710",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict issues.",
+        "unitId": "unit-001",
+        "verdict": "issues"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "In the selected-slots filtering branch, `checkIfIsAvailable` is called with only `busy`, `eventLength`, and `currentSeats`; it no longer receives the candidate user's `dateOverrides` or `workingHours`. Because `checkIfIsAvailable` now defaults those to empty arrays and returns `true` before the busy check when a matching date override exists, this branch can keep a user available even when their normal hours or date override should exclude the slot. That means reserved-slot reconciliation can reintroduce slots outside a host's actual availability.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "1fb1d3aebc7988c06136c7c32bb3e280c5bfd289874aa687d79e0ab4969b30dd",
+        "location": {
+          "endColumn": null,
+          "endLine": 585,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 579
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Date overrides are applied to the wrong users during selected-slot filtering",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780783458743",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "89cad105dbd6534c92817514dddc0a94ca2692824c4b8c83f4261b836e9a79f0"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29893,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 8620,
+      "findings": 1,
+      "inputTokens": 18379,
+      "modelCalls": 3,
+      "outputTokens": 563,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18942
+    }
+  },
+  "reviewValid": true
+}

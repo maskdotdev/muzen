@@ -1,0 +1,199 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "github/base-pr-8330",
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T22:05:40.156Z",
+    "finishedAtUtc": "2026-06-06T22:05:48.366Z",
+    "elapsedMs": 8209
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18379,
+    "outputTokens": 520,
+    "totalTokens": 18899,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Found correctness regressions in the new availability checks around working-hours validation and date-override handling. The test and type-only changes are clean based on the provided evidence.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\",\"summary\":\"Test coverage was added for a timezone/date-override scenario; no correctness issue in the test itself is supported by the evidence.\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\",\"summary\":\"The override timezone adjustment in slot generation is plausible from the provided diff, and the gathered evidence does not directly support a concrete bug in this file alone.\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"buggy\",\"summary\":\"New availability filtering introduces concrete regressions: slots can be accepted outside working hours, and all-day date overrides are never recognized because Dayjs objects are compared by reference.\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\",\"summary\":\"Adding an optional timeZone field to TimeRange is a compatible type change with no direct correctness issue supported by the evidence.\"}],\"findings\":[{\"title\":\"Working-hours check ignores event duration and can admit slots that overrun availability\",\"claim\":\"The new fallback working-hours validation computes both `start` and `end` from `slotStartTime`, so it never checks the slot's actual end time. As a result, a slot that starts before `workingHour.endTime` but ends after it is treated as available. For example, a 60-minute slot starting at 16:30 against working hours ending at 17:00 will pass because `end` is incorrectly set to 16:30 instead of 17:30.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":132,\"endLine\":137},{\"title\":\"All-day date overrides are never detected because Dayjs instances are compared with ===\",\"claim\":\"The new date-override logic tries to special-case all-day overrides by checking `dayjs(date.start).add(...) === dayjs(date.end).add(...)`. This compares two distinct Dayjs objects by reference, which is always false even when they represent the same instant. Any caller relying on `start == end` to mean an all-day override will therefore skip this branch and incorrectly reject slots before/after the override bounds instead of treating the whole day as available.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":108,\"endLine\":110}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67241,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Test coverage was added for a timezone/date-override scenario; no correctness issue in the test itself is supported by the evidence.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "The override timezone adjustment in slot generation is plausible from the provided diff, and the gathered evidence does not directly support a concrete bug in this file alone.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_50e2a3bd58fd9bf18dd478ef1b3b7c1a073014dc3b8634c272712c95359dd710",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "New availability filtering introduces concrete regressions: slots can be accepted outside working hours, and all-day date overrides are never recognized because Dayjs objects are compared by reference.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0e1db3d753d5088599cf55e8073810e9dc11fc027a9b2bcaee2e04071b62dec3",
+          "art_50cc44153c3b9638701d7d4f77b2cf53095285080d0df1f88a0475b17255509a",
+          "art_6f6201109d54b4257bf4a19b9ce440e060eaa76092c938037662e87fd8800eab",
+          "art_cd1917c523cf287c8b441dcc268a65adc2f1167d122c92c7b16e87b47d134bf2"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Adding an optional timeZone field to TimeRange is a compatible type change with no direct correctness issue supported by the evidence.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new fallback working-hours validation computes both `start` and `end` from `slotStartTime`, so it never checks the slot's actual end time. As a result, a slot that starts before `workingHour.endTime` but ends after it is treated as available. For example, a 60-minute slot starting at 16:30 against working hours ending at 17:00 will pass because `end` is incorrectly set to 16:30 instead of 17:30.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "88727f791a3907c476b06bf1af02a4c8f255f5eda82f9de281b2e9480665a06e",
+        "location": {
+          "endColumn": null,
+          "endLine": 137,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 132
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Working-hours check ignores event duration and can admit slots that overrun availability",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      },
+      {
+        "challengedBy": [],
+        "claim": "The new date-override logic tries to special-case all-day overrides by checking `dayjs(date.start).add(...) === dayjs(date.end).add(...)`. This compares two distinct Dayjs objects by reference, which is always false even when they represent the same instant. Any caller relying on `start == end` to mean an all-day override will therefore skip this branch and incorrectly reject slots before/after the override bounds instead of treating the whole day as available.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "a21fc881bb92d83d6e51e2cc3e407cdb93cac06e6a3e520255106c9f30e5058c",
+        "location": {
+          "endColumn": null,
+          "endLine": 110,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 108
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "All-day date overrides are never detected because Dayjs instances are compared with ===",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780783540646",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "89cad105dbd6534c92817514dddc0a94ca2692824c4b8c83f4261b836e9a79f0"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29893,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 7424,
+      "findings": 2,
+      "inputTokens": 18379,
+      "modelCalls": 3,
+      "outputTokens": 520,
+      "publishableFindings": 2,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18899
+    }
+  },
+  "reviewValid": true
+}

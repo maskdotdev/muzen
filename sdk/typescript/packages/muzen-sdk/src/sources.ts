@@ -1,7 +1,10 @@
 import type {
+  CustomReviewSource,
   GithubPullRequestSource,
   GitlabMergeRequestSource,
   LocalReviewSource,
+  PerforceChangelistSource,
+  RawSnapshotReviewSource,
   ReviewSource,
   ReviewSourceLike,
 } from "./types.js";
@@ -38,6 +41,26 @@ export const gitlab = {
   },
 };
 
+export const perforce = {
+  changelist(input: {
+    server: string;
+    changelist: string | number;
+    client?: string;
+    depotPaths?: string[];
+  }): PerforceChangelistSource {
+    assertNonEmptySourcePart("perforce", "server", input.server);
+    const changelist = String(input.changelist);
+    assertNonEmptySourcePart("perforce", "changelist", changelist);
+    return {
+      type: "perforce_changelist",
+      server: input.server,
+      changelist,
+      client: input.client,
+      depotPaths: input.depotPaths ?? [],
+    };
+  },
+};
+
 export function local(
   repo: string,
   options: { changedFiles?: string[] } = {},
@@ -49,6 +72,33 @@ export function local(
     type: "local",
     repo,
     changedFiles: options.changedFiles ?? [],
+  };
+}
+
+export function rawSnapshot(
+  root: string,
+  options: { changedFiles?: string[] } = {},
+): RawSnapshotReviewSource {
+  if (root.trim().length === 0) {
+    throw new MuzenSourceError("raw snapshot path is empty");
+  }
+  return {
+    type: "raw_snapshot",
+    root,
+    changedFiles: options.changedFiles ?? [],
+  };
+}
+
+export function customSource(input: {
+  provider: string;
+  id: string;
+}): CustomReviewSource {
+  assertNonEmptySourcePart("custom", "provider", input.provider);
+  assertNonEmptySourcePart("custom", "id", input.id);
+  return {
+    type: "custom",
+    provider: input.provider,
+    id: input.id,
   };
 }
 
@@ -67,8 +117,11 @@ export function parseReviewSource(source: ReviewSourceLike): ReviewSource {
   if (source.startsWith("local:")) {
     return local(source.slice("local:".length));
   }
+  if (source.startsWith("raw_snapshot:")) {
+    return rawSnapshot(source.slice("raw_snapshot:".length));
+  }
   throw new MuzenSourceError(
-    "expected github:owner/repo#number, gitlab:owner/repo!number, or local:path",
+    "expected github:owner/repo#number, gitlab:owner/repo!number, local:path, or raw_snapshot:path",
   );
 }
 
@@ -76,10 +129,16 @@ export function sourceKey(source: ReviewSource): string {
   switch (source.type) {
     case "local":
       return `local:${source.repo}`;
+    case "raw_snapshot":
+      return `raw_snapshot:${source.root}`;
     case "github_pull_request":
       return `github:${source.owner}/${source.repo}#${source.number}`;
     case "gitlab_merge_request":
       return `gitlab:${source.owner}/${source.repo}!${source.number}`;
+    case "perforce_changelist":
+      return `perforce:${source.server}@${source.changelist}`;
+    case "custom":
+      return `custom:${source.provider}:${source.id}`;
   }
 }
 
@@ -130,5 +189,15 @@ function assertRepoSourceParts(
   }
   if (!Number.isInteger(number) || number <= 0) {
     throw new MuzenSourceError(`${provider} review number must be positive`);
+  }
+}
+
+function assertNonEmptySourcePart(
+  provider: string,
+  field: string,
+  value: string,
+): void {
+  if (value.trim().length === 0) {
+    throw new MuzenSourceError(`${provider} ${field} is empty`);
   }
 }

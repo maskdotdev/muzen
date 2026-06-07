@@ -2,19 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{ReviewRetryPolicy, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostConfiguration {
     #[serde(default)]
     pub scheduling: HostSchedulingConfiguration,
-}
-
-impl Default for HostConfiguration {
-    fn default() -> Self {
-        Self {
-            scheduling: HostSchedulingConfiguration::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

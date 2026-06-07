@@ -1,12 +1,7 @@
 use super::*;
-use crate::contracts::Role;
-use crate::runner::{
-    RunnerFinding, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
-    RUNNER_PROTOCOL_VERSION,
-};
 use crate::util::timestamp_utc;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[test]
@@ -40,150 +35,32 @@ fn parses_gitlab_source_shorthand_with_nested_owner() {
 }
 
 #[test]
+fn parses_raw_snapshot_source_shorthand() {
+    let source = ReviewSource::from_str("raw_snapshot:/tmp/muzen-snapshot").unwrap();
+
+    assert_eq!(source, ReviewSource::raw_snapshot("/tmp/muzen-snapshot"));
+    assert_eq!(source.source_key(), "raw_snapshot:/tmp/muzen-snapshot");
+}
+
+#[test]
+fn builds_non_git_provider_sources() {
+    let perforce = ReviewSource::perforce_changelist("perforce.example:1666", "12345").unwrap();
+    let custom = ReviewSource::custom("acme", "review-123").unwrap();
+
+    assert_eq!(
+        perforce.source_key(),
+        "perforce:perforce.example:1666@12345"
+    );
+    assert_eq!(custom.source_key(), "custom:acme:review-123");
+}
+
+#[test]
 fn rejects_invalid_source_shorthand() {
     let error = ReviewSource::from_str("github:maskdotdev/heimdaal").unwrap_err();
 
     assert!(error
         .to_string()
         .contains("missing `#` review number delimiter"));
-}
-
-#[test]
-fn maps_local_review_input_to_runner_start_params() {
-    let input = CreateReviewSessionInput::with_options(
-        ReviewSource::local_with_changed_files(".", ["Cargo.toml"]),
-        ReviewOptions {
-            model: Some("default".to_string()),
-            sessions: vec![ReviewAgentSession::new(
-                "security",
-                Role::Security,
-                "Find security regressions",
-            )],
-            limits: Some(ReviewLimits {
-                max_active_sessions: Some(1),
-                max_file_bytes: Some(4096),
-                max_search_matches: Some(12),
-            }),
-            ..ReviewOptions::default()
-        },
-    )
-    .unwrap();
-    let review_id = ReviewSessionId::new("review-1").unwrap();
-
-    let start = input.into_runner_start(&review_id).unwrap();
-
-    assert_eq!(
-        start.protocol_version.as_deref(),
-        Some(RUNNER_PROTOCOL_VERSION)
-    );
-    assert_eq!(start.run_id.as_deref(), Some("review-1"));
-    assert_eq!(start.repo.as_deref(), Some(Path::new(".")));
-    assert_eq!(
-        start.source,
-        Some(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
-    );
-    assert_eq!(start.changed_files, vec!["Cargo.toml"]);
-    assert_eq!(start.sessions.len(), 1);
-    assert_eq!(start.sessions[0].id, "security");
-    assert_eq!(
-        start.sessions[0].model_profile_id.as_deref(),
-        Some("default")
-    );
-    assert_eq!(
-        start
-            .limits
-            .as_ref()
-            .and_then(|limits| limits.max_file_bytes),
-        Some(4096)
-    );
-}
-
-#[test]
-fn maps_provider_source_to_runner_materialization_params() {
-    let input = CreateReviewSessionInput::new("github:maskdotdev/heimdaal#123").unwrap();
-    let review_id = ReviewSessionId::new("review-1").unwrap();
-
-    let start = input.into_runner_start(&review_id).unwrap();
-
-    assert_eq!(start.repo, None);
-    assert_eq!(
-        start.source,
-        Some(ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap())
-    );
-    assert!(start.changed_files.is_empty());
-}
-
-#[test]
-fn maps_runner_result_to_review_result() {
-    let review_id = ReviewSessionId::new("review-1").unwrap();
-    let source = ReviewSource::local(".");
-    let result = RunnerRunResult {
-        protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
-        run_id: "review-1".to_string(),
-        status: "completed".to_string(),
-        summary: RunnerRunSummary {
-            sessions: 2,
-            completed_sessions: 2,
-            model_calls: 3,
-            tool_calls: 9,
-            findings: 1,
-            publishable_findings: 1,
-            elapsed_ms: 120,
-            input_tokens: 100,
-            output_tokens: 20,
-            total_tokens: 120,
-            artifacts: 2,
-            artifact_bytes: 42,
-            snapshot_count: 1,
-        },
-        findings: vec![RunnerFinding {
-            id: "finding-1".to_string(),
-            title: "Unsafe unwrap".to_string(),
-            claim: "The code can panic.".to_string(),
-            evidence_count: 1,
-            publishable: true,
-        }],
-        snapshots: vec![RunnerSnapshotSummary {
-            snapshot_id: "snapshot-1".to_string(),
-            files: 10,
-            changed_files: 2,
-            captured_files: 8,
-            captured_bytes: 1000,
-        }],
-    };
-
-    let review = ReviewResult::from_runner_result(review_id, &source, result);
-
-    assert_eq!(review.status, ReviewStatus::Completed);
-    assert_eq!(review.conclusion, ReviewConclusion::ChangesRequested);
-    assert_eq!(review.findings[0].severity, ReviewFindingSeverity::Error);
-    assert_eq!(review.coverage.files_considered, 10);
-    assert_eq!(review.coverage.files_reviewed, 8);
-    assert_eq!(review.coverage.files_skipped, 2);
-    assert_eq!(review.metadata["runnerRunId"], json!("review-1"));
-}
-
-#[test]
-fn config_snapshot_serializes_secret_refs_not_secret_values() {
-    let snapshot = EffectiveConfigSnapshot {
-        model_profile: Some(ProfileVersionRef {
-            id: "default".to_string(),
-            version: "7".to_string(),
-            secret_ref: Some("vault://models/default".to_string()),
-        }),
-        provider_profile: Some(ProfileVersionRef {
-            id: "github".to_string(),
-            version: "3".to_string(),
-            secret_ref: Some("vault://providers/github".to_string()),
-        }),
-        routing: BTreeMap::from([("baseUrl".to_string(), "https://api.github.com".to_string())]),
-    };
-
-    let serialized = serde_json::to_string(&snapshot).unwrap();
-
-    assert!(serialized.contains("vault://models/default"));
-    assert!(!serialized.contains("apiKey"));
-    assert!(!serialized.contains("token"));
 }
 
 #[test]
@@ -679,38 +556,6 @@ fn review_store_records_retry_backoff_and_final_failure() {
 }
 
 #[test]
-fn host_scheduling_configuration_builds_worker_claim_options() {
-    let config = HostSchedulingConfiguration {
-        lease_seconds: 120,
-        default_retry_policy: ReviewRetryPolicy {
-            max_attempts: 5,
-            initial_backoff_seconds: 15,
-            max_backoff_seconds: 600,
-        },
-        concurrency: ReviewWorkerConcurrencyLimits {
-            max_running_global: Some(10),
-            max_running_per_workspace: Some(3),
-            max_running_per_user: Some(2),
-            max_running_per_model_profile: Some(4),
-            max_running_per_provider_profile: Some(5),
-        },
-        fairness: SchedulingFairnessStrategy::RoundRobinByWorkspace,
-    };
-
-    let options = config.claim_options("worker-a", 7);
-
-    assert_eq!(options.worker_id, "worker-a");
-    assert_eq!(options.max_sessions, 7);
-    assert_eq!(options.lease_seconds, 120);
-    assert_eq!(options.concurrency.max_running_global, Some(10));
-    assert_eq!(config.default_retry_policy.initial_backoff_seconds, 15);
-    assert_eq!(
-        config.fairness,
-        SchedulingFairnessStrategy::RoundRobinByWorkspace
-    );
-}
-
-#[test]
 fn review_store_enforces_global_running_limit() {
     let store = InMemoryReviewSessionStore::default();
     store
@@ -940,10 +785,11 @@ fn review_worker_records_final_failure_for_execution_error() {
     assert_eq!(run.failed, 1);
     assert_eq!(record.status, ReviewStatus::Failed);
     assert!(record.lease.is_none());
-    assert!(record
-        .last_error
-        .as_deref()
-        .is_some_and(|error| error.contains("repo has no obvious text file to review")));
+    assert!(record.last_error.as_deref().is_some_and(|error| {
+        error.contains(
+            "run requires at least one changed file that exists in the materialized worktree",
+        )
+    }));
     assert_eq!(
         record.events.last().map(|event| event.event_type),
         Some(ReviewEventType::SessionFailed)
@@ -1058,47 +904,6 @@ fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
     assert!(!serialized.contains("apiKey"));
     assert!(!serialized.contains("token"));
     assert!(!serialized.contains("sk-live"));
-}
-
-#[test]
-fn durable_record_events_and_result_serialize_without_raw_profile_secret() {
-    let raw_secret = "sk-live-raw-secret";
-    let repo = tempfile::tempdir().unwrap();
-    std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
-    let store = Arc::new(InMemoryReviewSessionStore::default());
-    let muzen = Muzen::with_store(store.clone());
-    let workspace = muzen.workspace("acme");
-    workspace
-        .set_model_profile(
-            "default",
-            ModelProfileInput {
-                provider: ModelProviderKind::OpenaiCompatible,
-                model: "gpt-5".to_string(),
-                secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
-                base_url: Some("https://models.example.test".to_string()),
-                routing: BTreeMap::new(),
-            },
-        )
-        .unwrap();
-    let review = workspace
-        .schedule_review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
-        .unwrap();
-    ReviewWorker::new("worker-a", store.clone(), HostConfiguration::default())
-        .run_once(1)
-        .unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
-    let record_json = serde_json::to_string(&record).unwrap();
-    let events_json = serde_json::to_string(&record.events).unwrap();
-    let result_json = serde_json::to_string(&record.result).unwrap();
-
-    assert!(record_json.contains("vault://workspaces/acme/models/default"));
-    for serialized in [record_json, events_json, result_json] {
-        assert!(!serialized.contains(raw_secret));
-        assert!(!serialized.contains("apiKey"));
-    }
 }
 
 #[test]

@@ -10,6 +10,8 @@ pub(crate) mod contracts;
 pub(crate) mod events;
 pub(crate) mod job;
 pub(crate) mod repo;
+pub(crate) mod review_plan;
+pub(crate) mod review_units;
 pub(crate) mod runtime;
 pub(crate) mod util;
 

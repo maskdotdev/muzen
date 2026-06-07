@@ -22,6 +22,8 @@ import {
   mapRunnerStatus,
   toRunnerStartParams,
 } from "./runner-mapping.js";
+import { registerReviewCallbacks } from "./runner-callbacks.js";
+import { reviewOptionsRequireSecretResolver } from "./models.js";
 import { parseReviewSource } from "./sources.js";
 import { UnsupportedWorkspaceProfileCollection } from "./unsupported.js";
 import {
@@ -29,6 +31,7 @@ import {
   unwrapWorkerRun,
 } from "./wire-validation.js";
 import type {
+  CreateMuzenOptions,
   HostConfiguration,
   ModelProfile,
   ModelProfileInput,
@@ -64,7 +67,10 @@ export class RunnerBackedMuzen implements Muzen {
   readonly webhooks: MuzenWebhooks;
   readonly workers: MuzenWorkers;
 
-  constructor(private readonly runner: RunnerStdioClient) {
+  constructor(
+    private readonly runner: RunnerStdioClient,
+    private readonly options: Pick<CreateMuzenOptions, "secrets"> = {},
+  ) {
     this.webhooks = new RunnerBackedMuzenWebhooks(runner);
     this.workers = new RunnerBackedMuzenWorkers(runner);
   }
@@ -84,20 +90,59 @@ export class RunnerBackedMuzen implements Muzen {
     source: ReviewSourceLike;
     options?: ReviewOptions;
   }): Promise<ReviewSession> {
+    throwIfAborted(input.options?.signal);
+    if (
+      input.options &&
+      reviewOptionsRequireSecretResolver(input.options) &&
+      !this.options.secrets?.resolve
+    ) {
+      throw new Error(
+        "model credential secretRef requires createMuzen({ secrets: { resolve } })",
+      );
+    }
     const source = parseReviewSource(input.source);
     const reviewId = `review-${randomUUID()}`;
     const events: ReviewEvent[] = [];
+    let hookError: Error | undefined;
     const unsubscribe = this.runner.onNotification((notification) => {
       const event = mapNotification(notification);
       if (event && event.reviewId === reviewId) {
         events.push(event);
+        try {
+          input.options?.hooks?.onEvent?.(event);
+        } catch (error) {
+          hookError ??= reviewHookError(error);
+        }
       }
     });
+    const unsubscribeCallbacks = registerReviewCallbacks(
+      this.runner,
+      input.options ?? {},
+      this.options,
+    );
+    let startSent = false;
+    let startSettled = false;
+    const stopCancelOnAbort = onAbort(input.options?.signal, () => {
+      if (!startSent || startSettled) {
+        return;
+      }
+      void this.runner.request("run.cancel", {
+        runId: reviewId,
+        reason: "operation aborted",
+      }).catch(() => {});
+    });
     try {
+      throwIfAborted(input.options?.signal);
+      startSent = true;
       const runnerResult = await this.runner.request(
         "run.start",
         toRunnerStartParams(reviewId, source, input.options ?? {}),
       );
+      startSettled = true;
+      throwIfAborted(input.options?.signal);
+      if (hookError) {
+        throw hookError;
+      }
       const result = mapRunnerResult(reviewId, source, runnerResult);
       const review = new RunnerBackedReviewSession(
         this.runner,
@@ -118,6 +163,9 @@ export class RunnerBackedMuzen implements Muzen {
       }
       throw error;
     } finally {
+      startSettled = true;
+      stopCancelOnAbort();
+      unsubscribeCallbacks();
       unsubscribe();
     }
   }
@@ -433,6 +481,25 @@ function afterCursorIndex(
   }
   const index = events.findIndex((event) => event.cursor === after);
   return index === -1 ? 0 : index + 1;
+}
+
+function reviewHookError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(`review event hook failed: ${String(error)}`);
+}
+
+function onAbort(signal: AbortSignal | undefined, handler: () => void): () => void {
+  if (!signal) {
+    return () => {};
+  }
+  if (signal.aborted) {
+    handler();
+    return () => {};
+  }
+  signal.addEventListener("abort", handler, { once: true });
+  return () => signal.removeEventListener("abort", handler);
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {

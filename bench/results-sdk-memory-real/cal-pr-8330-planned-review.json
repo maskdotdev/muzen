@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/Users/e464543/code/argus-web/.benchmarks/review/repos/software-factory__generative-software__argus__martian-review-benchmarks__cal-dot-com",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-06T20:57:48.855Z",
+    "finishedAtUtc": "2026-06-06T20:57:51.645Z",
+    "elapsedMs": 2789
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 22802,
+    "outputTokens": 114,
+    "totalTokens": 22916,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the changed scheduling test, slot computation, viewer schedule router, and schedule types. The changes are internally consistent and no actionable bug is supported by the transcript evidence.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[]}"
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_3deb3c46d08ed77f009dd362766f4242056ca2185d83c203362538dfbac3d26a",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_67bb52866c7b173211dde7ef6753ecd0fc4e1fa55045fe92d6dd1fe20653c469",
+          "art_67e2fbe8c1bfc3c253f5a3e50f73d226e75299ee453070791318209e0734ca94",
+          "art_6a929cefaa65319a6d606841494241fadb02df95cefa080718acf0f5c186e4d8"
+        ],
+        "evidenceCount": 5,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_3deb3c46d08ed77f009dd362766f4242056ca2185d83c203362538dfbac3d26a",
+          "art_4f5c13a8c60bdd37f59346c49bc992b20c0ae51d4ccdf51a9b22a094895fbb50",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_67bb52866c7b173211dde7ef6753ecd0fc4e1fa55045fe92d6dd1fe20653c469",
+          "art_67e2fbe8c1bfc3c253f5a3e50f73d226e75299ee453070791318209e0734ca94"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_3deb3c46d08ed77f009dd362766f4242056ca2185d83c203362538dfbac3d26a",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_67bb52866c7b173211dde7ef6753ecd0fc4e1fa55045fe92d6dd1fe20653c469",
+          "art_67e2fbe8c1bfc3c253f5a3e50f73d226e75299ee453070791318209e0734ca94",
+          "art_babc0e1f70d6e78935f96af6440515bd0b3c3107cb60959a8c5169bcc5b459d2"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_3deb3c46d08ed77f009dd362766f4242056ca2185d83c203362538dfbac3d26a",
+          "art_640782e53b19f4b75ef2e606fea1c2076b20e07abc6563b57c7fb9c4aa6dd6da",
+          "art_67bb52866c7b173211dde7ef6753ecd0fc4e1fa55045fe92d6dd1fe20653c469",
+          "art_67e2fbe8c1bfc3c253f5a3e50f73d226e75299ee453070791318209e0734ca94"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780779469387",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "ae086838897c8eae4e2a9b5a7086bd30b9d33c6c3772dccd6b2c91bbdd623f6a"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 71333,
+      "artifacts": 8,
+      "completedSessions": 1,
+      "elapsedMs": 2052,
+      "findings": 0,
+      "inputTokens": 22802,
+      "modelCalls": 3,
+      "outputTokens": 114,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 22916
+    }
+  },
+  "reviewValid": true
+}

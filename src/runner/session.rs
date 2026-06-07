@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use serde_json::json;
+use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 
 use super::execution::execute_run_start;
 use super::protocol::{
@@ -14,10 +15,10 @@ use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
 use super::transport::{InteractiveTransport, RunnerCallbackTransport};
 use super::types::{
-    ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunLookupParams, RunStartParams,
-    RunStatusResult, RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerHandshakeParams,
-    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams,
-    WorkerRunOnceResult,
+    ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunFailedNotification,
+    RunLookupParams, RunStartParams, RunStatusResult, RunnerArtifactExportResult,
+    RunnerArtifactReadResult, RunnerHandshakeParams, RunnerSnapshotTextResult,
+    SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams, WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::review_session::{Muzen, WebhookHeaders};
@@ -59,8 +60,11 @@ where
         };
         match frame {
             JsonRpcFrame::Request(request) => {
-                let response = session.handle_interactive_request(request, transport.clone())?;
-                transport.write_response(&response)?;
+                if let Some(response) =
+                    session.handle_interactive_request(request, transport.clone())?
+                {
+                    transport.write_response(&response)?;
+                }
             }
             JsonRpcFrame::Response(response) => {
                 let error = JsonRpcResponse::error(
@@ -138,8 +142,64 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
 
 #[derive(Default)]
 pub(crate) struct RunnerStdioSession {
-    reports: BTreeMap<String, RunnerStoredRun>,
+    state: Arc<Mutex<RunnerStdioState>>,
     muzen: Muzen,
+}
+
+#[derive(Default)]
+struct RunnerStdioState {
+    reports: BTreeMap<String, RunnerStoredRun>,
+    active_runs: BTreeMap<String, ActiveRun>,
+}
+
+struct ActiveRun {
+    cancel: CancellationToken,
+}
+
+fn execute_interactive_run_start(
+    params: RunStartParams,
+    request_id: Option<Value>,
+    run_id: String,
+    cancel: CancellationToken,
+    state: Arc<Mutex<RunnerStdioState>>,
+    transport: Arc<dyn RunnerCallbackTransport>,
+) -> JsonRpcResponse {
+    let response = match execute_run_start(params, Some(transport.clone()), cancel.clone()) {
+        Ok(executed) => {
+            let result = executed.result.clone();
+            state
+                .lock()
+                .expect("runner state poisoned")
+                .reports
+                .insert(result.run_id.clone(), executed.stored);
+            if cancel.is_cancelled() {
+                let failure =
+                    RunFailedNotification::from_runner_error(format!("run {run_id} cancelled"));
+                let runner_error = JsonRpcError::runner_error(failure.error.clone());
+                let _ = transport.notify("run.failed", json!(failure));
+                JsonRpcResponse::error(request_id, runner_error)
+            } else {
+                let _ = transport.notify("run.finished", json!(result.clone()));
+                JsonRpcResponse::success(request_id, json!(result))
+            }
+        }
+        Err(error) => {
+            let failure = if cancel.is_cancelled() {
+                RunFailedNotification::from_runner_error(format!("run {run_id} cancelled"))
+            } else {
+                RunFailedNotification::from_runner_error(error.to_string())
+            };
+            let runner_error = JsonRpcError::runner_error(failure.error.clone());
+            let _ = transport.notify("run.failed", json!(failure));
+            JsonRpcResponse::error(request_id, runner_error)
+        }
+    };
+    state
+        .lock()
+        .expect("runner state poisoned")
+        .active_runs
+        .remove(&run_id);
+    response
 }
 
 impl RunnerStdioSession {
@@ -175,23 +235,24 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                match execute_run_start(params, None) {
+                match execute_run_start(params, None, CancellationToken::new()) {
                     Ok(executed) => {
                         for event in &executed.events {
                             write_notification(writer, "event.review", json!(event))?;
                         }
                         let result = executed.result.clone();
                         write_notification(writer, "run.finished", json!(result.clone()))?;
-                        self.reports.insert(result.run_id.clone(), executed.stored);
+                        self.state
+                            .lock()
+                            .expect("runner state poisoned")
+                            .reports
+                            .insert(result.run_id.clone(), executed.stored);
                         Ok(JsonRpcResponse::success(request.id, json!(result)))
                     }
                     Err(error) => {
-                        let runner_error = JsonRpcError::runner_error(error.to_string());
-                        write_notification(
-                            writer,
-                            "run.failed",
-                            json!({"error": runner_error.message, "kind": "runner_error"}),
-                        )?;
+                        let failure = RunFailedNotification::from_runner_error(error.to_string());
+                        let runner_error = JsonRpcError::runner_error(failure.error.clone());
+                        write_notification(writer, "run.failed", json!(failure))?;
                         Ok(JsonRpcResponse::error(request.id, runner_error))
                     }
                 }
@@ -201,7 +262,17 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                let Some(stored) = self.reports.get(&params.run_id) else {
+                let state = self.state.lock().expect("runner state poisoned");
+                if state.active_runs.contains_key(&params.run_id) {
+                    return Ok(JsonRpcResponse::success(
+                        request.id,
+                        json!(RunStatusResult {
+                            run_id: params.run_id,
+                            status: "running".to_string(),
+                        }),
+                    ));
+                }
+                let Some(stored) = state.reports.get(&params.run_id) else {
                     return Ok(JsonRpcResponse::error(
                         request.id,
                         JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -220,7 +291,17 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                let Some(stored) = self.reports.get(&params.run_id) else {
+                let state = self.state.lock().expect("runner state poisoned");
+                if state.active_runs.contains_key(&params.run_id) {
+                    return Ok(JsonRpcResponse::success(
+                        request.id,
+                        json!(RunStatusResult {
+                            run_id: params.run_id,
+                            status: "running".to_string(),
+                        }),
+                    ));
+                }
+                let Some(stored) = state.reports.get(&params.run_id) else {
                     return Ok(JsonRpcResponse::error(
                         request.id,
                         JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -249,43 +330,62 @@ impl RunnerStdioSession {
         &mut self,
         request: JsonRpcRequest,
         transport: Arc<T>,
-    ) -> Result<JsonRpcResponse>
+    ) -> Result<Option<JsonRpcResponse>>
     where
         T: RunnerCallbackTransport + 'static,
     {
         if !stateful_method(request.method.as_str()) {
-            return Ok(handle_request(request));
+            return Ok(Some(handle_request(request)));
         }
         if request.jsonrpc != "2.0" {
-            return Ok(JsonRpcResponse::error(
+            return Ok(Some(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_request("jsonrpc must be 2.0"),
-            ));
+            )));
         }
         if request.method.as_str() != "run.start" {
-            return self.handle_stateful_request_without_notifications(request);
+            return self
+                .handle_stateful_request_without_notifications(request)
+                .map(Some);
         }
         let params = match parse_params::<RunStartParams>(request.params) {
             Ok(params) => params,
-            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+            Err(error) => return Ok(Some(JsonRpcResponse::error(request.id, error))),
         };
-        let transport: Arc<dyn RunnerCallbackTransport> = transport;
-        match execute_run_start(params, Some(transport.clone())) {
-            Ok(executed) => {
-                let result = executed.result.clone();
-                transport.notify("run.finished", json!(result.clone()))?;
-                self.reports.insert(result.run_id.clone(), executed.stored);
-                Ok(JsonRpcResponse::success(request.id, json!(result)))
+        let run_id = params
+            .run_id
+            .clone()
+            .unwrap_or_else(|| "muzen-run".to_string());
+        let cancel = CancellationToken::new();
+        {
+            let mut state = self.state.lock().expect("runner state poisoned");
+            if state.active_runs.contains_key(&run_id) {
+                return Ok(Some(JsonRpcResponse::error(
+                    request.id,
+                    JsonRpcError::invalid_params(format!("runId {run_id} is already active")),
+                )));
             }
-            Err(error) => {
-                let runner_error = JsonRpcError::runner_error(error.to_string());
-                transport.notify(
-                    "run.failed",
-                    json!({"error": runner_error.message, "kind": "runner_error"}),
-                )?;
-                Ok(JsonRpcResponse::error(request.id, runner_error))
-            }
+            state.active_runs.insert(
+                run_id.clone(),
+                ActiveRun {
+                    cancel: cancel.clone(),
+                },
+            );
         }
+        let state = Arc::clone(&self.state);
+        let transport: Arc<dyn RunnerCallbackTransport> = transport;
+        std::thread::spawn(move || {
+            let response = execute_interactive_run_start(
+                params,
+                request.id,
+                run_id.clone(),
+                cancel,
+                Arc::clone(&state),
+                Arc::clone(&transport),
+            );
+            let _ = transport.respond(&response);
+        });
+        Ok(None)
     }
 
     fn handle_stateful_request_without_notifications(
@@ -298,7 +398,17 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                let Some(stored) = self.reports.get(&params.run_id) else {
+                let state = self.state.lock().expect("runner state poisoned");
+                if state.active_runs.contains_key(&params.run_id) {
+                    return Ok(JsonRpcResponse::success(
+                        request.id,
+                        json!(RunStatusResult {
+                            run_id: params.run_id,
+                            status: "running".to_string(),
+                        }),
+                    ));
+                }
+                let Some(stored) = state.reports.get(&params.run_id) else {
                     return Ok(JsonRpcResponse::error(
                         request.id,
                         JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -317,7 +427,17 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                let Some(stored) = self.reports.get(&params.run_id) else {
+                let state = self.state.lock().expect("runner state poisoned");
+                if state.active_runs.contains_key(&params.run_id) {
+                    return Ok(JsonRpcResponse::error(
+                        request.id,
+                        JsonRpcError::invalid_params(format!(
+                            "runId {} is still active",
+                            params.run_id
+                        )),
+                    ));
+                }
+                let Some(stored) = state.reports.get(&params.run_id) else {
                     return Ok(JsonRpcResponse::error(
                         request.id,
                         JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -347,7 +467,20 @@ impl RunnerStdioSession {
             Ok(params) => params,
             Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
         };
-        let Some(stored) = self.reports.get(&params.run_id) else {
+        let state = self.state.lock().expect("runner state poisoned");
+        if let Some(active) = state.active_runs.get(&params.run_id) {
+            active.cancel.cancel();
+            return Ok(JsonRpcResponse::success(
+                request.id,
+                json!(RunCancelResult {
+                    run_id: params.run_id,
+                    status: "cancelling".to_string(),
+                    cancelled: true,
+                    reason: "cancel requested".to_string(),
+                }),
+            ));
+        }
+        let Some(stored) = state.reports.get(&params.run_id) else {
             return Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -369,7 +502,8 @@ impl RunnerStdioSession {
             Ok(params) => params,
             Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
         };
-        let Some(stored) = self.reports.get(&params.run_id) else {
+        let state = self.state.lock().expect("runner state poisoned");
+        let Some(stored) = state.reports.get(&params.run_id) else {
             return Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -396,7 +530,8 @@ impl RunnerStdioSession {
             Ok(params) => params,
             Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
         };
-        let Some(stored) = self.reports.get(&params.run_id) else {
+        let state = self.state.lock().expect("runner state poisoned");
+        let Some(stored) = state.reports.get(&params.run_id) else {
             return Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -450,7 +585,8 @@ impl RunnerStdioSession {
             Ok(params) => params,
             Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
         };
-        let Some(stored) = self.reports.get(&params.run_id) else {
+        let state = self.state.lock().expect("runner state poisoned");
+        let Some(stored) = state.reports.get(&params.run_id) else {
             return Ok(JsonRpcResponse::error(
                 request.id,
                 JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
@@ -534,6 +670,197 @@ impl RunnerStdioSession {
                 request.id,
                 JsonRpcError::runner_error(error.to_string()),
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Condvar;
+    use std::time::{Duration, Instant};
+
+    use serde_json::Value;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingTransport {
+        state: Mutex<RecordingTransportState>,
+        changed: Condvar,
+    }
+
+    #[derive(Default)]
+    struct RecordingTransportState {
+        model_request_started: bool,
+        release_model_request: bool,
+        notifications: Vec<(String, Value)>,
+        responses: Vec<JsonRpcResponse>,
+    }
+
+    impl RecordingTransport {
+        fn wait_for_model_request(&self) {
+            let mut state = self.state.lock().expect("transport state poisoned");
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !state.model_request_started {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    panic!("timed out waiting for model callback request");
+                };
+                let (next_state, timeout) = self
+                    .changed
+                    .wait_timeout(state, remaining)
+                    .expect("transport condvar poisoned");
+                state = next_state;
+                assert!(
+                    !timeout.timed_out(),
+                    "timed out waiting for model callback request"
+                );
+            }
+        }
+
+        fn release_model_request(&self) {
+            let mut state = self.state.lock().expect("transport state poisoned");
+            state.release_model_request = true;
+            self.changed.notify_all();
+        }
+
+        fn wait_for_response(&self) -> JsonRpcResponse {
+            let mut state = self.state.lock().expect("transport state poisoned");
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while state.responses.is_empty() {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    panic!("timed out waiting for runner response");
+                };
+                let (next_state, timeout) = self
+                    .changed
+                    .wait_timeout(state, remaining)
+                    .expect("transport condvar poisoned");
+                state = next_state;
+                assert!(
+                    !timeout.timed_out(),
+                    "timed out waiting for runner response"
+                );
+            }
+            state.responses.remove(0)
+        }
+
+        fn notifications(&self) -> Vec<(String, Value)> {
+            self.state
+                .lock()
+                .expect("transport state poisoned")
+                .notifications
+                .clone()
+        }
+    }
+
+    impl RunnerCallbackTransport for RecordingTransport {
+        fn request(&self, method: &str, _params: Value) -> Result<Value> {
+            assert_eq!(method, "model.complete");
+            let mut state = self.state.lock().expect("transport state poisoned");
+            state.model_request_started = true;
+            self.changed.notify_all();
+            while !state.release_model_request {
+                state = self
+                    .changed
+                    .wait(state)
+                    .expect("transport condvar poisoned");
+            }
+            anyhow::bail!("operation aborted")
+        }
+
+        fn notify(&self, method: &str, params: Value) -> Result<()> {
+            let mut state = self.state.lock().expect("transport state poisoned");
+            state.notifications.push((method.to_string(), params));
+            self.changed.notify_all();
+            Ok(())
+        }
+
+        fn respond(&self, response: &JsonRpcResponse) -> Result<()> {
+            let mut state = self.state.lock().expect("transport state poisoned");
+            state.responses.push(response.clone());
+            self.changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn interactive_run_cancel_preempts_active_run_start() {
+        let repo = tempfile::tempdir().expect("temp repo");
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("fixture file");
+        let mut session = RunnerStdioSession::default();
+        let transport = Arc::new(RecordingTransport::default());
+
+        let start = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "run.start".to_string(),
+            params: Some(json!({
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runId": "cancel-me",
+                "repo": repo.path(),
+                "changedFiles": ["Cargo.toml"],
+                "model": { "callback": true },
+                "sessions": [{
+                    "id": "generalist",
+                    "role": "generalist",
+                    "objective": "Review cancellation behavior."
+                }]
+            })),
+        };
+        let immediate = session
+            .handle_interactive_request(start, transport.clone())
+            .expect("start request");
+        assert!(immediate.is_none());
+        transport.wait_for_model_request();
+
+        let status = session
+            .handle_interactive_request(run_lookup_request(2, "run.status"), transport.clone())
+            .expect("status request")
+            .expect("status response");
+        assert_eq!(status.result.as_ref().unwrap()["status"], "running");
+
+        let cancel = session
+            .handle_interactive_request(run_lookup_request(3, "run.cancel"), transport.clone())
+            .expect("cancel request")
+            .expect("cancel response");
+        assert_eq!(cancel.result.as_ref().unwrap()["status"], "cancelling");
+        assert_eq!(cancel.result.as_ref().unwrap()["cancelled"], true);
+
+        transport.release_model_request();
+        let start_response = transport.wait_for_response();
+        assert!(start_response.error.is_some());
+        assert_eq!(start_response.id, Some(json!(1)));
+        assert!(start_response
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("cancelled"));
+
+        let notifications = transport.notifications();
+        let failed = notifications
+            .iter()
+            .find(|(method, _)| method == "run.failed")
+            .expect("run.failed notification");
+        assert_eq!(failed.1["failureKind"], "cancelled");
+        assert_eq!(failed.1["retryHint"], "not_retryable");
+
+        let result = session
+            .handle_interactive_request(run_lookup_request(4, "run.result"), transport)
+            .expect("result request")
+            .expect("result response");
+        assert!(result.result.is_some(), "partial result remains stored");
+    }
+
+    fn run_lookup_request(id: u64, method: &str) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(id)),
+            method: method.to_string(),
+            params: Some(json!({ "runId": "cancel-me" })),
         }
     }
 }
