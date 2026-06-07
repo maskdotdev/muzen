@@ -38,9 +38,10 @@ Implemented on `feat/context-engine`:
   host-provided evidence indexing, and explicit capability omission reporting
   when no cross-repo evidence or network/provider grant is available.
 - Optional semantic retrieval scaffolding is present: no-vector mode is the
-  default, embedding provider/vector-index traits are defined, semantic score is
-  an additive ranking signal, and hosted embedding inputs reject restricted
-  evidence unless explicitly allowed.
+  default, embedding provider/vector-index traits are defined, a deterministic
+  local hashed embedding provider and in-memory vector index are available,
+  semantic score is an additive ranking signal, and hosted embedding inputs
+  reject restricted evidence unless explicitly allowed.
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
   import extraction feeds a per-index symbol graph used by `related_symbols`.
 - A runnable context-engine evaluation harness with fixture-backed recall,
@@ -53,7 +54,7 @@ Still pending from the full plan:
 - Host wiring for workspace-managed durable learning store paths and retention
   policies.
 - Capability-scoped network/provider retrieval for cross-repository contracts.
-- Concrete local/hosted embedding provider implementations and benchmarked
-  semantic ranking improvements.
+- Hosted embedding provider implementation, index lifecycle wiring, and
+  benchmarked semantic ranking improvements.
 - Broader replay/evaluation coverage for redaction, prompt-injection resistance,
   sufficiency calibration, cache hit rates, and multi-fixture regressions.
