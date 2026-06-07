@@ -119,9 +119,7 @@ where
             let mut writer = self.writer.lock().expect("runner stdio lock poisoned");
             write_request(&mut *writer, &request_id_value, method, params)
         };
-        if let Err(error) = write_result {
-            return Err(error);
-        }
+        write_result?;
         let response = wait_for_callback_response(&self.callbacks, &waiter_key)
             .with_context(|| format!("SDK closed stdio while waiting for {method} response"))?;
         callback_response_result(method, response)

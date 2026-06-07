@@ -121,6 +121,7 @@ pub(crate) struct DiffArtifact {
 }
 
 impl RepoSnapshot {
+    #[cfg(test)]
     pub(crate) fn build(
         root: &Path,
         policy: &PathPolicyV1,

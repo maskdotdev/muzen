@@ -4,23 +4,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::bench::bench_job;
-use crate::cli::{BenchArgs, BenchTerminalPolicy, CanaryManifestArgs, CanaryVerifyArgs};
+use crate::cli::{BenchArgs, BenchTerminalPolicy};
 use crate::contracts::*;
 use crate::repo::RepoContext;
 use crate::runtime::contracts::{
-    ArtifactKey, CapabilitySet, ConcurrentCounters, ConcurrentRunReport, ConversationItem, FsScope,
-    LimitInfo, ModelCostEstimate, ModelToolCall, ModelTurn, ProviderResourceId,
-    ProviderResourceScope, RepoPath, RuntimeError, RuntimeLimits, RuntimeResult, SessionId,
-    SessionInstruction, SessionScope, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant, ToolId,
-    ToolMetricKey, ToolProviderHealthState, ToolProviderId, TurnId,
+    ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
+    ProviderResourceId, RuntimeError, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId,
+    ToolProviderId, TurnId,
 };
-use crate::runtime::model::{ConcurrentModelClient, MockReviewModel};
-use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::model::ConcurrentModelClient;
 use crate::runtime::tools::ToolEngine;
 use crate::runtime::tools::{
-    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
-    JsonRpcToolRequest, JsonRpcToolResponse, JsonRpcToolTransport, ToolRegistry,
+    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, JsonRpcToolRequest,
+    JsonRpcToolResponse, JsonRpcToolTransport,
 };
 use crate::util::DEFAULT_MODEL;
 use async_trait::async_trait;
@@ -161,74 +157,6 @@ pub struct CancelAfterToolResultModel {
     pub calls: Arc<AtomicUsize>,
 }
 
-#[derive(Debug)]
-pub struct FailThenMockModel {
-    pub failures_left: AtomicUsize,
-    pub failure: ModelFailure,
-    pub inner: MockReviewModel,
-}
-
-impl FailThenMockModel {
-    fn new(failures: usize, failure: ModelFailure) -> Self {
-        Self {
-            failures_left: AtomicUsize::new(failures),
-            failure,
-            inner: MockReviewModel::new("README.md".to_string(), "needle".to_string()),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum ModelFailure {
-    RetryableProvider,
-    NonRetryableProvider,
-    Timeout,
-}
-
-impl ModelFailure {
-    fn error(self) -> RuntimeError {
-        match self {
-            Self::RetryableProvider => RuntimeError::Provider {
-                status: Some(429),
-                retryable: true,
-            },
-            Self::NonRetryableProvider => RuntimeError::Provider {
-                status: Some(400),
-                retryable: false,
-            },
-            Self::Timeout => RuntimeError::Timeout,
-        }
-    }
-}
-
-#[async_trait]
-impl ConcurrentModelClient for FailThenMockModel {
-    async fn complete(
-        &self,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        turn_id: TurnId,
-        cancel: tokio_util::sync::CancellationToken,
-    ) -> RuntimeResult<ModelTurn> {
-        if self
-            .failures_left
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
-                if left > 0 {
-                    Some(left - 1)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
-        {
-            return Err(self.failure.error());
-        }
-        self.inner
-            .complete(scope, transcript, turn_id, cancel)
-            .await
-    }
-}
-
 #[async_trait]
 impl crate::reviewer::model::ReviewModel for CancellingModel {
     async fn complete_review(
@@ -308,35 +236,6 @@ impl ConcurrentModelClient for CancelAfterToolResultModel {
                 name: self.tool_id.clone(),
                 raw_arguments: "{}".to_string(),
             }],
-        })
-    }
-}
-
-pub struct CostedMockModel {
-    pub inner: MockReviewModel,
-}
-
-#[async_trait]
-impl ConcurrentModelClient for CostedMockModel {
-    async fn complete(
-        &self,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        turn_id: TurnId,
-        cancel: tokio_util::sync::CancellationToken,
-    ) -> RuntimeResult<ModelTurn> {
-        self.inner
-            .complete(scope, transcript, turn_id, cancel)
-            .await
-    }
-
-    fn estimate_cost(&self, usage: &TokenUsage) -> Option<ModelCostEstimate> {
-        let input_cost_micro_usd = usage.input_tokens * 2;
-        let output_cost_micro_usd = usage.output_tokens * 3;
-        Some(ModelCostEstimate {
-            input_cost_micro_usd,
-            output_cost_micro_usd,
-            total_cost_micro_usd: input_cost_micro_usd + output_cost_micro_usd,
         })
     }
 }
@@ -779,94 +678,6 @@ pub fn trusted_custom_capabilities() -> CapabilitySet {
     let mut capabilities = CapabilitySet::review_read_only();
     capabilities.runtime_authority.host_read = true;
     capabilities
-}
-
-pub fn minimal_report() -> ConcurrentRunReport {
-    ConcurrentRunReport {
-        runtime: "concurrent",
-        sessions: 1,
-        completed_sessions: 1,
-        model_calls: 1,
-        tool_calls: 1,
-        tool_counts: ToolCounts::default(),
-        findings: 1,
-        publishable_findings: 1,
-        elapsed_ms: 1,
-        input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
-        artifacts: 0,
-        artifact_bytes: 0,
-        counters: ConcurrentCounters::default(),
-        tool_metrics: Default::default(),
-        provider_health: Vec::new(),
-        snapshot_metrics: Vec::new(),
-        model_metrics: Default::default(),
-        terminal_diagnostics: Vec::new(),
-        benchmark_valid: true,
-        benchmark_failures: Vec::new(),
-    }
-}
-
-pub fn test_scope_with_budget(id: &str, max_turns: usize, max_tool_calls: usize) -> SessionScope {
-    let mut scope = test_scope(id);
-    scope.budget.max_turns = max_turns;
-    scope.budget.max_tool_calls = max_tool_calls;
-    scope
-}
-
-pub fn test_scope_with_changed_file_batch(id: &str, path: &str) -> SessionScope {
-    let mut scope = test_scope(id);
-    scope.instructions.push(SessionInstruction {
-        kind: "changed_file_batch".to_string(),
-        trusted: true,
-        text: format!("Changed-file batch 1/1 (1 files):\n1. {path}"),
-    });
-    scope
-}
-
-pub fn all_builtin_tools() -> impl Iterator<Item = ToolName> {
-    ToolName::review_read_only_tools().iter().copied()
-}
-
-pub fn builtin_args(tool: ToolName) -> String {
-    match tool {
-        ToolName::ListChangedFiles | ToolName::ReadDiff | ToolName::ListFiles => "{}".to_string(),
-        ToolName::ReadFile | ToolName::ReadBaseFile | ToolName::ReadHeadFile => {
-            serde_json::json!({ "path": "README.md" }).to_string()
-        }
-        ToolName::ReadFileRange => serde_json::json!({
-            "path": "README.md",
-            "start_line": 1,
-            "end_line": 20
-        })
-        .to_string(),
-        ToolName::SearchText => serde_json::json!({ "query": "needle" }).to_string(),
-        ToolName::FindRelatedFiles | ToolName::FindTestsForFile | ToolName::ListImports => {
-            serde_json::json!({ "path": "src/lib.rs" }).to_string()
-        }
-        ToolName::RecordFileReview => serde_json::json!({
-            "path": "README.md",
-            "verdict": "clean",
-            "summary": "Reviewed the changed file and found no actionable issue.",
-            "related_paths": []
-        })
-        .to_string(),
-        ToolName::RecordFinding => serde_json::json!({
-            "title": "benchmark finding",
-            "claim": "claim",
-            "path": "README.md",
-            "start_line": 1,
-            "end_line": 1
-        })
-        .to_string(),
-        ToolName::ChallengeFinding => serde_json::json!({
-            "finding_id": "finding-1",
-            "rationale": "challenge"
-        })
-        .to_string(),
-        ToolName::Finish => serde_json::json!({ "reason": "done" }).to_string(),
-    }
 }
 
 pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> SessionScope {

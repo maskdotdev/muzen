@@ -21,10 +21,6 @@ impl RuntimeEventDispatcher {
         }
     }
 
-    pub(crate) fn none() -> Self {
-        Self::new(None, None)
-    }
-
     pub(crate) fn emit_legacy(&self, event: EventRecord) {
         if let Some(emitter) = &self.legacy_emitter {
             emitter.emit(event);

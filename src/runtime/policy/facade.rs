@@ -17,17 +17,4 @@ impl ReviewerPolicy {
             _ => false,
         }
     }
-
-    pub(crate) fn should_cancel_job_after_model_error(&self, error: &RuntimeError) -> bool {
-        matches!(
-            error,
-            RuntimeError::Provider {
-                retryable: false,
-                ..
-            } | RuntimeError::ProviderMessage {
-                retryable: false,
-                ..
-            }
-        )
-    }
 }

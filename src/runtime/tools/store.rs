@@ -235,20 +235,6 @@ impl ConcurrentFindingStore {
             .map(|finding| finding.clone())
             .collect()
     }
-
-    pub(crate) fn len(&self) -> usize {
-        self.by_id.len()
-    }
-
-    pub(crate) fn publishable_len(&self) -> usize {
-        self.by_id
-            .iter()
-            .filter(|entry| {
-                entry.validation_status == ValidationStatus::Validated
-                    && matches!(entry.publishability, FindingPublishability::Publishable)
-            })
-            .count()
-    }
 }
 
 pub(super) fn finding_id_for_call(call_id: &ToolCallId, title: &str, claim: &str) -> String {

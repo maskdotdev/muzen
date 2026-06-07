@@ -1,10 +1,10 @@
 use serde_json::{json, Value};
 
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
+use crate::contracts::{EventLevel, EventType, ToolName};
 use crate::events::EventRecord;
 use crate::runtime::contracts::{
-    ArtifactView, ModelToolCall, RuntimeError, RuntimeEvent, RuntimeEventContext, SessionId,
-    SessionScope, ToolErrorCode, ToolResultEnvelope, TurnId,
+    ArtifactView, RuntimeError, RuntimeEvent, RuntimeEventContext, SessionId, SessionScope,
+    ToolErrorCode, ToolResultEnvelope, TurnId,
 };
 use crate::util::redact_known_secrets;
 
@@ -21,15 +21,6 @@ impl ReviewerPolicy {
         })
     }
 
-    pub(crate) fn plan_session_started_event(&self, scope: &SessionScope) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Info,
-            EventType::SessionStarted,
-            json!({"role": scope.role, "objective": scope.objective}),
-        )
-        .session_id(scope.id.0.clone())
-    }
-
     pub(crate) fn plan_session_finished_runtime_event(
         &self,
         scope: &SessionScope,
@@ -41,21 +32,6 @@ impl ReviewerPolicy {
         })
     }
 
-    pub(crate) fn plan_session_finished_event(
-        &self,
-        scope: &SessionScope,
-        status: &str,
-        tool_counts: ToolCounts,
-        model_calls: usize,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Info,
-            EventType::SessionFinished,
-            json!({"state": status, "toolCounts": tool_counts, "modelCalls": model_calls}),
-        )
-        .session_id(scope.id.0.clone())
-    }
-
     pub(crate) fn plan_model_started_runtime_event(
         &self,
         scope: &SessionScope,
@@ -65,20 +41,6 @@ impl ReviewerPolicy {
             session_id: scope.id.clone(),
             turn_id,
         })
-    }
-
-    pub(crate) fn plan_model_started_event(
-        &self,
-        scope: &SessionScope,
-        turn_index: usize,
-        attempt: usize,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Debug,
-            EventType::ModelCallStarted,
-            json!({"turn": turn_index, "attempt": attempt}),
-        )
-        .session_id(scope.id.0.clone())
     }
 
     pub(crate) fn plan_model_completed_runtime_event(
@@ -111,20 +73,6 @@ impl ReviewerPolicy {
         })
     }
 
-    pub(crate) fn plan_model_completed_event(
-        &self,
-        scope: &SessionScope,
-        turn_index: usize,
-        usage: TokenUsage,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Debug,
-            EventType::ModelCallCompleted,
-            json!({"turn": turn_index, "tokens": usage}),
-        )
-        .session_id(scope.id.0.clone())
-    }
-
     pub(crate) fn plan_model_router_error_event(
         &self,
         scope: &SessionScope,
@@ -134,31 +82,6 @@ impl ReviewerPolicy {
             EventLevel::Error,
             EventType::Error,
             json!({"error": redacted_error_message(error)}),
-        )
-        .session_id(scope.id.0.clone())
-    }
-
-    pub(crate) fn plan_model_attempt_error_event(
-        &self,
-        scope: &SessionScope,
-        turn_index: usize,
-        attempt: usize,
-        retrying: bool,
-        error: &RuntimeError,
-    ) -> EventRecord {
-        EventRecord::new(
-            if retrying {
-                EventLevel::Warn
-            } else {
-                EventLevel::Error
-            },
-            EventType::Error,
-            json!({
-                "turn": turn_index,
-                "attempt": attempt,
-                "retrying": retrying,
-                "error": redacted_error_message(error),
-            }),
         )
         .session_id(scope.id.0.clone())
     }
@@ -177,20 +100,6 @@ impl ReviewerPolicy {
             turn_id,
             count,
         }))
-    }
-
-    pub(crate) fn plan_tool_call_requested_event(
-        &self,
-        scope: &SessionScope,
-        call: &ModelToolCall,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Info,
-            EventType::ToolCallRequested,
-            json!({"toolName": call.name.as_str()}),
-        )
-        .session_id(scope.id.0.clone())
-        .tool_call_id(call.call_id.0.clone())
     }
 
     pub(crate) fn plan_finding_validated_event(

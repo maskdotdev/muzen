@@ -349,7 +349,6 @@ pub(crate) struct RunEventV1 {
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EventLevel {
-    Debug,
     Info,
     Warn,
     Error,
