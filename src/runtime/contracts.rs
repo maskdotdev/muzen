@@ -232,10 +232,6 @@ impl ToolId {
             "find_related_files" => Some(ToolName::FindRelatedFiles),
             "find_tests_for_file" => Some(ToolName::FindTestsForFile),
             "list_imports" => Some(ToolName::ListImports),
-            "record_file_review" => Some(ToolName::RecordFileReview),
-            "record_finding" => Some(ToolName::RecordFinding),
-            "challenge_finding" => Some(ToolName::ChallengeFinding),
-            "finish" => Some(ToolName::Finish),
             _ => None,
         }
     }
@@ -939,27 +935,6 @@ pub enum ToolArgs {
     SearchText {
         query: String,
     },
-    RecordFinding {
-        title: String,
-        claim: String,
-        path: RepoPath,
-        start_line: Option<usize>,
-        end_line: Option<usize>,
-    },
-    RecordFileReview {
-        path: RepoPath,
-        verdict: String,
-        summary: String,
-        finding_id: Option<String>,
-        related_paths: Vec<RepoPath>,
-    },
-    ChallengeFinding {
-        finding_id: String,
-        rationale: String,
-    },
-    Finish {
-        reason: String,
-    },
     Raw(Value),
 }
 
@@ -1427,11 +1402,11 @@ pub struct ArtifactView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionTerminalDiagnostic {
+pub struct SessionCompletionDiagnostic {
     pub session_id: String,
     pub completed: bool,
-    pub terminal_tool: Option<String>,
-    pub terminal_summary: Option<String>,
+    pub completion_kind: Option<String>,
+    pub completion_summary: Option<String>,
     pub saw_diff: bool,
     pub saw_file: bool,
     pub saw_search: bool,
@@ -1474,7 +1449,7 @@ pub struct ConcurrentRunReport {
     pub provider_health: Vec<ToolProviderHealthSnapshot>,
     pub snapshot_metrics: Vec<SnapshotMetricsSnapshot>,
     pub model_metrics: ModelMetricsSnapshot,
-    pub terminal_diagnostics: Vec<SessionTerminalDiagnostic>,
+    pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
     pub benchmark_valid: bool,
     pub benchmark_failures: Vec<String>,
 }

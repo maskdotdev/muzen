@@ -1,5 +1,4 @@
-pub(crate) use crate::bench::bench_job;
-pub(crate) use crate::cli::{BenchTerminalPolicy, CanaryManifestArgs, CanaryVerifyArgs};
+pub(crate) use crate::cli::{CanaryManifestArgs, CanaryVerifyArgs};
 pub(crate) use crate::contracts::*;
 pub(crate) use crate::runtime::contracts::{
     ArtifactKey, CapabilitySet, FsScope, LimitInfo, ModelToolCall, ProviderResourceId,

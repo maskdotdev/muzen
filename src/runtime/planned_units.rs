@@ -20,7 +20,7 @@ use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
-use crate::runtime::policy::{ReviewerPolicy, SessionEvidence, SessionTerminal};
+use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::{ConcurrentArtifactStore, ToolEngine};
@@ -44,6 +44,8 @@ impl PlannedReviewRuntime {
         let started = Instant::now();
         let review_plan = build_review_plan(&self.snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let contract_risk =
+            build_contract_risk_plan(&review_plan, self.snapshot.diff.content.as_str());
         self.events.emit_legacy(EventRecord::new(
             EventLevel::Info,
             EventType::ToolCallCompleted,
@@ -53,6 +55,8 @@ impl PlannedReviewRuntime {
                     "excludedFiles": review_plan.counts.excluded_files,
                     "fullFiles": review_plan.counts.full_files,
                     "units": unit_plan.counts.total_units,
+                    "contractRiskUnits": contract_risk.risky_unit_count(),
+                    "contractSeedCount": contract_risk.seed_count(),
                 }
             }),
         ));
@@ -61,17 +65,22 @@ impl PlannedReviewRuntime {
         let mut model_metrics = ModelMetricsSnapshot::default();
         let mut tool_counts = ToolCounts::default();
         let mut tokens = TokenUsage::default();
-        let mut terminal_diagnostics = Vec::new();
+        let mut completion_diagnostics = Vec::new();
         let mut candidate_findings = Vec::new();
         let mut file_reviews = skipped_file_reviews(&review_plan);
 
         for unit in &unit_plan.units {
             if cancel.is_cancelled() {
-                terminal_diagnostics.push(unit_diagnostic(unit, false, "cancelled"));
+                completion_diagnostics.push(unit_diagnostic(unit, false, "cancelled"));
                 continue;
             }
             let report = self
-                .run_unit(&review_plan, unit.clone(), cancel.child_token())
+                .run_unit(
+                    &review_plan,
+                    &contract_risk,
+                    unit.clone(),
+                    cancel.child_token(),
+                )
                 .await;
             if report.completed {
                 completed_sessions += 1;
@@ -82,11 +91,12 @@ impl PlannedReviewRuntime {
             tokens.add(report.tokens);
             candidate_findings.extend(report.candidate_findings);
             file_reviews.extend(report.file_reviews);
-            terminal_diagnostics.push(report.terminal_diagnostic);
+            completion_diagnostics.push(report.completion_diagnostic);
         }
         let synthesis = synthesize_findings(
             &review_plan,
             &unit_plan.units,
+            &contract_risk,
             self.snapshot.diff.content.as_str(),
             candidate_findings,
             &self.tools.artifacts,
@@ -109,11 +119,11 @@ impl PlannedReviewRuntime {
             );
         }
         reconcile_file_reviews_with_findings(&mut file_reviews, &findings);
-        terminal_diagnostics.push(SessionTerminalDiagnostic {
+        completion_diagnostics.push(SessionCompletionDiagnostic {
             session_id: "synthesis".to_string(),
             completed: true,
-            terminal_tool: Some("structured_synthesis".to_string()),
-            terminal_summary: Some(format!(
+            completion_kind: Some("structured_synthesis".to_string()),
+            completion_summary: Some(format!(
                 "candidateFindings={} rescuedCandidates={} rejectedCandidates={} rejectionReasons={}",
                 synthesis.candidate_count,
                 synthesis.rescued_count,
@@ -132,7 +142,7 @@ impl PlannedReviewRuntime {
         let tool_metrics = self.tools.snapshot_tool_metrics();
         let provider_health = self.tools.snapshot_provider_health();
         let elapsed_ms = elapsed_ms(started);
-        let review_sessions = terminal_diagnostics
+        let review_sessions = completion_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.session_id != "synthesis")
             .count();
@@ -170,7 +180,7 @@ impl PlannedReviewRuntime {
                 elapsed_ms,
             }],
             model_metrics,
-            terminal_diagnostics,
+            completion_diagnostics,
             benchmark_valid: false,
             benchmark_failures: Vec::new(),
         };
@@ -186,6 +196,7 @@ impl PlannedReviewRuntime {
     async fn run_unit(
         &self,
         review_plan: &ReviewPlan,
+        contract_risk: &ContractRiskPlan,
         unit: PlannedReviewUnit,
         cancel: CancellationToken,
     ) -> PlannedReviewUnitReport {
@@ -209,9 +220,9 @@ impl PlannedReviewRuntime {
             }
         };
 
-        let mut transcript = planned_unit_transcript(review_plan, &unit);
+        let unit_risk = contract_risk.unit_risk(&unit);
+        let mut transcript = planned_unit_transcript(review_plan, &unit, unit_risk);
         let mut evidence = SessionEvidence::for_scope(&scope);
-        let mut terminal = SessionTerminal::default();
         let mut tool_counts = ToolCounts::default();
         let mut model_metrics = ModelMetricsSnapshot::default();
         let mut tokens = TokenUsage::default();
@@ -274,6 +285,32 @@ impl PlannedReviewRuntime {
                             .plan_model_completed_runtime_event(&scope, turn_id, 0),
                     );
                     let result = parse_unit_result(&content, &unit);
+                    let validation = validate_file_reviews(
+                        &scope,
+                        &unit,
+                        unit_risk,
+                        result.file_verdicts,
+                        &file_evidence,
+                    );
+                    if !validation.missing_obligations.is_empty() && turn_index < 3 {
+                        transcript.push(ConversationItem::AssistantText { content });
+                        transcript.push(ConversationItem::User {
+                            content: missing_evidence_instruction(
+                                unit_risk,
+                                &validation.missing_obligations,
+                            ),
+                        });
+                        continue;
+                    }
+                    let mut file_reviews = validation.file_reviews;
+                    append_needs_review_for_missing(
+                        &scope,
+                        &unit,
+                        unit_risk,
+                        &file_evidence,
+                        &validation.missing_obligations,
+                        &mut file_reviews,
+                    );
                     let candidate_findings = collect_candidate_findings(
                         &scope,
                         &unit,
@@ -281,8 +318,6 @@ impl PlannedReviewRuntime {
                         result.findings,
                         &file_evidence,
                     );
-                    let file_reviews =
-                        validate_file_reviews(&scope, &unit, result.file_verdicts, &file_evidence);
                     self.events.emit_planned_runtime(
                         self.policy
                             .plan_session_finished_runtime_event(&scope, "done"),
@@ -295,14 +330,19 @@ impl PlannedReviewRuntime {
                         tokens,
                         candidate_findings,
                         file_reviews,
-                        terminal_diagnostic: SessionTerminalDiagnostic {
+                        completion_diagnostic: SessionCompletionDiagnostic {
                             session_id: scope.id.0,
                             completed: true,
-                            terminal_tool: Some("structured_unit_result".to_string()),
-                            terminal_summary: Some(result.summary),
+                            completion_kind: Some("structured_unit_result".to_string()),
+                            completion_summary: Some(format!(
+                                "{} contractRisk={} missingEvidence={}",
+                                result.summary,
+                                unit_risk.high_risk,
+                                validation.missing_obligations.len()
+                            )),
                             saw_diff: true,
                             saw_file: true,
-                            saw_search: tool_counts.search_text > 0,
+                            saw_search: file_evidence.has_contract_evidence(unit_risk),
                             model_calls,
                             tool_counts,
                         },
@@ -317,12 +357,8 @@ impl PlannedReviewRuntime {
                             calls.len(),
                         ),
                     );
-                    let allowed_calls = calls
-                        .into_iter()
-                        .filter(|call| !is_terminal_tool(&call.name))
-                        .collect::<Vec<_>>();
                     transcript.push(ConversationItem::AssistantToolCalls {
-                        calls: allowed_calls.clone(),
+                        calls: calls.clone(),
                     });
                     let results = ToolBatchRunner::new(
                         self.policy.as_ref(),
@@ -332,7 +368,7 @@ impl PlannedReviewRuntime {
                     .execute(
                         scope.clone(),
                         turn_id,
-                        allowed_calls,
+                        calls,
                         &evidence,
                         scope
                             .budget
@@ -354,13 +390,17 @@ impl PlannedReviewRuntime {
                         results,
                         ToolResultBatchState {
                             evidence: &mut evidence,
-                            terminal: &mut terminal,
                             tool_counts: &mut tool_counts,
                             transcript: &mut transcript,
                         },
                     );
                     transcript.push(ConversationItem::User {
-                        content: next_unit_instruction(turn_index, &unit, &file_evidence),
+                        content: next_unit_instruction(
+                            turn_index,
+                            &unit,
+                            unit_risk,
+                            &file_evidence,
+                        ),
                     });
                 }
             }
@@ -378,7 +418,7 @@ impl PlannedReviewRuntime {
             tokens,
             candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
-            terminal_diagnostic: unit_diagnostic(&unit, false, "partial"),
+            completion_diagnostic: unit_diagnostic(&unit, false, "partial"),
         }
     }
 }
@@ -392,19 +432,28 @@ fn final_response_scope(scope: &SessionScope) -> SessionScope {
 fn next_unit_instruction(
     turn_index: u32,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
     file_evidence: &FileEvidenceTracker,
 ) -> String {
     let missing = missing_assigned_file_evidence(unit, file_evidence);
     if !missing.is_empty() && turn_index < 2 {
         return format!(
-            "Before returning clean verdicts, gather head-file evidence for the assigned changed file(s) not yet inspected: {}. Request read_file or read_file_range for those paths, plus one targeted related search/import check if shared helper or caller contracts may be involved.",
+            "Before returning clean verdicts, inspect the assigned changed file(s) not yet read: {}. Use read_file, read_file_range, or read_head_file. If those files call helpers, return structured values, or participate in a shared integration/API contract, also inspect the relevant changed callers/helpers/imports even when they are outside this unit.",
             missing.join(", ")
         );
     }
-    if turn_index < 2 {
-        return "Use the gathered evidence to either request one targeted follow-up batch for related searches/imports/callers, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. If these files participate in a repeated integration/callback/adapter/API-helper pattern, search for shared helper names, return values, imported symbols, or caller expectations across changed files before declaring them clean. Do not call terminal tools.".to_string();
+    if unit_risk.high_risk && !file_evidence.has_contract_evidence(unit_risk) && turn_index < 2 {
+        return format!(
+            "This unit has high cross-file contract risk: {}. You are expected to explore beyond the assigned files when needed: use search_text, list_imports, read_head_file, read_file_range, or find_related_files to compare helper return shapes, imports, callers, and repeated integration implementations. Useful seed queries: {}.",
+            unit_risk.reasons.join(", "),
+            unit_risk.suggested_queries.join(" | ")
+        );
     }
-    "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings. Do not call terminal tools.".to_string()
+    if turn_index < 2 {
+        return "Use the gathered evidence to either request a focused follow-up batch for related searches, imports, callers, helpers, or comparable changed implementations, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. Exploration may include changed files outside this unit when they are needed to prove or disprove a shared contract issue.".to_string();
+    }
+    "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings."
+        .to_string()
 }
 
 fn missing_assigned_file_evidence(
@@ -413,7 +462,7 @@ fn missing_assigned_file_evidence(
 ) -> Vec<String> {
     unit.file_paths
         .iter()
-        .filter(|path| !file_evidence.has_path_evidence(&path.display()))
+        .filter(|path| !file_evidence.has_file_evidence(&path.display()))
         .map(RepoPath::display)
         .collect()
 }
@@ -445,12 +494,272 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
         .collect()
 }
 
+#[derive(Debug, Default, Clone)]
+struct ContractRiskPlan {
+    by_unit: BTreeMap<String, ContractUnitRisk>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct ContractUnitRisk {
+    high_risk: bool,
+    reasons: Vec<String>,
+    seeds: Vec<String>,
+    suggested_queries: Vec<String>,
+}
+
+impl ContractRiskPlan {
+    fn unit_risk(&self, unit: &PlannedReviewUnit) -> &ContractUnitRisk {
+        self.by_unit.get(&unit.id).unwrap_or(&NO_CONTRACT_RISK)
+    }
+
+    fn risky_unit_count(&self) -> usize {
+        self.by_unit.values().filter(|risk| risk.high_risk).count()
+    }
+
+    fn seed_count(&self) -> usize {
+        self.by_unit
+            .values()
+            .flat_map(|risk| risk.seeds.iter())
+            .collect::<BTreeSet<_>>()
+            .len()
+    }
+}
+
+static NO_CONTRACT_RISK: ContractUnitRisk = ContractUnitRisk {
+    high_risk: false,
+    reasons: Vec::new(),
+    seeds: Vec::new(),
+    suggested_queries: Vec::new(),
+};
+
+fn build_contract_risk_plan(review_plan: &ReviewPlan, diff: &str) -> ContractRiskPlan {
+    let path_counts = repeated_path_segment_counts(review_plan);
+    let diff_seeds = seeds_by_path(diff);
+    let unit_plan = build_review_unit_plan(review_plan, ReviewUnitOptions::default());
+    let mut by_unit = BTreeMap::new();
+    for unit in unit_plan.units {
+        let mut reasons = BTreeSet::new();
+        let mut seeds = BTreeSet::new();
+        for path in &unit.file_paths {
+            let display = path.display();
+            let lower = display.to_ascii_lowercase();
+            for signal in [
+                "api",
+                "callback",
+                "adapter",
+                "service",
+                "oauth",
+                "auth",
+                "credential",
+                "token",
+                "webhook",
+                "integration",
+            ] {
+                if lower.contains(signal) {
+                    reasons.insert(format!("path:{signal}"));
+                    seeds.insert(signal.to_string());
+                }
+            }
+            for segment in repeated_segments(&display, &path_counts) {
+                reasons.insert(format!("repeated:{segment}"));
+                seeds.insert(segment);
+            }
+            if let Some(path_seeds) = diff_seeds.get(&display) {
+                seeds.extend(path_seeds.iter().cloned());
+            }
+            if let Some(stem) = file_stem_seed(&display) {
+                seeds.insert(stem);
+            }
+        }
+        let seeds = normalize_seed_set(seeds);
+        let high_risk = !reasons.is_empty() && seeds.len() >= 2;
+        let suggested_queries = seeds
+            .iter()
+            .take(6)
+            .map(|seed| seed.to_string())
+            .collect::<Vec<_>>();
+        by_unit.insert(
+            unit.id,
+            ContractUnitRisk {
+                high_risk,
+                reasons: reasons.into_iter().collect(),
+                seeds,
+                suggested_queries,
+            },
+        );
+    }
+    ContractRiskPlan { by_unit }
+}
+
+fn repeated_path_segment_counts(review_plan: &ReviewPlan) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for file in &review_plan.files {
+        for segment in file.path.display().split('/') {
+            let normalized = normalize_seed(segment);
+            if normalized.len() >= 3 {
+                *counts.entry(normalized).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+}
+
+fn repeated_segments(path: &str, counts: &BTreeMap<String, usize>) -> Vec<String> {
+    path.split('/')
+        .filter_map(|segment| {
+            let normalized = normalize_seed(segment);
+            if normalized.len() >= 3 && counts.get(&normalized).copied().unwrap_or(0) >= 3 {
+                Some(normalized)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn seeds_by_path(diff: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut current_path: Option<String> = None;
+    let mut seeds = BTreeMap::<String, BTreeSet<String>>::new();
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = Some(path.to_string());
+            continue;
+        }
+        if line.starts_with("+++ /dev/null") || line.starts_with("diff --git ") {
+            current_path = None;
+            continue;
+        }
+        let Some(path) = current_path.as_ref() else {
+            continue;
+        };
+        let Some(added) = line.strip_prefix('+') else {
+            continue;
+        };
+        if added.starts_with("++") {
+            continue;
+        }
+        extract_contract_seeds(added, seeds.entry(path.clone()).or_default());
+    }
+    seeds
+}
+
+fn extract_contract_seeds(line: &str, seeds: &mut BTreeSet<String>) {
+    let trimmed = line.trim();
+    if trimmed.starts_with("import ")
+        || trimmed.starts_with("export ")
+        || trimmed.contains("function ")
+        || trimmed.contains("=>")
+        || trimmed.contains("return ")
+    {
+        for token in identifier_tokens(trimmed) {
+            seeds.insert(token);
+        }
+    }
+    if trimmed.contains("return") || trimmed.contains('{') {
+        for part in trimmed.split(['{', '}', ',', ':']) {
+            let token = normalize_seed(part);
+            if token.len() >= 3 {
+                seeds.insert(token);
+            }
+        }
+    }
+}
+
+fn identifier_tokens(value: &str) -> Vec<String> {
+    value
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .filter_map(|part| {
+            let token = normalize_seed(part);
+            if token.len() >= 3 && !CONTRACT_SEED_STOPWORDS.contains(&token.as_str()) {
+                Some(token)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+const CONTRACT_SEED_STOPWORDS: &[&str] = &[
+    "const",
+    "let",
+    "var",
+    "return",
+    "from",
+    "import",
+    "export",
+    "async",
+    "await",
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "string",
+    "number",
+    "boolean",
+    "type",
+    "interface",
+];
+
+fn normalize_seed_set(seeds: BTreeSet<String>) -> Vec<String> {
+    seeds
+        .into_iter()
+        .filter(|seed| seed.len() >= 3 && !CONTRACT_SEED_STOPWORDS.contains(&seed.as_str()))
+        .take(12)
+        .collect()
+}
+
+fn file_stem_seed(path: &str) -> Option<String> {
+    let file = path.rsplit('/').next()?;
+    let stem = file.split('.').next()?;
+    let normalized = normalize_seed(stem);
+    (normalized.len() >= 3).then_some(normalized)
+}
+
+fn normalize_seed(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .to_ascii_lowercase()
+}
+
 #[derive(Debug, Default)]
 struct FileEvidenceTracker {
-    by_path: BTreeMap<String, BTreeSet<String>>,
-    global_artifact_ids: BTreeSet<String>,
+    by_path: BTreeMap<String, PathEvidence>,
+    diff_artifact_ids: BTreeSet<String>,
+    search_artifact_ids: BTreeSet<String>,
+    import_artifact_ids: BTreeSet<String>,
+    related_artifact_ids: BTreeSet<String>,
+    search_queries: Vec<String>,
     unit_paths: Vec<String>,
     diff_content: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct PathEvidence {
+    diff: BTreeSet<String>,
+    head_file: BTreeSet<String>,
+    range: BTreeSet<String>,
+    search: BTreeSet<String>,
+    imports: BTreeSet<String>,
+    related: BTreeSet<String>,
+}
+
+impl PathEvidence {
+    fn all_artifact_ids(&self) -> BTreeSet<String> {
+        self.diff
+            .iter()
+            .chain(&self.head_file)
+            .chain(&self.range)
+            .chain(&self.search)
+            .chain(&self.imports)
+            .chain(&self.related)
+            .cloned()
+            .collect()
+    }
+
+    fn has_file_evidence(&self) -> bool {
+        !self.head_file.is_empty() || !self.range.is_empty()
+    }
 }
 
 impl FileEvidenceTracker {
@@ -463,9 +772,13 @@ impl FileEvidenceTracker {
         Self {
             by_path: unit_paths
                 .iter()
-                .map(|path| (path.clone(), BTreeSet::new()))
+                .map(|path| (path.clone(), PathEvidence::default()))
                 .collect(),
-            global_artifact_ids: BTreeSet::new(),
+            diff_artifact_ids: BTreeSet::new(),
+            search_artifact_ids: BTreeSet::new(),
+            import_artifact_ids: BTreeSet::new(),
+            related_artifact_ids: BTreeSet::new(),
+            search_queries: Vec::new(),
             unit_paths,
             diff_content: None,
         }
@@ -489,7 +802,7 @@ impl FileEvidenceTracker {
             };
             match result.tool_name.as_builtin() {
                 Some(ToolName::ReadDiff) => {
-                    self.global_artifact_ids.insert(artifact_id.clone());
+                    self.diff_artifact_ids.insert(artifact_id.clone());
                     if self.diff_content.is_none() {
                         self.diff_content = result
                             .artifact_id
@@ -501,16 +814,46 @@ impl FileEvidenceTracker {
                         self.by_path
                             .entry(path.clone())
                             .or_default()
+                            .diff
                             .insert(artifact_id.clone());
                     }
                 }
                 Some(ToolName::SearchText) => {
-                    self.global_artifact_ids.insert(artifact_id.clone());
+                    self.search_artifact_ids.insert(artifact_id.clone());
+                    if let Some(query) = result
+                        .data
+                        .as_ref()
+                        .and_then(|data| data.get("query"))
+                        .and_then(|query| query.as_str())
+                    {
+                        self.search_queries.push(query.to_string());
+                    }
                     for path in &self.unit_paths {
                         self.by_path
                             .entry(path.clone())
                             .or_default()
+                            .search
                             .insert(artifact_id.clone());
+                    }
+                }
+                Some(ToolName::ListImports) => {
+                    self.import_artifact_ids.insert(artifact_id.clone());
+                    if let Some(path) = result_path(result) {
+                        self.by_path
+                            .entry(path)
+                            .or_default()
+                            .imports
+                            .insert(artifact_id);
+                    }
+                }
+                Some(ToolName::FindRelatedFiles) => {
+                    self.related_artifact_ids.insert(artifact_id.clone());
+                    if let Some(path) = result_path(result) {
+                        self.by_path
+                            .entry(path)
+                            .or_default()
+                            .related
+                            .insert(artifact_id);
                     }
                 }
                 Some(ToolName::ReadFile | ToolName::ReadFileRange | ToolName::ReadHeadFile) => {
@@ -520,10 +863,12 @@ impl FileEvidenceTracker {
                         .and_then(|data| data.get("path"))
                         .and_then(|path| path.as_str())
                     {
-                        self.by_path
-                            .entry(path.to_string())
-                            .or_default()
-                            .insert(artifact_id);
+                        let evidence = self.by_path.entry(path.to_string()).or_default();
+                        if result.tool_name.as_builtin() == Some(ToolName::ReadFileRange) {
+                            evidence.range.insert(artifact_id);
+                        } else {
+                            evidence.head_file.insert(artifact_id);
+                        }
                     }
                 }
                 _ => {}
@@ -533,24 +878,52 @@ impl FileEvidenceTracker {
 
     fn evidence_for(&self, path: &str) -> Vec<String> {
         let mut evidence = self
-            .global_artifact_ids
+            .diff_artifact_ids
             .iter()
+            .chain(&self.search_artifact_ids)
+            .chain(&self.import_artifact_ids)
+            .chain(&self.related_artifact_ids)
             .cloned()
             .collect::<BTreeSet<_>>();
         if let Some(path_evidence) = self.by_path.get(path) {
-            evidence.extend(path_evidence.iter().cloned());
+            evidence.extend(path_evidence.all_artifact_ids());
         }
         evidence.into_iter().collect()
     }
 
-    fn has_path_evidence(&self, path: &str) -> bool {
-        !self
-            .by_path
+    fn has_file_evidence(&self, path: &str) -> bool {
+        self.by_path
             .get(path)
-            .map(BTreeSet::is_empty)
-            .unwrap_or(true)
-            || !self.global_artifact_ids.is_empty()
+            .map(PathEvidence::has_file_evidence)
+            .unwrap_or(false)
     }
+
+    fn has_contract_evidence(&self, unit_risk: &ContractUnitRisk) -> bool {
+        if !unit_risk.high_risk {
+            return false;
+        }
+        if !self.import_artifact_ids.is_empty() || !self.related_artifact_ids.is_empty() {
+            return true;
+        }
+        if self.search_artifact_ids.is_empty() {
+            return false;
+        }
+        self.search_queries.iter().any(|query| {
+            unit_risk
+                .seeds
+                .iter()
+                .any(|seed| contains_token(query, seed))
+        })
+    }
+}
+
+fn result_path(result: &ToolResultEnvelope) -> Option<String> {
+    result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("path"))
+        .and_then(|path| path.as_str())
+        .map(str::to_string)
 }
 
 pub(crate) struct PlannedReviewRunReport {
@@ -567,11 +940,11 @@ struct PlannedReviewUnitReport {
     tokens: TokenUsage,
     candidate_findings: Vec<CandidateFinding>,
     file_reviews: Vec<FileReviewV1>,
-    terminal_diagnostic: SessionTerminalDiagnostic,
+    completion_diagnostic: SessionCompletionDiagnostic,
 }
 
 impl PlannedReviewUnitReport {
-    fn empty(terminal_diagnostic: SessionTerminalDiagnostic) -> Self {
+    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
         Self {
             completed: false,
             model_calls: 0,
@@ -580,7 +953,7 @@ impl PlannedReviewUnitReport {
             tokens: TokenUsage::default(),
             candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
-            terminal_diagnostic,
+            completion_diagnostic,
         }
     }
 }
@@ -644,6 +1017,7 @@ struct SynthesisOutcome {
 fn planned_unit_transcript(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
 ) -> Vec<ConversationItem> {
     let unit_paths = unit
         .file_paths
@@ -673,12 +1047,17 @@ fn planned_unit_transcript(
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are a focused code-review unit reviewer. Review the assigned changed files, and use exploration tools to inspect directly related context when needed. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file if the evidence was encountered during exploration; each finding requires title, claim, path, startLine, and endLine. Do not call record_finding, record_file_review, or finish.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, and contracts with nearby helpers or callers. When assigned files are part of a repeated integration/callback/adapter/API-helper batch, inspect the shared contract: search for changed helper names, return values, imported symbols, or caller expectations across the changed file set before declaring the batch clean. Report only issues directly supported by the gathered evidence.".to_string(),
+            content: "You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.".to_string(),
         },
         ConversationItem::User {
             content: format!(
-                "Review unit: {}\nAssigned changed files:\n{}\nPlanner reasons:\n{}\n\nReturn fileVerdicts only for the assigned changed files above. Return actionable candidate findings for any changed file only when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files.",
-                unit.id, unit_paths, plan_reasons
+                "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for any changed file when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
+                unit.id,
+                unit_paths,
+                plan_reasons,
+                unit_risk.high_risk,
+                unit_risk.reasons.join(", "),
+                unit_risk.suggested_queries.join(" | ")
             ),
         },
     ]
@@ -750,10 +1129,12 @@ fn clean_result(unit: &PlannedReviewUnit) -> StructuredUnitResult {
 fn validate_file_reviews(
     scope: &SessionScope,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
     candidates: Vec<StructuredFileVerdict>,
     evidence_tracker: &FileEvidenceTracker,
-) -> Vec<FileReviewV1> {
-    candidates
+) -> FileReviewValidation {
+    let mut missing_obligations = Vec::new();
+    let file_reviews = candidates
         .into_iter()
         .filter_map(|candidate| {
             let path = RepoPath::parse(&candidate.path).ok()?;
@@ -763,6 +1144,23 @@ fn validate_file_reviews(
             let verdict = candidate.verdict.trim();
             if verdict.is_empty() {
                 return None;
+            }
+            if is_clean_verdict(verdict) {
+                let path_display = path.display();
+                if !evidence_tracker.has_file_evidence(&path_display) {
+                    missing_obligations.push(ReviewEvidenceObligation {
+                        path: path_display.clone(),
+                        reason: "missing_file_evidence".to_string(),
+                    });
+                    return None;
+                }
+                if unit_risk.high_risk && !evidence_tracker.has_contract_evidence(unit_risk) {
+                    missing_obligations.push(ReviewEvidenceObligation {
+                        path: path_display,
+                        reason: "missing_contract_evidence".to_string(),
+                    });
+                    return None;
+                }
             }
             let summary = candidate.summary.trim();
             let evidence_artifact_ids = evidence_tracker.evidence_for(&path.display());
@@ -781,7 +1179,93 @@ fn validate_file_reviews(
                 unit_id: unit.id.clone(),
             })
         })
-        .collect()
+        .collect();
+    FileReviewValidation {
+        file_reviews,
+        missing_obligations,
+    }
+}
+
+struct FileReviewValidation {
+    file_reviews: Vec<FileReviewV1>,
+    missing_obligations: Vec<ReviewEvidenceObligation>,
+}
+
+#[derive(Clone)]
+struct ReviewEvidenceObligation {
+    path: String,
+    reason: String,
+}
+
+fn is_clean_verdict(verdict: &str) -> bool {
+    matches!(
+        verdict.trim().to_ascii_lowercase().as_str(),
+        "clean" | "no_issue" | "no_issues" | "no supported bug found"
+    )
+}
+
+fn missing_evidence_instruction(
+    unit_risk: &ContractUnitRisk,
+    obligations: &[ReviewEvidenceObligation],
+) -> String {
+    let missing = obligations
+        .iter()
+        .map(|obligation| format!("{} ({})", obligation.path, obligation.reason))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if unit_risk.high_risk {
+        format!(
+            "Do not return clean verdicts yet. Missing required evidence: {missing}. Gather assigned file evidence and contract evidence with search_text, list_imports, or find_related_files. Suggested seed queries: {}.",
+            unit_risk.suggested_queries.join(" | ")
+        )
+    } else {
+        format!(
+            "Do not return clean verdicts yet. Missing required assigned-file evidence: {missing}. Read the assigned file or a relevant range, then return final JSON."
+        )
+    }
+}
+
+fn append_needs_review_for_missing(
+    scope: &SessionScope,
+    unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
+    evidence_tracker: &FileEvidenceTracker,
+    obligations: &[ReviewEvidenceObligation],
+    file_reviews: &mut Vec<FileReviewV1>,
+) {
+    let mut paths = obligations
+        .iter()
+        .map(|obligation| obligation.path.clone())
+        .collect::<BTreeSet<_>>();
+    if unit_risk.high_risk && !evidence_tracker.has_contract_evidence(unit_risk) {
+        for path in &unit.file_paths {
+            paths.insert(path.display());
+        }
+    }
+    for path in paths {
+        if file_reviews.iter().any(|review| review.path == path) {
+            continue;
+        }
+        let evidence_artifact_ids = evidence_tracker.evidence_for(&path);
+        file_reviews.push(FileReviewV1 {
+            path: path.clone(),
+            verdict: "needs_review".to_string(),
+            summary: if unit_risk.high_risk {
+                format!(
+                    "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: {}.",
+                    unit_risk.reasons.join(", ")
+                )
+            } else {
+                "Required assigned-file evidence was not gathered before budget exhaustion."
+                    .to_string()
+            },
+            related_paths: Vec::new(),
+            evidence_count: evidence_artifact_ids.len(),
+            evidence_artifact_ids,
+            session_id: scope.id.0.clone(),
+            unit_id: unit.id.clone(),
+        });
+    }
 }
 
 fn collect_candidate_findings(
@@ -811,7 +1295,7 @@ fn collect_candidate_findings(
                 rejection_reason = Some("empty_title_or_claim".to_string());
             } else if candidate.start_line.zip(candidate.end_line).is_none() {
                 rejection_reason = Some("missing_line_range".to_string());
-            } else if !evidence_tracker.has_path_evidence(&path) {
+            } else if evidence_tracker.evidence_for(&path).is_empty() {
                 rejection_reason = Some("missing_artifact_evidence".to_string());
             }
             CandidateFinding {
@@ -836,6 +1320,7 @@ fn collect_candidate_findings(
 fn synthesize_findings(
     review_plan: &ReviewPlan,
     _units: &[PlannedReviewUnit],
+    contract_risk: &ContractRiskPlan,
     diff: &str,
     candidates: Vec<CandidateFinding>,
     artifacts: &ConcurrentArtifactStore,
@@ -849,6 +1334,14 @@ fn synthesize_findings(
     let mut rescued_count = 0usize;
     let mut rejection_reasons = BTreeMap::new();
     let mut by_key: BTreeMap<String, FindingV1> = BTreeMap::new();
+    for unit_risk in contract_risk.by_unit.values().filter(|risk| risk.high_risk) {
+        if unit_risk.seeds.is_empty() {
+            rejected_count += 1;
+            *rejection_reasons
+                .entry("unresolved_contract_without_seeds".to_string())
+                .or_insert(0) += 1;
+        }
+    }
     for candidate in candidates {
         let source_unit_assigned_path = candidate.source_unit_assigned_path;
         match validate_candidate_finding(
@@ -1239,18 +1732,6 @@ const GENERIC_CODE_TOKENS: &[&str] = &[
     "this", "that", "item", "items", "value", "values",
 ];
 
-fn is_terminal_tool(tool_id: &ToolId) -> bool {
-    matches!(
-        tool_id.as_builtin(),
-        Some(
-            ToolName::RecordFinding
-                | ToolName::RecordFileReview
-                | ToolName::ChallengeFinding
-                | ToolName::Finish
-        )
-    )
-}
-
 fn record_usage(
     tokens: &mut TokenUsage,
     model_metrics: &mut ModelMetricsSnapshot,
@@ -1292,12 +1773,12 @@ fn unit_diagnostic(
     unit: &PlannedReviewUnit,
     completed: bool,
     status: &str,
-) -> SessionTerminalDiagnostic {
-    SessionTerminalDiagnostic {
+) -> SessionCompletionDiagnostic {
+    SessionCompletionDiagnostic {
         session_id: unit.id.clone(),
         completed,
-        terminal_tool: Some("structured_unit_result".to_string()),
-        terminal_summary: Some(status.to_string()),
+        completion_kind: Some("structured_unit_result".to_string()),
+        completion_summary: Some(status.to_string()),
         saw_diff: completed,
         saw_file: completed,
         saw_search: false,
@@ -1344,6 +1825,9 @@ mod tests {
         AssignedFinding,
         OutOfUnitFinding,
         InvalidCandidates,
+        LowRiskClean,
+        HighRiskCleanWithoutContractEvidence,
+        HighRiskCleanWithContractEvidence,
     }
 
     #[async_trait]
@@ -1362,14 +1846,99 @@ mod tests {
                     name: ToolId::from(ToolName::ReadDiff),
                     raw_arguments: "{}".to_string(),
                 }];
-                if matches!(self.mode, TestModelMode::OutOfUnitFinding) && scope.id.0 == "unit-001"
-                {
-                    calls.push(ModelToolCall {
-                        call_id: ToolCallId(format!("{}-read-related", scope.id.0)),
-                        index: 1,
-                        name: ToolId::from(ToolName::ReadHeadFile),
-                        raw_arguments: r#"{"path":"apps/api/credential-token.ts"}"#.to_string(),
-                    });
+                match self.mode {
+                    TestModelMode::AssignedFinding => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-auth", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"src/auth.rs"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-search-auth", scope.id.0)),
+                            index: 2,
+                            name: ToolId::from(ToolName::SearchText),
+                            raw_arguments: r#"{"query":"allow_empty_token"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::InvalidCandidates => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-auth", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"src/auth.rs"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-search-auth", scope.id.0)),
+                            index: 2,
+                            name: ToolId::from(ToolName::SearchText),
+                            raw_arguments: r#"{"query":"missing_symbol"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::LowRiskClean => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-widget", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"src/widget.rs"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::HighRiskCleanWithoutContractEvidence => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::HighRiskCleanWithContractEvidence => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-search-callback", scope.id.0)),
+                            index: 2,
+                            name: ToolId::from(ToolName::SearchText),
+                            raw_arguments: r#"{"query":"credential_token"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::OutOfUnitFinding if scope.id.0 == "unit-001" => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-auth", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"apps/api/auth-token.ts"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-related", scope.id.0)),
+                            index: 2,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"apps/api/credential-token.ts"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-search-token", scope.id.0)),
+                            index: 3,
+                            name: ToolId::from(ToolName::SearchText),
+                            raw_arguments: r#"{"query":"refresh_token"}"#.to_string(),
+                        });
+                    }
+                    TestModelMode::OutOfUnitFinding => {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-read-credential", scope.id.0)),
+                            index: 1,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"apps/api/credential-token.ts"}"#.to_string(),
+                        });
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-search-token", scope.id.0)),
+                            index: 2,
+                            name: ToolId::from(ToolName::SearchText),
+                            raw_arguments: r#"{"query":"refresh_token"}"#.to_string(),
+                        });
+                    }
                 }
                 return Ok(ModelTurn::ToolCalls {
                     calls,
@@ -1434,6 +2003,21 @@ mod tests {
                             "endLine": 99
                         }
                     ]
+                }),
+                TestModelMode::LowRiskClean => json!({
+                    "summary": "low risk clean",
+                    "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
+                    "findings": []
+                }),
+                TestModelMode::HighRiskCleanWithoutContractEvidence => json!({
+                    "summary": "high risk clean without contract evidence",
+                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "findings": []
+                }),
+                TestModelMode::HighRiskCleanWithContractEvidence => json!({
+                    "summary": "high risk clean with contract evidence",
+                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "findings": []
                 }),
             };
             Ok(ModelTurn::Text {
@@ -1514,12 +2098,12 @@ mod tests {
         );
         assert!(report
             .metrics
-            .terminal_diagnostics
+            .completion_diagnostics
             .iter()
             .any(|diagnostic| {
                 diagnostic.session_id == "synthesis"
                     && diagnostic
-                        .terminal_summary
+                        .completion_summary
                         .as_deref()
                         .unwrap_or_default()
                         .contains("rescuedCandidates=1")
@@ -1540,22 +2124,122 @@ mod tests {
         assert_eq!(report.file_reviews[0].verdict, "clean");
         assert!(report
             .metrics
-            .terminal_diagnostics
+            .completion_diagnostics
             .iter()
             .any(|diagnostic| {
                 diagnostic.session_id == "synthesis"
                     && diagnostic
-                        .terminal_summary
+                        .completion_summary
                         .as_deref()
                         .unwrap_or_default()
                         .contains("rejectedCandidates=2")
             }));
     }
 
+    #[test]
+    fn contract_risk_classifier_flags_repeated_callback_batch_and_seeds() {
+        let snapshot = build_test_snapshot(vec![
+            (
+                "apps/api/google/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            ),
+            (
+                "apps/api/zoom/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            ),
+            (
+                "apps/api/webex/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            ),
+        ]);
+        let review_plan = build_review_plan(&snapshot);
+        let risk_plan = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+
+        assert!(risk_plan.risky_unit_count() > 0);
+        assert!(risk_plan.seed_count() > 0);
+        assert!(risk_plan
+            .by_unit
+            .values()
+            .any(|risk| risk.seeds.iter().any(|seed| seed.contains("credential"))));
+    }
+
+    #[tokio::test]
+    async fn low_risk_clean_can_finish_with_assigned_file_evidence_only() {
+        let report = run_test_review(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::LowRiskClean,
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "src/widget.rs");
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+        assert_eq!(report.metrics.completed_sessions, 1);
+    }
+
+    #[tokio::test]
+    async fn high_risk_clean_requires_contract_evidence() {
+        let report = run_test_review(
+            vec![(
+                "apps/api/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            )],
+            TestModelMode::HighRiskCleanWithoutContractEvidence,
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].verdict, "needs_review");
+        assert!(report.file_reviews[0]
+            .summary
+            .contains("Required cross-file contract evidence"));
+    }
+
+    #[tokio::test]
+    async fn high_risk_clean_passes_with_seed_backed_search_evidence() {
+        let report = run_test_review(
+            vec![(
+                "apps/api/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            )],
+            TestModelMode::HighRiskCleanWithContractEvidence,
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+        assert!(report.metrics.tool_counts.search_text > 0);
+    }
+
     async fn run_test_review(
         files: Vec<(&'static str, &'static str)>,
         mode: TestModelMode,
     ) -> PlannedReviewRunReport {
+        let snapshot = build_test_snapshot(files);
+        let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
+        let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
+        let runtime = PlannedReviewRuntime {
+            snapshot,
+            model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceBackedModel {
+                mode,
+            }))),
+            tools,
+            policy: Arc::new(ReviewerPolicy::new()),
+            limits,
+            review_revision_id: "head".to_string(),
+            events: RuntimeEventDispatcher::new(None, None),
+            session_templates: Vec::new(),
+        };
+
+        runtime.run_with_cancel(CancellationToken::new()).await
+    }
+
+    fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {
         let temp = tempfile::tempdir().expect("tempdir");
         for (path, content) in &files {
             let path = temp.path().join(path);
@@ -1598,24 +2282,7 @@ mod tests {
                 })
                 .collect(),
         };
-        let snapshot =
-            RepoSnapshot::build(temp.path(), &PathPolicyV1::bench(64 * 1024, 20), &change)
-                .expect("snapshot");
-        let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
-        let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = PlannedReviewRuntime {
-            snapshot,
-            model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceBackedModel {
-                mode,
-            }))),
-            tools,
-            policy: Arc::new(ReviewerPolicy::new()),
-            limits,
-            review_revision_id: "head".to_string(),
-            events: RuntimeEventDispatcher::new(None, None),
-            session_templates: Vec::new(),
-        };
-
-        runtime.run_with_cancel(CancellationToken::new()).await
+        RepoSnapshot::build(temp.path(), &PathPolicyV1::bench(64 * 1024, 20), &change)
+            .expect("snapshot")
     }
 }

@@ -78,12 +78,6 @@ pub(crate) struct RunArgs {
     pub(crate) job: PathBuf,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
-pub(crate) enum BenchTerminalPolicy {
-    Normal,
-    FindingRequired,
-}
-
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct BenchArgs {
     #[arg(long, default_value = ".")]
@@ -115,9 +109,6 @@ pub(crate) struct BenchArgs {
 
     #[arg(long, default_value_t = 256)]
     pub(crate) max_output_tokens: u32,
-
-    #[arg(long, value_enum, default_value_t = BenchTerminalPolicy::Normal)]
-    pub(crate) terminal_policy: BenchTerminalPolicy,
 }
 
 #[derive(Parser, Debug, Clone)]

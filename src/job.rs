@@ -75,9 +75,5 @@ pub(crate) fn tool_allowed(mask: ToolMask, tool: ToolName) -> bool {
         ToolName::FindRelatedFiles => mask.find_related_files,
         ToolName::FindTestsForFile => mask.find_tests_for_file,
         ToolName::ListImports => mask.list_imports,
-        ToolName::RecordFileReview => mask.record_file_review,
-        ToolName::RecordFinding => mask.record_finding,
-        ToolName::ChallengeFinding => mask.challenge_finding,
-        ToolName::Finish => mask.finish,
     }
 }

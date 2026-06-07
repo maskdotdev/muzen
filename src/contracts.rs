@@ -298,10 +298,6 @@ pub(crate) struct ToolMask {
     pub(crate) find_related_files: bool,
     pub(crate) find_tests_for_file: bool,
     pub(crate) list_imports: bool,
-    pub(crate) record_file_review: bool,
-    pub(crate) record_finding: bool,
-    pub(crate) challenge_finding: bool,
-    pub(crate) finish: bool,
 }
 
 impl ToolMask {
@@ -318,10 +314,6 @@ impl ToolMask {
             find_related_files: true,
             find_tests_for_file: true,
             list_imports: true,
-            record_file_review: true,
-            record_finding: true,
-            challenge_finding: true,
-            finish: true,
         }
     }
 }
@@ -620,14 +612,10 @@ pub enum ToolName {
     FindRelatedFiles,
     FindTestsForFile,
     ListImports,
-    RecordFileReview,
-    RecordFinding,
-    ChallengeFinding,
-    Finish,
 }
 
 impl ToolName {
-    pub const REVIEW_READ_ONLY: [Self; 15] = [
+    pub const REVIEW_READ_ONLY: [Self; 11] = [
         Self::ListChangedFiles,
         Self::ReadDiff,
         Self::ListFiles,
@@ -639,10 +627,6 @@ impl ToolName {
         Self::FindRelatedFiles,
         Self::FindTestsForFile,
         Self::ListImports,
-        Self::RecordFileReview,
-        Self::RecordFinding,
-        Self::ChallengeFinding,
-        Self::Finish,
     ];
 
     pub fn review_read_only_tools() -> &'static [Self] {
@@ -662,10 +646,6 @@ impl ToolName {
             Self::FindRelatedFiles => "find_related_files",
             Self::FindTestsForFile => "find_tests_for_file",
             Self::ListImports => "list_imports",
-            Self::RecordFileReview => "record_file_review",
-            Self::RecordFinding => "record_finding",
-            Self::ChallengeFinding => "challenge_finding",
-            Self::Finish => "finish",
         }
     }
 }
@@ -700,10 +680,6 @@ pub struct ToolCounts {
     pub find_related_files: usize,
     pub find_tests_for_file: usize,
     pub list_imports: usize,
-    pub record_file_review: usize,
-    pub record_finding: usize,
-    pub challenge_finding: usize,
-    pub finish: usize,
 }
 
 impl ToolCounts {
@@ -719,10 +695,6 @@ impl ToolCounts {
         self.find_related_files += other.find_related_files;
         self.find_tests_for_file += other.find_tests_for_file;
         self.list_imports += other.list_imports;
-        self.record_file_review += other.record_file_review;
-        self.record_finding += other.record_finding;
-        self.challenge_finding += other.challenge_finding;
-        self.finish += other.finish;
     }
 
     pub fn increment(&mut self, tool: ToolName) {
@@ -738,10 +710,6 @@ impl ToolCounts {
             ToolName::FindRelatedFiles => self.find_related_files += 1,
             ToolName::FindTestsForFile => self.find_tests_for_file += 1,
             ToolName::ListImports => self.list_imports += 1,
-            ToolName::RecordFileReview => self.record_file_review += 1,
-            ToolName::RecordFinding => self.record_finding += 1,
-            ToolName::ChallengeFinding => self.challenge_finding += 1,
-            ToolName::Finish => self.finish += 1,
         }
     }
 
@@ -757,9 +725,5 @@ impl ToolCounts {
             + self.find_related_files
             + self.find_tests_for_file
             + self.list_imports
-            + self.record_file_review
-            + self.record_finding
-            + self.challenge_finding
-            + self.finish
     }
 }

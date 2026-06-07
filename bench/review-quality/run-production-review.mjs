@@ -49,6 +49,9 @@ function main() {
   fs.writeFileSync(eventLogPath, run.stdout || "");
 
   const finalResult = parseFinalResult(run.stdout || "");
+  const verdictCounts = fileReviewVerdictCounts(finalResult?.fileReviews || []);
+  const plannedReview = parsePlannedReview(run.stdout || "");
+  const completionDiagnostics = parseCompletionSummaries(run.stdout || "");
   const golden = goldenPath ? readJson(goldenPath) : { issues: [] };
   const scoring = scoreFindings(finalResult?.findings || [], golden.issues || []);
   const report = {
@@ -77,6 +80,7 @@ function main() {
           sessions: finalResult.sessions,
           completedSessions: finalResult.completedSessions,
           fileReviews: finalResult.fileReviews?.length || 0,
+          fileReviewVerdicts: verdictCounts,
           findings: finalResult.findings?.length || 0,
           modelCalls: finalResult.modelCalls,
           toolCounts: finalResult.toolCounts,
@@ -94,6 +98,15 @@ function main() {
       candidateCount: terminalDiagnosticNumber(run.stdout || "", "candidateFindings"),
       rescuedCandidateCount: terminalDiagnosticNumber(run.stdout || "", "rescuedCandidates"),
       rejectedCandidateCount: terminalDiagnosticNumber(run.stdout || "", "rejectedCandidates"),
+      contractRiskUnits: plannedReview?.contractRiskUnits ?? 0,
+      contractSeedCount: plannedReview?.contractSeedCount ?? 0,
+      requiredEvidenceFailures: completionDiagnostics.requiredEvidenceFailures,
+      contractRiskCompletionCount: completionDiagnostics.contractRiskCompletionCount,
+      searchCount: finalResult?.toolCounts?.searchText ?? 0,
+      importCount: finalResult?.toolCounts?.listImports ?? 0,
+      needsReviewCount: verdictCounts.needs_review ?? 0,
+      cleanCount: verdictCounts.clean ?? 0,
+      skippedCount: verdictCounts.skipped ?? 0,
     },
     findings: finalResult?.findings || [],
   };
@@ -104,6 +117,48 @@ function main() {
   }
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   process.exitCode = report.reviewValid ? 0 : 1;
+}
+
+function fileReviewVerdictCounts(fileReviews) {
+  const counts = {};
+  for (const review of fileReviews) {
+    const verdict = review.verdict || "unknown";
+    counts[verdict] = (counts[verdict] || 0) + 1;
+  }
+  return counts;
+}
+
+function parsePlannedReview(stdout) {
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event.payload?.plannedReview) return event.payload.plannedReview;
+  }
+  return null;
+}
+
+function parseCompletionSummaries(stdout) {
+  let requiredEvidenceFailures = 0;
+  let contractRiskCompletionCount = 0;
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const summary = String(event.payload?.diagnostic?.completionSummary ?? event.payload?.completionSummary ?? "");
+    if (summary.includes("contractRisk=true")) contractRiskCompletionCount += 1;
+    const match = summary.match(/missingEvidence=(\d+)/);
+    if (match) requiredEvidenceFailures += Number(match[1]);
+  }
+  return { requiredEvidenceFailures, contractRiskCompletionCount };
 }
 
 function buildReviewJob({

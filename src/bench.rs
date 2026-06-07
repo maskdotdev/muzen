@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::cli::{BenchArgs, BenchTerminalPolicy};
+use crate::cli::BenchArgs;
 use crate::contracts::*;
 use crate::repo::RepoContext;
 use crate::util::{timestamp_utc, SCHEMA_VERSION};
@@ -16,25 +16,15 @@ pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
     let personas = (0..args.sessions)
         .map(|index| {
             let role = Role::for_index(index);
-            let mut allowed_tools = ToolMask::review_read_only();
-            let objective = match args.terminal_policy {
-                BenchTerminalPolicy::Normal => format!(
-                    "Review the materialized repo as {role:?}. Gather concrete evidence with read-only tools and finish with a concise finding or no-finding rationale."
-                ),
-                BenchTerminalPolicy::FindingRequired => {
-                    allowed_tools.finish = false;
-                    format!(
-                        "Review the materialized repo as {role:?}. Gather concrete evidence with read-only tools, then call record_finding exactly once with one concise evidence-backed benchmark finding. Do not finish with a no-finding rationale."
-                    )
-                }
-            };
             PersonaSpecV1 {
                 id: format!("bench-session-{index}"),
                 role,
-                objective,
+                objective: format!(
+                    "Review the materialized repo as {role:?}. Gather concrete evidence with exploration tools and return structured review output when evidence is sufficient."
+                ),
                 cwd: Some(PathBuf::from(".")),
                 model_profile_id: Some("bench-oai".to_string()),
-                allowed_tools,
+                allowed_tools: ToolMask::review_read_only(),
                 budget: AgentBudget {
                     max_turns: args.max_turns,
                     max_tool_calls: args.max_tool_calls,

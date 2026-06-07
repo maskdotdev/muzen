@@ -2,42 +2,6 @@ use super::prelude::*;
 use super::support::*;
 
 #[test]
-fn concurrent_tool_batch_rejects_finish_mixed_with_other_tools() {
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("README.md"), "needle\n").unwrap();
-    let change = test_change_with_file("README.md");
-    let policy = PathPolicyV1::bench(64, 10);
-    let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
-    let limits = std::sync::Arc::new(RuntimeLimits::standard(1, 64 * 1024, 10));
-    let engine = ToolEngine::new(snapshot, limits).unwrap();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let results = runtime.block_on(engine.execute_batch(
-        test_scope("session"),
-        TurnId(0),
-        vec![
-            ModelToolCall {
-                call_id: ToolCallId("finish".to_string()),
-                index: 0,
-                name: ToolId::from(ToolName::Finish),
-                raw_arguments: r#"{"reason":"done"}"#.to_string(),
-            },
-            ModelToolCall {
-                call_id: ToolCallId("read".to_string()),
-                index: 1,
-                name: ToolId::from(ToolName::ReadDiff),
-                raw_arguments: "{}".to_string(),
-            },
-        ],
-        tokio_util::sync::CancellationToken::new(),
-    ));
-    assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|result| !result.ok));
-}
-
-#[test]
 fn concurrent_duplicate_search_uses_one_underlying_scan() {
     let temp = tempfile::tempdir().unwrap();
     for index in 0..200 {

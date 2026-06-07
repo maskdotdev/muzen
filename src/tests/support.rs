@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::cli::{BenchArgs, BenchTerminalPolicy};
 use crate::contracts::*;
 use crate::repo::RepoContext;
 use crate::runtime::contracts::{
@@ -18,7 +17,6 @@ use crate::runtime::tools::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, JsonRpcToolRequest,
     JsonRpcToolResponse, JsonRpcToolTransport,
 };
-use crate::util::DEFAULT_MODEL;
 use async_trait::async_trait;
 
 #[derive(Debug)]
@@ -695,22 +693,6 @@ pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> Se
             max_prompt_tokens: 32_000,
             max_output_tokens: 512,
         },
-    }
-}
-
-pub fn bench_args(repo: &Path, terminal_policy: BenchTerminalPolicy) -> BenchArgs {
-    BenchArgs {
-        repo: repo.to_path_buf(),
-        sessions: 3,
-        max_active: 3,
-        max_turns: 10,
-        max_tool_calls: 14,
-        hold_ms: 0,
-        max_file_kb: 200,
-        max_search_matches: 120,
-        model: DEFAULT_MODEL.to_string(),
-        max_output_tokens: 128,
-        terminal_policy,
     }
 }
 
