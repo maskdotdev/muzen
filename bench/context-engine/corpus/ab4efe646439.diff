@@ -1,0 +1,195 @@
+diff --git a/src/app/api/search/route.ts b/src/app/api/search/route.ts
+new file mode 100644
+index 00000000..25ea9080
+--- /dev/null
++++ b/src/app/api/search/route.ts
+@@ -0,0 +1,122 @@
++import { and, desc, eq } from 'drizzle-orm'
++import { NextResponse } from 'next/server'
++import { z } from 'zod'
++
++import { db } from '@/lib/db'
++import {
++  indexBranchStates,
++  indexFileStates,
++} from '@/lib/db/schema'
++import { embedQueryText } from '@/lib/indexing/embedder'
++import { createPostgresVectorStore } from '@/lib/indexing/stores/vector-store.pg'
++import { getUserIntegration } from '@/lib/gitlab/service'
++import { getSessionUserId } from '@/lib/session'
++
++const searchPayloadSchema = z.object({
++  integrationId: z.string().uuid(),
++  branch: z.string().trim().min(1),
++  query: z.string().trim().min(1),
++  limit: z.number().int().positive().max(50).optional(),
++  oversample: z.number().int().positive().max(20).optional(),
++  configHash: z.string().trim().min(1).optional(),
++})
++
++export async function POST(request: Request) {
++  const userId = await getSessionUserId()
++  if (!userId) {
++    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
++  }
++
++  const payload = await request.json().catch(() => ({}))
++  const parsed = searchPayloadSchema.safeParse(payload)
++  if (!parsed.success) {
++    return NextResponse.json({ error: 'Invalid search payload.' }, { status: 400 })
++  }
++
++  const { integrationId, branch, query, configHash } = parsed.data
++  const limit = parsed.data.limit ?? 10
++  const oversample = parsed.data.oversample ?? 5
++
++  const integration = await getUserIntegration(integrationId, userId)
++  if (!integration) {
++    return NextResponse.json({ error: 'Integration not found.' }, { status: 404 })
++  }
++
++  const branchWhere = and(
++    eq(indexBranchStates.integrationId, integration.id),
++    eq(indexBranchStates.branch, branch),
++    ...(configHash ? [eq(indexBranchStates.configHash, configHash)] : []),
++  )
++
++  const [branchState] = await db
++    .select({
++      id: indexBranchStates.id,
++      configHash: indexBranchStates.configHash,
++      lastReadySha: indexBranchStates.lastReadySha,
++      lastReadyRunId: indexBranchStates.lastReadyRunId,
++      updatedAt: indexBranchStates.updatedAt,
++    })
++    .from(indexBranchStates)
++    .where(branchWhere)
++    .orderBy(desc(indexBranchStates.updatedAt))
++    .limit(1)
++
++  if (!branchState) {
++    return NextResponse.json({ error: 'No indexed branch state found.' }, { status: 404 })
++  }
++
++  if (!branchState.lastReadySha || !branchState.lastReadyRunId) {
++    return NextResponse.json({ error: 'Branch is not ready for search.' }, { status: 409 })
++  }
++
++  const liveRows = await db
++    .select({
++      path: indexFileStates.path,
++      fileId: indexFileStates.fileId,
++    })
++    .from(indexFileStates)
++    .where(eq(indexFileStates.branchStateId, branchState.id))
++
++  const liveByPath = new Map(liveRows.map((row) => [row.path, row.fileId]))
++
++  const embedding = embedQueryText(query)
++  const vectorStore = createPostgresVectorStore()
++  const candidates = await vectorStore.queryCandidates({
++    branchStateId: branchState.id,
++    embedding,
++    limit,
++    oversample,
++  })
++
++  const seen = new Set<string>()
++  const filtered = [] as typeof candidates
++  for (const candidate of candidates) {
++    const expectedFileId = liveByPath.get(candidate.path)
++    if (!expectedFileId || expectedFileId !== candidate.fileId) {
++      continue
++    }
++
++    const dedupeKey = `${candidate.path}:${candidate.fileId}:${candidate.chunkIndex}`
++    if (seen.has(dedupeKey)) {
++      continue
++    }
++
++    seen.add(dedupeKey)
++    filtered.push(candidate)
++
++    if (filtered.length >= limit) {
++      break
++    }
++  }
++
++  return NextResponse.json({
++    data: {
++      integrationId,
++      branch,
++      configHash: branchState.configHash,
++      lastReadySha: branchState.lastReadySha,
++      count: filtered.length,
++      results: filtered,
++    },
++  })
++}
+diff --git a/src/lib/indexing/embedder.ts b/src/lib/indexing/embedder.ts
+index 70332a02..c80a5480 100644
+--- a/src/lib/indexing/embedder.ts
++++ b/src/lib/indexing/embedder.ts
+@@ -19,6 +19,9 @@ const embedTextDeterministic = (text: string, dimension: number): number[] => {
+   return values
+ }
+ 
++export const embedQueryText = (query: string): number[] =>
++  embedTextDeterministic(query, INDEX_VECTOR_DIMENSION)
++
+ export const embedVectorChunks = (
+   chunks: Array<Omit<VectorChunkRecord, 'embedding'>>,
+ ): VectorChunkRecord[] => {
+diff --git a/src/lib/indexing/processors/plan.ts b/src/lib/indexing/processors/plan.ts
+index 9bc0403f..3bf136a1 100644
+--- a/src/lib/indexing/processors/plan.ts
++++ b/src/lib/indexing/processors/plan.ts
+@@ -6,19 +6,20 @@ import {
+   indexConfigs,
+   indexRuns,
+ } from '@/lib/db/schema'
+-import type { PlanJob } from '@/lib/indexing/contracts'
++import type { GitLabSource, PlanJob } from '@/lib/indexing/contracts'
++import { createGitLabSource } from '@/lib/indexing/sources/gitlab-source'
+ import type { PlannedRun } from '@/lib/indexing/types'
+ 
+ const DEFAULT_CONFIG_HASH = 'default-v1'
+ 
+-const resolveHeadSha = (hintedHeadSha: string | undefined) => {
+-  const value = hintedHeadSha?.trim()
+-  if (!value) {
+-    throw new Error('Plan job requires hintedHeadSha during Phase 0.')
+-  }
+-  return value
++type PlanProcessorDeps = {
++  source: GitLabSource
+ }
+ 
++const defaultDeps = (): PlanProcessorDeps => ({
++  source: createGitLabSource(),
++})
++
+ const artifactsPrefixForRun = (args: {
+   integrationId: string
+   configHash: string
+@@ -36,11 +37,18 @@ const artifactsPrefixForRun = (args: {
+     args.runId,
+   ].join('/')
+ 
+-export const planIndexRun = async (job: PlanJob): Promise<PlannedRun> => {
++export const planIndexRun = async (
++  job: PlanJob,
++  deps: PlanProcessorDeps = defaultDeps(),
++): Promise<PlannedRun> => {
+   const now = new Date()
+   const configHash = job.configHash?.trim() || DEFAULT_CONFIG_HASH
+   const configJson = job.configJson ?? {}
+-  const headSha = resolveHeadSha(job.hintedHeadSha)
++  const headSha = await deps.source.resolveHeadSha({
++    integrationId: job.integrationId,
++    branch: job.branch,
++    hintedHeadSha: job.hintedHeadSha,
++  })
+ 
+   await db
+     .insert(indexConfigs)

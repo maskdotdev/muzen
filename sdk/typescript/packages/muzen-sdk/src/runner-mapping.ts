@@ -72,6 +72,7 @@ export function toRunnerStartParams(
       providerResources: tool.providerResources ?? [],
     })),
     heartbeat: mapReviewHeartbeat(options),
+    contextEngine: options.contextEngine,
   };
   if (source.type === "local") {
     params.repo = source.repo;

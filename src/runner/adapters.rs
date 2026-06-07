@@ -386,6 +386,63 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
         RuntimeEvent::SnapshotStarted { snapshot_id } => ReviewEvent::SnapshotStarted {
             snapshot_id: snapshot_id.clone(),
         },
+        RuntimeEvent::ContextIndexStarted { snapshot_id } => ReviewEvent::ContextIndexStarted {
+            snapshot_id: snapshot_id.clone(),
+        },
+        RuntimeEvent::ContextIndexCompleted {
+            snapshot_id,
+            index_id,
+            evidence_count,
+            indexed_files,
+            skipped_files,
+            ms,
+        } => ReviewEvent::ContextIndexCompleted {
+            snapshot_id: snapshot_id.clone(),
+            index_id: index_id.clone(),
+            evidence_count: *evidence_count,
+            indexed_files: *indexed_files,
+            skipped_files: *skipped_files,
+            ms: *ms,
+        },
+        RuntimeEvent::ContextPackStarted {
+            session_id,
+            purpose,
+        } => ReviewEvent::ContextPackStarted {
+            session_id: session_id.as_ref().map(|id| id.0.clone()),
+            purpose: purpose.clone(),
+        },
+        RuntimeEvent::ContextPackCompleted {
+            pack_id,
+            session_id,
+            purpose,
+            evidence_count,
+            omitted_count,
+            used_tokens,
+            sufficiency,
+            ms,
+        } => ReviewEvent::ContextPackCompleted {
+            pack_id: pack_id.clone(),
+            session_id: session_id.as_ref().map(|id| id.0.clone()),
+            purpose: purpose.clone(),
+            evidence_count: *evidence_count,
+            omitted_count: *omitted_count,
+            used_tokens: *used_tokens,
+            sufficiency: sufficiency.clone(),
+            ms: *ms,
+        },
+        RuntimeEvent::ContextQueryCompleted {
+            session_id,
+            query_kind,
+            result_count,
+            artifact_id,
+            ms,
+        } => ReviewEvent::ContextQueryCompleted {
+            session_id: session_id.as_ref().map(|id| id.0.clone()),
+            query_kind: query_kind.clone(),
+            result_count: *result_count,
+            artifact_id: artifact_id.clone(),
+            ms: *ms,
+        },
         RuntimeEvent::RepoManifestCompleted {
             files,
             skipped,

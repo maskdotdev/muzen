@@ -32,6 +32,17 @@ describe("runner mapping", () => {
           intervalMs: 250,
           leaseSeconds: 30,
         },
+        contextEngine: {
+          mode: "snapshot_v0",
+          maxIndexedFiles: 20_000,
+          maxIndexedBytes: 67_108_864,
+          maxEvidenceItems: 5_000,
+          maxPackTokens: 12_000,
+          maxQueryResults: 120,
+          includeRepositoryGuidance: true,
+          includeHostContext: false,
+          strictEvidenceRequired: true,
+        },
         metadata: {
           hostRunId: "flow-1",
         },
@@ -88,6 +99,17 @@ describe("runner mapping", () => {
       callback: true,
       intervalMs: 250,
       leaseSeconds: 30,
+    });
+    assert.deepEqual(params.contextEngine, {
+      mode: "snapshot_v0",
+      maxIndexedFiles: 20_000,
+      maxIndexedBytes: 67_108_864,
+      maxEvidenceItems: 5_000,
+      maxPackTokens: 12_000,
+      maxQueryResults: 120,
+      includeRepositoryGuidance: true,
+      includeHostContext: false,
+      strictEvidenceRequired: true,
     });
     assert.deepEqual(params.instructions, [
       {

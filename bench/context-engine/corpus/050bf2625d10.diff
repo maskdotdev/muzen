@@ -1,0 +1,1458 @@
+diff --git a/src/app/(app)/integrations/page.tsx b/src/app/(app)/integrations/page.tsx
+index 01d6ee50..d9da885d 100644
+--- a/src/app/(app)/integrations/page.tsx
++++ b/src/app/(app)/integrations/page.tsx
+@@ -1,5 +1,6 @@
+ import Link from "next/link"
+ 
++import { JiraIntegrationCard } from "@/components/integrations/jira-integration-card"
+ import { Button } from "@/components/ui/button"
+ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+ 
+@@ -33,26 +34,7 @@ export default function IntegrationsPage() {
+             </Button>
+           </CardFooter>
+         </Card>
+-
+-        <Card className="border-border/60">
+-          <CardHeader>
+-            <CardTitle>Jira</CardTitle>
+-            <CardDescription>
+-              Connect Jira to bring issue context into review workflows.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent>
+-            <p className="text-sm text-muted-foreground">
+-              Configuration flow is planned next.
+-            </p>
+-          </CardContent>
+-          <CardFooter className="justify-between gap-2">
+-            <span className="text-xs text-muted-foreground">Status: coming soon</span>
+-            <Button size="sm" disabled>
+-              Coming soon
+-            </Button>
+-          </CardFooter>
+-        </Card>
++        <JiraIntegrationCard />
+       </section>
+     </div>
+   )
+diff --git a/src/app/api/jira/route.ts b/src/app/api/jira/route.ts
+new file mode 100644
+index 00000000..6371bef7
+--- /dev/null
++++ b/src/app/api/jira/route.ts
+@@ -0,0 +1,88 @@
++import { NextResponse } from "next/server"
++import { z } from "zod"
++
++import {
++  getJiraErrorStatus,
++  listJiraBoards,
++  listJiraIssuesForSprint,
++  listJiraSprints,
++  testJiraConnection,
++  validateJiraCredentials,
++} from "@/lib/jira/client"
++import { getSessionUserId } from "@/lib/session"
++
++const credentialsSchema = z.object({
++  baseUrl: z.string().min(1),
++  email: z.string().min(1),
++  token: z.string().min(1),
++})
++
++const actionSchema = z.discriminatedUnion("action", [
++  z.object({
++    action: z.literal("validate"),
++    ...credentialsSchema.shape,
++  }),
++  z.object({
++    action: z.literal("test-connection"),
++    ...credentialsSchema.shape,
++  }),
++  z.object({
++    action: z.literal("boards"),
++    ...credentialsSchema.shape,
++  }),
++  z.object({
++    action: z.literal("sprints"),
++    ...credentialsSchema.shape,
++    boardId: z.number().int().positive(),
++  }),
++  z.object({
++    action: z.literal("issues"),
++    ...credentialsSchema.shape,
++    sprintId: z.number().int().positive(),
++  }),
++])
++
++export async function POST(request: Request) {
++  const [userId, payload] = await Promise.all([
++    getSessionUserId(),
++    request.json().catch(() => null),
++  ])
++
++  if (!userId) {
++    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
++  }
++
++  const parsed = actionSchema.safeParse(payload)
++  if (!parsed.success) {
++    return NextResponse.json({ error: "Invalid Jira request payload." }, { status: 400 })
++  }
++
++  try {
++    if (parsed.data.action === "validate") {
++      const result = await validateJiraCredentials(parsed.data)
++      return NextResponse.json({ data: result })
++    }
++
++    if (parsed.data.action === "test-connection") {
++      const result = await testJiraConnection(parsed.data)
++      return NextResponse.json({ data: result })
++    }
++
++    if (parsed.data.action === "boards") {
++      const boards = await listJiraBoards(parsed.data)
++      return NextResponse.json({ data: boards })
++    }
++
++    if (parsed.data.action === "sprints") {
++      const sprints = await listJiraSprints(parsed.data)
++      return NextResponse.json({ data: sprints })
++    }
++
++    const issues = await listJiraIssuesForSprint(parsed.data)
++    return NextResponse.json({ data: issues })
++  } catch (error) {
++    const message = error instanceof Error ? error.message : "Jira request failed."
++    const status = getJiraErrorStatus(error)
++    return NextResponse.json({ error: message }, { status })
++  }
++}
+diff --git a/src/components/integrations/jira-integration-card.tsx b/src/components/integrations/jira-integration-card.tsx
+new file mode 100644
+index 00000000..cc149d22
+--- /dev/null
++++ b/src/components/integrations/jira-integration-card.tsx
+@@ -0,0 +1,635 @@
++"use client"
++
++import { useCallback, useEffect, useMemo, useState } from "react"
++import { ExternalLink, Eye, EyeOff, FlaskConical, Loader2, RefreshCw } from "lucide-react"
++
++import { Badge } from "@/components/ui/badge"
++import { Button } from "@/components/ui/button"
++import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select"
++import {
++  Table,
++  TableBody,
++  TableCell,
++  TableHead,
++  TableHeader,
++  TableRow,
++} from "@/components/ui/table"
++
++const JIRA_STORAGE_KEY = "argus-jira-integration"
++
++type ValidationState = "idle" | "validating" | "valid" | "invalid"
++
++type JiraCredentials = {
++  baseUrl: string
++  email: string
++  token: string
++}
++
++type JiraBoard = {
++  id: number
++  name: string
++  type: string
++  projectKey?: string
++}
++
++type JiraSprint = {
++  id: number
++  name: string
++  state: string
++}
++
++type JiraIssue = {
++  id: string
++  key: string
++  summary: string
++  status: string
++  statusCategory: string
++  assignee?: string
++  priority?: string
++  issueType: string
++}
++
++type JiraValidationPayload = {
++  isValid: boolean
++  user?: {
++    displayName: string
++  }
++  error?: string
++}
++
++type JiraTestPayload = {
++  success: boolean
++  summary: string
++  tests: Array<{
++    name: string
++    success: boolean
++    message: string
++  }>
++}
++
++type JiraActionPayload =
++  | ({
++    action: "validate" | "test-connection" | "boards"
++  } & JiraCredentials)
++  | ({
++    action: "sprints"
++    boardId: number
++  } & JiraCredentials)
++  | ({
++    action: "issues"
++    sprintId: number
++  } & JiraCredentials)
++
++const readStoredCredentials = (): JiraCredentials => {
++  if (typeof window === "undefined") {
++    return {
++      baseUrl: "",
++      email: "",
++      token: "",
++    }
++  }
++
++  const raw = window.localStorage.getItem(JIRA_STORAGE_KEY)
++  if (!raw) {
++    return {
++      baseUrl: "",
++      email: "",
++      token: "",
++    }
++  }
++
++  try {
++    const parsed = JSON.parse(raw) as Partial<JiraCredentials>
++    return {
++      baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "",
++      email: typeof parsed.email === "string" ? parsed.email : "",
++      token: typeof parsed.token === "string" ? parsed.token : "",
++    }
++  } catch {
++    return {
++      baseUrl: "",
++      email: "",
++      token: "",
++    }
++  }
++}
++
++export function JiraIntegrationCard() {
++  const [credentials, setCredentials] = useState<JiraCredentials>(() => readStoredCredentials())
++  const [showToken, setShowToken] = useState(false)
++  const [validationState, setValidationState] = useState<ValidationState>("idle")
++  const [validationMessage, setValidationMessage] = useState("")
++  const [authenticatedUser, setAuthenticatedUser] = useState("")
++  const [isLoadingBoards, setIsLoadingBoards] = useState(false)
++  const [isLoadingSprints, setIsLoadingSprints] = useState(false)
++  const [isLoadingIssues, setIsLoadingIssues] = useState(false)
++  const [boards, setBoards] = useState<JiraBoard[]>([])
++  const [sprints, setSprints] = useState<JiraSprint[]>([])
++  const [issues, setIssues] = useState<JiraIssue[]>([])
++  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null)
++  const [selectedSprintId, setSelectedSprintId] = useState<number | null>(null)
++  const [testResults, setTestResults] = useState<JiraTestPayload | null>(null)
++  const [requestError, setRequestError] = useState("")
++
++  useEffect(() => {
++    if (typeof window === "undefined") {
++      return
++    }
++    window.localStorage.setItem(JIRA_STORAGE_KEY, JSON.stringify(credentials))
++  }, [credentials])
++
++  const isCredentialsReady = useMemo(
++    () =>
++      credentials.baseUrl.trim().length > 0 &&
++      credentials.email.trim().length > 0 &&
++      credentials.token.trim().length > 0,
++    [credentials.baseUrl, credentials.email, credentials.token],
++  )
++
++  const sanitizedCredentials = useMemo<JiraCredentials>(() => ({
++    baseUrl: credentials.baseUrl.trim(),
++    email: credentials.email.trim(),
++    token: credentials.token.trim(),
++  }), [credentials.baseUrl, credentials.email, credentials.token])
++
++  const setCredential = (key: keyof JiraCredentials, value: string) => {
++    setCredentials((current) => ({
++      ...current,
++      [key]: value,
++    }))
++    setValidationState("idle")
++    setValidationMessage("")
++    setAuthenticatedUser("")
++    setRequestError("")
++    setTestResults(null)
++    setBoards([])
++    setSprints([])
++    setIssues([])
++    setSelectedBoardId(null)
++    setSelectedSprintId(null)
++  }
++
++  const callJiraAction = useCallback(async <T,>(payload: JiraActionPayload): Promise<T> => {
++    const response = await fetch("/api/jira", {
++      method: "POST",
++      headers: {
++        "content-type": "application/json",
++      },
++      body: JSON.stringify(payload),
++    })
++
++    const body = await response.json().catch(() => null)
++    if (!response.ok) {
++      const message =
++        body &&
++          typeof body === "object" &&
++          "error" in body &&
++          typeof (body as { error?: unknown }).error === "string"
++          ? (body as { error: string }).error
++          : "Jira request failed."
++      throw new Error(message)
++    }
++
++    const data =
++      body &&
++        typeof body === "object" &&
++        "data" in body
++        ? (body as { data: T }).data
++        : null
++
++    if (!data) {
++      throw new Error("Jira request returned no data.")
++    }
++
++    return data
++  }, [])
++
++  const handleValidate = async () => {
++    if (!isCredentialsReady) {
++      return
++    }
++
++    setValidationState("validating")
++    setValidationMessage("")
++    setRequestError("")
++    setTestResults(null)
++    setBoards([])
++    setSprints([])
++    setIssues([])
++    setSelectedBoardId(null)
++    setSelectedSprintId(null)
++
++    try {
++      const result = await callJiraAction<JiraValidationPayload>({
++        action: "validate",
++        ...sanitizedCredentials,
++      })
++
++      if (result.isValid) {
++        setValidationState("valid")
++        setValidationMessage("Credentials are valid.")
++        setAuthenticatedUser(result.user?.displayName ?? "")
++        return
++      }
++
++      setValidationState("invalid")
++      setValidationMessage(result.error ?? "Invalid Jira credentials.")
++    } catch (error) {
++      setValidationState("invalid")
++      setValidationMessage(error instanceof Error ? error.message : "Validation failed.")
++    }
++  }
++
++  const handleTestConnection = async () => {
++    if (!isCredentialsReady) {
++      return
++    }
++
++    setValidationState("validating")
++    setRequestError("")
++    setTestResults(null)
++
++    try {
++      const result = await callJiraAction<JiraTestPayload>({
++        action: "test-connection",
++        ...sanitizedCredentials,
++      })
++      setTestResults(result)
++      setValidationState(result.success ? "valid" : "invalid")
++      setValidationMessage(result.summary)
++    } catch (error) {
++      setValidationState("invalid")
++      setValidationMessage(error instanceof Error ? error.message : "Connection test failed.")
++    }
++  }
++
++  const handleLoadBoards = useCallback(async () => {
++    if (!isCredentialsReady || validationState !== "valid") {
++      return
++    }
++
++    setIsLoadingBoards(true)
++    setRequestError("")
++    setBoards([])
++    setSprints([])
++    setIssues([])
++    setSelectedBoardId(null)
++    setSelectedSprintId(null)
++
++    try {
++      const data = await callJiraAction<JiraBoard[]>({
++        action: "boards",
++        ...sanitizedCredentials,
++      })
++      setBoards(data)
++    } catch (error) {
++      setRequestError(error instanceof Error ? error.message : "Failed to load boards.")
++    } finally {
++      setIsLoadingBoards(false)
++    }
++  }, [callJiraAction, isCredentialsReady, sanitizedCredentials, validationState])
++
++  const handleLoadSprints = useCallback(async (boardId: number) => {
++    if (!isCredentialsReady || validationState !== "valid") {
++      return
++    }
++
++    setIsLoadingSprints(true)
++    setRequestError("")
++    setSprints([])
++    setIssues([])
++    setSelectedSprintId(null)
++
++    try {
++      const data = await callJiraAction<JiraSprint[]>({
++        action: "sprints",
++        boardId,
++        ...sanitizedCredentials,
++      })
++      setSprints(data)
++    } catch (error) {
++      setRequestError(error instanceof Error ? error.message : "Failed to load sprints.")
++    } finally {
++      setIsLoadingSprints(false)
++    }
++  }, [callJiraAction, isCredentialsReady, sanitizedCredentials, validationState])
++
++  const handleLoadIssues = useCallback(async (sprintId: number) => {
++    if (!isCredentialsReady || validationState !== "valid") {
++      return
++    }
++
++    setIsLoadingIssues(true)
++    setRequestError("")
++    setIssues([])
++
++    try {
++      const data = await callJiraAction<JiraIssue[]>({
++        action: "issues",
++        sprintId,
++        ...sanitizedCredentials,
++      })
++      setIssues(data)
++    } catch (error) {
++      setRequestError(error instanceof Error ? error.message : "Failed to load issues.")
++    } finally {
++      setIsLoadingIssues(false)
++    }
++  }, [callJiraAction, isCredentialsReady, sanitizedCredentials, validationState])
++
++  const handleBoardSelect = (value: string) => {
++    const boardId = Number.parseInt(value, 10)
++    if (!Number.isFinite(boardId)) {
++      return
++    }
++
++    setSelectedBoardId(boardId)
++    void handleLoadSprints(boardId)
++  }
++
++  const handleSprintSelect = (value: string) => {
++    const sprintId = Number.parseInt(value, 10)
++    if (!Number.isFinite(sprintId)) {
++      return
++    }
++
++    setSelectedSprintId(sprintId)
++    void handleLoadIssues(sprintId)
++  }
++
++  const getStatusBadgeVariant = (statusCategory: string) => {
++    switch (statusCategory.toLowerCase()) {
++      case "done":
++        return "default"
++      case "in progress":
++        return "secondary"
++      default:
++        return "outline"
++    }
++  }
++
++  return (
++    <Card className="border-border/60">
++      <CardHeader>
++        <CardTitle>Jira</CardTitle>
++        <CardDescription>
++          Ported flow: validate credentials, test connection, then load boards, sprints, and issues.
++        </CardDescription>
++      </CardHeader>
++      <CardContent className="space-y-4">
++        <div className="space-y-2">
++          <Label htmlFor="jira-base-url">Jira URL</Label>
++          <Input
++            id="jira-base-url"
++            type="url"
++            placeholder="https://your-team.atlassian.net"
++            value={credentials.baseUrl}
++            onChange={(event) => setCredential("baseUrl", event.target.value)}
++          />
++        </div>
++
++        <div className="space-y-2">
++          <Label htmlFor="jira-email">Email</Label>
++          <Input
++            id="jira-email"
++            type="email"
++            placeholder="you@company.com"
++            value={credentials.email}
++            onChange={(event) => setCredential("email", event.target.value)}
++          />
++        </div>
++
++        <div className="space-y-2">
++          <Label htmlFor="jira-token">API token</Label>
++          <div className="relative">
++            <Input
++              id="jira-token"
++              type={showToken ? "text" : "password"}
++              placeholder="Paste Jira API token"
++              value={credentials.token}
++              onChange={(event) => setCredential("token", event.target.value)}
++              className="pr-10"
++            />
++            <Button
++              type="button"
++              variant="ghost"
++              size="icon-sm"
++              className="absolute top-1/2 right-1 -translate-y-1/2"
++              onClick={() => setShowToken((current) => !current)}
++            >
++              {showToken ? <EyeOff /> : <Eye />}
++            </Button>
++          </div>
++        </div>
++
++        <div className="flex flex-wrap gap-2">
++          <Button
++            type="button"
++            variant="secondary"
++            onClick={() => void handleValidate()}
++            disabled={!isCredentialsReady || validationState === "validating"}
++          >
++            {validationState === "validating" ? "Validating..." : "Save & Validate"}
++          </Button>
++          <Button
++            type="button"
++            variant="outline"
++            onClick={() => void handleTestConnection()}
++            disabled={!isCredentialsReady || validationState === "validating"}
++          >
++            <FlaskConical />
++            Test Connection
++          </Button>
++          <Button
++            type="button"
++            variant="outline"
++            onClick={() => void handleLoadBoards()}
++            disabled={validationState !== "valid" || isLoadingBoards}
++          >
++            {isLoadingBoards ? <Loader2 className="animate-spin" /> : <RefreshCw />}
++            Load Boards
++          </Button>
++        </div>
++
++        <div className="text-sm">
++          {validationState === "valid" ? (
++            <p className="text-emerald-700">
++              {authenticatedUser ? `Authenticated as ${authenticatedUser}.` : validationMessage}
++            </p>
++          ) : validationState === "invalid" ? (
++            <p className="text-destructive">{validationMessage}</p>
++          ) : (
++            <p className="text-muted-foreground">{validationMessage || "Credentials not validated yet."}</p>
++          )}
++        </div>
++
++        {testResults ? (
++          <div className="rounded-md border p-3">
++            <p className={testResults.success ? "text-emerald-700 text-sm" : "text-destructive text-sm"}>
++              {testResults.summary}
++            </p>
++            <ul className="mt-2 space-y-1 text-sm">
++              {testResults.tests.map((test, index) => (
++                <li key={`${test.name}-${index}`}>
++                  <span className={test.success ? "text-emerald-700" : "text-destructive"}>
++                    {test.success ? "OK" : "ERR"}
++                  </span>
++                  {" "}
++                  {test.name}: {test.message}
++                </li>
++              ))}
++            </ul>
++          </div>
++        ) : null}
++
++        <div className="grid gap-3 md:grid-cols-2">
++          <div className="space-y-2">
++            <Label>Board</Label>
++            <div className="flex items-center gap-2">
++              <Select
++                value={selectedBoardId ? String(selectedBoardId) : undefined}
++                onValueChange={handleBoardSelect}
++                disabled={boards.length === 0 || isLoadingBoards || validationState !== "valid"}
++              >
++                <SelectTrigger className="w-full">
++                  <SelectValue placeholder={isLoadingBoards ? "Loading..." : "Select board"} />
++                </SelectTrigger>
++                <SelectContent>
++                  {boards.map((board) => (
++                    <SelectItem key={board.id} value={String(board.id)}>
++                      {board.name} {board.projectKey ? `(${board.projectKey})` : ""}
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++              <Button
++                type="button"
++                variant="outline"
++                size="icon"
++                onClick={() => void handleLoadBoards()}
++                disabled={validationState !== "valid" || isLoadingBoards}
++              >
++                {isLoadingBoards ? <Loader2 className="animate-spin" /> : <RefreshCw />}
++              </Button>
++            </div>
++          </div>
++
++          <div className="space-y-2">
++            <Label>Sprint</Label>
++            <div className="flex items-center gap-2">
++              <Select
++                value={selectedSprintId ? String(selectedSprintId) : undefined}
++                onValueChange={handleSprintSelect}
++                disabled={!selectedBoardId || sprints.length === 0 || isLoadingSprints || validationState !== "valid"}
++              >
++                <SelectTrigger className="w-full">
++                  <SelectValue placeholder={isLoadingSprints ? "Loading..." : "Select sprint"} />
++                </SelectTrigger>
++                <SelectContent>
++                  {sprints.map((sprint) => (
++                    <SelectItem key={sprint.id} value={String(sprint.id)}>
++                      {sprint.name} [{sprint.state}]
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++              <Button
++                type="button"
++                variant="outline"
++                size="icon"
++                onClick={() => {
++                  if (!selectedBoardId) {
++                    return
++                  }
++                  void handleLoadSprints(selectedBoardId)
++                }}
++                disabled={!selectedBoardId || validationState !== "valid" || isLoadingSprints}
++              >
++                {isLoadingSprints ? <Loader2 className="animate-spin" /> : <RefreshCw />}
++              </Button>
++            </div>
++          </div>
++        </div>
++
++        {selectedSprintId ? (
++          <div className="space-y-2 rounded-md border p-3">
++            <div className="flex items-center justify-between gap-2">
++              <p className="text-sm font-medium">Sprint Issues</p>
++              <Button
++                type="button"
++                variant="outline"
++                size="sm"
++                onClick={() => void handleLoadIssues(selectedSprintId)}
++                disabled={validationState !== "valid" || isLoadingIssues}
++              >
++                {isLoadingIssues ? <Loader2 className="animate-spin" /> : <RefreshCw />}
++                Refresh
++              </Button>
++            </div>
++
++            {isLoadingIssues ? (
++              <p className="text-sm text-muted-foreground">Loading issues...</p>
++            ) : issues.length === 0 ? (
++              <p className="text-sm text-muted-foreground">No issues found for this sprint.</p>
++            ) : (
++              <Table>
++                <TableHeader>
++                  <TableRow>
++                    <TableHead>Key</TableHead>
++                    <TableHead>Summary</TableHead>
++                    <TableHead>Type</TableHead>
++                    <TableHead>Status</TableHead>
++                    <TableHead>Priority</TableHead>
++                    <TableHead>Assignee</TableHead>
++                  </TableRow>
++                </TableHeader>
++                <TableBody>
++                  {issues.map((issue) => (
++                    <TableRow key={issue.id}>
++                      <TableCell>
++                        <a
++                          href={`${sanitizedCredentials.baseUrl.replace(/\/+$/, "")}/browse/${issue.key}`}
++                          target="_blank"
++                          rel="noopener noreferrer"
++                          className="text-primary hover:underline inline-flex items-center gap-1"
++                        >
++                          {issue.key}
++                          <ExternalLink className="size-3" />
++                        </a>
++                      </TableCell>
++                      <TableCell className="max-w-[32ch] truncate">{issue.summary}</TableCell>
++                      <TableCell>{issue.issueType}</TableCell>
++                      <TableCell>
++                        <Badge variant={getStatusBadgeVariant(issue.statusCategory)}>
++                          {issue.status}
++                        </Badge>
++                      </TableCell>
++                      <TableCell>{issue.priority ?? "-"}</TableCell>
++                      <TableCell>{issue.assignee ?? "Unassigned"}</TableCell>
++                    </TableRow>
++                  ))}
++                </TableBody>
++              </Table>
++            )}
++          </div>
++        ) : null}
++
++        {requestError ? <p className="text-sm text-destructive">{requestError}</p> : null}
++      </CardContent>
++      <CardFooter>
++        <p className="text-xs text-muted-foreground">
++          Credentials are kept in browser local storage for now.
++        </p>
++      </CardFooter>
++    </Card>
++  )
++}
+diff --git a/src/lib/jira/client.ts b/src/lib/jira/client.ts
+new file mode 100644
+index 00000000..77e03439
+--- /dev/null
++++ b/src/lib/jira/client.ts
+@@ -0,0 +1,565 @@
++import { normalizeJiraInstanceUrl } from "@/lib/jira/instance"
++
++type JiraRequestConfig = {
++  baseUrl: string
++  email: string
++  token: string
++}
++
++type JiraUser = {
++  accountId: string
++  emailAddress?: string
++  displayName?: string
++}
++
++type JiraBoard = {
++  id: number
++  name: string
++  type: string
++  location?: {
++    projectKey?: string
++    projectName?: string
++  }
++}
++
++type JiraSprint = {
++  id: number
++  state: string
++  name: string
++  startDate?: string
++  endDate?: string
++  goal?: string
++}
++
++type JiraIssue = {
++  id: string
++  key: string
++  fields: {
++    summary?: string
++    status?: {
++      name?: string
++      statusCategory?: {
++        name?: string
++      }
++    }
++    assignee?: {
++      displayName?: string
++    } | null
++    reporter?: {
++      displayName?: string
++    } | null
++    priority?: {
++      name?: string
++    } | null
++    issuetype?: {
++      name?: string
++    }
++    project?: {
++      key?: string
++      name?: string
++    }
++    created?: string
++    updated?: string
++    labels?: string[]
++  }
++}
++
++type JiraAgilePagedResponse<T> = {
++  maxResults: number
++  startAt: number
++  total?: number
++  isLast: boolean
++  values: T[]
++}
++
++type JiraSearchResponse = {
++  total: number
++  issues: JiraIssue[]
++}
++
++export type JiraValidationResult = {
++  isValid: boolean
++  user?: {
++    displayName: string
++    emailAddress: string
++    accountId: string
++  }
++  error?: string
++}
++
++export type JiraConnectionTestResult = {
++  success: boolean
++  tests: Array<{
++    name: string
++    success: boolean
++    message: string
++    durationMs: number
++  }>
++  summary: string
++}
++
++export type JiraBoardSummary = {
++  id: number
++  name: string
++  type: string
++  projectKey?: string
++  projectName?: string
++}
++
++export type JiraSprintSummary = {
++  id: number
++  name: string
++  state: string
++  startDate?: string
++  endDate?: string
++  goal?: string
++}
++
++export type JiraIssueSummary = {
++  id: string
++  key: string
++  summary: string
++  status: string
++  statusCategory: string
++  assignee?: string
++  reporter?: string
++  priority?: string
++  issueType: string
++  projectKey: string
++  projectName: string
++  created: string
++  updated: string
++  labels: string[]
++}
++
++class JiraClientError extends Error {
++  status: number
++
++  constructor(message: string, status = 502) {
++    super(message)
++    this.status = status
++  }
++}
++
++const createJiraHeaders = (email: string, token: string): HeadersInit => ({
++  Authorization: `Basic ${Buffer.from(`${email}:${token}`, "utf8").toString("base64")}`,
++  Accept: "application/json",
++  "Content-Type": "application/json",
++  "User-Agent": "argus-app",
++})
++
++const parseJiraErrorText = async (response: Response) => {
++  const text = await response.text()
++  if (!text) {
++    return ""
++  }
++
++  try {
++    const parsed = JSON.parse(text) as {
++      errorMessages?: string[]
++      message?: string
++      errors?: Record<string, string>
++    }
++    if (Array.isArray(parsed.errorMessages) && parsed.errorMessages.length > 0) {
++      return parsed.errorMessages.join("; ")
++    }
++    if (parsed.message) {
++      return parsed.message
++    }
++    if (parsed.errors && Object.keys(parsed.errors).length > 0) {
++      return Object.values(parsed.errors).join("; ")
++    }
++  } catch {
++    return text.slice(0, 400)
++  }
++
++  return text.slice(0, 400)
++}
++
++const getJiraResponse = async (
++  config: JiraRequestConfig,
++  path: string,
++) => {
++  const response = await fetch(`${config.baseUrl}${path}`, {
++    method: "GET",
++    headers: createJiraHeaders(config.email, config.token),
++  })
++
++  return response
++}
++
++const getJiraJson = async <T>(
++  config: JiraRequestConfig,
++  path: string,
++) => {
++  const response = await getJiraResponse(config, path)
++  if (!response.ok) {
++    if (response.status === 401) {
++      throw new JiraClientError("Invalid Jira email/token.", 401)
++    }
++    if (response.status === 403) {
++      throw new JiraClientError("Jira denied access. Check token permissions.", 403)
++    }
++
++    const details = await parseJiraErrorText(response)
++    throw new JiraClientError(
++      `Jira request failed (${response.status}): ${details || response.statusText}`,
++      response.status,
++    )
++  }
++
++  return await response.json() as T
++}
++
++const getRestJsonWithVersionFallback = async <T>(
++  config: JiraRequestConfig,
++  apiPathWithQuery: string,
++) => {
++  const versions = ["3", "2"] as const
++  let lastError: JiraClientError | null = null
++
++  for (const version of versions) {
++    const path = `/rest/api/${version}${apiPathWithQuery}`
++    const response = await getJiraResponse(config, path)
++
++    if (response.ok) {
++      return await response.json() as T
++    }
++
++    if (response.status === 404) {
++      continue
++    }
++
++    if (response.status === 401) {
++      throw new JiraClientError("Invalid Jira email/token.", 401)
++    }
++    if (response.status === 403) {
++      throw new JiraClientError("Jira denied access. Check token permissions.", 403)
++    }
++
++    const details = await parseJiraErrorText(response)
++    lastError = new JiraClientError(
++      `Jira REST API request failed (${response.status}): ${details || response.statusText}`,
++      response.status,
++    )
++  }
++
++  if (lastError) {
++    throw lastError
++  }
++
++  throw new JiraClientError("Unable to reach Jira REST API. Expected /rest/api/3 or /rest/api/2.")
++}
++
++const normalizeBoard = (board: JiraBoard): JiraBoardSummary => ({
++  id: board.id,
++  name: board.name,
++  type: board.type,
++  projectKey: board.location?.projectKey,
++  projectName: board.location?.projectName,
++})
++
++const normalizeSprint = (sprint: JiraSprint): JiraSprintSummary => ({
++  id: sprint.id,
++  name: sprint.name,
++  state: sprint.state,
++  startDate: sprint.startDate,
++  endDate: sprint.endDate,
++  goal: sprint.goal,
++})
++
++const normalizeIssue = (issue: JiraIssue): JiraIssueSummary => ({
++  id: issue.id,
++  key: issue.key,
++  summary: issue.fields.summary ?? "",
++  status: issue.fields.status?.name ?? "Unknown",
++  statusCategory: issue.fields.status?.statusCategory?.name ?? "Unknown",
++  assignee: issue.fields.assignee?.displayName,
++  reporter: issue.fields.reporter?.displayName,
++  priority: issue.fields.priority?.name,
++  issueType: issue.fields.issuetype?.name ?? "Issue",
++  projectKey: issue.fields.project?.key ?? "",
++  projectName: issue.fields.project?.name ?? "",
++  created: issue.fields.created ?? "",
++  updated: issue.fields.updated ?? "",
++  labels: issue.fields.labels ?? [],
++})
++
++const getMyself = (config: JiraRequestConfig) =>
++  getRestJsonWithVersionFallback<JiraUser>(config, "/myself")
++
++export const validateJiraCredentials = async ({
++  baseUrl,
++  email,
++  token,
++}: {
++  baseUrl: string
++  email: string
++  token: string
++}): Promise<JiraValidationResult> => {
++  const normalizedBaseUrl = normalizeJiraInstanceUrl(baseUrl)
++  const normalizedEmail = email.trim()
++  const normalizedToken = token.trim()
++
++  if (!normalizedEmail) {
++    return { isValid: false, error: "Email is required." }
++  }
++  if (!normalizedToken) {
++    return { isValid: false, error: "API token is required." }
++  }
++
++  try {
++    const user = await getMyself({
++      baseUrl: normalizedBaseUrl,
++      email: normalizedEmail,
++      token: normalizedToken,
++    })
++
++    return {
++      isValid: true,
++      user: {
++        displayName: user.displayName ?? "Unknown User",
++        emailAddress: user.emailAddress ?? normalizedEmail,
++        accountId: user.accountId,
++      },
++    }
++  } catch (error) {
++    if (error instanceof JiraClientError) {
++      return { isValid: false, error: error.message }
++    }
++    return {
++      isValid: false,
++      error: error instanceof Error ? error.message : "Unable to validate Jira credentials.",
++    }
++  }
++}
++
++export const testJiraConnection = async ({
++  baseUrl,
++  email,
++  token,
++}: {
++  baseUrl: string
++  email: string
++  token: string
++}): Promise<JiraConnectionTestResult> => {
++  const normalizedBaseUrl = normalizeJiraInstanceUrl(baseUrl)
++  const config: JiraRequestConfig = {
++    baseUrl: normalizedBaseUrl,
++    email: email.trim(),
++    token: token.trim(),
++  }
++  const tests: JiraConnectionTestResult["tests"] = []
++
++  const authStartedAt = Date.now()
++  try {
++    const user = await getMyself(config)
++    tests.push({
++      name: "Authentication",
++      success: true,
++      message: `Authenticated as ${user.displayName ?? user.emailAddress ?? "Unknown user"}`,
++      durationMs: Date.now() - authStartedAt,
++    })
++  } catch (error) {
++    const message = error instanceof Error ? error.message : "Authentication failed."
++    tests.push({
++      name: "Authentication",
++      success: false,
++      message,
++      durationMs: Date.now() - authStartedAt,
++    })
++
++    return {
++      success: false,
++      tests,
++      summary: "Authentication failed. Cannot run remaining tests.",
++    }
++  }
++
++  const boardsStartedAt = Date.now()
++  try {
++    const boards = await listJiraBoards({
++      baseUrl: normalizedBaseUrl,
++      email: config.email,
++      token: config.token,
++    })
++    tests.push({
++      name: "Agile API (Boards)",
++      success: true,
++      message: `Found ${boards.length} board(s).`,
++      durationMs: Date.now() - boardsStartedAt,
++    })
++  } catch (error) {
++    tests.push({
++      name: "Agile API (Boards)",
++      success: false,
++      message: error instanceof Error ? error.message : "Failed to fetch boards.",
++      durationMs: Date.now() - boardsStartedAt,
++    })
++  }
++
++  const searchStartedAt = Date.now()
++  try {
++    const search = await getRestJsonWithVersionFallback<JiraSearchResponse>(
++      config,
++      "/search?jql=order%20by%20created%20DESC&maxResults=1",
++    )
++    tests.push({
++      name: "REST API (Search)",
++      success: true,
++      message: `Search API accessible (${search.total} total issues).`,
++      durationMs: Date.now() - searchStartedAt,
++    })
++  } catch (error) {
++    tests.push({
++      name: "REST API (Search)",
++      success: false,
++      message: error instanceof Error ? error.message : "Search API test failed.",
++      durationMs: Date.now() - searchStartedAt,
++    })
++  }
++
++  const passed = tests.filter((test) => test.success).length
++  return {
++    success: passed === tests.length,
++    tests,
++    summary: `${passed}/${tests.length} tests passed.`,
++  }
++}
++
++export const listJiraBoards = async ({
++  baseUrl,
++  email,
++  token,
++  maxResults = 100,
++}: {
++  baseUrl: string
++  email: string
++  token: string
++  maxResults?: number
++}) => {
++  const config: JiraRequestConfig = {
++    baseUrl: normalizeJiraInstanceUrl(baseUrl),
++    email: email.trim(),
++    token: token.trim(),
++  }
++
++  const boards: JiraBoardSummary[] = []
++  let startAt = 0
++  let isLast = false
++
++  while (!isLast && boards.length < maxResults) {
++    const response = await getJiraJson<JiraAgilePagedResponse<JiraBoard>>(
++      config,
++      `/rest/agile/1.0/board?startAt=${startAt}&maxResults=${Math.min(50, maxResults - boards.length)}`,
++    )
++
++    boards.push(...response.values.map(normalizeBoard))
++    isLast = response.isLast
++    startAt += response.values.length
++
++    if (response.values.length === 0) {
++      break
++    }
++  }
++
++  return boards
++}
++
++export const listJiraSprints = async ({
++  baseUrl,
++  email,
++  token,
++  boardId,
++  maxResults = 100,
++}: {
++  baseUrl: string
++  email: string
++  token: string
++  boardId: number
++  maxResults?: number
++}) => {
++  const config: JiraRequestConfig = {
++    baseUrl: normalizeJiraInstanceUrl(baseUrl),
++    email: email.trim(),
++    token: token.trim(),
++  }
++
++  const sprints: JiraSprintSummary[] = []
++  let startAt = 0
++  let isLast = false
++
++  while (!isLast && sprints.length < maxResults) {
++    const response = await getJiraJson<JiraAgilePagedResponse<JiraSprint>>(
++      config,
++      `/rest/agile/1.0/board/${boardId}/sprint?startAt=${startAt}&maxResults=${Math.min(50, maxResults - sprints.length)}`,
++    )
++
++    sprints.push(...response.values.map(normalizeSprint))
++    isLast = response.isLast
++    startAt += response.values.length
++
++    if (response.values.length === 0) {
++      break
++    }
++  }
++
++  const stateOrder: Record<string, number> = {
++    active: 0,
++    future: 1,
++    closed: 2,
++  }
++
++  return sprints.sort((a, b) => {
++    const aOrder = stateOrder[a.state] ?? 3
++    const bOrder = stateOrder[b.state] ?? 3
++    return aOrder - bOrder
++  })
++}
++
++export const listJiraIssuesForSprint = async ({
++  baseUrl,
++  email,
++  token,
++  sprintId,
++  maxResults = 200,
++}: {
++  baseUrl: string
++  email: string
++  token: string
++  sprintId: number
++  maxResults?: number
++}) => {
++  const config: JiraRequestConfig = {
++    baseUrl: normalizeJiraInstanceUrl(baseUrl),
++    email: email.trim(),
++    token: token.trim(),
++  }
++
++  const issues: JiraIssueSummary[] = []
++  let startAt = 0
++
++  while (issues.length < maxResults) {
++    const jql = encodeURIComponent(`sprint = ${sprintId} ORDER BY created DESC`)
++    const response = await getRestJsonWithVersionFallback<JiraSearchResponse>(
++      config,
++      `/search?jql=${jql}&startAt=${startAt}&maxResults=${Math.min(50, maxResults - issues.length)}&fields=summary,status,assignee,reporter,priority,issuetype,project,created,updated,labels`,
++    )
++
++    issues.push(...response.issues.map(normalizeIssue))
++
++    if (startAt + response.issues.length >= response.total || response.issues.length === 0) {
++      break
++    }
++    startAt += response.issues.length
++  }
++
++  return issues
++}
++
++export const getJiraErrorStatus = (error: unknown) => {
++  if (error instanceof JiraClientError) {
++    return error.status
++  }
++  return 500
++}
+diff --git a/src/lib/jira/instance.ts b/src/lib/jira/instance.ts
+new file mode 100644
+index 00000000..85d00be5
+--- /dev/null
++++ b/src/lib/jira/instance.ts
+@@ -0,0 +1,107 @@
++import { isIP } from "node:net"
++
++const allowPrivateHosts = process.env.JIRA_ALLOW_PRIVATE_HOSTS === "1"
++
++const isPrivateIpv4 = (hostname: string) => {
++  const parts = hostname.split(".").map((part) => Number.parseInt(part, 10))
++  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
++    return true
++  }
++
++  const [first, second] = parts
++  if (
++    first === 10 ||
++    first === 127 ||
++    first === 0 ||
++    (first === 169 && second === 254) ||
++    (first === 172 && second >= 16 && second <= 31) ||
++    (first === 192 && second === 168) ||
++    (first === 100 && second >= 64 && second <= 127) ||
++    (first === 198 && (second === 18 || second === 19)) ||
++    first >= 224
++  ) {
++    return true
++  }
++
++  return false
++}
++
++const isPrivateIpv6 = (hostname: string) => {
++  const normalized = hostname.toLowerCase()
++  if (normalized === "::" || normalized === "::1") {
++    return true
++  }
++
++  if (
++    normalized.startsWith("fc") ||
++    normalized.startsWith("fd") ||
++    normalized.startsWith("fe8") ||
++    normalized.startsWith("fe9") ||
++    normalized.startsWith("fea") ||
++    normalized.startsWith("feb") ||
++    normalized.startsWith("2001:db8:")
++  ) {
++    return true
++  }
++
++  if (normalized.startsWith("::ffff:")) {
++    return isPrivateIpv4(normalized.slice("::ffff:".length))
++  }
++
++  return false
++}
++
++const isPrivateHostname = (hostname: string) =>
++  hostname === "localhost" ||
++  hostname.endsWith(".localhost") ||
++  hostname.endsWith(".local")
++
++const isPrivateTarget = (hostname: string) => {
++  const normalized = hostname.trim().toLowerCase()
++  if (!normalized) {
++    return true
++  }
++
++  const ipKind = isIP(normalized)
++  if (ipKind === 4) {
++    return isPrivateIpv4(normalized)
++  }
++  if (ipKind === 6) {
++    return isPrivateIpv6(normalized)
++  }
++
++  return isPrivateHostname(normalized)
++}
++
++export const normalizeJiraInstanceUrl = (input: string) => {
++  const trimmed = input.trim().replace(/\/+$/, "")
++  if (!trimmed) {
++    throw new Error("Jira instance URL is required.")
++  }
++
++  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
++
++  let parsed: URL
++  try {
++    parsed = new URL(withProtocol)
++  } catch {
++    throw new Error("Jira instance URL is invalid.")
++  }
++
++  if (!/^https?:$/i.test(parsed.protocol)) {
++    throw new Error("Jira instance URL must use http or https.")
++  }
++  if (parsed.username || parsed.password) {
++    throw new Error("Jira instance URL must not include credentials.")
++  }
++  if (!allowPrivateHosts && isPrivateTarget(parsed.hostname)) {
++    throw new Error(
++      "Jira instance URL must use a public host. Set JIRA_ALLOW_PRIVATE_HOSTS=1 to allow private hosts.",
++    )
++  }
++
++  parsed.hash = ""
++  parsed.search = ""
++  const pathname = parsed.pathname.replace(/\/+$/, "")
++  return pathname ? `${parsed.origin}${pathname}` : parsed.origin
++}

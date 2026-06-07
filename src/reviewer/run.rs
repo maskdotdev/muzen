@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
+use crate::context_engine::{
+    context_tool_effects, context_tool_ids, register_context_tools, ContextEngine,
+    ContextEngineMode, ContextFindingEvidence, ContextIndexRequest, ContextPackPurpose,
+    ContextPackRequest, ContextSufficiencyStatus, NoopContextEngine,
+};
 use crate::runtime::contracts::{
-    RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, RuntimeLimits,
-    RuntimeResult, SessionScope, SnapshotId,
+    stable_id, ArtifactKey, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
+    RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId, ToolGrant,
 };
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::model::ConcurrentModelRouter as RuntimeModelRouter;
@@ -10,7 +15,8 @@ use crate::runtime::tools::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::contracts::{ChangeScopeV1, FileReviewV1, FindingV1, PathPolicyV1};
+use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1};
+use crate::contracts::{FindingPublishability, FindingV1, ReportStatus, ValidationStatus};
 use crate::events::EventEmitter;
 use crate::runtime::agent_sessions::AgentSessionRuntime;
 use crate::runtime::contracts::AgentSessionOutput;
@@ -34,6 +40,7 @@ pub struct RunBuilder {
     reviewer_policy: Option<Arc<ReviewerPolicy>>,
     event_sink: Option<Arc<dyn RuntimeEventSink>>,
     legacy_event_emitter: Option<Arc<EventEmitter>>,
+    context_engine: Option<Arc<dyn ContextEngine>>,
 }
 
 impl RunBuilder {
@@ -45,6 +52,7 @@ impl RunBuilder {
             reviewer_policy: None,
             event_sink: None,
             legacy_event_emitter: None,
+            context_engine: None,
         }
     }
 
@@ -93,17 +101,30 @@ impl RunBuilder {
         self
     }
 
+    pub fn context_engine(mut self, context_engine: Arc<dyn ContextEngine>) -> Self {
+        self.context_engine = Some(context_engine);
+        self
+    }
+
     pub fn build(self) -> RuntimeResult<Run> {
         let model_router = self
             .model_router
             .ok_or_else(|| RuntimeError::InvalidInput("run requires a model router".to_string()))?;
-        let registry = match self.tool_registry {
-            Some(registry) => registry,
-            None => Arc::new(RuntimeToolRegistry::review_defaults()?),
-        };
         let reviewer_policy = self
             .reviewer_policy
             .unwrap_or_else(|| Arc::new(ReviewerPolicy::new()));
+        let context_engine = self
+            .context_engine
+            .unwrap_or_else(|| Arc::new(NoopContextEngine));
+        let context_config = context_engine.config();
+        let mut registry = match self.tool_registry {
+            Some(registry) => (*registry).clone(),
+            None => RuntimeToolRegistry::review_defaults()?,
+        };
+        if context_config.mode != ContextEngineMode::Disabled {
+            register_context_tools(&mut registry, Arc::clone(&context_engine))?;
+        }
+        let registry = Arc::new(registry);
         let limits = Arc::new(self.spec.limits.into_runtime_limits());
         let mut shards = Vec::new();
         for snapshot_spec in self.spec.snapshots {
@@ -168,6 +189,7 @@ impl RunBuilder {
             limits,
             model_router,
             reviewer_policy,
+            context_engine,
             event_sink: self.event_sink,
             legacy_event_emitter: self.legacy_event_emitter,
         })
@@ -182,6 +204,7 @@ pub struct Run {
     limits: Arc<RuntimeLimits>,
     model_router: Arc<dyn RuntimeModelRouter>,
     reviewer_policy: Arc<ReviewerPolicy>,
+    context_engine: Arc<dyn ContextEngine>,
     event_sink: Option<Arc<dyn RuntimeEventSink>>,
     legacy_event_emitter: Option<Arc<EventEmitter>>,
 }
@@ -247,12 +270,14 @@ impl Run {
             let limits = Arc::clone(&self.limits);
             let active_sessions = Arc::clone(&active_sessions);
             let cancel = cancel.clone();
+            let context_engine = Arc::clone(&self.context_engine);
+            let aggregate_artifacts = Arc::clone(&aggregate_artifacts);
             joins.spawn(async move {
                 let snapshot_id = shard.snapshot_handle.snapshot_id.clone();
                 let shard_event_sink = event_sink.map(|sink| {
                     Arc::new(ContextualEventSink::new(
                         sink,
-                        run_id,
+                        run_id.clone(),
                         Some(snapshot_id.clone()),
                     )) as Arc<dyn RuntimeEventSink>
                 });
@@ -260,6 +285,118 @@ impl Run {
                     sink.emit(RuntimeEvent::SnapshotStarted {
                         snapshot_id: snapshot_id.clone(),
                     });
+                }
+                let context_config = context_engine.config();
+                let context_enabled = context_config.mode != ContextEngineMode::Disabled;
+                if context_enabled {
+                    if let Some(sink) = &shard_event_sink {
+                        sink.emit(RuntimeEvent::ContextIndexStarted {
+                            snapshot_id: snapshot_id.clone(),
+                        });
+                    }
+                    let mut request = ContextIndexRequest::for_snapshot(
+                        Arc::clone(&shard.snapshot),
+                        &context_config,
+                    );
+                    request.run_id = Some(run_id.clone());
+                    request.instructions = shard
+                        .sessions
+                        .iter()
+                        .flat_map(|session| session.instructions.iter().cloned())
+                        .collect();
+                    if let Ok(report) = context_engine.index_snapshot(request, cancel.clone()).await
+                    {
+                        if let Some(index) = context_engine.get_index(&report.snapshot_id) {
+                            let _artifact_id = insert_context_manifest_artifact(
+                                &aggregate_artifacts,
+                                &index.manifest_artifact,
+                            );
+                        }
+                        if let Some(sink) = &shard_event_sink {
+                            sink.emit(RuntimeEvent::ContextIndexCompleted {
+                                snapshot_id: report.snapshot_id,
+                                index_id: report.index_id.0,
+                                evidence_count: report.evidence_count,
+                                indexed_files: report.indexed_files,
+                                skipped_files: report.skipped_files,
+                                ms: report.elapsed_ms,
+                            });
+                        }
+                    }
+                }
+                let mut sessions = shard.sessions;
+                if context_enabled {
+                    for session in &mut sessions {
+                        let purpose = ContextPackPurpose::for_role(session.role);
+                        if let Some(sink) = &shard_event_sink {
+                            sink.emit(RuntimeEvent::ContextPackStarted {
+                                session_id: Some(session.id.clone()),
+                                purpose: purpose.as_str().to_string(),
+                            });
+                        }
+                        let started = std::time::Instant::now();
+                        if let Ok(pack) = context_engine
+                            .build_pack(
+                                ContextPackRequest {
+                                    run_id: Some(run_id.clone()),
+                                    snapshot_id: snapshot_id.clone(),
+                                    session_id: Some(session.id.clone()),
+                                    purpose,
+                                    max_tokens: context_config.max_pack_tokens,
+                                    seed_evidence: Vec::new(),
+                                },
+                                cancel.clone(),
+                            )
+                            .await
+                        {
+                            session.instructions.push(SessionInstruction {
+                                kind: "context_pack".to_string(),
+                                text: context_pack_instruction(&pack),
+                                trusted: true,
+                            });
+                            if let Ok(tool_ids) = context_tool_ids() {
+                                for tool_id in tool_ids {
+                                    let effects = context_tool_effects();
+                                    session.capabilities.runtime_authority.host_read |=
+                                        effects.host_read;
+                                    session.capabilities.runtime_authority.network_read |=
+                                        effects.network_read;
+                                    session.capabilities.runtime_authority.scratch_read |=
+                                        effects.scratch_read;
+                                    session.capabilities.runtime_authority.scratch_write |=
+                                        effects.scratch_write;
+                                    session.capabilities.runtime_authority.external_side_effect |=
+                                        effects.external_side_effect;
+                                    session.capabilities.grant_tool(
+                                        tool_id,
+                                        ToolGrant {
+                                            allow: true,
+                                            max_calls: None,
+                                            effects_allowed: effects,
+                                        },
+                                    );
+                                }
+                            }
+                            let _artifact_id =
+                                insert_context_pack_artifact(&aggregate_artifacts, &pack);
+                            if let Some(sink) = &shard_event_sink {
+                                sink.emit(RuntimeEvent::ContextPackCompleted {
+                                    pack_id: pack.id.0,
+                                    session_id: Some(session.id.clone()),
+                                    purpose: pack.purpose.as_str().to_string(),
+                                    evidence_count: pack.evidence.len(),
+                                    omitted_count: pack.omitted_candidates.len(),
+                                    used_tokens: pack.budget.used_tokens,
+                                    sufficiency: pack.sufficiency.status.as_str().to_string(),
+                                    ms: started
+                                        .elapsed()
+                                        .as_millis()
+                                        .try_into()
+                                        .unwrap_or(u64::MAX),
+                                });
+                            }
+                        }
+                    }
                 }
                 let events =
                     RuntimeEventDispatcher::new(shard_event_sink.clone(), legacy_event_emitter);
@@ -273,15 +410,22 @@ impl Run {
                             policy: reviewer_policy,
                             limits,
                             review_revision_id: shard.review_revision_id,
-                            session_templates: shard.sessions,
+                            session_templates: sessions,
                             events,
                             active_sessions,
                         });
                         let summary = Arc::clone(&runtime).run_with_cancel(cancel).await;
+                        let mut shard_findings = summary.findings;
+                        if context_enabled {
+                            apply_context_evidence_policy(
+                                &mut shard_findings,
+                                context_config.strict_evidence_required,
+                            );
+                        }
                         ShardOutcome {
                             index,
                             metrics: summary.metrics,
-                            findings: summary.findings,
+                            findings: shard_findings,
                             file_reviews: summary.file_reviews,
                             session_outputs: Vec::new(),
                             tools,
@@ -297,7 +441,7 @@ impl Run {
                             events,
                             active_sessions,
                         });
-                        let report = runtime.run_with_cancel(shard.sessions, cancel).await;
+                        let report = runtime.run_with_cancel(sessions, cancel).await;
                         ShardOutcome {
                             index,
                             metrics: report.metrics,
@@ -336,7 +480,22 @@ impl Run {
             session_outputs.extend(outcome.session_outputs);
             summaries.push(outcome.metrics);
         }
-        let metrics = merge_run_summaries(summaries);
+        let mut metrics = merge_run_summaries(summaries);
+        if self.context_engine.config().mode != ContextEngineMode::Disabled {
+            let _artifact_id = insert_context_findings_evidence_artifact(
+                &aggregate_artifacts,
+                &self.run_id,
+                &findings,
+            );
+        }
+        let (artifact_count, artifact_bytes) = aggregate_artifacts.stats();
+        metrics.findings = findings.len();
+        metrics.publishable_findings = findings
+            .iter()
+            .filter(|finding| matches!(finding.publishability, FindingPublishability::Publishable))
+            .count();
+        metrics.artifacts = artifact_count;
+        metrics.artifact_bytes = artifact_bytes;
         if let Some(sink) = &run_event_sink {
             sink.emit(RuntimeEvent::JobFinished {
                 status: if metrics.completed_sessions == metrics.sessions {
@@ -357,6 +516,189 @@ impl Run {
             snapshot_readers,
             findings,
             file_reviews,
+        }
+    }
+}
+
+fn apply_context_evidence_policy(findings: &mut [FindingV1], strict: bool) {
+    for finding in findings {
+        if !finding.evidence.is_empty() {
+            continue;
+        }
+        if !finding
+            .challenged_by
+            .iter()
+            .any(|source| source == "context_evidence_policy")
+        {
+            finding
+                .challenged_by
+                .push("context_evidence_policy".to_string());
+        }
+        if finding.validation_status == ValidationStatus::Validated {
+            finding.validation_status = ValidationStatus::Challenged;
+        }
+        if strict {
+            finding.publishability = FindingPublishability::NotPublishable;
+            finding.report_status = ReportStatus::Suppressed;
+        }
+    }
+}
+
+fn insert_context_manifest_artifact(
+    artifacts: &RuntimeArtifactStore,
+    manifest: &crate::context_engine::ContextManifestArtifact,
+) -> RuntimeResult<crate::runtime::contracts::ArtifactId> {
+    let content = serde_json::to_string_pretty(manifest).map_err(|error| {
+        RuntimeError::InvalidInput(format!("failed to serialize context manifest: {error}"))
+    })?;
+    Ok(artifacts.insert(
+        ArtifactKey(stable_id(&[
+            "context_manifest",
+            &manifest.snapshot_id.0,
+            &manifest.index_id.0,
+        ])),
+        content,
+    ))
+}
+
+fn insert_context_pack_artifact(
+    artifacts: &RuntimeArtifactStore,
+    pack: &crate::context_engine::ContextPack,
+) -> RuntimeResult<crate::runtime::contracts::ArtifactId> {
+    let content = serde_json::to_string_pretty(pack).map_err(|error| {
+        RuntimeError::InvalidInput(format!("failed to serialize context pack: {error}"))
+    })?;
+    Ok(artifacts.insert(
+        ArtifactKey(stable_id(&[
+            "context_pack",
+            &pack.snapshot_id.0,
+            &pack.id.0,
+        ])),
+        content,
+    ))
+}
+
+fn insert_context_findings_evidence_artifact(
+    artifacts: &RuntimeArtifactStore,
+    run_id: &str,
+    findings: &[FindingV1],
+) -> RuntimeResult<crate::runtime::contracts::ArtifactId> {
+    let records = findings
+        .iter()
+        .map(|finding| ContextFindingEvidence {
+            finding_id: finding.id.clone(),
+            primary_evidence: finding
+                .evidence
+                .iter()
+                .map(|evidence| crate::runtime::contracts::EvidenceId(evidence.evidence_id.clone()))
+                .collect(),
+            supporting_evidence: Vec::new(),
+            contradicted_by: Vec::new(),
+            sufficiency: if finding.evidence.is_empty() {
+                ContextSufficiencyStatus::Insufficient
+            } else {
+                ContextSufficiencyStatus::Sufficient
+            },
+            artifact_id: None,
+        })
+        .collect::<Vec<_>>();
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "schemaVersion": "muzen.context_findings_evidence.v1",
+        "runId": run_id,
+        "findings": records,
+    }))
+    .map_err(|error| {
+        RuntimeError::InvalidInput(format!(
+            "failed to serialize context findings evidence: {error}"
+        ))
+    })?;
+    Ok(artifacts.insert(
+        ArtifactKey(stable_id(&["context_findings_evidence", run_id])),
+        content,
+    ))
+}
+
+fn context_pack_instruction(pack: &crate::context_engine::ContextPack) -> String {
+    let evidence = pack
+        .evidence
+        .iter()
+        .take(12)
+        .map(|evidence| {
+            let path = evidence
+                .path
+                .as_ref()
+                .map(|path| path.display())
+                .unwrap_or_else(|| "<run>".to_string());
+            format!(
+                "- {} {:?}: {}",
+                evidence.id.0,
+                evidence.kind,
+                evidence.summary.as_deref().unwrap_or(&path)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Context pack {} for purpose {} has sufficiency {} and {} selected evidence item(s).\nUse context tools when this pack is insufficient. Selected evidence:\n{}",
+        pack.id.0,
+        pack.purpose.as_str(),
+        pack.sufficiency.status.as_str(),
+        pack.evidence.len(),
+        evidence
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::{FindingSeverity, LineRangeV1};
+
+    #[test]
+    fn context_evidence_policy_warns_or_suppresses_missing_evidence() {
+        let mut warning_findings = vec![test_finding()];
+        apply_context_evidence_policy(&mut warning_findings, false);
+        assert_eq!(
+            warning_findings[0].validation_status,
+            ValidationStatus::Challenged
+        );
+        assert!(matches!(
+            warning_findings[0].publishability,
+            FindingPublishability::Publishable
+        ));
+        assert!(warning_findings[0]
+            .challenged_by
+            .contains(&"context_evidence_policy".to_string()));
+
+        let mut strict_findings = vec![test_finding()];
+        apply_context_evidence_policy(&mut strict_findings, true);
+        assert!(matches!(
+            strict_findings[0].publishability,
+            FindingPublishability::NotPublishable
+        ));
+        assert!(matches!(
+            strict_findings[0].report_status,
+            ReportStatus::Suppressed
+        ));
+    }
+
+    fn test_finding() -> FindingV1 {
+        FindingV1 {
+            id: "finding".to_string(),
+            title: "title".to_string(),
+            claim: "claim".to_string(),
+            severity: FindingSeverity::Medium,
+            confidence: 0.8,
+            validation_status: ValidationStatus::Validated,
+            report_status: ReportStatus::Included,
+            publishability: FindingPublishability::Publishable,
+            evidence: Vec::new(),
+            file_refs: Vec::new(),
+            location_line_range: Some(LineRangeV1 {
+                start_line: 1,
+                end_line: 1,
+            }),
+            discovered_by: vec!["test".to_string()],
+            challenged_by: Vec::new(),
         }
     }
 }

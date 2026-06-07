@@ -10,6 +10,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::bench::bench_job;
+use crate::context_engine::{
+    ContextEngine, ContextEngineConfig, ContextIndexRequest, ContextPackPurpose,
+    ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits, SnapshotContextEngine,
+};
 use crate::contracts::*;
 use crate::events::EventEmitter;
 use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
@@ -23,6 +27,7 @@ use crate::reviewer::canaries::{
 };
 use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
 use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_events};
+use crate::runtime::repo::RepoSnapshot;
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 
 const CANARY_PROVIDER_EVIDENCE_FILE: &str = "model-provider.json";
@@ -56,6 +61,8 @@ pub(crate) enum Command {
     Bench(BenchArgs),
     /// Build the benchmark ReviewRunJobV1 JSON without executing it.
     BenchJob(BenchArgs),
+    /// Inspect Muzen Context Engine output for a local snapshot.
+    Context(ContextArgs),
     /// Validate canary publication configuration without writing evidence.
     CanaryPreflight(CanaryPublishArgs),
     /// Publish provider, remote object-store, aggregate, status, and provenance canary evidence.
@@ -109,6 +116,140 @@ pub(crate) struct BenchArgs {
 
     #[arg(long, default_value_t = 256)]
     pub(crate) max_output_tokens: u32,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextArgs {
+    #[command(subcommand)]
+    pub(crate) command: ContextCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub(crate) enum ContextCommand {
+    /// Index a local snapshot and print context_manifest JSON.
+    Index(ContextSnapshotArgs),
+    /// Build a role/purpose-specific context pack for a local snapshot.
+    Pack(ContextPackArgs),
+    /// Query indexed context evidence for a local snapshot.
+    Query(ContextQueryArgs),
+    /// Explain why evidence was included or omitted in a context pack JSON file.
+    Explain(ContextExplainArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextSnapshotArgs {
+    #[arg(long, default_value = ".")]
+    pub(crate) repo: PathBuf,
+
+    #[arg(long = "changed-file", required = true)]
+    pub(crate) changed_files: Vec<PathBuf>,
+
+    #[arg(long, default_value_t = 200)]
+    pub(crate) max_file_kb: usize,
+
+    #[arg(long, default_value_t = 120)]
+    pub(crate) max_search_matches: usize,
+
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextPackArgs {
+    #[command(flatten)]
+    pub(crate) snapshot: ContextSnapshotArgs,
+
+    #[arg(long, value_enum, default_value_t = ContextPurposeArg::GeneralReview)]
+    pub(crate) purpose: ContextPurposeArg,
+
+    #[arg(long, default_value_t = 12_000)]
+    pub(crate) max_tokens: usize,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextQueryArgs {
+    #[command(flatten)]
+    pub(crate) snapshot: ContextSnapshotArgs,
+
+    #[arg(long, value_enum, default_value_t = ContextQueryKindArg::SearchText)]
+    pub(crate) kind: ContextQueryKindArg,
+
+    #[arg(long)]
+    pub(crate) query: Option<String>,
+
+    #[arg(long)]
+    pub(crate) path: Option<String>,
+
+    #[arg(long)]
+    pub(crate) start_line: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) end_line: Option<usize>,
+
+    #[arg(long, default_value_t = 20)]
+    pub(crate) max_results: usize,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextExplainArgs {
+    #[arg(long)]
+    pub(crate) pack: PathBuf,
+
+    #[arg(long, default_value_t = true)]
+    pub(crate) include_omitted: bool,
+
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ContextPurposeArg {
+    GeneralReview,
+    Correctness,
+    Security,
+    Tests,
+    Architecture,
+    Performance,
+    Validator,
+}
+
+impl From<ContextPurposeArg> for ContextPackPurpose {
+    fn from(value: ContextPurposeArg) -> Self {
+        match value {
+            ContextPurposeArg::GeneralReview => Self::GeneralReview,
+            ContextPurposeArg::Correctness => Self::Correctness,
+            ContextPurposeArg::Security => Self::Security,
+            ContextPurposeArg::Tests => Self::Tests,
+            ContextPurposeArg::Architecture => Self::Architecture,
+            ContextPurposeArg::Performance => Self::Performance,
+            ContextPurposeArg::Validator => Self::Validator,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ContextQueryKindArg {
+    SearchText,
+    ReadSpan,
+    RelatedTests,
+    RelatedSymbols,
+    TicketRequirements,
+    HistorySimilar,
+    SufficiencyCheck,
+}
+
+impl From<ContextQueryKindArg> for ContextQueryKind {
+    fn from(value: ContextQueryKindArg) -> Self {
+        match value {
+            ContextQueryKindArg::SearchText => Self::SearchText,
+            ContextQueryKindArg::ReadSpan => Self::ReadSpan,
+            ContextQueryKindArg::RelatedTests => Self::RelatedTests,
+            ContextQueryKindArg::RelatedSymbols => Self::RelatedSymbols,
+            ContextQueryKindArg::TicketRequirements => Self::TicketRequirements,
+            ContextQueryKindArg::HistorySimilar => Self::HistorySimilar,
+            ContextQueryKindArg::SufficiencyCheck => Self::SufficiencyCheck,
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -463,6 +604,7 @@ pub(crate) fn run_main() -> Result<i32> {
             println!("{}", serde_json::to_string_pretty(&job)?);
             Ok(0)
         }
+        Command::Context(args) => run_context(args),
         Command::CanaryPreflight(args) => run_canary_preflight(args),
         Command::CanaryPublish(args) => run_canary_publish(args),
         Command::CanaryManifest(args) => run_canary_manifest(args),
@@ -471,6 +613,196 @@ pub(crate) fn run_main() -> Result<i32> {
         Command::CanaryWorkflowProvenance(args) => run_canary_workflow_provenance(args),
         Command::CanaryProof(args) => run_canary_proof(args),
     }
+}
+
+pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("failed to build tokio runtime for context engine")?;
+    runtime.block_on(async move {
+        match args.command {
+            ContextCommand::Index(args) => {
+                let (_engine, _snapshot, manifest) = index_context_snapshot(&args).await?;
+                write_context_output(args.output.as_ref(), &manifest)?;
+                Ok(0)
+            }
+            ContextCommand::Pack(args) => {
+                let (engine, snapshot, _manifest) = index_context_snapshot(&args.snapshot).await?;
+                let pack = engine
+                    .build_pack(
+                        ContextPackRequest {
+                            run_id: None,
+                            snapshot_id: snapshot.snapshot_id.clone(),
+                            session_id: None,
+                            purpose: args.purpose.into(),
+                            max_tokens: args.max_tokens,
+                            seed_evidence: Vec::new(),
+                        },
+                        tokio_util::sync::CancellationToken::new(),
+                    )
+                    .await
+                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                write_context_output(args.snapshot.output.as_ref(), &pack)?;
+                Ok(0)
+            }
+            ContextCommand::Query(args) => {
+                let (engine, snapshot, _manifest) = index_context_snapshot(&args.snapshot).await?;
+                let arguments = match args.kind {
+                    ContextQueryKindArg::SearchText => {
+                        serde_json::json!({"query": args.query.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::ReadSpan => {
+                        serde_json::json!({
+                            "path": args.path.unwrap_or_default(),
+                            "startLine": args.start_line.unwrap_or(1),
+                            "endLine": args.end_line.unwrap_or(args.start_line.unwrap_or(1)),
+                        })
+                    }
+                    ContextQueryKindArg::RelatedTests => {
+                        serde_json::json!({"path": args.path.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::RelatedSymbols => {
+                        serde_json::json!({"path": args.path.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::TicketRequirements => {
+                        serde_json::json!({"query": args.query.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::HistorySimilar => {
+                        serde_json::json!({"query": args.query.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::SufficiencyCheck => {
+                        serde_json::json!({"question": args.query.unwrap_or_default()})
+                    }
+                };
+                let result = engine
+                    .query(
+                        ContextQuery {
+                            run_id: None,
+                            snapshot_id: snapshot.snapshot_id.clone(),
+                            session_id: None,
+                            purpose: Some(ContextPackPurpose::StandaloneQuery),
+                            kind: args.kind.into(),
+                            arguments,
+                            current_evidence: Vec::new(),
+                            limits: ContextQueryLimits {
+                                max_results: args.max_results,
+                                max_tokens: ContextEngineConfig::snapshot_v0().max_pack_tokens,
+                            },
+                        },
+                        tokio_util::sync::CancellationToken::new(),
+                    )
+                    .await
+                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                write_context_output(args.snapshot.output.as_ref(), &result)?;
+                Ok(0)
+            }
+            ContextCommand::Explain(args) => {
+                let pack =
+                    read_context_json_file::<crate::context_engine::ContextPack>(&args.pack)?;
+                let explanation = serde_json::json!({
+                    "packId": pack.id.0,
+                    "purpose": pack.purpose,
+                    "included": pack.evidence.iter().map(|evidence| {
+                        serde_json::json!({
+                            "evidenceId": evidence.id.0,
+                            "kind": evidence.kind,
+                            "path": evidence.path.as_ref().map(|path| path.display()),
+                            "why": ["included in context pack"]
+                        })
+                    }).collect::<Vec<_>>(),
+                    "omitted": if args.include_omitted {
+                        serde_json::to_value(&pack.omitted_candidates)?
+                    } else {
+                        serde_json::json!([])
+                    },
+                    "sufficiency": pack.sufficiency,
+                });
+                write_context_output(args.output.as_ref(), &explanation)?;
+                Ok(0)
+            }
+        }
+    })
+}
+
+async fn index_context_snapshot(
+    args: &ContextSnapshotArgs,
+) -> Result<(
+    SnapshotContextEngine,
+    Arc<RepoSnapshot>,
+    crate::context_engine::ContextManifestArtifact,
+)> {
+    let snapshot = build_context_snapshot(args)?;
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let index = engine
+        .get_index(&snapshot.snapshot_id)
+        .ok_or_else(|| anyhow::anyhow!("context index was not stored"))?;
+    Ok((engine, snapshot, index.manifest_artifact.clone()))
+}
+
+fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot>> {
+    let changed_files = args
+        .changed_files
+        .iter()
+        .map(|path| ChangedFileEntryV1 {
+            status: ChangedFileStatus::Modified,
+            old_path: Some(path.clone()),
+            new_path: Some(path.clone()),
+            old_content_hash: None,
+            new_content_hash: None,
+            is_binary: false,
+            is_generated: false,
+        })
+        .collect::<Vec<_>>();
+    let change = ChangeScopeV1 {
+        kind: ChangeKind::LocalDiff,
+        change_id: "context-local".to_string(),
+        source_ref: "head".to_string(),
+        target_ref: "base".to_string(),
+        base_revision_id: "base".to_string(),
+        head_revision_id: "head".to_string(),
+        merge_base_revision_id: None,
+        changed_files_manifest_ref: None,
+        diff_manifest_ref: None,
+        inline_diff: None,
+        snapshot_mode: SnapshotMode::WorktreeHead,
+        rename_detection: RenameDetection::None,
+        changed_files,
+    };
+    RepoSnapshot::build_with_storage(
+        &args.repo,
+        &PathPolicyV1::bench(args.max_file_kb, args.max_search_matches),
+        &change,
+        crate::runtime::contracts::SnapshotStoragePolicy::default(),
+    )
+    .map_err(|error| anyhow::anyhow!("{error}"))
+}
+
+fn write_context_output<T: Serialize>(output: Option<&PathBuf>, value: &T) -> Result<()> {
+    let json = serde_json::to_string_pretty(value)?;
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))?;
+    } else {
+        println!("{json}");
+    }
+    Ok(())
+}
+
+fn read_context_json_file<T: DeserializeOwned>(path: &Path) -> Result<T> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&contents).with_context(|| format!("invalid JSON in {}", path.display()))
 }
 
 pub(crate) fn run_canary_preflight(args: CanaryPublishArgs) -> Result<i32> {

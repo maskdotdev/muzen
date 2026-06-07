@@ -1,0 +1,474 @@
+diff --git a/.gitignore b/.gitignore
+index 3b9e95a..39a462d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,6 +2,7 @@ target/
+ node_modules/
+ dist/
+ *.tsbuildinfo
++.env
+ __pycache__/
+ *.pyc
+ .pytest_cache/
+diff --git a/examples/tanstack-durable-review/FLOW.md b/examples/tanstack-durable-review/FLOW.md
+index b82c086..3988d19 100644
+--- a/examples/tanstack-durable-review/FLOW.md
++++ b/examples/tanstack-durable-review/FLOW.md
+@@ -14,6 +14,8 @@ This is the flow to read when mapping the example to Argus or another host.
+ 3. Host worker claims that one review row.
+ 4. Worker starts one Muzen review.
+ 5. Muzen materializes one source snapshot.
++   - local targets reuse the service-machine worktree
++   - GitHub PR targets fetch `refs/pull/<number>/head` into a temp checkout
+ 6. Muzen runs multiple sessions against the shared snapshot.
+ 7. Sessions call built-in tools such as read_diff, read_file, search_text.
+ 8. Muzen emits ordered events.
+@@ -55,6 +57,26 @@ GET /api/reviews/:id/events/stream?after=17
+ 
+ The service replays events after that cursor before streaming new ones.
+ 
++## Real GitHub PRs
++
++The example accepts three GitHub target shapes:
++
++```text
++https://github.com/owner/repo/pull/123
++github:owner/repo#123
++owner/repo#123
++```
++
++The host converts those into a provider-neutral Muzen source:
++
++```ts
++github.pullRequest({ owner, repo, number })
++```
++
++If the changed-file field is empty, the runner fetches the PR ref and infers the
++changed files from git diff. For private repositories, run the service with
++`GITHUB_TOKEN` so the runner can authenticate the fetch.
++
+ ## Production Swap
+ 
+ The example's in-memory store is only a readable local stand-in. A production
+diff --git a/examples/tanstack-durable-review/README.md b/examples/tanstack-durable-review/README.md
+index ad875ac..74c3d4a 100644
+--- a/examples/tanstack-durable-review/README.md
++++ b/examples/tanstack-durable-review/README.md
+@@ -53,12 +53,27 @@ Start the TanStack/Vite frontend in another terminal:
+ npm run dev
+ ```
+ 
+-Open the Vite URL, submit a local repo path such as `../..`, and use
+-`Cargo.toml` as the changed file.
++Open the Vite URL, then choose one of the targets:
++
++- Local repo: submit a path such as `../..` and use `Cargo.toml` as the
++  changed file.
++- GitHub PR: submit a URL such as
++  `https://github.com/owner/repo/pull/123`, `github:owner/repo#123`, or
++  `owner/repo#123`.
++
++For GitHub PR targets, leave changed files empty to let Muzen fetch the PR ref
++and infer the changed files. Public PRs work over HTTPS. Private PRs require
++`GITHUB_TOKEN` in the service environment:
++
++```bash
++GITHUB_TOKEN=... MUZEN_RUNNER_PATH=../../target/debug/muzen-runner npm run service
++```
+ 
+ ## What To Look At
+ 
+ - `src/server.ts` exposes the durable HTTP/SSE shape.
++- `src/server/github.ts` parses real GitHub PR targets into provider-neutral
++  Muzen sources.
+ - `src/server/store.ts` is the replaceable durable store boundary.
+ - `src/server/worker.ts` is the worker claim/execute/result projection path.
+ - `src/App.tsx` shows the browser flow: create one run, attach SSE, fetch
+diff --git a/examples/tanstack-durable-review/package.json b/examples/tanstack-durable-review/package.json
+index 48a9f86..294de68 100644
+--- a/examples/tanstack-durable-review/package.json
++++ b/examples/tanstack-durable-review/package.json
+@@ -5,6 +5,7 @@
+     "prepare:sdk": "npm --prefix ../../sdk/typescript/packages/muzen-sdk install --package-lock=false && npm --prefix ../../sdk/typescript/packages/muzen-sdk run build",
+     "dev": "vite",
+     "service": "npm run prepare:sdk && tsx src/server.ts",
++    "test": "npm run prepare:sdk && tsx --test src/server/github.test.ts",
+     "typecheck": "npm run prepare:sdk && tsc --noEmit"
+   },
+   "dependencies": {
+diff --git a/examples/tanstack-durable-review/src/App.tsx b/examples/tanstack-durable-review/src/App.tsx
+index bb4222c..cdc21d1 100644
+--- a/examples/tanstack-durable-review/src/App.tsx
++++ b/examples/tanstack-durable-review/src/App.tsx
+@@ -1,8 +1,13 @@
+ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+ import { useNavigate, useParams } from "@tanstack/react-router";
++import { sourceKey } from "@muzen/sdk";
+ import type { ReviewEvent, ReviewResult, ReviewRole } from "@muzen/sdk";
+ 
+-import type { CreateReviewRequest, ReviewSnapshot } from "./shared.js";
++import type {
++  CreateReviewRequest,
++  ReviewSnapshot,
++  ReviewTargetKind,
++} from "./shared.js";
+ 
+ const defaultRoles: ReviewRole[] = ["correctness", "security"];
+ const roleChoices: ReviewRole[] = [
+@@ -16,7 +21,11 @@ const roleChoices: ReviewRole[] = [
+ 
+ export function NewReviewPage() {
+   const navigate = useNavigate();
++  const [sourceKind, setSourceKind] = useState<ReviewTargetKind>("local");
+   const [repo, setRepo] = useState("../..");
++  const [githubPullRequest, setGithubPullRequest] = useState(
++    "https://github.com/maskdotdev/muzen/pull/1",
++  );
+   const [changedFiles, setChangedFiles] = useState("Cargo.toml");
+   const [roles, setRoles] = useState<ReviewRole[]>(defaultRoles);
+   const [submitting, setSubmitting] = useState(false);
+@@ -28,7 +37,10 @@ export function NewReviewPage() {
+     setError(null);
+     try {
+       const body: CreateReviewRequest = {
+-        repo,
++        sourceKind,
++        repo: sourceKind === "local" ? repo : undefined,
++        githubPullRequest:
++          sourceKind === "github" ? githubPullRequest : undefined,
+         changedFiles: changedFiles
+           .split(/\r?\n|,/)
+           .map((value) => value.trim())
+@@ -59,12 +71,47 @@ export function NewReviewPage() {
+     <section className="layout">
+       <form className="panel" onSubmit={submit}>
+         <h1>Start One Durable Review</h1>
++        <fieldset className="segmented">
++          <legend>Target</legend>
++          <label>
++            <input
++              type="radio"
++              checked={sourceKind === "local"}
++              onChange={() => {
++                setSourceKind("local");
++                setChangedFiles("Cargo.toml");
++              }}
++            />
++            Local repo
++          </label>
++          <label>
++            <input
++              type="radio"
++              checked={sourceKind === "github"}
++              onChange={() => {
++                setSourceKind("github");
++                setChangedFiles("");
++              }}
++            />
++            GitHub PR
++          </label>
++        </fieldset>
++        {sourceKind === "local" ? (
++          <label>
++            Repo path on the service machine
++            <input value={repo} onChange={(event) => setRepo(event.target.value)} />
++          </label>
++        ) : (
++          <label>
++            GitHub PR URL or source key
++            <input
++              value={githubPullRequest}
++              onChange={(event) => setGithubPullRequest(event.target.value)}
++            />
++          </label>
++        )}
+         <label>
+-          Repo path on the service machine
+-          <input value={repo} onChange={(event) => setRepo(event.target.value)} />
+-        </label>
+-        <label>
+-          Changed files
++          Changed files {sourceKind === "github" ? "(optional)" : ""}
+           <textarea
+             rows={5}
+             value={changedFiles}
+@@ -121,6 +168,12 @@ export function ReviewPage() {
+         <div>
+           <span className="label">Review</span>
+           <h1>{reviewId}</h1>
++          {snapshot ? (
++            <p className="source">
++              <span className="label">Target</span>
++              {sourceKey(snapshot.source)}
++            </p>
++          ) : null}
+         </div>
+         <span className={`status ${snapshot?.status ?? "queued"}`}>
+           {snapshot?.status ?? "queued"}
+diff --git a/examples/tanstack-durable-review/src/server.ts b/examples/tanstack-durable-review/src/server.ts
+index 53d11a5..0f087ac 100644
+--- a/examples/tanstack-durable-review/src/server.ts
++++ b/examples/tanstack-durable-review/src/server.ts
+@@ -1,13 +1,17 @@
+ import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+ 
+ import {
++  github,
+   local,
+   type ReviewAgentSession,
+   type ReviewOptions,
+   type ReviewRole,
++  type ReviewSource,
++  sourceKey,
+ } from "@muzen/sdk";
+ 
+ import type { CreateReviewRequest } from "./shared.js";
++import { parseGithubPullRequestInput } from "./server/github.js";
+ import { DurableReviewStore } from "./server/store.js";
+ import { executeReview } from "./server/worker.js";
+ 
+@@ -41,8 +45,8 @@ async function route(
+ 
+   if (request.method === "POST" && url.pathname === "/api/reviews") {
+     const input = await readJson<CreateReviewRequest>(request);
+-    const source = local(input.repo, { changedFiles: input.changedFiles });
+-    const review = store.create(source, reviewOptions(input));
++    const source = reviewSource(input);
++    const review = store.create(source, reviewOptions(input, source));
+     void executeReview(store, review.id, { runnerPath });
+     sendJson(response, 202, { review });
+     return;
+@@ -96,15 +100,38 @@ async function route(
+   sendJson(response, 404, { error: "not found" });
+ }
+ 
+-function reviewOptions(input: CreateReviewRequest): ReviewOptions {
++function reviewSource(input: CreateReviewRequest): ReviewSource {
++  if (input.sourceKind === "github") {
++    const pullRequest = parseGithubPullRequestInput(input.githubPullRequest ?? "");
++    return github.pullRequest(pullRequest);
++  }
++
++  const repo = input.repo?.trim();
++  if (!repo) {
++    throw new Error("local repo path is empty");
++  }
++  return local(repo, { changedFiles: input.changedFiles });
++}
++
++function reviewOptions(
++  input: CreateReviewRequest,
++  source: ReviewSource,
++): ReviewOptions {
++  const target = sourceKey(source);
+   return {
++    change: {
++      kind: source.type === "github_pull_request" ? "provider_review" : "revision_range",
++      changedFiles: input.changedFiles.map((path) => ({ path })),
++      reviewTarget: target,
++    },
+     scope: {
+       files: input.changedFiles,
+     },
+     sessions: sessions(input.roles),
+     metadata: {
+       example: "tanstack-durable-review",
+-      requestedRepo: input.repo,
++      requestedSource: target,
++      requestedSourceKind: input.sourceKind,
+     },
+   };
+ }
+diff --git a/examples/tanstack-durable-review/src/server/github.test.ts b/examples/tanstack-durable-review/src/server/github.test.ts
+new file mode 100644
+index 0000000..146f939
+--- /dev/null
++++ b/examples/tanstack-durable-review/src/server/github.test.ts
+@@ -0,0 +1,45 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import { parseGithubPullRequestInput } from "./github.js";
++
++test("parses GitHub PR URLs", () => {
++  assert.deepEqual(
++    parseGithubPullRequestInput("https://github.com/maskdotdev/muzen/pull/1"),
++    {
++      owner: "maskdotdev",
++      repo: "muzen",
++      number: 1,
++    },
++  );
++});
++
++test("parses Muzen GitHub source keys", () => {
++  assert.deepEqual(parseGithubPullRequestInput("github:maskdotdev/muzen#42"), {
++    owner: "maskdotdev",
++    repo: "muzen",
++    number: 42,
++  });
++});
++
++test("parses compact owner/repo shorthand", () => {
++  assert.deepEqual(parseGithubPullRequestInput("maskdotdev/muzen#42"), {
++    owner: "maskdotdev",
++    repo: "muzen",
++    number: 42,
++  });
++});
++
++test("rejects non-GitHub URLs", () => {
++  assert.throws(
++    () => parseGithubPullRequestInput("https://example.com/maskdotdev/muzen/pull/1"),
++    /Only github.com/,
++  );
++});
++
++test("rejects malformed input", () => {
++  assert.throws(
++    () => parseGithubPullRequestInput("github.com/maskdotdev/muzen"),
++    /GitHub PR must look like/,
++  );
++});
+diff --git a/examples/tanstack-durable-review/src/server/github.ts b/examples/tanstack-durable-review/src/server/github.ts
+new file mode 100644
+index 0000000..2db149d
+--- /dev/null
++++ b/examples/tanstack-durable-review/src/server/github.ts
+@@ -0,0 +1,66 @@
++export interface GithubPullRequestParts {
++  owner: string;
++  repo: string;
++  number: number;
++}
++
++const githubSourceKeyPattern = /^github:([^/]+)\/([^#]+)#([1-9]\d*)$/;
++const shorthandPattern = /^([^/\s]+)\/([^#\s]+)#([1-9]\d*)$/;
++
++export function parseGithubPullRequestInput(
++  input: string,
++): GithubPullRequestParts {
++  const value = input.trim();
++  if (!value) {
++    throw new Error("GitHub PR input is empty");
++  }
++
++  const sourceKeyMatch = githubSourceKeyPattern.exec(value);
++  if (sourceKeyMatch) {
++    return partsFromMatch(sourceKeyMatch);
++  }
++
++  const shorthandMatch = shorthandPattern.exec(value);
++  if (shorthandMatch) {
++    return partsFromMatch(shorthandMatch);
++  }
++
++  let url: URL;
++  try {
++    url = new URL(value);
++  } catch {
++    throw new Error(
++      "GitHub PR must look like https://github.com/owner/repo/pull/123",
++    );
++  }
++
++  if (url.hostname !== "github.com") {
++    throw new Error("Only github.com PR URLs are supported by this example");
++  }
++
++  const [owner, repo, pullSegment, numberSegment] = url.pathname
++    .split("/")
++    .filter(Boolean);
++  const number = Number(numberSegment);
++  if (
++    !owner ||
++    !repo ||
++    pullSegment !== "pull" ||
++    !Number.isInteger(number) ||
++    number <= 0
++  ) {
++    throw new Error(
++      "GitHub PR must look like https://github.com/owner/repo/pull/123",
++    );
++  }
++
++  return { owner, repo, number };
++}
++
++function partsFromMatch(match: RegExpExecArray): GithubPullRequestParts {
++  return {
++    owner: match[1],
++    repo: match[2],
++    number: Number(match[3]),
++  };
++}
+diff --git a/examples/tanstack-durable-review/src/shared.ts b/examples/tanstack-durable-review/src/shared.ts
+index 5c6e7ba..0bcba43 100644
+--- a/examples/tanstack-durable-review/src/shared.ts
++++ b/examples/tanstack-durable-review/src/shared.ts
+@@ -7,11 +7,15 @@ import type {
+ } from "@muzen/sdk";
+ 
+ export interface CreateReviewRequest {
+-  repo: string;
++  sourceKind: ReviewTargetKind;
++  repo?: string;
++  githubPullRequest?: string;
+   changedFiles: string[];
+   roles: ReviewRole[];
+ }
+ 
++export type ReviewTargetKind = "local" | "github";
++
+ export interface ReviewSnapshot {
+   id: string;
+   status: ReviewStatus;
+diff --git a/examples/tanstack-durable-review/src/styles.css b/examples/tanstack-durable-review/src/styles.css
+index d63ae51..a4ba58d 100644
+--- a/examples/tanstack-durable-review/src/styles.css
++++ b/examples/tanstack-durable-review/src/styles.css
+@@ -85,6 +85,27 @@ fieldset {
+   padding: 16px;
+ }
+ 
++.segmented {
++  align-items: center;
++  display: flex;
++  flex-wrap: wrap;
++  gap: 12px;
++}
++
++.segmented legend {
++  margin-bottom: 8px;
++}
++
++.segmented label {
++  align-items: center;
++  border: 1px solid #bcc7d3;
++  border-radius: 6px;
++  display: flex;
++  gap: 8px;
++  margin: 0;
++  padding: 8px 10px;
++}
++
+ input,
+ textarea {
+   border: 1px solid #bcc7d3;
+@@ -117,10 +138,16 @@ button:disabled {
+ .summary {
+   align-items: center;
+   display: flex;
++  gap: 16px;
+   justify-content: space-between;
+   margin-bottom: 24px;
+ }
+ 
++.source {
++  margin: 8px 0 0;
++  overflow-wrap: anywhere;
++}
++
+ .label {
+   color: #5c6b7a;
+   display: block;

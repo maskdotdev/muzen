@@ -1,0 +1,378 @@
+diff --git a/src/components/app-sidebar.tsx b/src/components/app-sidebar.tsx
+index 8ebc4ae6..670a8a94 100644
+--- a/src/components/app-sidebar.tsx
++++ b/src/components/app-sidebar.tsx
+@@ -34,11 +34,6 @@ import {
+ } from "@/components/ui/sidebar"
+ 
+ const data = {
+-  user: {
+-    name: "shadcn",
+-    email: "m@example.com",
+-    avatar: "/avatars/shadcn.jpg",
+-  },
+   navMain: [
+     {
+       title: "Dashboard",
+@@ -117,7 +112,7 @@ const data = {
+   navSecondary: [
+     {
+       title: "Settings",
+-      url: "#",
++      url: "/settings",
+       icon: IconSettings,
+     },
+     {
+@@ -174,7 +169,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+         <NavSecondary items={data.navSecondary} className="mt-auto" />
+       </SidebarContent>
+       <SidebarFooter>
+-        <NavUser user={data.user} />
++        <NavUser />
+       </SidebarFooter>
+     </Sidebar>
+   )
+diff --git a/src/components/nav-user.tsx b/src/components/nav-user.tsx
+index 7c49dc71..ce573539 100644
+--- a/src/components/nav-user.tsx
++++ b/src/components/nav-user.tsx
+@@ -1,6 +1,11 @@
+ "use client"
+ 
++import { useState } from "react"
++import type { FormEvent } from "react"
+ import {
++  IconAlertCircle,
++  IconLock,
++  IconMail,
+   IconCreditCard,
+   IconDotsVertical,
+   IconLogout,
+@@ -8,11 +13,9 @@ import {
+   IconUserCircle,
+ } from "@tabler/icons-react"
+ 
+-import {
+-  Avatar,
+-  AvatarFallback,
+-  AvatarImage,
+-} from "@/components/ui/avatar"
++import { authClient } from "@/lib/auth-client"
++import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
++import { Button } from "@/components/ui/button"
+ import {
+   DropdownMenu,
+   DropdownMenuContent,
+@@ -22,6 +25,8 @@ import {
+   DropdownMenuSeparator,
+   DropdownMenuTrigger,
+ } from "@/components/ui/dropdown-menu"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
+ import {
+   SidebarMenu,
+   SidebarMenuButton,
+@@ -29,16 +34,81 @@ import {
+   useSidebar,
+ } from "@/components/ui/sidebar"
+ 
+-export function NavUser({
+-  user,
+-}: {
+-  user: {
+-    name: string
+-    email: string
+-    avatar: string
++type NavUserProps = {
++  user?: {
++    name?: string | null
++    email?: string | null
++    avatar?: string | null
+   }
+-}) {
++}
++
++export function NavUser({ user }: NavUserProps) {
++  const { data: session, isPending: sessionLoading, error: sessionError, refetch } =
++    authClient.useSession()
+   const { isMobile } = useSidebar()
++  const [email, setEmail] = useState("")
++  const [password, setPassword] = useState("")
++  const [loading, setLoading] = useState(false)
++  const [errorMessage, setErrorMessage] = useState("")
++
++  const profileUser = session?.user
++    ? {
++        name: session.user.name ?? "",
++        email: session.user.email ?? "",
++        avatar: session.user.image ?? "",
++      }
++    : user
++
++  const isAuthenticated = Boolean(profileUser?.email)
++  const isBusy = sessionLoading || loading
++
++  const getErrorMessage = (err: unknown) => {
++    if (typeof err === "string") {
++      return err
++    }
++    if (err && typeof err === "object" && "message" in err) {
++      return String((err as { message?: string }).message)
++    }
++    return "Something went wrong"
++  }
++
++  const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault()
++    setLoading(true)
++    setErrorMessage("")
++
++    const { error } = await authClient.signIn.email({
++      email,
++      password,
++      rememberMe: true,
++    })
++
++    if (error) {
++      setErrorMessage(getErrorMessage(error))
++      setLoading(false)
++      return
++    }
++
++    setEmail("")
++    setPassword("")
++    await refetch?.()
++    setLoading(false)
++  }
++
++  const handleSignOut = async () => {
++    setLoading(true)
++    setErrorMessage("")
++    const { error } = await authClient.signOut()
++
++    if (error) {
++      setErrorMessage(getErrorMessage(error))
++      setLoading(false)
++      return
++    }
++
++    await refetch?.()
++    setLoading(false)
++  }
+ 
+   return (
+     <SidebarMenu>
+@@ -49,16 +119,41 @@ export function NavUser({
+               size="lg"
+               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+             >
+-              <Avatar className="h-8 w-8 rounded-lg grayscale">
+-                <AvatarImage src={user.avatar} alt={user.name} />
+-                <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+-              </Avatar>
+-              <div className="grid flex-1 text-left text-sm leading-tight">
+-                <span className="truncate font-medium">{user.name}</span>
+-                <span className="text-muted-foreground truncate text-xs">
+-                  {user.email}
+-                </span>
+-              </div>
++              {isAuthenticated ? (
++                <>
++                  <Avatar className="h-8 w-8 rounded-lg grayscale">
++                    <AvatarImage
++                      src={profileUser?.avatar ?? ""}
++                      alt={profileUser?.name ?? "user"}
++                    />
++                    <AvatarFallback className="rounded-lg">
++                      {(profileUser?.name ?? "CN").slice(0, 2)}
++                    </AvatarFallback>
++                  </Avatar>
++                  <div className="grid flex-1 text-left text-sm leading-tight">
++                    <span className="truncate font-medium">
++                      {profileUser?.name ?? "User"}
++                    </span>
++                    <span className="text-muted-foreground truncate text-xs">
++                      {profileUser?.email}
++                    </span>
++                  </div>
++                </>
++              ) : (
++                <>
++                  <div className="bg-sidebar-accent text-sidebar-accent-foreground flex h-8 w-8 items-center justify-center rounded-lg">
++                    <IconUserCircle className="size-5" />
++                  </div>
++                  <div className="grid flex-1 text-left text-sm leading-tight">
++                    <span className="truncate font-medium">
++                      {sessionLoading ? "Checking..." : "Sign in"}
++                    </span>
++                    <span className="text-muted-foreground truncate text-xs">
++                      {errorMessage || "Use your account"}
++                    </span>
++                  </div>
++                </>
++              )}
+               <IconDotsVertical className="ml-auto size-4" />
+             </SidebarMenuButton>
+           </DropdownMenuTrigger>
+@@ -68,40 +163,116 @@ export function NavUser({
+             align="end"
+             sideOffset={4}
+           >
+-            <DropdownMenuLabel className="p-0 font-normal">
+-              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+-                <Avatar className="h-8 w-8 rounded-lg">
+-                  <AvatarImage src={user.avatar} alt={user.name} />
+-                  <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+-                </Avatar>
+-                <div className="grid flex-1 text-left text-sm leading-tight">
+-                  <span className="truncate font-medium">{user.name}</span>
+-                  <span className="text-muted-foreground truncate text-xs">
+-                    {user.email}
+-                  </span>
+-                </div>
++            {isAuthenticated ? (
++              <>
++                <DropdownMenuLabel className="p-0 font-normal">
++                  <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
++                    <Avatar className="h-8 w-8 rounded-lg">
++                      <AvatarImage
++                        src={profileUser?.avatar ?? ""}
++                        alt={profileUser?.name ?? "user"}
++                      />
++                      <AvatarFallback className="rounded-lg">
++                        {(profileUser?.name ?? "CN").slice(0, 2)}
++                      </AvatarFallback>
++                    </Avatar>
++                    <div className="grid flex-1 text-left text-sm leading-tight">
++                      <span className="truncate font-medium">
++                        {profileUser?.name ?? "User"}
++                      </span>
++                      <span className="text-muted-foreground truncate text-xs">
++                        {profileUser?.email}
++                      </span>
++                    </div>
++                  </div>
++                </DropdownMenuLabel>
++                {sessionError ? (
++                  <p className="px-2 py-2 text-xs text-destructive">
++                    {getErrorMessage(sessionError)}
++                  </p>
++                ) : null}
++                <DropdownMenuSeparator />
++                <DropdownMenuGroup>
++                  <DropdownMenuItem>
++                    <IconUserCircle />
++                    Account
++                  </DropdownMenuItem>
++                  <DropdownMenuItem>
++                    <IconCreditCard />
++                    Billing
++                  </DropdownMenuItem>
++                  <DropdownMenuItem>
++                    <IconNotification />
++                    Notifications
++                  </DropdownMenuItem>
++                </DropdownMenuGroup>
++                <DropdownMenuSeparator />
++                <DropdownMenuItem onClick={handleSignOut} disabled={loading}>
++                  <IconLogout />
++                  {loading ? "Signing out..." : "Log out"}
++                </DropdownMenuItem>
++              </>
++            ) : (
++              <div className="px-2 py-2">
++                <p className="mb-3 px-1 text-sm font-medium">Sign in</p>
++                <form className="grid gap-3" onSubmit={handleSignIn}>
++                  <div className="grid gap-1">
++                    <Label htmlFor="email" className="text-xs">
++                      Email
++                    </Label>
++                    <div className="relative">
++                      <IconMail className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                      <Input
++                        id="email"
++                        name="email"
++                        type="email"
++                        value={email}
++                        onChange={(event) => setEmail(event.target.value)}
++                        required
++                        autoComplete="email"
++                        className="pl-8"
++                        placeholder="you@example.com"
++                        disabled={isBusy}
++                      />
++                    </div>
++                  </div>
++                  <div className="grid gap-1">
++                    <Label htmlFor="password" className="text-xs">
++                      Password
++                    </Label>
++                    <div className="relative">
++                      <IconLock className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                      <Input
++                        id="password"
++                        name="password"
++                        type="password"
++                        value={password}
++                        onChange={(event) => setPassword(event.target.value)}
++                        required
++                        autoComplete="current-password"
++                        className="pl-8"
++                        placeholder="••••••••"
++                        disabled={isBusy}
++                      />
++                    </div>
++                  </div>
++                  {errorMessage ? (
++                    <p className="flex items-center gap-1 text-xs text-destructive">
++                      <IconAlertCircle className="size-3.5" />
++                      {errorMessage}
++                    </p>
++                  ) : null}
++                  {sessionError ? (
++                    <p className="text-xs text-destructive">
++                      {getErrorMessage(sessionError)}
++                    </p>
++                  ) : null}
++                  <Button type="submit" className="w-full" disabled={isBusy}>
++                    {isBusy ? "Signing in..." : "Sign in"}
++                  </Button>
++                </form>
+               </div>
+-            </DropdownMenuLabel>
+-            <DropdownMenuSeparator />
+-            <DropdownMenuGroup>
+-              <DropdownMenuItem>
+-                <IconUserCircle />
+-                Account
+-              </DropdownMenuItem>
+-              <DropdownMenuItem>
+-                <IconCreditCard />
+-                Billing
+-              </DropdownMenuItem>
+-              <DropdownMenuItem>
+-                <IconNotification />
+-                Notifications
+-              </DropdownMenuItem>
+-            </DropdownMenuGroup>
+-            <DropdownMenuSeparator />
+-            <DropdownMenuItem>
+-              <IconLogout />
+-              Log out
+-            </DropdownMenuItem>
++            )}
+           </DropdownMenuContent>
+         </DropdownMenu>
+       </SidebarMenuItem>
+diff --git a/src/lib/auth-client.ts b/src/lib/auth-client.ts
+index f1012dd4..8ac4c630 100644
+--- a/src/lib/auth-client.ts
++++ b/src/lib/auth-client.ts
+@@ -1,3 +1,6 @@
+ import { createAuthClient } from "better-auth/react";
++import { oidcClient } from "better-auth/client/plugins";
+ 
+-export const authClient = createAuthClient();
++export const authClient = createAuthClient({
++  plugins: [oidcClient()],
++});

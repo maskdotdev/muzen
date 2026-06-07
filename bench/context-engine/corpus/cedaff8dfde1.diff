@@ -1,0 +1,276 @@
+diff --git a/src/components/app-sidebar.tsx b/src/components/app-sidebar.tsx
+index 597cbd0a..c0437729 100644
+--- a/src/components/app-sidebar.tsx
++++ b/src/components/app-sidebar.tsx
+@@ -13,14 +13,11 @@ import {
+   IconHelp,
+   IconListDetails,
+   IconReport,
+-  IconSearch,
+   IconSettings,
+-  IconUsers,
+   IconBrandGitlab,
+ } from "@tabler/icons-react"
+ import { ChevronsUpDown } from "lucide-react"
+ 
+-import { NavDocuments } from "@/components/nav-documents"
+ import { NavMain } from "@/components/nav-main"
+ import { NavSecondary } from "@/components/nav-secondary"
+ import { NavUser } from "@/components/nav-user"
+@@ -76,78 +73,56 @@ const GITLAB_INSTANCES: GitLabInstance[] = [
+ const data = {
+   navMain: [
+     {
+-      title: "Dashboard",
++      title: "Review Agent",
+       url: "#",
+       icon: IconDashboard,
+-    },
+-    {
+-      title: "Lifecycle",
+-      url: "#",
+-      icon: IconListDetails,
+-    },
+-    {
+-      title: "Analytics",
+-      url: "#",
+-      icon: IconChartBar,
+-    },
+-    {
+-      title: "Projects",
+-      url: "#",
+-      icon: IconFolder,
+-    },
+-    {
+-      title: "Team",
+-      url: "#",
+-      icon: IconUsers,
+-    },
+-  ],
+-  navClouds: [
+-    {
+-      title: "Capture",
+-      icon: IconCamera,
+-      isActive: true,
+-      url: "#",
+       items: [
+         {
+-          title: "Active Proposals",
+-          url: "#",
+-        },
+-        {
+-          title: "Archived",
++          title: "Settings",
+           url: "#",
+         },
+-      ],
+-    },
+-    {
+-      title: "Proposal",
+-      icon: IconFileDescription,
+-      url: "#",
+-      items: [
+         {
+-          title: "Active Proposals",
++          title: "Logs",
+           url: "#",
+         },
+         {
+-          title: "Archived",
++          title: "Custom Context",
+           url: "#",
+         },
+       ],
+     },
+     {
+-      title: "Prompts",
+-      icon: IconFileAi,
++      title: "Impact",
+       url: "#",
++      icon: IconListDetails,
++      disabled: true,
+       items: [
+         {
+-          title: "Active Proposals",
++          title: "Settings",
+           url: "#",
+         },
+         {
+-          title: "Archived",
++          title: "Logs",
++          url: "#",
++        },
++        {
++          title: "Custom Context",
+           url: "#",
+         },
+       ],
+     },
++    {
++      title: "Analytics",
++      url: "#",
++      icon: IconChartBar,
++      disabled: true,
++    },
++    {
++      title: "Observability",
++      url: "#",
++      icon: IconFolder,
++      disabled: true,
++    },
+   ],
+   navSecondary: [
+     {
+@@ -160,11 +135,6 @@ const data = {
+       url: "#",
+       icon: IconHelp,
+     },
+-    {
+-      title: "Search",
+-      url: "#",
+-      icon: IconSearch,
+-    },
+   ],
+   documents: [
+     {
+@@ -267,7 +237,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+       </SidebarHeader>
+       <SidebarContent>
+         <NavMain items={data.navMain} />
+-        <NavDocuments items={data.documents} />
+         <NavSecondary items={data.navSecondary} className="mt-auto" />
+       </SidebarContent>
+       <SidebarFooter>
+diff --git a/src/components/nav-main.tsx b/src/components/nav-main.tsx
+index 3759bb84..49c5cba5 100644
+--- a/src/components/nav-main.tsx
++++ b/src/components/nav-main.tsx
+@@ -1,14 +1,23 @@
+ "use client"
+ 
+-import { IconCirclePlusFilled, IconMail, type Icon } from "@tabler/icons-react"
++import { type Icon } from "@tabler/icons-react"
++import { ChevronRight, HomeIcon } from "lucide-react"
++import { cn } from "@/lib/utils"
+ 
+-import { Button } from "@/components/ui/button"
++import {
++  Collapsible,
++  CollapsibleContent,
++  CollapsibleTrigger,
++} from "@/components/ui/collapsible"
+ import {
+   SidebarGroup,
+-  SidebarGroupContent,
++  SidebarGroupLabel,
+   SidebarMenu,
+   SidebarMenuButton,
+   SidebarMenuItem,
++  SidebarMenuSub,
++  SidebarMenuSubButton,
++  SidebarMenuSubItem,
+ } from "@/components/ui/sidebar"
+ 
+ export function NavMain({
+@@ -18,41 +27,71 @@ export function NavMain({
+     title: string
+     url: string
+     icon?: Icon
++    isActive?: boolean
++    disabled?: boolean
++    items?: {
++      title: string
++      url: string
++      disabled?: boolean
++    }[]
+   }[]
+ }) {
+   return (
+     <SidebarGroup>
+-      <SidebarGroupContent className="flex flex-col gap-2">
+-        <SidebarMenu>
+-          <SidebarMenuItem className="flex items-center gap-2">
+-            <SidebarMenuButton
+-              tooltip="Quick Create"
+-              className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground min-w-8 duration-200 ease-linear"
+-            >
+-              <IconCirclePlusFilled />
+-              <span>Quick Create</span>
+-            </SidebarMenuButton>
+-            <Button
+-              size="icon"
+-              className="size-8 group-data-[collapsible=icon]:opacity-0"
+-              variant="outline"
+-            >
+-              <IconMail />
+-              <span className="sr-only">Inbox</span>
+-            </Button>
+-          </SidebarMenuItem>
+-        </SidebarMenu>
+-        <SidebarMenu>
+-          {items.map((item) => (
+-            <SidebarMenuItem key={item.title}>
+-              <SidebarMenuButton tooltip={item.title}>
+-                {item.icon && <item.icon />}
+-                <span>{item.title}</span>
+-              </SidebarMenuButton>
++      <SidebarMenuButton tooltip={'Home'}>
++        <HomeIcon />
++        <span>Home</span>
++      </SidebarMenuButton>
++      <SidebarGroupLabel>Code Intelligence</SidebarGroupLabel>
++      <SidebarMenu>
++        {items.map((item) => (
++          <Collapsible
++            key={item.title}
++            asChild
++            defaultOpen={item.isActive}
++            className="group/collapsible"
++          >
++            <SidebarMenuItem>
++              <CollapsibleTrigger asChild>
++                <SidebarMenuButton tooltip={item.title} disabled={item.disabled}>
++                  {item.icon && <item.icon />}
++                  <span>{item.title}</span>
++                  {item.disabled ? (
++                    <span className="ml-auto text-xs text-muted-foreground">Coming Soon</span>
++                  ) : (
++                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
++                  )}
++                </SidebarMenuButton>
++              </CollapsibleTrigger>
++              <CollapsibleContent>
++                <SidebarMenuSub>
++                  {item.items?.map((subItem) => (
++                    <SidebarMenuSubItem key={subItem.title}>
++                      <SidebarMenuSubButton asChild>
++                        <a
++                          href={subItem.url}
++                          aria-disabled={Boolean(item.disabled || subItem.disabled)}
++                          tabIndex={item.disabled || subItem.disabled ? -1 : undefined}
++                          onClick={(event) => {
++                            if (item.disabled || subItem.disabled) {
++                              event.preventDefault()
++                            }
++                          }}
++                          className={cn(
++                            item.disabled || subItem.disabled ? "opacity-50 pointer-events-none" : undefined
++                          )}
++                        >
++                          <span>{subItem.title}</span>
++                        </a>
++                      </SidebarMenuSubButton>
++                    </SidebarMenuSubItem>
++                  ))}
++                </SidebarMenuSub>
++              </CollapsibleContent>
+             </SidebarMenuItem>
+-          ))}
+-        </SidebarMenu>
+-      </SidebarGroupContent>
++          </Collapsible>
++        ))}
++      </SidebarMenu>
+     </SidebarGroup>
+   )
+ }

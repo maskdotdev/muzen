@@ -1,0 +1,299 @@
+diff --git a/src/app/onboarding/layout.tsx b/src/app/onboarding/layout.tsx
+new file mode 100644
+index 00000000..39ea4c4a
+--- /dev/null
++++ b/src/app/onboarding/layout.tsx
+@@ -0,0 +1,17 @@
++import { headers } from "next/headers"
++import { redirect } from "next/navigation"
++import { ReactNode } from "react"
++
++import { auth } from "@/lib/auth"
++
++export default async function OnboardingLayout({ children }: { children: ReactNode }) {
++  const session = await auth.api.getSession({
++    headers: await headers(),
++  })
++
++  if (!session?.user?.id) {
++    redirect("/")
++  }
++
++  return children
++}
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 033dbdeb..93d85564 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -1,17 +1,17 @@
+-import { ChartAreaInteractive } from "@/components/chart-area-interactive"
+-import { DataTable } from "@/components/data-table"
+-import { SectionCards } from "@/components/section-cards"
++import { redirect } from "next/navigation"
++import { headers } from "next/headers"
+ 
+-import data from "./dashboard/data.json"
++import { RootAuth } from "@/components/auth/root-auth"
++import { auth } from "@/lib/auth"
+ 
+-export default function Home() {
+-  return (
+-    <>
+-      <SectionCards />
+-      <div className="px-4 lg:px-6">
+-        <ChartAreaInteractive />
+-      </div>
+-      <DataTable data={data} />
+-    </>
+-  )
++export default async function HomePage() {
++  const session = await auth.api.getSession({
++    headers: await headers(),
++  })
++
++  if (session?.user?.id) {
++    redirect("/onboarding/tokens")
++  }
++
++  return <RootAuth />
+ }
+diff --git a/src/components/auth/root-auth.tsx b/src/components/auth/root-auth.tsx
+new file mode 100644
+index 00000000..3c59cfbf
+--- /dev/null
++++ b/src/components/auth/root-auth.tsx
+@@ -0,0 +1,208 @@
++"use client"
++
++import { FormEvent, useState } from "react"
++import { useRouter } from "next/navigation"
++import { IconLock, IconMail, IconUser } from "@tabler/icons-react"
++
++import { authClient } from "@/lib/auth-client"
++import { Button } from "@/components/ui/button"
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++
++type AuthMode = "sign-in" | "sign-up"
++
++const getErrorMessage = (value: unknown) => {
++  if (typeof value === "string") {
++    return value
++  }
++  if (value && typeof value === "object" && "message" in value) {
++    return String((value as { message?: string }).message)
++  }
++  return "Something went wrong."
++}
++
++export function RootAuth() {
++  const router = useRouter()
++  const [mode, setMode] = useState<AuthMode>("sign-in")
++  const [name, setName] = useState("")
++  const [email, setEmail] = useState("")
++  const [password, setPassword] = useState("")
++  const [busy, setBusy] = useState(false)
++  const [error, setError] = useState("")
++
++  const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault()
++    setBusy(true)
++    setError("")
++
++    const { error: signInError } = await authClient.signIn.email({
++      email,
++      password,
++      rememberMe: true,
++    })
++
++    if (signInError) {
++      setBusy(false)
++      setError(getErrorMessage(signInError))
++      return
++    }
++
++    router.replace("/onboarding/tokens")
++  }
++
++  const handleSignUp = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault()
++    setBusy(true)
++    setError("")
++
++    const safeName = name.trim() || email.split("@")[0] || "User"
++    const { error: signUpError } = await authClient.signUp.email({
++      name: safeName,
++      email,
++      password,
++    })
++
++    if (signUpError) {
++      setBusy(false)
++      setError(getErrorMessage(signUpError))
++      return
++    }
++
++    router.replace("/onboarding/tokens")
++  }
++
++  return (
++    <div className="mx-auto w-full max-w-md">
++      <Card>
++        <CardHeader>
++          <CardTitle>Welcome to Argus</CardTitle>
++          <CardDescription>
++            Sign in or create an account. Onboarding starts after authentication.
++          </CardDescription>
++        </CardHeader>
++        <CardContent className="grid gap-4">
++          <div className="grid grid-cols-2 gap-2">
++            <Button
++              type="button"
++              variant={mode === "sign-in" ? "default" : "outline"}
++              onClick={() => {
++                setMode("sign-in")
++                setError("")
++              }}
++              disabled={busy}
++            >
++              Sign in
++            </Button>
++            <Button
++              type="button"
++              variant={mode === "sign-up" ? "default" : "outline"}
++              onClick={() => {
++                setMode("sign-up")
++                setError("")
++              }}
++              disabled={busy}
++            >
++              Sign up
++            </Button>
++          </div>
++
++          {mode === "sign-in" ? (
++            <form onSubmit={handleSignIn} className="grid gap-3">
++              <div className="grid gap-1">
++                <Label htmlFor="root-signin-email">Email</Label>
++                <div className="relative">
++                  <IconMail className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                  <Input
++                    id="root-signin-email"
++                    type="email"
++                    value={email}
++                    onChange={(event) => setEmail(event.target.value)}
++                    required
++                    autoComplete="email"
++                    className="pl-8"
++                    disabled={busy}
++                  />
++                </div>
++              </div>
++              <div className="grid gap-1">
++                <Label htmlFor="root-signin-password">Password</Label>
++                <div className="relative">
++                  <IconLock className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                  <Input
++                    id="root-signin-password"
++                    type="password"
++                    value={password}
++                    onChange={(event) => setPassword(event.target.value)}
++                    required
++                    autoComplete="current-password"
++                    className="pl-8"
++                    disabled={busy}
++                  />
++                </div>
++              </div>
++              {error ? <p className="text-xs text-destructive">{error}</p> : null}
++              <Button type="submit" disabled={busy}>
++                {busy ? "Signing in..." : "Sign in"}
++              </Button>
++            </form>
++          ) : (
++            <form onSubmit={handleSignUp} className="grid gap-3">
++              <div className="grid gap-1">
++                <Label htmlFor="root-signup-name">Name</Label>
++                <div className="relative">
++                  <IconUser className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                  <Input
++                    id="root-signup-name"
++                    type="text"
++                    value={name}
++                    onChange={(event) => setName(event.target.value)}
++                    autoComplete="name"
++                    className="pl-8"
++                    disabled={busy}
++                  />
++                </div>
++              </div>
++              <div className="grid gap-1">
++                <Label htmlFor="root-signup-email">Email</Label>
++                <div className="relative">
++                  <IconMail className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                  <Input
++                    id="root-signup-email"
++                    type="email"
++                    value={email}
++                    onChange={(event) => setEmail(event.target.value)}
++                    required
++                    autoComplete="email"
++                    className="pl-8"
++                    disabled={busy}
++                  />
++                </div>
++              </div>
++              <div className="grid gap-1">
++                <Label htmlFor="root-signup-password">Password</Label>
++                <div className="relative">
++                  <IconLock className="text-muted-foreground pointer-events-none absolute left-2 top-2.5 size-4" />
++                  <Input
++                    id="root-signup-password"
++                    type="password"
++                    value={password}
++                    onChange={(event) => setPassword(event.target.value)}
++                    required
++                    autoComplete="new-password"
++                    className="pl-8"
++                    disabled={busy}
++                  />
++                </div>
++              </div>
++              {error ? <p className="text-xs text-destructive">{error}</p> : null}
++              <Button type="submit" disabled={busy}>
++                {busy ? "Creating account..." : "Create account"}
++              </Button>
++            </form>
++          )}
++        </CardContent>
++      </Card>
++    </div>
++  )
++}
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index c15c152e..d15e1f85 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -2,6 +2,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
+ import { db } from "@/lib/db";
+ import { nextCookies } from "better-auth/next-js";
+ import { betterAuth } from "better-auth";
++import { oidcProvider } from "better-auth/plugins";
+ import { authSchema } from "@/lib/db/schema";
+ 
+ export const auth = betterAuth({
+@@ -12,5 +13,12 @@ export const auth = betterAuth({
+   emailAndPassword: {
+     enabled: true,
+   },
+-  plugins: [nextCookies()],
++  plugins: [
++    nextCookies(),
++    oidcProvider({
++      loginPage: "/",
++      // set allowDynamicClientRegistration: true if you want public client registration.
++      // set useJWTPlugin: true to sign ID tokens with the JWT plugin.
++    }),
++  ],
+ });

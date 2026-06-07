@@ -35,10 +35,18 @@ import {
 } from "./wire-validation.js";
 import type {
   CreateMuzenOptions,
+  ContextEngineConfig,
   HostConfiguration,
+  ContextIndexOptions,
+  ContextManifest,
+  ContextPack,
+  ContextPackOptions,
+  ContextQueryOptions,
+  ContextQueryResult,
   ModelProfile,
   ModelProfileInput,
   Muzen,
+  MuzenContextWorkspace,
   MuzenWorkerRun,
   MuzenWorkerRunOnceOptions,
   MuzenWorkers,
@@ -88,7 +96,7 @@ export class RunnerBackedMuzen implements Muzen {
   }
 
   workspace(id: string): MuzenWorkspace {
-    return new RunnerBackedWorkspace(this, id);
+    return new RunnerBackedWorkspace(this, this.runner, id);
   }
 
   async createReviewSession(input: {
@@ -259,11 +267,15 @@ class RunnerBackedWorkspace implements MuzenWorkspace {
     ProviderProfileInput,
     ProviderProfile
   >("provider");
+  readonly context: MuzenContextWorkspace;
 
   constructor(
     private readonly muzen: Muzen,
+    runner: RunnerStdioClient,
     readonly id: string,
-  ) {}
+  ) {
+    this.context = new RunnerBackedContextWorkspace(runner);
+  }
 
   review(
     source: ReviewSourceLike,
@@ -271,6 +283,64 @@ class RunnerBackedWorkspace implements MuzenWorkspace {
   ): Promise<ReviewSession> {
     return this.muzen.review(source, options);
   }
+}
+
+class RunnerBackedContextWorkspace implements MuzenContextWorkspace {
+  constructor(private readonly runner: RunnerStdioClient) {}
+
+  async index(options: ContextIndexOptions): Promise<ContextManifest> {
+    return (await this.runner.request(
+      "context.index",
+      contextIndexParams(options),
+    )) as ContextManifest;
+  }
+
+  async buildPack(options: ContextPackOptions): Promise<ContextPack> {
+    const manifest = await this.index(options);
+    return (await this.runner.request("context.pack", {
+      snapshotId: manifest.snapshotId,
+      purpose: options.purpose ?? "general_review",
+      maxTokens: options.maxTokens ?? options.config?.maxPackTokens ?? 12_000,
+      seedEvidence: [],
+    })) as ContextPack;
+  }
+
+  async query(options: ContextQueryOptions): Promise<ContextQueryResult> {
+    const manifest = await this.index(options);
+    return (await this.runner.request("context.query", {
+      snapshotId: manifest.snapshotId,
+      purpose: options.purpose,
+      kind: options.kind,
+      arguments: options.arguments ?? {},
+      currentEvidence: options.currentEvidence ?? [],
+      limits: options.limits ?? {
+        maxResults: options.config?.maxQueryResults ?? 120,
+        maxTokens: options.config?.maxPackTokens ?? 12_000,
+      },
+    })) as ContextQueryResult;
+  }
+}
+
+function contextIndexParams(options: ContextIndexOptions): {
+  repo: string;
+  changedFiles: string[];
+  config?: ContextEngineConfig;
+} {
+  const source = parseReviewSource(options.source);
+  if (source.type !== "local" && source.type !== "raw_snapshot") {
+    throw new MuzenUnsupportedFeatureError(
+      "local context methods require a local or rawSnapshot source",
+    );
+  }
+  return {
+    repo: source.type === "local" ? source.repo : source.root,
+    changedFiles:
+      options.changedFiles ??
+      (source.type === "local"
+        ? source.changedFiles ?? []
+        : source.changedFiles ?? []),
+    config: options.config,
+  };
 }
 
 class RunnerBackedMuzenWebhooks implements MuzenWebhooks {

@@ -1,0 +1,506 @@
+diff --git a/apps/web/src/features/review/server/review-worker-runtime.ts b/apps/web/src/features/review/server/review-worker-runtime.ts
+index de9f71b6..5641341a 100644
+--- a/apps/web/src/features/review/server/review-worker-runtime.ts
++++ b/apps/web/src/features/review/server/review-worker-runtime.ts
+@@ -1,4 +1,3 @@
+-import { resolveWorkerLeaseSettings } from "@argus/shared-runtime/worker-lease"
+ import {
+   runGitCacheJanitor,
+   resolveGitCacheRetentionConfig,
+@@ -24,43 +23,26 @@ import {
+   runReviewEngine,
+   ReviewExecutionError,
+ } from "@/features/review/server/review-engine"
+-import {
+-  createReviewWorkerBatchRunner,
+-  type ReviewWorkerBatchSummary,
+-} from "@argus/review-server/worker-batch"
+-import { runReviewWorkerLoop } from "@argus/review-server/worker-loop"
+ import { createReviewWorkerRunProcessor } from "@argus/review-server/worker-run-processor"
++import {
++  createReviewWorkerRuntime,
++  createReviewWorkerRuntimeEnvironment,
++  type RunReviewWorkerBatchArgs,
++} from "@argus/review-server/worker-service"
+ import { extractWorkerErrorDetails } from "@argus/review-server/worker-runtime"
+ import {
+   PersistReviewRunError,
+   persistReviewRun,
+ } from "@/features/review/server/persist-review-run"
+-import { resolveReviewWorkerRuntimeSettings } from "@argus/review-server/worker-settings"
+ import { initAppLogger, appLog } from "@/server/logging/logger"
+ import { getReviewQueueSnapshot } from "./review-queue-metrics"
+ 
+-const reviewWorkerSettings = resolveReviewWorkerRuntimeSettings({
++const reviewWorkerRuntimeEnvironment = createReviewWorkerRuntimeEnvironment({
++  env: process.env,
+   defaultRetentionDays: REVIEW_FLOW_DEFAULT_RETENTION_DAYS,
+   gitCacheCleanupIntervalMs: resolveGitCacheRetentionConfig().cleanupIntervalMs,
+ })
+ 
+-const resolveReviewLeaseSettings = () =>
+-  resolveWorkerLeaseSettings({
+-    leaseMsEnv: "REVIEW_LEASE_MS",
+-    staleReclaimIntervalMsEnv: "REVIEW_STALE_RECLAIM_INTERVAL_MS",
+-    gracefulShutdownMsEnv: "REVIEW_WORKER_GRACEFUL_SHUTDOWN_MS",
+-    defaults: {
+-      leaseMs: reviewWorkerSettings.leaseMs,
+-      staleReclaimIntervalMs: reviewWorkerSettings.staleReclaimIntervalMs,
+-      gracefulShutdownMs: reviewWorkerSettings.gracefulShutdownMs,
+-    },
+-  })
+-
+-const sleep = (ms: number) =>
+-  new Promise<void>((resolve) => {
+-    setTimeout(resolve, Math.max(0, ms))
+-  })
+-
+ const isRetryableError = (error: unknown) => {
+   if (error instanceof ReviewExecutionError) {
+     return error.retryable
+@@ -75,7 +57,7 @@ const isRetryableError = (error: unknown) => {
+ }
+ 
+ const processClaimedRun = createReviewWorkerRunProcessor<AiReviewFinding>({
+-  leaseSettings: resolveReviewLeaseSettings,
++  leaseSettings: reviewWorkerRuntimeEnvironment.resolveLeaseSettings,
+   logger: appLog,
+   refreshReviewRunLease,
+   markReviewRunProgress,
+@@ -96,78 +78,31 @@ const processClaimedRun = createReviewWorkerRunProcessor<AiReviewFinding>({
+   }),
+ })
+ 
+-const runReviewWorkerBatchRunner = createReviewWorkerBatchRunner({
++const reviewWorkerRuntime = createReviewWorkerRuntime({
++  environment: reviewWorkerRuntimeEnvironment,
++  logger: appLog,
++  initLogger: initAppLogger,
++  resolveReviewExecutionBackend,
+   claimDueReviewRuns,
+   processClaimedRun,
+-  waitForMoreRuns: async () => {
+-    const waitResult = await waitForReviewQueueNotification(reviewWorkerSettings.pollMs)
+-    if (waitResult === "disabled") {
+-      await sleep(reviewWorkerSettings.pollMs)
+-    }
+-  },
++  waitForReviewQueueNotification,
+   purgeReviewFlowRetentionData,
+   cleanupGitCache: () =>
+     runGitCacheJanitor({
+       trigger: "interval",
+       mode: "full",
+     }),
+-  gitCacheCleanupIntervalMs: reviewWorkerSettings.gitCacheCleanupIntervalMs,
++  getReviewQueueSnapshot,
+ })
+ 
+-export const runReviewWorkerBatch = async (args?: {
+-  batchSize?: number
+-  concurrency?: number
+-  maxAttempts?: number
+-  retentionDays?: number
+-  shouldStopClaiming?: () => boolean
+-}): Promise<ReviewWorkerBatchSummary> => {
+-  const batchSize = Math.max(1, Math.min(args?.batchSize ?? reviewWorkerSettings.batchSize, 200))
+-  const concurrency = Math.max(1, Math.min(args?.concurrency ?? reviewWorkerSettings.concurrency, 50))
+-  const maxAttempts = Math.max(1, args?.maxAttempts ?? reviewWorkerSettings.maxAttempts)
+-  return runReviewWorkerBatchRunner({
+-    batchSize,
+-    concurrency,
+-    maxAttempts,
+-    retentionDays: args?.retentionDays ?? reviewWorkerSettings.retentionDays,
+-    shouldStopClaiming: args?.shouldStopClaiming,
+-  })
+-}
++export const runReviewWorkerBatch = (args?: RunReviewWorkerBatchArgs) =>
++  reviewWorkerRuntime.runReviewWorkerBatch(args)
+ 
+ export const runReviewWorker = async () => {
+-  const leaseSettings = resolveReviewLeaseSettings()
+-  const reviewExecutionBackend = resolveReviewExecutionBackend()
+-  initAppLogger({
+-    service: process.env.SERVICE_NAME?.trim() || "review-worker",
+-    initEvent: "review.worker.started",
+-    initContext: {
+-      reviewExecutionBackend,
+-      continuous: reviewWorkerSettings.continuous,
+-      pollMs: reviewWorkerSettings.pollMs,
+-      batchSize: reviewWorkerSettings.batchSize,
+-      concurrency: reviewWorkerSettings.concurrency,
+-      maxAttempts: reviewWorkerSettings.maxAttempts,
+-      retentionDays: reviewWorkerSettings.retentionDays,
+-      gitCacheCleanupIntervalMs: reviewWorkerSettings.gitCacheCleanupIntervalMs,
+-      leasesEnabled: leaseSettings.enabled,
+-      leaseMs: leaseSettings.leaseMs,
+-      staleReclaimIntervalMs: leaseSettings.staleReclaimIntervalMs,
+-      gracefulShutdownMs: leaseSettings.gracefulShutdownMs,
+-    },
+-  })
+-
+-  await runReviewWorkerLoop({
+-    settings: reviewWorkerSettings,
+-    leaseSettings,
+-    logger: appLog,
++  await reviewWorkerRuntime.runReviewWorker({
+     signals: {
+       on: (signal, handler) => process.on(signal, handler),
+       off: (signal, handler) => process.off(signal, handler),
+     },
+-    runBatch: ({ shouldStopClaiming }) =>
+-      runReviewWorkerBatch({
+-        shouldStopClaiming,
+-      }),
+-    getReviewQueueSnapshot,
+-    waitForReviewQueueNotification,
+   })
+ }
+diff --git a/docs/architecture/review-extraction-inventory.md b/docs/architecture/review-extraction-inventory.md
+index 31927de2..5e4aca29 100644
+--- a/docs/architecture/review-extraction-inventory.md
++++ b/docs/architecture/review-extraction-inventory.md
+@@ -141,6 +141,14 @@ Completed contract moves:
+ - Moved the worker process loop and signal/shutdown handling behind
+   `@argus/review-server/worker-loop`, with DB-backed run processing still
+   injected from the web-owned runtime adapter.
++- Moved dependency-injected worker run processing behind
++  `@argus/review-server/worker-run-processor`; web-owned code now supplies the
++  concrete DB run store, provider settings, review engine, and persistence
++  dependencies.
++- Moved worker runtime environment/service assembly behind
++  `@argus/review-server/worker-service`; the web runtime adapter now composes
++  concrete dependencies into package-owned settings, lease, batch, and loop
++  orchestration.
+ - Moved review runtime metrics and queue snapshot SQL behind
+   `@argus/review-server/runtime-metrics`; web and worker callers now inject
+   their DB pool explicitly.
+@@ -304,7 +312,7 @@ explicit instead of imported from web internals.
+ | --- | --- |
+ | `server/review-engine.ts` | DB schema type import for `AiReviewFinding`; depends on execution backend and Argus-agent runner. |
+ | `server/review-argus-agent.ts` | GitLab diff readers, artifact store, DB `AiReviewFinding`, app logger, review workspace, planner/domain logic. |
+-| `server/review-worker-runtime.ts` | partially moved to `@argus/review-server` | Worker settings, batch orchestration, runtime helpers, metrics, and process loop moved. Remaining web adapter owns DB-backed claim/lease/progress/failure persistence, provider settings, review engine execution, review persistence, queue notifications, repo cache janitor wiring, and app logger initialization. |
++| `server/review-worker-runtime.ts` | partially moved to `@argus/review-server` | Worker settings, lease resolution, batch orchestration, run processing, runtime helpers, metrics, and process loop/service assembly moved. Remaining web adapter owns DB-backed claim/progress/failure persistence, provider settings, review engine execution, review persistence, queue notifications, repo cache janitor wiring, and app logger initialization. |
+ | `server/review-worker-batch.ts` | moved to `@argus/review-server/worker-batch` | Pure worker batch orchestration with injected claim/process/cleanup functions. This seeded the review server package without DB/logger dependencies. |
+ | `server/persist-review-run.ts` | DB, AI access, GitLab details/token resolver, hash helper. |
+ | `server/review-verifier.ts` | Argus agent client, artifact store, app logger, DB finding type. |
+diff --git a/packages/review-server/package.json b/packages/review-server/package.json
+index a74d1099..48923083 100644
+--- a/packages/review-server/package.json
++++ b/packages/review-server/package.json
+@@ -10,6 +10,7 @@
+     "./worker-batch": "./src/worker-batch.ts",
+     "./worker-loop": "./src/worker-loop.ts",
+     "./worker-run-processor": "./src/worker-run-processor.ts",
++    "./worker-service": "./src/worker-service.ts",
+     "./worker-settings": "./src/worker-settings.ts",
+     "./worker-runtime": "./src/worker-runtime.ts"
+   },
+diff --git a/packages/review-server/src/worker-service.test.ts b/packages/review-server/src/worker-service.test.ts
+new file mode 100644
+index 00000000..ce59a971
+--- /dev/null
++++ b/packages/review-server/src/worker-service.test.ts
+@@ -0,0 +1,95 @@
++import { describe, expect, mock, test } from "bun:test"
++
++import {
++  createReviewWorkerRuntime,
++  createReviewWorkerRuntimeEnvironment,
++} from "./worker-service"
++import type { ReviewWorkerSignal } from "./worker-loop"
++
++const createLogger = () => ({
++  info: mock(() => undefined),
++  warn: mock(() => undefined),
++  error: mock(() => undefined),
++})
++
++const createSignalController = () => {
++  const handlers = new Map<ReviewWorkerSignal, () => void>()
++  return {
++    handlers,
++    signals: {
++      on: mock((signal: ReviewWorkerSignal, handler: () => void) => {
++        handlers.set(signal, handler)
++      }),
++      off: mock((signal: ReviewWorkerSignal, handler: () => void) => {
++        if (handlers.get(signal) === handler) {
++          handlers.delete(signal)
++        }
++      }),
++    },
++  }
++}
++
++const createCleanupSummary = () => ({
++  lock: "skipped" as const,
++  staleWorktreesPruned: 0,
++  staleWorktreeErrors: 0,
++  reposEvicted: 0,
++  repoEvictionErrors: 0,
++})
++
++describe("review worker service", () => {
++  test("initializes the worker loop with runtime settings and lease settings", async () => {
++    const signalController = createSignalController()
++    const initLogger = mock(() => undefined)
++    const runtime = createReviewWorkerRuntime({
++      environment: createReviewWorkerRuntimeEnvironment({
++        env: {
++          SERVICE_NAME: "review-worker-test",
++          REVIEW_WORKER_CONTINUOUS: "false",
++          REVIEW_WORKER_BATCH_SIZE: "3",
++          REVIEW_WORKER_CONCURRENCY: "2",
++          REVIEW_FLOW_RETENTION_DAYS: "14",
++          WORKER_LEASES_ENABLED: "true",
++          REVIEW_LEASE_MS: "60000",
++        },
++        defaultRetentionDays: 30,
++        gitCacheCleanupIntervalMs: 15_000,
++      }),
++      logger: createLogger(),
++      initLogger,
++      resolveReviewExecutionBackend: mock(() => "argus-agent"),
++      claimDueReviewRuns: mock(async () => []),
++      processClaimedRun: mock(async () => "succeeded" as const),
++      waitForReviewQueueNotification: mock(async () => "disabled"),
++      purgeReviewFlowRetentionData: mock(async () => undefined),
++      cleanupGitCache: mock(async () => createCleanupSummary()),
++      getReviewQueueSnapshot: mock(async () => ({
++        queuedRuns: 0,
++        activeRuns: 0,
++        oldestQueuedWaitMs: 0,
++      })),
++    })
++
++    await runtime.runReviewWorker({
++      signals: signalController.signals,
++    })
++
++    expect(initLogger).toHaveBeenCalledWith(
++      expect.objectContaining({
++        service: "review-worker-test",
++        initEvent: "review.worker.started",
++        initContext: expect.objectContaining({
++          reviewExecutionBackend: "argus-agent",
++          continuous: false,
++          batchSize: 3,
++          concurrency: 2,
++          retentionDays: 14,
++          gitCacheCleanupIntervalMs: 15_000,
++          leasesEnabled: true,
++          leaseMs: 60_000,
++        }),
++      }),
++    )
++    expect(signalController.signals.off).toHaveBeenCalledTimes(2)
++  })
++})
+diff --git a/packages/review-server/src/worker-service.ts b/packages/review-server/src/worker-service.ts
+new file mode 100644
+index 00000000..4797ea86
+--- /dev/null
++++ b/packages/review-server/src/worker-service.ts
+@@ -0,0 +1,201 @@
++import { resolveWorkerLeaseSettings } from "@argus/shared-runtime/worker-lease"
++import type { ReviewExecutionBackend } from "@argus/contracts/review"
++
++import {
++  createReviewWorkerBatchRunner,
++  type ReviewWorkerBatchRunStatus,
++  type ReviewWorkerBatchSummary,
++} from "./worker-batch"
++import type { ReviewQueueSnapshot } from "./runtime-metrics"
++import {
++  runReviewWorkerLoop,
++  type ReviewWorkerLeaseSettings,
++  type ReviewWorkerLogger,
++  type ReviewWorkerSignalController,
++} from "./worker-loop"
++import {
++  resolveReviewWorkerRuntimeSettings,
++  type ReviewWorkerRuntimeSettings,
++} from "./worker-settings"
++
++type ReviewWorkerEnv = Record<string, string | undefined>
++
++type ReviewWorkerRuntimeEnvironmentArgs = {
++  env?: ReviewWorkerEnv
++  defaultRetentionDays: number
++  gitCacheCleanupIntervalMs: number
++}
++
++export type ReviewWorkerRuntimeEnvironment = {
++  env?: ReviewWorkerEnv
++  settings: ReviewWorkerRuntimeSettings
++  resolveLeaseSettings: () => ReviewWorkerLeaseSettings
++}
++
++export const createReviewWorkerRuntimeEnvironment = ({
++  env,
++  defaultRetentionDays,
++  gitCacheCleanupIntervalMs,
++}: ReviewWorkerRuntimeEnvironmentArgs): ReviewWorkerRuntimeEnvironment => {
++  const settings = resolveReviewWorkerRuntimeSettings({
++    env,
++    defaultRetentionDays,
++    gitCacheCleanupIntervalMs,
++  })
++
++  return {
++    env,
++    settings,
++    resolveLeaseSettings: () =>
++      resolveWorkerLeaseSettings({
++        env,
++        leaseMsEnv: "REVIEW_LEASE_MS",
++        staleReclaimIntervalMsEnv: "REVIEW_STALE_RECLAIM_INTERVAL_MS",
++        gracefulShutdownMsEnv: "REVIEW_WORKER_GRACEFUL_SHUTDOWN_MS",
++        defaults: {
++          leaseMs: settings.leaseMs,
++          staleReclaimIntervalMs: settings.staleReclaimIntervalMs,
++          gracefulShutdownMs: settings.gracefulShutdownMs,
++        },
++      }),
++  }
++}
++
++type ReviewWorkerRuntimeCleanupSummary = {
++  lock: "acquired" | "skipped"
++  staleWorktreesPruned: number
++  staleWorktreeErrors: number
++  reposEvicted: number
++  repoEvictionErrors: number
++}
++
++type ReviewWorkerRuntimeLoggerInit = (args: {
++  service: string
++  initEvent: string
++  initContext: Record<string, unknown>
++}) => void
++
++export type ReviewWorkerRuntimeDeps<TRun> = {
++  environment: ReviewWorkerRuntimeEnvironment
++  logger: ReviewWorkerLogger
++  initLogger: ReviewWorkerRuntimeLoggerInit
++  resolveReviewExecutionBackend: () => ReviewExecutionBackend
++  claimDueReviewRuns: (args: { batchSize: number }) => Promise<TRun[]>
++  processClaimedRun: (
++    run: TRun,
++    maxAttempts: number,
++  ) => Promise<ReviewWorkerBatchRunStatus>
++  waitForReviewQueueNotification: (pollMs: number) => Promise<unknown>
++  purgeReviewFlowRetentionData: (args: { retentionDays: number }) => Promise<unknown>
++  cleanupGitCache: () => Promise<ReviewWorkerRuntimeCleanupSummary>
++  getReviewQueueSnapshot: () => Promise<ReviewQueueSnapshot>
++}
++
++export type RunReviewWorkerBatchArgs = {
++  batchSize?: number
++  concurrency?: number
++  maxAttempts?: number
++  retentionDays?: number
++  shouldStopClaiming?: () => boolean
++}
++
++export type RunReviewWorkerArgs = {
++  serviceName?: string
++  signals: ReviewWorkerSignalController
++}
++
++const sleep = (ms: number) =>
++  new Promise<void>((resolve) => {
++    setTimeout(resolve, Math.max(0, ms))
++  })
++
++const resolveServiceName = (
++  env: ReviewWorkerEnv | undefined,
++  serviceName: string | undefined,
++) => serviceName?.trim() || env?.SERVICE_NAME?.trim() || "review-worker"
++
++export const createReviewWorkerRuntime = <TRun>({
++  environment,
++  logger,
++  initLogger,
++  resolveReviewExecutionBackend,
++  claimDueReviewRuns,
++  processClaimedRun,
++  waitForReviewQueueNotification,
++  purgeReviewFlowRetentionData,
++  cleanupGitCache,
++  getReviewQueueSnapshot,
++}: ReviewWorkerRuntimeDeps<TRun>) => {
++  const { settings } = environment
++  const runReviewWorkerBatchRunner = createReviewWorkerBatchRunner({
++    claimDueReviewRuns,
++    processClaimedRun,
++    waitForMoreRuns: async () => {
++      const waitResult = await waitForReviewQueueNotification(settings.pollMs)
++      if (waitResult === "disabled") {
++        await sleep(settings.pollMs)
++      }
++    },
++    purgeReviewFlowRetentionData,
++    cleanupGitCache,
++    gitCacheCleanupIntervalMs: settings.gitCacheCleanupIntervalMs,
++  })
++
++  const runReviewWorkerBatch = async (
++    args: RunReviewWorkerBatchArgs = {},
++  ): Promise<ReviewWorkerBatchSummary> => {
++    const batchSize = Math.max(1, Math.min(args.batchSize ?? settings.batchSize, 200))
++    const concurrency = Math.max(1, Math.min(args.concurrency ?? settings.concurrency, 50))
++    const maxAttempts = Math.max(1, args.maxAttempts ?? settings.maxAttempts)
++    return runReviewWorkerBatchRunner({
++      batchSize,
++      concurrency,
++      maxAttempts,
++      retentionDays: args.retentionDays ?? settings.retentionDays,
++      shouldStopClaiming: args.shouldStopClaiming,
++    })
++  }
++
++  const runReviewWorker = async ({ serviceName, signals }: RunReviewWorkerArgs) => {
++    const leaseSettings = environment.resolveLeaseSettings()
++    const reviewExecutionBackend = resolveReviewExecutionBackend()
++    initLogger({
++      service: resolveServiceName(environment.env, serviceName),
++      initEvent: "review.worker.started",
++      initContext: {
++        reviewExecutionBackend,
++        continuous: settings.continuous,
++        pollMs: settings.pollMs,
++        batchSize: settings.batchSize,
++        concurrency: settings.concurrency,
++        maxAttempts: settings.maxAttempts,
++        retentionDays: settings.retentionDays,
++        gitCacheCleanupIntervalMs: settings.gitCacheCleanupIntervalMs,
++        leasesEnabled: leaseSettings.enabled,
++        leaseMs: leaseSettings.leaseMs,
++        staleReclaimIntervalMs: leaseSettings.staleReclaimIntervalMs,
++        gracefulShutdownMs: leaseSettings.gracefulShutdownMs,
++      },
++    })
++
++    await runReviewWorkerLoop({
++      settings,
++      leaseSettings,
++      logger,
++      signals,
++      runBatch: ({ shouldStopClaiming }) =>
++        runReviewWorkerBatch({
++          shouldStopClaiming,
++        }),
++      getReviewQueueSnapshot,
++      waitForReviewQueueNotification,
++    })
++  }
++
++  return {
++    settings,
++    resolveLeaseSettings: environment.resolveLeaseSettings,
++    runReviewWorkerBatch,
++    runReviewWorker,
++  }
++}

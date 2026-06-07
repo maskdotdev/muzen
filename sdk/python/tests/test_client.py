@@ -6,6 +6,8 @@ from pathlib import Path
 
 from muzen import (
     Client,
+    ContextEngineConfig,
+    ContextQueryLimits,
     ModelProfileInput,
     ProviderProfileInput,
     ReviewAgentSession,
@@ -29,6 +31,84 @@ from muzen.runner_mapping import _map_runner_result, _map_swarm_result
 
 
 class RunnerMappingTests(unittest.TestCase):
+    def test_local_workspace_context_uses_runner_rpcs(self) -> None:
+        class FakeRunner:
+            def __init__(self) -> None:
+                self.calls = []
+
+            async def request(self, method, params):
+                self.calls.append({"method": method, "params": params})
+                if method == "context.index":
+                    return {
+                        "schemaVersion": "muzen.context_manifest.v1",
+                        "engineVersion": "0.1.0",
+                        "snapshotId": "snap-1",
+                        "ruleCount": 1,
+                        "evidenceCount": 2,
+                        "relationshipCount": 0,
+                        "skippedCount": 0,
+                        "createdAtUtc": "1780620000.000000000Z",
+                    }
+                if method == "context.pack":
+                    return {
+                        "id": "ctxpack-1",
+                        "snapshotId": "snap-1",
+                        "purpose": params["purpose"],
+                        "evidence": [],
+                        "relationships": [],
+                        "omittedCandidates": [],
+                        "budget": {"maxTokens": params["maxTokens"], "usedTokens": 0},
+                        "sufficiency": {
+                            "status": "probably_sufficient",
+                            "missing": [],
+                        },
+                        "compilerVersion": "0.1.0",
+                        "createdAtUtc": "1780620000.000000000Z",
+                    }
+                if method == "context.query":
+                    return {
+                        "kind": params["kind"],
+                        "evidence": [],
+                        "omitted": 0,
+                    }
+                raise AssertionError(f"unexpected method {method}")
+
+        async def run() -> None:
+            runner = FakeRunner()
+            workspace = Client(runner).workspace("local")
+
+            manifest = await workspace.context.index(
+                source=local("/repo", changed_files=["src/auth.py"])
+            )
+            pack = await workspace.context.build_pack(
+                source=local("/repo", changed_files=["src/auth.py"]),
+                purpose="security",
+                max_tokens=4000,
+            )
+            query = await workspace.context.query(
+                source=local("/repo", changed_files=["src/auth.py"]),
+                kind="related_tests",
+                arguments={"path": "src/auth.py"},
+            )
+
+            self.assertEqual(manifest["snapshotId"], "snap-1")
+            self.assertEqual(pack["purpose"], "security")
+            self.assertEqual(query["kind"], "related_tests")
+            self.assertEqual(
+                [call["method"] for call in runner.calls],
+                [
+                    "context.index",
+                    "context.index",
+                    "context.pack",
+                    "context.index",
+                    "context.query",
+                ],
+            )
+
+        import asyncio
+
+        asyncio.run(run())
+
     def test_provider_sources_are_forwarded_to_rust_runner(self) -> None:
         source = parse_review_source("github:maskdotdev/heimdaal#123")
 
@@ -54,6 +134,17 @@ class RunnerMappingTests(unittest.TestCase):
             source,
             ReviewOptions(
                 metadata={"hostRunId": "flow-1"},
+                context_engine=ContextEngineConfig(
+                    mode="snapshot_v0",
+                    max_indexed_files=20_000,
+                    max_indexed_bytes=67_108_864,
+                    max_evidence_items=5_000,
+                    max_pack_tokens=12_000,
+                    max_query_results=120,
+                    include_repository_guidance=True,
+                    include_host_context=False,
+                    strict_evidence_required=True,
+                ),
                 change=ReviewChangeSpec(
                     kind="revision_range",
                     base_revision="base",
@@ -99,6 +190,8 @@ class RunnerMappingTests(unittest.TestCase):
 
         self.assertEqual(params["changedFiles"], ["src/auth.py"])
         self.assertEqual(params["metadata"], {"hostRunId": "flow-1"})
+        self.assertEqual(params["contextEngine"]["mode"], "snapshot_v0")
+        self.assertEqual(params["contextEngine"]["strictEvidenceRequired"], True)
         self.assertEqual(params["change"]["headRevision"], "head")
         self.assertEqual(params["instructions"][0]["kind"], "host_policy")
         self.assertEqual(params["tools"][0]["effects"], ["read_host"])
@@ -415,6 +508,48 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "source": body["source"],
                     }
                 }
+            if path == "/v1/workspaces/acme/context/index" and method == "POST":
+                return {
+                    "manifest": {
+                        "schemaVersion": "muzen.context_manifest.v1",
+                        "engineVersion": "0.1.0",
+                        "snapshotId": "snap-1",
+                        "ruleCount": 1,
+                        "evidenceCount": 3,
+                        "relationshipCount": 0,
+                        "skippedCount": 0,
+                        "createdAtUtc": "1780620000.000000000Z",
+                    }
+                }
+            if path == "/v1/workspaces/acme/context/packs" and method == "POST":
+                return {
+                    "pack": {
+                        "id": "ctxpack-1",
+                        "snapshotId": "snap-1",
+                        "purpose": body["purpose"],
+                        "evidence": [],
+                        "relationships": [],
+                        "omittedCandidates": [],
+                        "budget": {
+                            "maxTokens": body["maxTokens"],
+                            "usedTokens": 0,
+                        },
+                        "sufficiency": {
+                            "status": "probably_sufficient",
+                            "missing": [],
+                        },
+                        "compilerVersion": "0.1.0",
+                        "createdAtUtc": "1780620000.000000000Z",
+                    }
+                }
+            if path == "/v1/workspaces/acme/context/query" and method == "POST":
+                return {
+                    "result": {
+                        "kind": body["kind"],
+                        "evidence": [],
+                        "omitted": 0,
+                    }
+                }
             if path == "/v1/reviews/review-workspace-1/result":
                 return {
                     "result": {
@@ -472,6 +607,20 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 )
             ),
         )
+        manifest = await workspace.context.index(
+            source=local("/repo", changed_files=["src/auth.py"])
+        )
+        pack = await workspace.context.build_pack(
+            source=local("/repo", changed_files=["src/auth.py"]),
+            purpose="security",
+            max_tokens=4000,
+        )
+        query = await workspace.context.query(
+            source=local("/repo", changed_files=["src/auth.py"]),
+            kind="related_tests",
+            arguments={"path": "src/auth.py"},
+            limits=ContextQueryLimits(max_results=10, max_tokens=1000),
+        )
         result = await review.wait(timeout="1s")
 
         self.assertEqual(workspace.id, "acme")
@@ -482,6 +631,9 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(loaded_provider.secret_ref, "vault://workspaces/acme/providers/github")
         self.assertEqual(len(providers), 1)
         self.assertEqual(review.id, "review-workspace-1")
+        self.assertEqual(manifest["schemaVersion"], "muzen.context_manifest.v1")
+        self.assertEqual(pack["purpose"], "security")
+        self.assertEqual(query["kind"], "related_tests")
         self.assertEqual(result.conclusion, "approved")
         self.assertEqual(requests[0]["authorization"], "Bearer test-token")
         self.assertEqual(
@@ -494,6 +646,9 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 "/v1/workspaces/acme/providers/github",
                 "/v1/workspaces/acme/providers",
                 "/v1/workspaces/acme/reviews",
+                "/v1/workspaces/acme/context/index",
+                "/v1/workspaces/acme/context/packs",
+                "/v1/workspaces/acme/context/query",
                 "/v1/reviews/review-workspace-1/result",
             ],
         )

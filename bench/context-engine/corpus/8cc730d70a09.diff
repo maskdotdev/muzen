@@ -1,0 +1,2429 @@
+diff --git a/drizzle/0003_dry_meteorite.sql b/drizzle/0003_dry_meteorite.sql
+new file mode 100644
+index 00000000..a2a44670
+--- /dev/null
++++ b/drizzle/0003_dry_meteorite.sql
+@@ -0,0 +1,23 @@
++CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
++CREATE TABLE "index_vectors" (
++	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
++	"branch_state_id" uuid NOT NULL,
++	"run_id" uuid NOT NULL,
++	"path" text NOT NULL,
++	"file_id" text NOT NULL,
++	"chunk_index" integer NOT NULL,
++	"chunk_id" text NOT NULL,
++	"content" text NOT NULL,
++	"embedding" vector(1536) NOT NULL,
++	"metadata" jsonb,
++	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
++	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
++	CONSTRAINT "index_vectors_branch_path_file_chunk_uq" UNIQUE("branch_state_id","path","file_id","chunk_index")
++);
++--> statement-breakpoint
++ALTER TABLE "index_vectors" ADD CONSTRAINT "index_vectors_branch_state_id_index_branch_states_id_fk" FOREIGN KEY ("branch_state_id") REFERENCES "public"."index_branch_states"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
++ALTER TABLE "index_vectors" ADD CONSTRAINT "index_vectors_run_id_index_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."index_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
++CREATE INDEX "index_vectors_branch_path_idx" ON "index_vectors" USING btree ("branch_state_id","path");--> statement-breakpoint
++CREATE INDEX "index_vectors_branch_file_idx" ON "index_vectors" USING btree ("branch_state_id","file_id");--> statement-breakpoint
++CREATE INDEX "index_vectors_run_id_idx" ON "index_vectors" USING btree ("run_id");--> statement-breakpoint
++CREATE INDEX "index_vectors_embedding_ivfflat_idx" ON "index_vectors" USING ivfflat ("embedding" vector_cosine_ops) WITH (lists = 100);
+diff --git a/drizzle/meta/0003_snapshot.json b/drizzle/meta/0003_snapshot.json
+new file mode 100644
+index 00000000..13cfe05d
+--- /dev/null
++++ b/drizzle/meta/0003_snapshot.json
+@@ -0,0 +1,1915 @@
++{
++  "id": "30fa86f6-bf37-48eb-b25a-f71423be4939",
++  "prevId": "2f0f7dcb-499e-4a94-afaa-173abc755487",
++  "version": "7",
++  "dialect": "postgresql",
++  "tables": {
++    "public.account": {
++      "name": "account",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "account_id": {
++          "name": "account_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "provider_id": {
++          "name": "provider_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "access_token": {
++          "name": "access_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "refresh_token": {
++          "name": "refresh_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "id_token": {
++          "name": "id_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "access_token_expires_at": {
++          "name": "access_token_expires_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "refresh_token_expires_at": {
++          "name": "refresh_token_expires_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "scope": {
++          "name": "scope",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "password": {
++          "name": "password",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        }
++      },
++      "indexes": {},
++      "foreignKeys": {
++        "account_user_id_user_id_fk": {
++          "name": "account_user_id_user_id_fk",
++          "tableFrom": "account",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.session": {
++      "name": "session",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "token": {
++          "name": "token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "expires_at": {
++          "name": "expires_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "ip_address": {
++          "name": "ip_address",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "user_agent": {
++          "name": "user_agent",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        }
++      },
++      "indexes": {},
++      "foreignKeys": {
++        "session_user_id_user_id_fk": {
++          "name": "session_user_id_user_id_fk",
++          "tableFrom": "session",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "session_token_unique": {
++          "name": "session_token_unique",
++          "nullsNotDistinct": false,
++          "columns": [
++            "token"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.user": {
++      "name": "user",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "name": {
++          "name": "name",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "email": {
++          "name": "email",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "email_verified": {
++          "name": "email_verified",
++          "type": "boolean",
++          "primaryKey": false,
++          "notNull": true,
++          "default": false
++        },
++        "image": {
++          "name": "image",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        }
++      },
++      "indexes": {},
++      "foreignKeys": {},
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "user_email_unique": {
++          "name": "user_email_unique",
++          "nullsNotDistinct": false,
++          "columns": [
++            "email"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.verification": {
++      "name": "verification",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "identifier": {
++          "name": "identifier",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "value": {
++          "name": "value",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "expires_at": {
++          "name": "expires_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        }
++      },
++      "indexes": {},
++      "foreignKeys": {},
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.gitlab_integration_memberships": {
++      "name": "gitlab_integration_memberships",
++      "schema": "",
++      "columns": {
++        "integration_id": {
++          "name": "integration_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "gitlab_integration_memberships_integration_id_idx": {
++          "name": "gitlab_integration_memberships_integration_id_idx",
++          "columns": [
++            {
++              "expression": "integration_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "gitlab_integration_memberships_user_id_idx": {
++          "name": "gitlab_integration_memberships_user_id_idx",
++          "columns": [
++            {
++              "expression": "user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "gitlab_integration_memberships_integration_id_gitlab_integrations_id_fk": {
++          "name": "gitlab_integration_memberships_integration_id_gitlab_integrations_id_fk",
++          "tableFrom": "gitlab_integration_memberships",
++          "tableTo": "gitlab_integrations",
++          "columnsFrom": [
++            "integration_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "gitlab_integration_memberships_user_id_user_id_fk": {
++          "name": "gitlab_integration_memberships_user_id_user_id_fk",
++          "tableFrom": "gitlab_integration_memberships",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "gitlab_integration_memberships_unique": {
++          "name": "gitlab_integration_memberships_unique",
++          "nullsNotDistinct": false,
++          "columns": [
++            "integration_id",
++            "user_id"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.gitlab_integrations": {
++      "name": "gitlab_integrations",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "instance_url": {
++          "name": "instance_url",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "project_id": {
++          "name": "project_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "project_path": {
++          "name": "project_path",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "project_name": {
++          "name": "project_name",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "hook_id": {
++          "name": "hook_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "webhook_url": {
++          "name": "webhook_url",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "webhook_secret_hash": {
++          "name": "webhook_secret_hash",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "token_ciphertext": {
++          "name": "token_ciphertext",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "token_iv": {
++          "name": "token_iv",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "token_auth_tag": {
++          "name": "token_auth_tag",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "status": {
++          "name": "status",
++          "type": "gitlab_integration_status",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'degraded'"
++        },
++        "last_hook_sync_at": {
++          "name": "last_hook_sync_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "last_webhook_received_at": {
++          "name": "last_webhook_received_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "last_error": {
++          "name": "last_error",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "gitlab_integrations_status_idx": {
++          "name": "gitlab_integrations_status_idx",
++          "columns": [
++            {
++              "expression": "status",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "gitlab_integrations_updated_at_idx": {
++          "name": "gitlab_integrations_updated_at_idx",
++          "columns": [
++            {
++              "expression": "updated_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {},
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "gitlab_integrations_instance_project_uq": {
++          "name": "gitlab_integrations_instance_project_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "instance_url",
++            "project_id"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.gitlab_jobs": {
++      "name": "gitlab_jobs",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "integration_id": {
++          "name": "integration_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "delivery_id": {
++          "name": "delivery_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "job_type": {
++          "name": "job_type",
++          "type": "gitlab_job_type",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "status": {
++          "name": "status",
++          "type": "gitlab_job_status",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'pending'"
++        },
++        "attempts": {
++          "name": "attempts",
++          "type": "integer",
++          "primaryKey": false,
++          "notNull": true,
++          "default": 0
++        },
++        "next_attempt_at": {
++          "name": "next_attempt_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "started_at": {
++          "name": "started_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "finished_at": {
++          "name": "finished_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "last_error": {
++          "name": "last_error",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "normalized_payload": {
++          "name": "normalized_payload",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "result": {
++          "name": "result",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "gitlab_jobs_status_next_attempt_idx": {
++          "name": "gitlab_jobs_status_next_attempt_idx",
++          "columns": [
++            {
++              "expression": "status",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "next_attempt_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "gitlab_jobs_integration_id_idx": {
++          "name": "gitlab_jobs_integration_id_idx",
++          "columns": [
++            {
++              "expression": "integration_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "gitlab_jobs_job_type_idx": {
++          "name": "gitlab_jobs_job_type_idx",
++          "columns": [
++            {
++              "expression": "job_type",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "gitlab_jobs_integration_id_gitlab_integrations_id_fk": {
++          "name": "gitlab_jobs_integration_id_gitlab_integrations_id_fk",
++          "tableFrom": "gitlab_jobs",
++          "tableTo": "gitlab_integrations",
++          "columnsFrom": [
++            "integration_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "gitlab_jobs_delivery_id_gitlab_webhook_deliveries_id_fk": {
++          "name": "gitlab_jobs_delivery_id_gitlab_webhook_deliveries_id_fk",
++          "tableFrom": "gitlab_jobs",
++          "tableTo": "gitlab_webhook_deliveries",
++          "columnsFrom": [
++            "delivery_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "gitlab_jobs_delivery_id_uq": {
++          "name": "gitlab_jobs_delivery_id_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "delivery_id"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.gitlab_webhook_deliveries": {
++      "name": "gitlab_webhook_deliveries",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "integration_id": {
++          "name": "integration_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "event_uuid": {
++          "name": "event_uuid",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "event_name": {
++          "name": "event_name",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "event_type": {
++          "name": "event_type",
++          "type": "gitlab_webhook_event_type",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "ref": {
++          "name": "ref",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "payload": {
++          "name": "payload",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "received_at": {
++          "name": "received_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "gitlab_webhook_deliveries_integration_received_idx": {
++          "name": "gitlab_webhook_deliveries_integration_received_idx",
++          "columns": [
++            {
++              "expression": "integration_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "received_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "gitlab_webhook_deliveries_event_type_idx": {
++          "name": "gitlab_webhook_deliveries_event_type_idx",
++          "columns": [
++            {
++              "expression": "event_type",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "gitlab_webhook_deliveries_integration_id_gitlab_integrations_id_fk": {
++          "name": "gitlab_webhook_deliveries_integration_id_gitlab_integrations_id_fk",
++          "tableFrom": "gitlab_webhook_deliveries",
++          "tableTo": "gitlab_integrations",
++          "columnsFrom": [
++            "integration_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "gitlab_webhook_deliveries_integration_event_uq": {
++          "name": "gitlab_webhook_deliveries_integration_event_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "integration_id",
++            "event_uuid"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_branch_states": {
++      "name": "index_branch_states",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "integration_id": {
++          "name": "integration_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "branch": {
++          "name": "branch",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "config_hash": {
++          "name": "config_hash",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "last_ready_sha": {
++          "name": "last_ready_sha",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "last_ready_run_id": {
++          "name": "last_ready_run_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "serving_updated_at": {
++          "name": "serving_updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_branch_states_integration_branch_idx": {
++          "name": "index_branch_states_integration_branch_idx",
++          "columns": [
++            {
++              "expression": "integration_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "branch",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_branch_states_integration_id_gitlab_integrations_id_fk": {
++          "name": "index_branch_states_integration_id_gitlab_integrations_id_fk",
++          "tableFrom": "index_branch_states",
++          "tableTo": "gitlab_integrations",
++          "columnsFrom": [
++            "integration_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "index_branch_states_integration_branch_config_uq": {
++          "name": "index_branch_states_integration_branch_config_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "integration_id",
++            "branch",
++            "config_hash"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_configs": {
++      "name": "index_configs",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "integration_id": {
++          "name": "integration_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "config_json": {
++          "name": "config_json",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "config_hash": {
++          "name": "config_hash",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "active": {
++          "name": "active",
++          "type": "boolean",
++          "primaryKey": false,
++          "notNull": true,
++          "default": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_configs_integration_active_idx": {
++          "name": "index_configs_integration_active_idx",
++          "columns": [
++            {
++              "expression": "integration_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "active",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_configs_integration_id_gitlab_integrations_id_fk": {
++          "name": "index_configs_integration_id_gitlab_integrations_id_fk",
++          "tableFrom": "index_configs",
++          "tableTo": "gitlab_integrations",
++          "columnsFrom": [
++            "integration_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "index_configs_integration_config_hash_uq": {
++          "name": "index_configs_integration_config_hash_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "integration_id",
++            "config_hash"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_embedding_cache": {
++      "name": "index_embedding_cache",
++      "schema": "",
++      "columns": {
++        "chunk_id": {
++          "name": "chunk_id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "model": {
++          "name": "model",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "embedding": {
++          "name": "embedding",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_embedding_cache_model_idx": {
++          "name": "index_embedding_cache_model_idx",
++          "columns": [
++            {
++              "expression": "model",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {},
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_file_states": {
++      "name": "index_file_states",
++      "schema": "",
++      "columns": {
++        "branch_state_id": {
++          "name": "branch_state_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "path": {
++          "name": "path",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "file_id": {
++          "name": "file_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "size_bytes": {
++          "name": "size_bytes",
++          "type": "bigint",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "skip_reason": {
++          "name": "skip_reason",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "last_ready_sha": {
++          "name": "last_ready_sha",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_file_states_branch_file_idx": {
++          "name": "index_file_states_branch_file_idx",
++          "columns": [
++            {
++              "expression": "branch_state_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "file_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_file_states_branch_state_id_index_branch_states_id_fk": {
++          "name": "index_file_states_branch_state_id_index_branch_states_id_fk",
++          "tableFrom": "index_file_states",
++          "tableTo": "index_branch_states",
++          "columnsFrom": [
++            "branch_state_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {
++        "index_file_states_pk": {
++          "name": "index_file_states_pk",
++          "columns": [
++            "branch_state_id",
++            "path"
++          ]
++        }
++      },
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_run_file_changes": {
++      "name": "index_run_file_changes",
++      "schema": "",
++      "columns": {
++        "run_id": {
++          "name": "run_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "path": {
++          "name": "path",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "change_type": {
++          "name": "change_type",
++          "type": "index_file_change_type",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "file_id": {
++          "name": "file_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "size_bytes": {
++          "name": "size_bytes",
++          "type": "bigint",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "skip_reason": {
++          "name": "skip_reason",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_run_file_changes_run_change_type_idx": {
++          "name": "index_run_file_changes_run_change_type_idx",
++          "columns": [
++            {
++              "expression": "run_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "change_type",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_run_file_changes_run_id_index_runs_id_fk": {
++          "name": "index_run_file_changes_run_id_index_runs_id_fk",
++          "tableFrom": "index_run_file_changes",
++          "tableTo": "index_runs",
++          "columnsFrom": [
++            "run_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {
++        "index_run_file_changes_pk": {
++          "name": "index_run_file_changes_pk",
++          "columns": [
++            "run_id",
++            "path"
++          ]
++        }
++      },
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_runs": {
++      "name": "index_runs",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "branch_state_id": {
++          "name": "branch_state_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "head_sha": {
++          "name": "head_sha",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "base_sha": {
++          "name": "base_sha",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "mode": {
++          "name": "mode",
++          "type": "index_run_mode",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "status": {
++          "name": "status",
++          "type": "index_run_status",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'planned'"
++        },
++        "stats": {
++          "name": "stats",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "error": {
++          "name": "error",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "artifacts_prefix": {
++          "name": "artifacts_prefix",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "superseded_by_run_id": {
++          "name": "superseded_by_run_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_runs_status_created_idx": {
++          "name": "index_runs_status_created_idx",
++          "columns": [
++            {
++              "expression": "status",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "created_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "index_runs_branch_state_status_idx": {
++          "name": "index_runs_branch_state_status_idx",
++          "columns": [
++            {
++              "expression": "branch_state_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "status",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_runs_branch_state_id_index_branch_states_id_fk": {
++          "name": "index_runs_branch_state_id_index_branch_states_id_fk",
++          "tableFrom": "index_runs",
++          "tableTo": "index_branch_states",
++          "columnsFrom": [
++            "branch_state_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "index_runs_branch_state_head_sha_uq": {
++          "name": "index_runs_branch_state_head_sha_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "branch_state_id",
++            "head_sha"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.index_vectors": {
++      "name": "index_vectors",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "branch_state_id": {
++          "name": "branch_state_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "run_id": {
++          "name": "run_id",
++          "type": "uuid",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "path": {
++          "name": "path",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "file_id": {
++          "name": "file_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "chunk_index": {
++          "name": "chunk_index",
++          "type": "integer",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "chunk_id": {
++          "name": "chunk_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "content": {
++          "name": "content",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "embedding": {
++          "name": "embedding",
++          "type": "vector(1536)",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "metadata": {
++          "name": "metadata",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "index_vectors_branch_path_idx": {
++          "name": "index_vectors_branch_path_idx",
++          "columns": [
++            {
++              "expression": "branch_state_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "path",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "index_vectors_branch_file_idx": {
++          "name": "index_vectors_branch_file_idx",
++          "columns": [
++            {
++              "expression": "branch_state_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "file_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "index_vectors_run_id_idx": {
++          "name": "index_vectors_run_id_idx",
++          "columns": [
++            {
++              "expression": "run_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "index_vectors_branch_state_id_index_branch_states_id_fk": {
++          "name": "index_vectors_branch_state_id_index_branch_states_id_fk",
++          "tableFrom": "index_vectors",
++          "tableTo": "index_branch_states",
++          "columnsFrom": [
++            "branch_state_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "index_vectors_run_id_index_runs_id_fk": {
++          "name": "index_vectors_run_id_index_runs_id_fk",
++          "tableFrom": "index_vectors",
++          "tableTo": "index_runs",
++          "columnsFrom": [
++            "run_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "index_vectors_branch_path_file_chunk_uq": {
++          "name": "index_vectors_branch_path_file_chunk_uq",
++          "nullsNotDistinct": false,
++          "columns": [
++            "branch_state_id",
++            "path",
++            "file_id",
++            "chunk_index"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.onboarding_events": {
++      "name": "onboarding_events",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "uuid",
++          "primaryKey": true,
++          "notNull": true,
++          "default": "gen_random_uuid()"
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "event": {
++          "name": "event",
++          "type": "onboarding_event",
++          "typeSchema": "public",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp with time zone",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "metadata": {
++          "name": "metadata",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        }
++      },
++      "indexes": {
++        "onboarding_events_user_id_idx": {
++          "name": "onboarding_events_user_id_idx",
++          "columns": [
++            {
++              "expression": "user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "onboarding_events_event_idx": {
++          "name": "onboarding_events_event_idx",
++          "columns": [
++            {
++              "expression": "event",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "onboarding_events_created_at_idx": {
++          "name": "onboarding_events_created_at_idx",
++          "columns": [
++            {
++              "expression": "created_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "onboarding_events_user_id_user_id_fk": {
++          "name": "onboarding_events_user_id_user_id_fk",
++          "tableFrom": "onboarding_events",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    }
++  },
++  "enums": {
++    "public.gitlab_integration_status": {
++      "name": "gitlab_integration_status",
++      "schema": "public",
++      "values": [
++        "active",
++        "degraded",
++        "disabled"
++      ]
++    },
++    "public.gitlab_job_status": {
++      "name": "gitlab_job_status",
++      "schema": "public",
++      "values": [
++        "pending",
++        "processing",
++        "failed",
++        "succeeded",
++        "dead"
++      ]
++    },
++    "public.gitlab_job_type": {
++      "name": "gitlab_job_type",
++      "schema": "public",
++      "values": [
++        "push",
++        "merge_request",
++        "hook_sync"
++      ]
++    },
++    "public.gitlab_webhook_event_type": {
++      "name": "gitlab_webhook_event_type",
++      "schema": "public",
++      "values": [
++        "push",
++        "merge_request",
++        "ignored"
++      ]
++    },
++    "public.index_file_change_type": {
++      "name": "index_file_change_type",
++      "schema": "public",
++      "values": [
++        "upsert",
++        "delete"
++      ]
++    },
++    "public.index_run_mode": {
++      "name": "index_run_mode",
++      "schema": "public",
++      "values": [
++        "snapshot",
++        "delta"
++      ]
++    },
++    "public.index_run_status": {
++      "name": "index_run_status",
++      "schema": "public",
++      "values": [
++        "planned",
++        "ingesting",
++        "indexing",
++        "ready",
++        "failed",
++        "superseded"
++      ]
++    },
++    "public.onboarding_event": {
++      "name": "onboarding_event",
++      "schema": "public",
++      "values": [
++        "onboarding_started",
++        "onboarding_token_validated",
++        "onboarding_projects_selected",
++        "onboarding_completed"
++      ]
++    }
++  },
++  "schemas": {},
++  "sequences": {},
++  "roles": {},
++  "policies": {},
++  "views": {},
++  "_meta": {
++    "columns": {},
++    "schemas": {},
++    "tables": {}
++  }
++}
+\ No newline at end of file
+diff --git a/drizzle/meta/_journal.json b/drizzle/meta/_journal.json
+index e4fa8cfd..ca1ff645 100644
+--- a/drizzle/meta/_journal.json
++++ b/drizzle/meta/_journal.json
+@@ -22,6 +22,13 @@
+       "when": 1771037633655,
+       "tag": "0002_smart_ozymandias",
+       "breakpoints": true
++    },
++    {
++      "idx": 3,
++      "version": "7",
++      "when": 1771077871738,
++      "tag": "0003_dry_meteorite",
++      "breakpoints": true
+     }
+   ]
+ }
+\ No newline at end of file
+diff --git a/src/lib/db/schema/index.ts b/src/lib/db/schema/index.ts
+index 5b4bac2a..26292577 100644
+--- a/src/lib/db/schema/index.ts
++++ b/src/lib/db/schema/index.ts
+@@ -23,6 +23,7 @@ import {
+   indexFileStates,
+   indexRunFileChanges,
+   indexRuns,
++  indexVectors,
+ } from "./indexing";
+ export {
+   indexBranchStates,
+@@ -34,6 +35,7 @@ export {
+   indexRunModeEnum,
+   indexRuns,
+   indexRunStatusEnum,
++  indexVectors,
+ } from "./indexing";
+ import { onboardingEvents } from "./onboarding";
+ export { onboardingEventEnum, onboardingEvents } from "./onboarding";
+@@ -50,5 +52,6 @@ export const schema = {
+   indexFileStates,
+   indexRunFileChanges,
+   indexRuns,
++  indexVectors,
+   onboardingEvents,
+ };
+diff --git a/src/lib/db/schema/indexing.ts b/src/lib/db/schema/indexing.ts
+index c3b6901c..244a5015 100644
+--- a/src/lib/db/schema/indexing.ts
++++ b/src/lib/db/schema/indexing.ts
+@@ -1,6 +1,8 @@
+ import {
+   bigint,
+   boolean,
++  customType,
++  integer,
+   index,
+   jsonb,
+   pgEnum,
+@@ -14,6 +16,16 @@ import {
+ 
+ import type { JsonRecord } from "./gitlab";
+ import { gitlabIntegrations } from "./gitlab";
++import { INDEX_VECTOR_DIMENSION } from "@/lib/indexing/constants";
++
++const vector = customType<{ data: number[]; driverData: string }>({
++  dataType() {
++    return `vector(${INDEX_VECTOR_DIMENSION})`;
++  },
++  toDriver(value) {
++    return `[${value.join(",")}]`;
++  },
++});
+ 
+ export const indexRunModeEnum = pgEnum("index_run_mode", ["snapshot", "delta"]);
+ 
+@@ -165,3 +177,36 @@ export const indexEmbeddingCache = pgTable(
+     modelIdx: index("index_embedding_cache_model_idx").on(table.model),
+   }),
+ );
++
++export const indexVectors = pgTable(
++  "index_vectors",
++  {
++    id: uuid("id").defaultRandom().primaryKey(),
++    branchStateId: uuid("branch_state_id")
++      .notNull()
++      .references(() => indexBranchStates.id, { onDelete: "cascade" }),
++    runId: uuid("run_id")
++      .notNull()
++      .references(() => indexRuns.id, { onDelete: "cascade" }),
++    path: text("path").notNull(),
++    fileId: text("file_id").notNull(),
++    chunkIndex: integer("chunk_index").notNull(),
++    chunkId: text("chunk_id").notNull(),
++    content: text("content").notNull(),
++    embedding: vector("embedding").notNull(),
++    metadata: jsonb("metadata").$type<JsonRecord>(),
++    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
++  },
++  (table) => ({
++    branchPathFileChunkUnique: unique("index_vectors_branch_path_file_chunk_uq").on(
++      table.branchStateId,
++      table.path,
++      table.fileId,
++      table.chunkIndex,
++    ),
++    branchPathIdx: index("index_vectors_branch_path_idx").on(table.branchStateId, table.path),
++    branchFileIdx: index("index_vectors_branch_file_idx").on(table.branchStateId, table.fileId),
++    runIdx: index("index_vectors_run_id_idx").on(table.runId),
++  }),
++);
+diff --git a/src/lib/indexing/constants.ts b/src/lib/indexing/constants.ts
+new file mode 100644
+index 00000000..f56d8e70
+--- /dev/null
++++ b/src/lib/indexing/constants.ts
+@@ -0,0 +1 @@
++export const INDEX_VECTOR_DIMENSION = 1536
+diff --git a/src/lib/indexing/embedder.ts b/src/lib/indexing/embedder.ts
+index 1a8ec7d4..70332a02 100644
+--- a/src/lib/indexing/embedder.ts
++++ b/src/lib/indexing/embedder.ts
+@@ -1,22 +1,7 @@
+ import type { VectorChunkRecord } from '@/lib/indexing/contracts'
++import { INDEX_VECTOR_DIMENSION } from '@/lib/indexing/constants'
+ import { sha256Hex } from '@/lib/utils/hash'
+ 
+-const DEFAULT_EMBEDDING_DIMENSION = 16
+-
+-const readEmbeddingDimension = () => {
+-  const fromEnv = process.env.INDEXER_EMBED_DIM
+-  if (!fromEnv) {
+-    return DEFAULT_EMBEDDING_DIMENSION
+-  }
+-
+-  const parsed = Number.parseInt(fromEnv, 10)
+-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 3072) {
+-    return DEFAULT_EMBEDDING_DIMENSION
+-  }
+-
+-  return parsed
+-}
+-
+ const embedTextDeterministic = (text: string, dimension: number): number[] => {
+   const values: number[] = []
+   let counter = 0
+@@ -37,10 +22,8 @@ const embedTextDeterministic = (text: string, dimension: number): number[] => {
+ export const embedVectorChunks = (
+   chunks: Array<Omit<VectorChunkRecord, 'embedding'>>,
+ ): VectorChunkRecord[] => {
+-  const dimension = readEmbeddingDimension()
+-
+   return chunks.map((chunk) => ({
+     ...chunk,
+-    embedding: embedTextDeterministic(chunk.content, dimension),
++    embedding: embedTextDeterministic(chunk.content, INDEX_VECTOR_DIMENSION),
+   }))
+ }
+diff --git a/src/lib/indexing/processors/ingest.ts b/src/lib/indexing/processors/ingest.ts
+index 9e518f58..ad8fee1b 100644
+--- a/src/lib/indexing/processors/ingest.ts
++++ b/src/lib/indexing/processors/ingest.ts
+@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
+ import { db } from '@/lib/db'
+ import {
+   indexBranchStates,
++  indexRunFileChanges,
+   indexRuns,
+ } from '@/lib/db/schema'
+ import type { ArtifactStore, GitLabSource, IngestJob, VectorStore } from '@/lib/indexing/contracts'
+@@ -12,7 +13,7 @@ import {
+ } from '@/lib/indexing/finalize'
+ import { runSnapshotIngest } from '@/lib/indexing/snapshot'
+ import { createFsArtifactStore } from '@/lib/indexing/stores/artifact-store.fs'
+-import { createNoopVectorStore } from '@/lib/indexing/stores/vector-store.noop'
++import { createPostgresVectorStore } from '@/lib/indexing/stores/vector-store.pg'
+ import { createGitLabSource } from '@/lib/indexing/sources/gitlab-source'
+ import type { IngestResult } from '@/lib/indexing/types'
+ 
+@@ -24,7 +25,7 @@ type IngestProcessorDeps = {
+ 
+ const defaultDeps = (): IngestProcessorDeps => ({
+   source: createGitLabSource(),
+-  vectorStore: createNoopVectorStore(),
++  vectorStore: createPostgresVectorStore(),
+   artifactStore: createFsArtifactStore(),
+ })
+ 
+@@ -44,6 +45,29 @@ const toErrorPayload = (error: unknown) => {
+   }
+ }
+ 
++const cleanupStaleVectorsForRun = async (args: {
++  runId: string
++  branchStateId: string
++  vectorStore: VectorStore
++}) => {
++  const stagedChanges = await db
++    .select({
++      path: indexRunFileChanges.path,
++      changeType: indexRunFileChanges.changeType,
++      fileId: indexRunFileChanges.fileId,
++    })
++    .from(indexRunFileChanges)
++    .where(eq(indexRunFileChanges.runId, args.runId))
++
++  for (const change of stagedChanges) {
++    await args.vectorStore.deleteStaleByPath({
++      branchStateId: args.branchStateId,
++      path: change.path,
++      keepFileId: change.changeType === 'upsert' ? change.fileId : null,
++    })
++  }
++}
++
+ export const processIngestJob = async (
+   job: IngestJob,
+   deps: IngestProcessorDeps = defaultDeps(),
+@@ -129,6 +153,27 @@ export const processIngestJob = async (
+     }
+   }
+ 
++  if (finalized.status === 'ready') {
++    try {
++      await cleanupStaleVectorsForRun({
++        runId: run.id,
++        branchStateId: run.branchStateId,
++        vectorStore: deps.vectorStore,
++      })
++    } catch (error) {
++      await db
++        .update(indexRuns)
++        .set({
++          error: {
++            code: 'VECTOR_GC_FAILED',
++            message: error instanceof Error ? error.message.slice(0, 500) : 'Vector cleanup failed.',
++          },
++          updatedAt: new Date(),
++        })
++        .where(eq(indexRuns.id, run.id))
++    }
++  }
++
+   return {
+     runId: run.id,
+     status: finalized.status,
+diff --git a/src/lib/indexing/snapshot.ts b/src/lib/indexing/snapshot.ts
+index 8ad13883..b93634fd 100644
+--- a/src/lib/indexing/snapshot.ts
++++ b/src/lib/indexing/snapshot.ts
+@@ -245,11 +245,6 @@ export const runSnapshotIngest = async (args: {
+             path: relativePath,
+             skipReason,
+           })
+-          await args.vectorStore.deleteStaleByPath({
+-            branchStateId: args.run.branchStateId,
+-            path: relativePath,
+-            keepFileId: null,
+-          })
+           stats.filesDeleted += 1
+         }
+ 
+@@ -284,11 +279,6 @@ export const runSnapshotIngest = async (args: {
+             path: relativePath,
+             skipReason: 'no_chunks',
+           })
+-          await args.vectorStore.deleteStaleByPath({
+-            branchStateId: args.run.branchStateId,
+-            path: relativePath,
+-            keepFileId: null,
+-          })
+           stats.filesDeleted += 1
+         }
+ 
+@@ -305,12 +295,6 @@ export const runSnapshotIngest = async (args: {
+         chunks: embeddedChunks,
+       })
+ 
+-      await args.vectorStore.deleteStaleByPath({
+-        branchStateId: args.run.branchStateId,
+-        path: relativePath,
+-        keepFileId: fileId,
+-      })
+-
+       await stageUpsert({
+         runId: args.run.runId,
+         path: relativePath,
+@@ -347,11 +331,6 @@ export const runSnapshotIngest = async (args: {
+         path: existingPath,
+         skipReason: 'deleted',
+       })
+-      await args.vectorStore.deleteStaleByPath({
+-        branchStateId: args.run.branchStateId,
+-        path: existingPath,
+-        keepFileId: null,
+-      })
+ 
+       stats.filesDeleted += 1
+       changedFileLines.push(
+diff --git a/src/lib/indexing/stores/vector-store.noop.ts b/src/lib/indexing/stores/vector-store.noop.ts
+deleted file mode 100644
+index 4d2e2bed..00000000
+--- a/src/lib/indexing/stores/vector-store.noop.ts
++++ /dev/null
+@@ -1,19 +0,0 @@
+-import type { VectorQueryCandidate, VectorStore } from '@/lib/indexing/contracts'
+-
+-const EMPTY_QUERY_RESULT: VectorQueryCandidate[] = []
+-
+-export class NoopVectorStore implements VectorStore {
+-  async upsertChunks(): Promise<void> {
+-    return
+-  }
+-
+-  async queryCandidates(): Promise<VectorQueryCandidate[]> {
+-    return EMPTY_QUERY_RESULT
+-  }
+-
+-  async deleteStaleByPath(): Promise<void> {
+-    return
+-  }
+-}
+-
+-export const createNoopVectorStore = () => new NoopVectorStore()
+diff --git a/src/lib/indexing/stores/vector-store.pg.ts b/src/lib/indexing/stores/vector-store.pg.ts
+new file mode 100644
+index 00000000..3e69d935
+--- /dev/null
++++ b/src/lib/indexing/stores/vector-store.pg.ts
+@@ -0,0 +1,146 @@
++import { and, eq, ne, sql } from 'drizzle-orm'
++
++import { db } from '@/lib/db'
++import { indexVectors } from '@/lib/db/schema'
++import { INDEX_VECTOR_DIMENSION } from '@/lib/indexing/constants'
++import type { VectorQueryCandidate, VectorStore } from '@/lib/indexing/contracts'
++
++const normalizeEmbedding = (embedding: number[]) => {
++  if (embedding.length !== INDEX_VECTOR_DIMENSION) {
++    throw new Error(
++      `Embedding dimension mismatch. Expected ${INDEX_VECTOR_DIMENSION}, received ${embedding.length}.`,
++    )
++  }
++
++  const values = embedding.map((value) => {
++    if (!Number.isFinite(value)) {
++      throw new Error('Embedding contains non-finite values.')
++    }
++    return Number(value.toFixed(8))
++  })
++
++  return `[${values.join(',')}]`
++}
++
++const parseCandidate = (row: Record<string, unknown>): VectorQueryCandidate => ({
++  path: String(row.path),
++  fileId: String(row.fileId),
++  runId: String(row.runId),
++  chunkIndex: Number(row.chunkIndex),
++  score: Number(row.score),
++  content: typeof row.content === 'string' ? row.content : '',
++})
++
++export class PostgresVectorStore implements VectorStore {
++  async upsertChunks(args: {
++    branchStateId: string
++    runId: string
++    path: string
++    fileId: string
++    chunks: Array<{
++      chunkIndex: number
++      chunkId: string
++      content: string
++      embedding: number[]
++      metadata: Record<string, unknown>
++    }>
++  }): Promise<void> {
++    if (args.chunks.length === 0) {
++      return
++    }
++
++    const now = new Date()
++
++    await db
++      .insert(indexVectors)
++      .values(
++        args.chunks.map((chunk) => ({
++          branchStateId: args.branchStateId,
++          runId: args.runId,
++          path: args.path,
++          fileId: args.fileId,
++          chunkIndex: chunk.chunkIndex,
++          chunkId: chunk.chunkId,
++          content: chunk.content,
++          embedding: chunk.embedding,
++          metadata: chunk.metadata,
++          createdAt: now,
++          updatedAt: now,
++        })),
++      )
++      .onConflictDoUpdate({
++        target: [
++          indexVectors.branchStateId,
++          indexVectors.path,
++          indexVectors.fileId,
++          indexVectors.chunkIndex,
++        ],
++        set: {
++          runId: args.runId,
++          chunkId: sql`excluded.chunk_id`,
++          content: sql`excluded.content`,
++          embedding: sql`excluded.embedding`,
++          metadata: sql`excluded.metadata`,
++          updatedAt: now,
++        },
++      })
++  }
++
++  async queryCandidates(args: {
++    branchStateId: string
++    embedding: number[]
++    limit: number
++    oversample?: number
++  }): Promise<VectorQueryCandidate[]> {
++    const oversample = Math.max(1, Math.floor(args.oversample ?? 5))
++    const limit = Math.max(1, Math.floor(args.limit))
++    const effectiveLimit = Math.min(1_000, limit * oversample)
++    const queryVector = normalizeEmbedding(args.embedding)
++
++    const result = await db.execute(sql`
++      select
++        ${indexVectors.path} as "path",
++        ${indexVectors.fileId} as "fileId",
++        ${indexVectors.runId} as "runId",
++        ${indexVectors.chunkIndex} as "chunkIndex",
++        (1 - (${indexVectors.embedding} <=> ${queryVector}::vector)) as "score",
++        ${indexVectors.content} as "content"
++      from ${indexVectors}
++      where ${indexVectors.branchStateId} = ${args.branchStateId}
++      order by ${indexVectors.embedding} <=> ${queryVector}::vector asc
++      limit ${effectiveLimit}
++    `)
++
++    return result.rows.map((raw) => parseCandidate(raw as Record<string, unknown>))
++  }
++
++  async deleteStaleByPath(args: {
++    branchStateId: string
++    path: string
++    keepFileId: string | null
++  }): Promise<void> {
++    if (args.keepFileId === null) {
++      await db
++        .delete(indexVectors)
++        .where(
++          and(
++            eq(indexVectors.branchStateId, args.branchStateId),
++            eq(indexVectors.path, args.path),
++          ),
++        )
++      return
++    }
++
++    await db
++      .delete(indexVectors)
++      .where(
++        and(
++          eq(indexVectors.branchStateId, args.branchStateId),
++          eq(indexVectors.path, args.path),
++          ne(indexVectors.fileId, args.keepFileId),
++        ),
++      )
++  }
++}
++
++export const createPostgresVectorStore = () => new PostgresVectorStore()

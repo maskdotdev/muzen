@@ -1,0 +1,505 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 3afbc0a..d00aec3 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -113,6 +113,58 @@ version = "1.1.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+ 
++[[package]]
++name = "axum"
++version = "0.8.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
++dependencies = [
++ "axum-core",
++ "bytes",
++ "form_urlencoded",
++ "futures-util",
++ "http",
++ "http-body",
++ "http-body-util",
++ "hyper",
++ "hyper-util",
++ "itoa",
++ "matchit",
++ "memchr",
++ "mime",
++ "percent-encoding",
++ "pin-project-lite",
++ "serde_core",
++ "serde_json",
++ "serde_path_to_error",
++ "serde_urlencoded",
++ "sync_wrapper",
++ "tokio",
++ "tower",
++ "tower-layer",
++ "tower-service",
++ "tracing",
++]
++
++[[package]]
++name = "axum-core"
++version = "0.5.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
++dependencies = [
++ "bytes",
++ "futures-core",
++ "http",
++ "http-body",
++ "http-body-util",
++ "mime",
++ "pin-project-lite",
++ "sync_wrapper",
++ "tower-layer",
++ "tower-service",
++ "tracing",
++]
++
+ [[package]]
+ name = "base64"
+ version = "0.22.1"
+@@ -694,6 +746,12 @@ version = "1.10.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+ 
++[[package]]
++name = "httpdate"
++version = "1.0.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
++
+ [[package]]
+ name = "hyper"
+ version = "1.10.1"
+@@ -707,6 +765,7 @@ dependencies = [
+  "http",
+  "http-body",
+  "httparse",
++ "httpdate",
+  "itoa",
+  "pin-project-lite",
+  "smallvec",
+@@ -981,6 +1040,12 @@ version = "0.1.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+ 
++[[package]]
++name = "matchit"
++version = "0.8.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
++
+ [[package]]
+ name = "maybe-owned"
+ version = "0.3.4"
+@@ -993,6 +1058,12 @@ version = "2.8.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
+ 
++[[package]]
++name = "mime"
++version = "0.3.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
++
+ [[package]]
+ name = "mio"
+ version = "1.2.1"
+@@ -1030,6 +1101,7 @@ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+  "async-trait",
++ "axum",
+  "blake3",
+  "cap-std",
+  "clap",
+@@ -1052,6 +1124,7 @@ dependencies = [
+  "thiserror",
+  "tokio",
+  "tokio-util",
++ "tower",
+ ]
+ 
+ [[package]]
+@@ -1517,6 +1590,17 @@ dependencies = [
+  "zmij",
+ ]
+ 
++[[package]]
++name = "serde_path_to_error"
++version = "0.1.20"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
++dependencies = [
++ "itoa",
++ "serde",
++ "serde_core",
++]
++
+ [[package]]
+ name = "serde_urlencoded"
+ version = "0.7.1"
+@@ -1743,6 +1827,7 @@ dependencies = [
+  "tokio",
+  "tower-layer",
+  "tower-service",
++ "tracing",
+ ]
+ 
+ [[package]]
+@@ -1781,6 +1866,7 @@ version = "0.1.44"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+ dependencies = [
++ "log",
+  "pin-project-lite",
+  "tracing-core",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index 56cca53..849d592 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -8,6 +8,7 @@ publish = false
+ [dependencies]
+ anyhow = "1.0.100"
+ async-trait = "0.1.89"
++axum = "0.8.4"
+ blake3 = "1.8.2"
+ cap-std = "3.4.5"
+ clap = { version = "4.5.51", features = ["derive"] }
+@@ -27,8 +28,9 @@ serde = { version = "1.0.228", features = ["derive"] }
+ serde_json = "1.0.145"
+ sha2 = "0.10.9"
+ thiserror = "2.0.17"
+-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
++tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+ tokio-util = "0.7.17"
+ 
+ [dev-dependencies]
+ tempfile = "3.23.0"
++tower = { version = "0.5.2", features = ["util"] }
+diff --git a/Readme.md b/Readme.md
+index 0a8419a..b6de9c9 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -91,6 +91,8 @@ Implemented now:
+   delivery JSON, and framework-agnostic HTTP/SSE response helpers.
+ - Rust framework-neutral remote HTTP router for review creation, events,
+   results, artifacts, workspace profiles, and provider webhooks.
++- Rust Axum HTTP service adapter and `muzen-service` binary around the core
++  router.
+ - TypeScript SDK local preview over `muzen-runner`.
+ - TypeScript local webhook request facade:
+   `createMuzen(...).webhooks.github.response(request)`.
+@@ -110,7 +112,6 @@ Still in progress:
+ 
+ - Production database persistence for durable sessions and workspace profiles.
+ - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
+-- A concrete Rust HTTP listener/framework adapter around the core router.
+ 
+ ## Local Preview
+ 
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index 04b36f6..2c7048d 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -67,6 +67,8 @@ pressure, and commit-sized milestones.
+   events and webhook deliveries.
+ - [x] Rust core exposes a framework-neutral remote HTTP router for the
+   documented review, event, artifact, webhook, and workspace profile routes.
++- [x] Rust exposes a concrete Axum HTTP service adapter and `muzen-service`
++  binary around the core router.
+ - [x] Developer docs and examples run against the implementation.
+ 
+ ## Phase 1: Progress Control And Contract Alignment
+@@ -285,6 +287,11 @@ Exit criteria:
+   - [x] Route workspace review scheduling and model/provider profile APIs.
+   - [x] Route GitHub/GitLab webhooks through Rust-owned verification and source
+     mapping.
++- [x] Implement a concrete Rust HTTP listener/framework adapter around the core
++  router.
++  - [x] Add an Axum adapter that maps HTTP requests/responses to
++    `ReviewHttpRequest` and `ReviewHttpResponse`.
++  - [x] Add a `muzen-service` binary with webhook secret env resolution.
+ 
+ Exit criteria:
+ 
+@@ -327,6 +334,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
+ | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
++| 2026-06-05 | pending | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ 
+ ## Resolved Decisions And Remaining Production Work
+ 
+@@ -384,8 +392,9 @@ Record every milestone with the commands that were run.
+   resume, wait for, cancel, replay events for, stream events for, and read/export
+   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
+-  review, event, artifact, webhook, and workspace profile routes. A concrete
+-  Rust HTTP listener/framework adapter remains open.
++  review, event, artifact, webhook, and workspace profile routes. The
++  `muzen-service` binary binds that router through an Axum HTTP adapter.
++  Production service deployment still needs database-backed stores.
+ - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
+   and the Python remote SDK.
+ - Production worker deployment still depends on a database-backed durable store
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+index 9474a08..6bd2fe2 100644
+--- a/docs/rfcs/0001-remote-http-api-contract.md
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -19,6 +19,11 @@ framework. Concrete hosts are responsible for adapting framework request and
+ response types, authenticating callers, resolving webhook secrets, and choosing
+ the production session/profile stores.
+ 
++The repository also ships an Axum adapter and `muzen-service` binary. The
++service binds the core router to a real HTTP listener and resolves webhook
++secrets from environment variables. It currently uses the in-memory Rust stores;
++production deployments still need database-backed session and profile stores.
++
+ ## Create Review
+ 
+ `POST /v1/reviews`
+diff --git a/docs/rfcs/0001-runner-protocol-mapping.md b/docs/rfcs/0001-runner-protocol-mapping.md
+index 5d9a272..95df787 100644
+--- a/docs/rfcs/0001-runner-protocol-mapping.md
++++ b/docs/rfcs/0001-runner-protocol-mapping.md
+@@ -93,7 +93,8 @@ The in-memory store is not a production durability substitute.
+   resolution can capture provider head revisions.
+ - Active cancellation, leases, retry policy, and backoff require worker-owned
+   durable sessions.
+-- A framework-neutral Rust HTTP router now exists around the core remote HTTP
+-  contract; a concrete listener/framework adapter remains future host work.
++- A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
++  now exist around the core remote HTTP contract; production deployments still
++  need database-backed stores.
+ - Workspace-owned BYOK profile APIs need production persistent profile records
+   and secret references.
+diff --git a/sdk/typescript/packages/muzen-sdk/README.md b/sdk/typescript/packages/muzen-sdk/README.md
+index 0f07416..b554724 100644
+--- a/sdk/typescript/packages/muzen-sdk/README.md
++++ b/sdk/typescript/packages/muzen-sdk/README.md
+@@ -85,7 +85,7 @@ completed:
+ - local worker execution is exposed through `muzen.workers.runOnce()` and
+   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
+ - production database persistence, provider materialization for local provider
+-  sources, and a concrete Rust HTTP listener/framework adapter remain future
++  sources, and production store wiring for the Rust service remain future
+   production work.
+ 
+ See the repository root README and
+diff --git a/src/bin/muzen-service.rs b/src/bin/muzen-service.rs
+new file mode 100644
+index 0000000..c7012ea
+--- /dev/null
++++ b/src/bin/muzen-service.rs
+@@ -0,0 +1,45 @@
++use std::env;
++use std::net::SocketAddr;
++
++use anyhow::Result;
++use clap::Parser;
++use muzen::review_session::ReviewHttpRouterOptions;
++use muzen::service::{serve, MuzenHttpService};
++
++#[derive(Debug, Parser)]
++#[command(name = "muzen-service")]
++#[command(about = "Muzen RFC 0001 HTTP service host")]
++struct ServiceCli {
++    /// Address to bind, for example 127.0.0.1:7341.
++    #[arg(long, default_value = "127.0.0.1:7341")]
++    bind: SocketAddr,
++
++    /// Environment variable containing the GitHub webhook HMAC secret.
++    #[arg(long, default_value = "GITHUB_WEBHOOK_SECRET")]
++    github_webhook_secret_env: String,
++
++    /// Environment variable containing the GitLab webhook token.
++    #[arg(long, default_value = "GITLAB_WEBHOOK_TOKEN")]
++    gitlab_webhook_token_env: String,
++}
++
++#[tokio::main]
++async fn main() {
++    let code = match run().await {
++        Ok(()) => 0,
++        Err(error) => {
++            eprintln!("{error:#}");
++            4
++        }
++    };
++    std::process::exit(code);
++}
++
++async fn run() -> Result<()> {
++    let cli = ServiceCli::parse();
++    let service = MuzenHttpService::in_memory(ReviewHttpRouterOptions {
++        github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
++        gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
++    });
++    serve(cli.bind, service).await
++}
+diff --git a/src/lib.rs b/src/lib.rs
+index ec94c90..c38e1ab 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -3,6 +3,7 @@ pub mod cli;
+ pub mod review_session;
+ pub mod reviewer;
+ pub mod runner;
++pub mod service;
+ 
+ pub(crate) mod bench;
+ pub(crate) mod contracts;
+diff --git a/src/service.rs b/src/service.rs
+new file mode 100644
+index 0000000..6752bd2
+--- /dev/null
++++ b/src/service.rs
+@@ -0,0 +1,143 @@
++use std::net::SocketAddr;
++use std::sync::Arc;
++
++use anyhow::{Context, Result};
++use axum::body::Bytes;
++use axum::extract::{OriginalUri, State};
++use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
++use axum::response::{IntoResponse, Response};
++use axum::routing::any;
++use axum::Router;
++
++use crate::review_session::{
++    Muzen, ReviewHttpRequest, ReviewHttpResponse, ReviewHttpRouter, ReviewHttpRouterOptions,
++};
++
++#[derive(Debug, Clone)]
++pub struct MuzenHttpService {
++    router: Arc<ReviewHttpRouter>,
++}
++
++impl MuzenHttpService {
++    pub fn new(router: ReviewHttpRouter) -> Self {
++        Self {
++            router: Arc::new(router),
++        }
++    }
++
++    pub fn in_memory(options: ReviewHttpRouterOptions) -> Self {
++        Self::new(ReviewHttpRouter::with_options(Muzen::new(), options))
++    }
++
++    pub fn into_router(self) -> Router {
++        Router::new()
++            .fallback(any(handle_muzen_request))
++            .with_state(self.router)
++    }
++}
++
++pub async fn serve(addr: SocketAddr, service: MuzenHttpService) -> Result<()> {
++    let listener = tokio::net::TcpListener::bind(addr)
++        .await
++        .with_context(|| format!("failed to bind Muzen HTTP service on {addr}"))?;
++    axum::serve(listener, service.into_router())
++        .await
++        .context("Muzen HTTP service stopped with an error")
++}
++
++async fn handle_muzen_request(
++    State(router): State<Arc<ReviewHttpRouter>>,
++    method: Method,
++    OriginalUri(uri): OriginalUri,
++    headers: HeaderMap,
++    body: Bytes,
++) -> Response {
++    review_response_to_axum(router.handle(review_request_from_axum(method, uri, headers, body)))
++}
++
++fn review_request_from_axum(
++    method: Method,
++    uri: Uri,
++    headers: HeaderMap,
++    body: Bytes,
++) -> ReviewHttpRequest {
++    let target = uri
++        .path_and_query()
++        .map(|path_and_query| path_and_query.as_str())
++        .unwrap_or_else(|| uri.path());
++    let mut request = ReviewHttpRequest::new(method.as_str(), target).body(body.to_vec());
++    for (name, value) in headers {
++        let Some(name) = name else {
++            continue;
++        };
++        if let Ok(value) = value.to_str() {
++            request = request.header(name.as_str(), value.to_string());
++        }
++    }
++    request
++}
++
++fn review_response_to_axum(response: ReviewHttpResponse) -> Response {
++    let status = StatusCode::from_u16(response.status_code).unwrap_or(StatusCode::BAD_REQUEST);
++    let mut builder = axum::http::Response::builder().status(status);
++    for (name, value) in response.headers {
++        let Ok(name) = HeaderName::try_from(name) else {
++            continue;
++        };
++        let Ok(value) = HeaderValue::try_from(value) else {
++            continue;
++        };
++        builder = builder.header(name, value);
++    }
++    builder
++        .body(axum::body::Body::from(response.body))
++        .unwrap_or_else(|error| {
++            (
++                StatusCode::INTERNAL_SERVER_ERROR,
++                format!("failed to build Muzen HTTP response: {error}"),
++            )
++                .into_response()
++        })
++}
++
++#[cfg(test)]
++mod tests {
++    use axum::body::{to_bytes, Body};
++    use axum::http::Request;
++    use serde_json::{json, Value};
++    use tower::ServiceExt;
++
++    use super::*;
++
++    #[tokio::test]
++    async fn axum_adapter_serves_review_creation_route() {
++        let app = MuzenHttpService::in_memory(ReviewHttpRouterOptions::default()).into_router();
++        let request = Request::builder()
++            .method("POST")
++            .uri("/v1/reviews")
++            .header("content-type", "application/json")
++            .body(Body::from(
++                json!({
++                    "source": {
++                        "type": "local",
++                        "repo": ".",
++                        "changedFiles": ["Cargo.toml"]
++                    },
++                    "options": {
++                        "dedupe": "source"
++                    }
++                })
++                .to_string(),
++            ))
++            .unwrap();
++
++        let response = app.oneshot(request).await.unwrap();
++        let status = response.status();
++        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
++        let payload: Value = serde_json::from_slice(&body).unwrap();
++
++        assert_eq!(status, StatusCode::ACCEPTED);
++        assert_eq!(payload["review"]["id"], json!("review-1"));
++        assert_eq!(payload["review"]["status"], json!("queued"));
++    }
++}

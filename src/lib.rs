@@ -1,5 +1,6 @@
 // V1 contracts intentionally include protocol states not all exercised by the MVP benchmark.
 pub mod cli;
+pub mod context_engine;
 pub mod review_session;
 pub mod reviewer;
 pub mod runner;

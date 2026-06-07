@@ -1,0 +1,301 @@
+diff --git a/src/app/settings/page.tsx b/src/app/settings/page.tsx
+new file mode 100644
+index 00000000..2a244191
+--- /dev/null
++++ b/src/app/settings/page.tsx
+@@ -0,0 +1,295 @@
++"use client"
++
++import { useEffect, useRef, useState } from "react"
++
++import { Button } from "@/components/ui/button"
++import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++import {
++  Tabs,
++  TabsContent,
++  TabsList,
++  TabsTrigger,
++} from "@/components/ui/tabs"
++
++type GitlabInstanceKey = "us" | "global" | "public"
++
++const GITLAB_STORAGE_KEY = "argus-gitlab-tokens"
++
++const GITLAB_INSTANCES: Array<{ key: GitlabInstanceKey; name: string }> = [
++  { key: "us", name: "GitLab US" },
++  { key: "global", name: "GitLab Global" },
++  { key: "public", name: "GitLab Public" },
++] as const
++
++type SavedTokens = Record<GitlabInstanceKey, string>
++
++const emptyTokens = {
++  us: "",
++  global: "",
++  public: "",
++} satisfies SavedTokens
++
++type AISettings = {
++  apiUrl: string
++  model: string
++  token: string
++}
++
++const AI_SETTINGS_STORAGE_KEY = "argus-ai-settings"
++
++const emptyAiSettings = {
++  apiUrl: "",
++  model: "",
++  token: "",
++} satisfies AISettings
++
++const SETTINGS_AUTOSAVE_DEBOUNCE_MS = 100
++
++export default function SettingsPage() {
++  const [activeTab, setActiveTab] = useState("gitlab")
++  const [isHydrated, setIsHydrated] = useState(false)
++  const [tokens, setTokens] = useState<SavedTokens>(emptyTokens)
++  const [gitlabStatus, setGitlabStatus] = useState("")
++  const [aiSettings, setAiSettings] = useState<AISettings>(emptyAiSettings)
++  const [aiStatus, setAiStatus] = useState("")
++  const gitlabAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
++  const aiAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
++
++  useEffect(() => {
++    const readTokenValue = (raw: string | null, key: "us" | "global" | "public"): string => {
++      if (!raw) {
++        return ""
++      }
++
++      try {
++        const parsed = JSON.parse(raw) as Partial<SavedTokens>
++        const value = parsed[key]
++        return typeof value === "string" ? value : ""
++      } catch {
++        return ""
++      }
++    }
++
++    const gitlabRaw = window.localStorage.getItem(GITLAB_STORAGE_KEY)
++    if (gitlabRaw) {
++      setTokens({
++        us: readTokenValue(gitlabRaw, "us"),
++        global: readTokenValue(gitlabRaw, "global"),
++        public: readTokenValue(gitlabRaw, "public"),
++      })
++    }
++
++    const aiRaw = window.localStorage.getItem(AI_SETTINGS_STORAGE_KEY)
++    if (aiRaw) {
++      try {
++        const parsed = JSON.parse(aiRaw) as Partial<AISettings>
++        setAiSettings({
++          apiUrl: typeof parsed.apiUrl === "string" ? parsed.apiUrl : "",
++          model: typeof parsed.model === "string" ? parsed.model : "",
++          token: typeof parsed.token === "string" ? parsed.token : "",
++        })
++      } catch {
++        setAiSettings(emptyAiSettings)
++      }
++    }
++
++    setIsHydrated(true)
++  }, [])
++
++  const handleTokenChange = (key: GitlabInstanceKey, value: string) => {
++    setTokens((current) => ({
++      ...current,
++      [key]: value,
++    }))
++  }
++
++  const handleAiSettingChange = (
++    key: keyof AISettings,
++    value: string,
++  ) => {
++    setAiSettings((current) => ({
++      ...current,
++      [key]: value,
++    }))
++  }
++
++  const clearStatusLater = (setStatus: (value: string) => void) => {
++    window.setTimeout(() => {
++      setStatus("")
++    }, 2000)
++  }
++
++  const saveTokens = () => {
++  const clearTokens = () => {
++    setTokens(emptyTokens)
++    setGitlabStatus("GitLab tokens cleared.")
++    clearStatusLater(setGitlabStatus)
++  }
++
++  const clearAISettings = () => {
++    setAiSettings(emptyAiSettings)
++    setAiStatus("AI settings cleared.")
++    clearStatusLater(setAiStatus)
++  }
++
++  useEffect(() => {
++    if (!isHydrated) {
++      return
++    }
++    if (gitlabAutoSaveTimer.current) {
++      window.clearTimeout(gitlabAutoSaveTimer.current)
++      gitlabAutoSaveTimer.current = null
++    }
++    gitlabAutoSaveTimer.current = window.setTimeout(() => {
++      if (typeof window !== "undefined") {
++        window.localStorage.setItem(GITLAB_STORAGE_KEY, JSON.stringify(tokens))
++        setGitlabStatus("GitLab changes auto-saved.")
++        clearStatusLater(setGitlabStatus)
++      }
++      gitlabAutoSaveTimer.current = null
++    }, SETTINGS_AUTOSAVE_DEBOUNCE_MS)
++
++    return () => {
++      if (gitlabAutoSaveTimer.current) {
++        window.clearTimeout(gitlabAutoSaveTimer.current)
++        gitlabAutoSaveTimer.current = null
++      }
++    }
++  }, [isHydrated, tokens])
++
++  useEffect(() => {
++    if (!isHydrated) {
++      return
++    }
++    if (aiAutoSaveTimer.current) {
++      window.clearTimeout(aiAutoSaveTimer.current)
++      aiAutoSaveTimer.current = null
++    }
++    aiAutoSaveTimer.current = window.setTimeout(() => {
++      if (typeof window !== "undefined") {
++        window.localStorage.setItem(AI_SETTINGS_STORAGE_KEY, JSON.stringify(aiSettings))
++        setAiStatus("AI settings auto-saved.")
++        clearStatusLater(setAiStatus)
++      }
++      aiAutoSaveTimer.current = null
++    }, SETTINGS_AUTOSAVE_DEBOUNCE_MS)
++
++    return () => {
++      if (aiAutoSaveTimer.current) {
++        window.clearTimeout(aiAutoSaveTimer.current)
++        aiAutoSaveTimer.current = null
++      }
++    }
++  }, [isHydrated, aiSettings])
++
++  return (
++    <div className="space-y-4">
++      <section className="space-y-1">
++        <h1 className="text-2xl font-semibold">Settings</h1>
++        <p className="text-sm text-muted-foreground">
++          Configure GitLab tokens per deployment.
++        </p>
++      </section>
++
++      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
++        <TabsList>
++          <TabsTrigger value="gitlab">GitLab</TabsTrigger>
++          <TabsTrigger value="ai">AI settings</TabsTrigger>
++        </TabsList>
++
++        <TabsContent value="gitlab">
++          <Card>
++            <CardHeader>
++              <CardTitle>GitLab integration</CardTitle>
++              <CardDescription>
++                Keep tokens scoped per instance. Values are stored in your browser only.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-4">
++              {GITLAB_INSTANCES.map((instance) => (
++                <div key={instance.key} className="space-y-2">
++                  <Label htmlFor={`gitlab-token-${instance.key}`}>{instance.name}</Label>
++                  <Input
++                    id={`gitlab-token-${instance.key}`}
++                    type="password"
++                    autoComplete="off"
++                    value={tokens[instance.key]}
++                    onChange={(event) => handleTokenChange(instance.key, event.target.value)}
++                    placeholder={`Paste ${instance.name} personal access token`}
++                  />
++                </div>
++              ))}
++              {!isHydrated ? null : (
++                <p className="text-xs text-muted-foreground">{gitlabStatus || "Auto-loaded from local storage."}</p>
++              )}
++            </CardContent>
++            <CardFooter className="justify-between">
++              <Button variant="outline" onClick={clearTokens} type="button">
++                Clear all tokens
++              </Button>
++              <Button disabled type="button">
++                Changes save automatically
++              </Button>
++            </CardFooter>
++          </Card>
++        </TabsContent>
++
++        <TabsContent value="ai">
++          <Card>
++            <CardHeader>
++              <CardTitle>AI settings</CardTitle>
++              <CardDescription>
++                Configure AI endpoint, model and token per your provider.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-4">
++              <div className="space-y-2">
++                <Label htmlFor="ai-api-url">API URL</Label>
++                <Input
++                  id="ai-api-url"
++                  type="url"
++                  value={aiSettings.apiUrl}
++                  onChange={(event) => handleAiSettingChange("apiUrl", event.target.value)}
++                  placeholder="https://api.openai.com/v1"
++                />
++              </div>
++              <div className="space-y-2">
++                <Label htmlFor="ai-model">Model</Label>
++                <Input
++                  id="ai-model"
++                  value={aiSettings.model}
++                  onChange={(event) => handleAiSettingChange("model", event.target.value)}
++                  placeholder="gpt-4o-mini"
++                />
++              </div>
++              <div className="space-y-2">
++                <Label htmlFor="ai-token">Token</Label>
++                <Input
++                  id="ai-token"
++                  type="password"
++                  autoComplete="off"
++                  value={aiSettings.token}
++                  onChange={(event) => handleAiSettingChange("token", event.target.value)}
++                  placeholder="Paste AI API token"
++                />
++              </div>
++              {!isHydrated ? null : (
++                <p className="text-xs text-muted-foreground">{aiStatus || "Auto-loaded from local storage."}</p>
++              )}
++            </CardContent>
++            <CardFooter className="justify-between">
++              <Button variant="outline" onClick={clearAISettings} type="button">
++                Clear AI settings
++              </Button>
++              <Button disabled type="button">
++                Changes save automatically
++              </Button>
++            </CardFooter>
++          </Card>
++        </TabsContent>
++      </Tabs>
++    </div>
++  )
++}

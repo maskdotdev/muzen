@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::context_engine::{ContextEngineMode, SnapshotContextEngine};
 use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
 use crate::reviewer::report::{ReviewRunSummary, RunReport};
 use crate::reviewer::run::Run;
@@ -50,6 +51,7 @@ pub(crate) fn execute_run_start(
     )?;
     let model = params.model.clone();
     let tools = params.tools.clone();
+    let context_engine = params.context_engine.clone();
     let plan = plan_run_start(params, transport.as_ref())?;
     let model = model.ok_or_else(|| {
         anyhow::anyhow!("run requires a model; pass a callback or hosted provider model")
@@ -59,7 +61,7 @@ pub(crate) fn execute_run_start(
         Arc::new(StreamingRunnerEventSink::new(transport.clone())) as Arc<dyn RuntimeEventSink>
     });
     let wiring = RunnerWiring::new(&plan.run_id, &tools, transport.clone())?;
-    let builder = wiring.wire_model(
+    let mut builder = wiring.wire_model(
         Run::builder(plan.spec),
         &plan.run_id,
         &model,
@@ -68,6 +70,11 @@ pub(crate) fn execute_run_start(
         #[cfg(test)]
         plan.target_path,
     )?;
+    if let Some(config) = context_engine {
+        if config.mode != ContextEngineMode::Disabled {
+            builder = builder.context_engine(Arc::new(SnapshotContextEngine::new(config)));
+        }
+    }
     let run = if let Some(streaming_sink) = streaming_sink {
         builder.event_sink(streaming_sink).build()
     } else {
@@ -155,6 +162,7 @@ fn start_heartbeat(
     Ok(HeartbeatGuard { stop })
 }
 
+#[allow(dead_code)]
 fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
     if effects.is_empty() {
         return Ok(ToolEffects::custom_read_only());

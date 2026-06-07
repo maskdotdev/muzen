@@ -1159,6 +1159,38 @@ pub enum RuntimeEvent {
     SnapshotStarted {
         snapshot_id: SnapshotId,
     },
+    ContextIndexStarted {
+        snapshot_id: SnapshotId,
+    },
+    ContextIndexCompleted {
+        snapshot_id: SnapshotId,
+        index_id: String,
+        evidence_count: usize,
+        indexed_files: usize,
+        skipped_files: usize,
+        ms: u64,
+    },
+    ContextPackStarted {
+        session_id: Option<SessionId>,
+        purpose: String,
+    },
+    ContextPackCompleted {
+        pack_id: String,
+        session_id: Option<SessionId>,
+        purpose: String,
+        evidence_count: usize,
+        omitted_count: usize,
+        used_tokens: usize,
+        sufficiency: String,
+        ms: u64,
+    },
+    ContextQueryCompleted {
+        session_id: Option<SessionId>,
+        query_kind: String,
+        result_count: usize,
+        artifact_id: Option<ArtifactId>,
+        ms: u64,
+    },
     RepoManifestCompleted {
         files: usize,
         skipped: usize,
@@ -1262,8 +1294,16 @@ impl RuntimeEventContext {
         match event {
             RuntimeEvent::JobStarted { snapshot_id }
             | RuntimeEvent::SnapshotStarted { snapshot_id }
+            | RuntimeEvent::ContextIndexStarted { snapshot_id }
+            | RuntimeEvent::ContextIndexCompleted { snapshot_id, .. }
             | RuntimeEvent::SnapshotFinished { snapshot_id, .. } => Self {
                 snapshot_id: Some(snapshot_id.clone()),
+                ..Self::default()
+            },
+            RuntimeEvent::ContextPackStarted { session_id, .. }
+            | RuntimeEvent::ContextPackCompleted { session_id, .. }
+            | RuntimeEvent::ContextQueryCompleted { session_id, .. } => Self {
+                session_id: session_id.clone(),
                 ..Self::default()
             },
             RuntimeEvent::RepoManifestCompleted { .. } | RuntimeEvent::JobFinished { .. } => {
