@@ -105,6 +105,9 @@ More examples:
 
 `muzen-service` exposes the full HTTP API from RFC 0001. Point it at Postgres
 for durable storage, or omit `DATABASE_URL` to run with in-memory stores.
+Production deployments should read
+[`docs/production-operations.md`](docs/production-operations.md), especially
+the notes on external HTTP API authentication and preview schema resets.
 
 ```sh
 DATABASE_URL=postgres://...
