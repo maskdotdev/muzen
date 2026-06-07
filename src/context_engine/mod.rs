@@ -6,6 +6,7 @@ mod pack;
 mod query;
 mod semantic;
 mod store;
+mod syntax;
 mod tools;
 
 pub use config::*;
@@ -16,6 +17,7 @@ pub use pack::*;
 pub use query::*;
 pub use semantic::*;
 pub use store::*;
+pub use syntax::*;
 pub use tools::*;
 
 #[cfg(test)]

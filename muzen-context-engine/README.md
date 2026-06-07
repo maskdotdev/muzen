@@ -40,12 +40,15 @@ Implemented on `feat/context-engine`:
   default, embedding provider/vector-index traits are defined, semantic score is
   an additive ranking signal, and hosted embedding inputs reject restricted
   evidence unless explicitly allowed.
+- Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
+  import extraction feeds a per-index symbol graph used by `related_symbols`.
 - A runnable context-engine evaluation harness with fixture-backed recall,
   precision, token efficiency, omission, and latency summaries.
 
 Still pending from the full plan:
 
-- Parser-backed symbol/import/export graphs for Rust, TypeScript/TSX, and Python.
+- Deeper parser coverage for re-exports, aliases, method receivers, nested
+  modules/classes, and line ranges on symbol evidence.
 - Persistent feedback/learnings across process restarts and durable workspace
   storage.
 - Capability-scoped network/provider retrieval for cross-repository contracts.

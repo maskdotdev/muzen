@@ -337,8 +337,14 @@ impl ContextEngine for SnapshotContextEngine {
                             || evidence.kind == ContextEvidenceKind::FileSpan
                     })
                     .filter_map(|evidence| {
-                        related_symbol_score(evidence, &index.file_contents, &path, &terms)
-                            .map(|score| (score, evidence.clone()))
+                        related_symbol_score(
+                            evidence,
+                            &index.file_contents,
+                            &index.symbol_graph,
+                            &path,
+                            &terms,
+                        )
+                        .map(|score| (score, evidence.clone()))
                     })
                     .collect::<Vec<_>>();
                 ranked.sort_by(|(left_score, left), (right_score, right)| {
@@ -939,6 +945,7 @@ fn related_symbol_terms(
 fn related_symbol_score(
     evidence: &ContextEvidence,
     file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
+    symbol_graph: &crate::context_engine::ContextSymbolGraph,
     path: &str,
     terms: &[String],
 ) -> Option<usize> {
@@ -948,6 +955,14 @@ fn related_symbol_score(
         return Some(100);
     }
     let mut score = 0usize;
+    if let Ok(query_path) = crate::runtime::contracts::RepoPath::parse(path) {
+        if symbol_graph
+            .related_importers(&query_path)
+            .contains(evidence_path)
+        {
+            score = score.saturating_add(90);
+        }
+    }
     let summary = evidence
         .summary
         .as_deref()

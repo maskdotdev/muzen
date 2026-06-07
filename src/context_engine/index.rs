@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use crate::runtime::repo::{FileMeta, RepoSnapshot};
 use super::{
     ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextEvidenceSource,
     ContextIndexId, ContextProvenance, ContextRevision, ContextScope, ContextSensitivity,
-    ContextTrust,
+    ContextSymbolGraph, ContextTrust,
 };
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
@@ -135,6 +135,7 @@ pub struct ContextIndex {
     pub manifest_hash: String,
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
+    pub symbol_graph: ContextSymbolGraph,
     pub skips: Vec<ContextIndexSkip>,
     pub report: ContextIndexReport,
     pub manifest_artifact: ContextManifestArtifact,
@@ -147,6 +148,7 @@ impl ContextIndex {
         let snapshot = request.snapshot;
         let mut evidence = Vec::new();
         let mut file_contents = BTreeMap::new();
+        let mut symbol_graph = ContextSymbolGraph::default();
         let mut skips = Vec::new();
         let mut indexed_files = 0usize;
         let mut indexed_bytes = 0u64;
@@ -181,8 +183,10 @@ impl ContextIndex {
                         snapshot.read_bounded(file.file_id, request.limits.max_indexed_bytes)
                     {
                         if let Ok(content) = String::from_utf8(bytes) {
+                            let parsed_symbols =
+                                symbol_graph.add_file(file.rel_path.clone(), &content);
                             if file.is_changed {
-                                for symbol in extract_symbols(&content).into_iter().take(
+                                for symbol in parsed_symbols.definitions.into_iter().take(
                                     request
                                         .limits
                                         .max_evidence_items
@@ -308,6 +312,7 @@ impl ContextIndex {
             manifest_hash: snapshot.manifest_hash.clone(),
             evidence,
             file_contents,
+            symbol_graph,
             skips,
             report,
             manifest_artifact,
@@ -473,7 +478,7 @@ fn symbol_evidence(snapshot: &RepoSnapshot, file: &FileMeta, symbol: &str) -> Co
         summary: Some(format!("symbol {symbol} in {}", file.rel_path.display())),
         token_estimate: estimate_tokens(symbol.len()),
         provenance: ContextProvenance {
-            provider: "snapshot_symbol_v0".to_string(),
+            provider: "snapshot_symbol_graph_v1".to_string(),
             query: None,
             tool_call_id: None,
             snapshot_id: Some(snapshot.snapshot_id.0.clone()),
@@ -482,24 +487,6 @@ fn symbol_evidence(snapshot: &RepoSnapshot, file: &FileMeta, symbol: &str) -> Co
         created_at_utc: None,
         expires_at_utc: None,
     }
-}
-
-fn extract_symbols(content: &str) -> Vec<String> {
-    let mut symbols = BTreeSet::new();
-    for token in content
-        .split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-        .filter(|token| token.len() >= 3)
-    {
-        let starts_with_alpha = token
-            .as_bytes()
-            .first()
-            .map(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
-            .unwrap_or(false);
-        if starts_with_alpha && token.chars().any(|ch| ch == '_' || ch.is_ascii_uppercase()) {
-            symbols.insert(token.to_string());
-        }
-    }
-    symbols.into_iter().collect()
 }
 
 fn file_evidence(
