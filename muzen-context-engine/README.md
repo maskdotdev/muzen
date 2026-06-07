@@ -36,6 +36,10 @@ Implemented on `feat/context-engine`:
 - Cross-repository contract context has a provider-neutral query surface,
   host-provided evidence indexing, and explicit capability omission reporting
   when no cross-repo evidence or network/provider grant is available.
+- Optional semantic retrieval scaffolding is present: no-vector mode is the
+  default, embedding provider/vector-index traits are defined, semantic score is
+  an additive ranking signal, and hosted embedding inputs reject restricted
+  evidence unless explicitly allowed.
 - Fixture and benchmark scaffolding for context-engine evaluation.
 
 Still pending from the full plan:
@@ -44,6 +48,7 @@ Still pending from the full plan:
 - Persistent feedback/learnings across process restarts and durable workspace
   storage.
 - Capability-scoped network/provider retrieval for cross-repository contracts.
-- Optional embedding providers/vector indexes and semantic ranking.
+- Concrete local/hosted embedding provider implementations and benchmarked
+  semantic ranking improvements.
 - Full replay/evaluation suite with precision, recall, latency, redaction, and
   prompt-injection metrics.

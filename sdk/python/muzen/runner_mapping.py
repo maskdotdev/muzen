@@ -198,7 +198,7 @@ def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]
 def _context_engine_to_runner(config: Any) -> Optional[Dict[str, Any]]:
     if config is None:
         return None
-    return {
+    payload = {
         "mode": config.mode,
         "maxIndexedFiles": config.max_indexed_files,
         "maxIndexedBytes": config.max_indexed_bytes,
@@ -209,6 +209,20 @@ def _context_engine_to_runner(config: Any) -> Optional[Dict[str, Any]]:
         "includeHostContext": config.include_host_context,
         "strictEvidenceRequired": config.strict_evidence_required,
     }
+    if getattr(config, "semantic", None) is not None:
+        payload["semantic"] = _semantic_config_to_runner(config.semantic)
+    return payload
+
+
+def _semantic_config_to_runner(config: Any) -> Dict[str, Any]:
+    payload = {
+        "mode": config.mode,
+        "allowRestrictedHostedInputs": config.allow_restricted_hosted_inputs,
+        "maxEmbeddingInputs": config.max_embedding_inputs,
+    }
+    if config.provider is not None:
+        payload["provider"] = config.provider
+    return payload
 
 
 def _changed_file_paths(options: ReviewOptions) -> List[str]:

@@ -509,16 +509,28 @@ def _context_index_body(
     if host_metadata is not None:
         payload["hostMetadata"] = host_metadata
     if config is not None:
-        payload["config"] = {
-            "mode": config.mode,
-            "maxIndexedFiles": config.max_indexed_files,
-            "maxIndexedBytes": config.max_indexed_bytes,
-            "maxEvidenceItems": config.max_evidence_items,
-            "maxPackTokens": config.max_pack_tokens,
-            "maxQueryResults": config.max_query_results,
-            "includeRepositoryGuidance": config.include_repository_guidance,
-            "includeHostContext": config.include_host_context,
-            "strictEvidenceRequired": config.strict_evidence_required,
+        payload["config"] = _context_config_payload(config)
+    return payload
+
+
+def _context_config_payload(config: ContextEngineConfig) -> Dict[str, Any]:
+    payload = {
+        "mode": config.mode,
+        "maxIndexedFiles": config.max_indexed_files,
+        "maxIndexedBytes": config.max_indexed_bytes,
+        "maxEvidenceItems": config.max_evidence_items,
+        "maxPackTokens": config.max_pack_tokens,
+        "maxQueryResults": config.max_query_results,
+        "includeRepositoryGuidance": config.include_repository_guidance,
+        "includeHostContext": config.include_host_context,
+        "strictEvidenceRequired": config.strict_evidence_required,
+    }
+    if config.semantic is not None:
+        payload["semantic"] = {
+            "mode": config.semantic.mode,
+            "provider": config.semantic.provider,
+            "allowRestrictedHostedInputs": config.semantic.allow_restricted_hosted_inputs,
+            "maxEmbeddingInputs": config.semantic.max_embedding_inputs,
         }
     return payload
 

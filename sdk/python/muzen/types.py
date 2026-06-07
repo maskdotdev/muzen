@@ -156,6 +156,23 @@ ContextLearningScope = Literal[
     "workspace",
     "organization",
 ]
+ContextSemanticMode = Literal[
+    "no_vector",
+    "local",
+    "hosted",
+]
+ContextEmbeddingProviderKind = Literal[
+    "local",
+    "hosted",
+]
+
+
+@dataclass(frozen=True)
+class ContextSemanticConfig:
+    mode: ContextSemanticMode
+    allow_restricted_hosted_inputs: bool
+    max_embedding_inputs: int
+    provider: Optional[ContextEmbeddingProviderKind] = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +186,7 @@ class ContextEngineConfig:
     include_repository_guidance: bool
     include_host_context: bool
     strict_evidence_required: bool
+    semantic: Optional[ContextSemanticConfig] = None
 
 
 @dataclass(frozen=True)

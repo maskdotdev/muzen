@@ -357,6 +357,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             "ContextEngineConfig",
             vec![
                 required("mode", "ContextEngineMode"),
+                optional("semantic", "ContextSemanticConfig"),
                 required("maxIndexedFiles", "integer"),
                 required("maxIndexedBytes", "integer"),
                 required("maxEvidenceItems", "integer"),
@@ -368,6 +369,20 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             ],
         ),
         enum_definition("ContextEngineMode", vec!["disabled", "snapshot_v0"]),
+        object(
+            "ContextSemanticConfig",
+            vec![
+                required("mode", "ContextSemanticMode"),
+                optional("provider", "ContextEmbeddingProviderKind"),
+                defaulted("allowRestrictedHostedInputs", "boolean", "false"),
+                required("maxEmbeddingInputs", "integer"),
+            ],
+        ),
+        enum_definition(
+            "ContextSemanticMode",
+            vec!["no_vector", "local", "hosted"],
+        ),
+        enum_definition("ContextEmbeddingProviderKind", vec!["local", "hosted"]),
         object(
             "RunHeartbeatConfigParams",
             vec![

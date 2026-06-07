@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::runtime::contracts::{stable_id, EvidenceId, RuntimeError, RuntimeResult, SnapshotId};
 
+use super::semantic_score_for_purpose;
 use super::{
     ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
     ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
@@ -211,7 +212,7 @@ impl ContextEngine for SnapshotContextEngine {
         let index = self.store.get_index(&request.snapshot_id).ok_or_else(|| {
             RuntimeError::InvalidInput("context index not found for snapshot".to_string())
         })?;
-        let mut ranked = rank_for_purpose(&index.evidence, request.purpose);
+        let mut ranked = rank_for_purpose(&index.evidence, request.purpose, &self.config);
         let mut used_tokens = 0usize;
         let mut selected = Vec::new();
         let mut omitted_candidates = Vec::new();
@@ -555,7 +556,7 @@ impl ContextEngine for SnapshotContextEngine {
                     .map(|evidence| {
                         serde_json::json!({
                             "evidenceId": evidence.id.0,
-                            "score": score_for_purpose(evidence, pack.purpose),
+                            "score": score_for_purpose(evidence, pack.purpose, &self.config),
                             "why": explain_selected_evidence(evidence, pack.purpose),
                         })
                     })
@@ -682,11 +683,12 @@ fn trust_rank(trust: super::ContextTrust) -> u8 {
 fn rank_for_purpose(
     evidence: &[ContextEvidence],
     purpose: ContextPackPurpose,
+    config: &ContextEngineConfig,
 ) -> Vec<(f32, ContextEvidence)> {
     let mut ranked = evidence
         .iter()
         .cloned()
-        .map(|evidence| (score_for_purpose(&evidence, purpose), evidence))
+        .map(|evidence| (score_for_purpose(&evidence, purpose, config), evidence))
         .collect::<Vec<_>>();
     ranked.sort_by(|(left_score, left), (right_score, right)| {
         right_score
@@ -697,7 +699,11 @@ fn rank_for_purpose(
     ranked
 }
 
-fn score_for_purpose(evidence: &ContextEvidence, purpose: ContextPackPurpose) -> f32 {
+fn score_for_purpose(
+    evidence: &ContextEvidence,
+    purpose: ContextPackPurpose,
+    config: &ContextEngineConfig,
+) -> f32 {
     let changed_bonus = evidence
         .summary
         .as_ref()
@@ -716,7 +722,10 @@ fn score_for_purpose(evidence: &ContextEvidence, purpose: ContextPackPurpose) ->
         (_, ContextEvidenceKind::FileSpan) => 0.2,
         _ => 0.05,
     };
-    changed_bonus + kind_bonus + token_efficiency_bonus(evidence.token_estimate)
+    changed_bonus
+        + kind_bonus
+        + token_efficiency_bonus(evidence.token_estimate)
+        + semantic_score_for_purpose(config, evidence, purpose)
 }
 
 fn token_efficiency_bonus(tokens: usize) -> f32 {
