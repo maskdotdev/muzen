@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -9,47 +8,23 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::contracts::{
-    AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, ToolCallingMode,
-};
-use crate::review_session::ReviewSource;
-use crate::reviewer::adapters::{capabilities, ids::ToolId, paths, runtime};
 use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
 use crate::reviewer::report::{ReviewRunSummary, RunReport};
 use crate::reviewer::run::Run;
 use crate::reviewer::runtime_events::EventSink as RuntimeEventSink;
-use crate::reviewer::snapshots::{
-    ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
-    SnapshotPathPolicy, SnapshotSpec,
-};
-use crate::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
-use crate::reviewer::tools::ReviewToolRegistry;
-use crate::runtime::contracts::RuntimeError;
-use crate::runtime::contracts::{ProviderResourceId, SessionInstruction, ToolEffects};
-use crate::runtime::model::{
-    CredentialResolver, EnvCredentialResolver, ModelLimiter, ProfileModelRouter,
-};
-use crate::runtime::policy::ReviewerPolicy;
-use crate::runtime::tools::ToolRegistry as RuntimeToolRegistry;
+use crate::runtime::contracts::ToolEffects;
 
-#[cfg(test)]
-use super::adapters::TestRunnerModel;
-use super::adapters::{CallbackReviewModel, CallbackReviewTool, StreamingRunnerEventSink};
-use super::materialize::materialize_run_source;
+use super::adapters::StreamingRunnerEventSink;
+use super::planning::plan_run_start;
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
-    RunChangeParams, RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult,
-    RunInstructionParams, RunModelCredentialParams, RunModelParams, RunModelProfileParams,
-    RunSessionParams, RunStartParams, RunToolParams, RunnerFileReview, RunnerFinding,
-    RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult, RunnerRunSummary,
-    RunnerSecretResolveParams, RunnerSecretResolveResult, RunnerSnapshotSummary,
+    RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
+    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult,
+    RunnerRunSummary, RunnerSnapshotSummary,
 };
+use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
-
-const LARGE_REVIEW_BATCH_THRESHOLD: usize = 8;
-const LARGE_REVIEW_BATCH_SIZE: usize = 4;
-const LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS: usize = 4;
 
 pub(crate) struct ExecutedRun {
     pub(crate) result: RunnerRunResult,
@@ -67,131 +42,32 @@ pub(crate) fn execute_run_start(
             anyhow::bail!("unsupported protocolVersion {protocol_version}");
         }
     }
-    let run_id = params.run_id.unwrap_or_else(|| "muzen-run".to_string());
-    let metadata = params.metadata.clone();
     let heartbeat = start_heartbeat(
-        &run_id,
+        params.run_id.as_deref().unwrap_or("muzen-run"),
         params.heartbeat.as_ref(),
         transport.clone(),
         cancel.clone(),
     )?;
-    let requested_changed_files =
-        runner_changed_files(&params.changed_files, params.change.as_ref());
-    let materialized = materialize_run_source(
-        params.repo.as_deref(),
-        params.source.as_ref(),
-        &requested_changed_files,
-        params.source_provider.as_ref(),
-        transport.as_ref(),
-    )?;
-    let repo_root = materialized.repo_root().to_path_buf();
-    let target_path = select_target_path(&repo_root, materialized.changed_files())?;
-    #[cfg(not(test))]
-    let _ = &target_path;
-    let changed_files = changed_file_specs(
-        &repo_root,
-        materialized.changed_files(),
-        params.change.as_ref(),
-    );
-    let change = runner_change_spec(
-        params.source.as_ref(),
-        params.change.as_ref(),
-        changed_files,
-        materialized.inline_diff(),
-        &run_id,
-    );
-    let max_file_bytes = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_file_bytes)
-        .unwrap_or(200 * 1024);
-    let max_search_matches = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_search_matches)
-        .unwrap_or(120);
-    let explicit_max_active_sessions = params
-        .limits
-        .as_ref()
-        .and_then(|limits| limits.max_active_sessions);
-    let max_active_sessions = default_max_active_sessions(
-        params.sessions.len(),
-        change.changed_files.len(),
-        explicit_max_active_sessions,
-    );
-    let sessions = if params.sessions.is_empty() {
-        vec![RunSessionParams {
-            id: "generalist".to_string(),
-            role: Role::Generalist,
-            objective: "Review the repository change.".to_string(),
-            cwd: None,
-            model_profile_id: None,
-            instructions: Vec::new(),
-            tool_grants: Vec::new(),
-            budget: None,
-        }]
-    } else {
-        params.sessions
-    };
-    let sessions =
-        expand_sessions_for_changed_file_batches(sessions, change.changed_files.as_slice());
-    let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
-        SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
-    );
-    let global_instructions = params.instructions.clone();
-    let callback_tools = params
-        .tools
-        .iter()
-        .map(CallbackToolGrant::from_tool_params)
-        .collect::<Result<Vec<_>>>()?;
-    let session_specs = sessions
-        .into_iter()
-        .map(|session| run_session_spec(session, &callback_tools, &global_instructions))
-        .collect::<Result<Vec<_>>>()?;
-    let limits = ReviewRunLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
-    let spec = RunSpec::single_snapshot(run_id.clone(), snapshot, session_specs, limits);
+    let model = params.model.clone();
+    let tools = params.tools.clone();
+    let plan = plan_run_start(params, transport.as_ref())?;
+    let model = model.ok_or_else(|| {
+        anyhow::anyhow!("run requires a model; pass a callback or hosted provider model")
+    })?;
     let event_sink = Arc::new(RecordingReviewEventSink::default());
     let streaming_sink = transport.as_ref().map(|transport| {
         Arc::new(StreamingRunnerEventSink::new(transport.clone())) as Arc<dyn RuntimeEventSink>
     });
-    let reviewer_policy = Arc::new(ReviewerPolicy::new());
-    let tool_registry = runner_tool_registry(&run_id, &params.tools, transport.clone())?;
-    let mut builder = Run::builder(spec);
-    let model = params.model.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("run requires a model; pass a callback or hosted provider model")
-    })?;
-    if model.callback {
-        let transport = transport
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("callback model requires interactive stdio"))?;
-        builder = builder.review_model(Arc::new(CallbackReviewModel::new(
-            run_id.clone(),
-            transport,
-        )));
-    } else if !model.model_profiles.is_empty() {
-        let router = hosted_model_router(
-            model,
-            max_active_sessions,
-            Arc::clone(&tool_registry),
-            Arc::clone(&reviewer_policy),
-            transport.clone(),
-        )
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
-        builder = builder.model_router(Arc::new(router));
-    } else {
+    let wiring = RunnerWiring::new(&plan.run_id, &tools, transport.clone())?;
+    let builder = wiring.wire_model(
+        Run::builder(plan.spec),
+        &plan.run_id,
+        &model,
+        plan.max_active_sessions,
+        transport.clone(),
         #[cfg(test)]
-        {
-            builder = builder.review_model(Arc::new(TestRunnerModel::new(
-                target_path,
-                "TODO|fn|class|export|pub".to_string(),
-            )));
-        }
-        #[cfg(not(test))]
-        anyhow::bail!("run model must be callback or hosted provider model");
-    }
-    builder = builder
-        .shared_tool_registry(tool_registry)
-        .reviewer_policy(reviewer_policy);
+        plan.target_path,
+    )?;
     let run = if let Some(streaming_sink) = streaming_sink {
         builder.event_sink(streaming_sink).build()
     } else {
@@ -204,7 +80,7 @@ pub(crate) fn execute_run_start(
         .context("failed to build runner tokio runtime")?;
     let report = runtime.block_on(run.execute_with_cancel(cancel));
     heartbeat.stop();
-    let result = runner_result_from_report(&report, metadata);
+    let result = runner_result_from_report(&report, plan.metadata);
     let stored = RunnerStoredRun::from_report(&report, result.clone());
     Ok(ExecutedRun {
         result,
@@ -279,373 +155,6 @@ fn start_heartbeat(
     Ok(HeartbeatGuard { stop })
 }
 
-fn runner_tool_registry(
-    run_id: &str,
-    tools: &[RunToolParams],
-    transport: Option<Arc<dyn RunnerCallbackTransport>>,
-) -> Result<Arc<RuntimeToolRegistry>> {
-    let mut registry = ReviewToolRegistry::review_defaults()
-        .map_err(|error| anyhow::anyhow!("failed to create review tool registry: {error}"))?;
-    if !tools.is_empty() {
-        let transport =
-            transport.ok_or_else(|| anyhow::anyhow!("callback tools require interactive stdio"))?;
-        for tool in tools {
-            let provider_resources = parse_provider_resources(&tool.provider_resources)?;
-            let effects = parse_tool_effects(&tool.effects)?;
-            registry
-                .register_scoped_tool_with_effects(
-                    &tool.id,
-                    tool.description.clone(),
-                    tool.parameters.clone(),
-                    tool.cacheable,
-                    provider_resources,
-                    effects,
-                    Arc::new(CallbackReviewTool::new(
-                        run_id.to_string(),
-                        transport.clone(),
-                    )),
-                )
-                .map_err(|error| {
-                    anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
-                })?;
-        }
-    }
-    Ok(Arc::new(registry.into_tool_registry()))
-}
-
-fn hosted_model_router(
-    model: &RunModelParams,
-    max_active_sessions: usize,
-    tool_registry: Arc<RuntimeToolRegistry>,
-    reviewer_policy: Arc<ReviewerPolicy>,
-    transport: Option<Arc<dyn RunnerCallbackTransport>>,
-) -> runtime::RuntimeResult<ProfileModelRouter> {
-    let profiles = model
-        .model_profiles
-        .iter()
-        .map(model_profile_ref)
-        .collect::<runtime::RuntimeResult<Vec<_>>>()?;
-    let default_profile_id = model
-        .default_model_profile_id
-        .clone()
-        .or_else(|| profiles.first().map(|profile| profile.id.clone()))
-        .ok_or_else(|| RuntimeError::InvalidInput("hosted model requires a profile".to_string()))?;
-    let base_url = hosted_model_base_url(model, &default_profile_id)?;
-    ProfileModelRouter::from_profiles(
-        &profiles,
-        default_profile_id,
-        base_url,
-        Arc::new(ModelLimiter::new_with_per_key(
-            max_active_sessions.max(1),
-            max_active_sessions.max(1),
-        )),
-        tool_registry,
-        reviewer_policy,
-        Arc::new(RunnerCredentialResolver::new(transport)),
-    )
-}
-
-fn hosted_model_base_url(
-    model: &RunModelParams,
-    default_profile_id: &str,
-) -> runtime::RuntimeResult<String> {
-    let mut configured_base_url: Option<&str> = None;
-    for profile in &model.model_profiles {
-        let Some(base_url) = profile
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-        if let Some(existing) = configured_base_url {
-            if existing != base_url {
-                return Err(RuntimeError::InvalidInput(
-                    "runner v1 hosted model profiles must share one baseUrl".to_string(),
-                ));
-            }
-        }
-        configured_base_url = Some(base_url);
-    }
-    Ok(configured_base_url
-        .map(ToString::to_string)
-        .or_else(|| {
-            model
-                .model_profiles
-                .iter()
-                .find(|profile| profile.id == default_profile_id)
-                .and_then(|profile| profile.base_url.clone())
-        })
-        .or_else(|| {
-            std::env::var("OAI_BASE_URL")
-                .or_else(|_| std::env::var("OPENAI_BASE_URL"))
-                .ok()
-        })
-        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()))
-}
-
-fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
-    let provider_kind = match params.provider.as_str() {
-        "openai" | "openai_compatible" => ProviderKind::OpenaiCompatible,
-        unknown => {
-            return Err(RuntimeError::InvalidInput(format!(
-                "unsupported model provider {unknown}"
-            )))
-        }
-    };
-    let api_protocol = match params.api_protocol.as_deref().unwrap_or("responses") {
-        "responses" => ModelApiProtocol::Responses,
-        "chat_completions" => ModelApiProtocol::ChatCompletions,
-        unknown => {
-            return Err(RuntimeError::InvalidInput(format!(
-                "unsupported model apiProtocol {unknown}"
-            )))
-        }
-    };
-    Ok(ModelProfileRefV1 {
-        id: params.id.clone(),
-        provider_kind,
-        api_protocol,
-        provider_profile_id: params.provider.clone(),
-        credential_ref: credential_ref(params.credential.as_ref())?,
-        model: params.model.clone(),
-        max_input_tokens: params.max_input_tokens.unwrap_or(128_000),
-        max_output_tokens: params.max_output_tokens.unwrap_or(8_000),
-        tool_calling_mode: ToolCallingMode::Auto,
-        temperature: params.temperature,
-        top_p: params.top_p,
-    })
-}
-
-fn credential_ref(credential: Option<&RunModelCredentialParams>) -> runtime::RuntimeResult<String> {
-    let Some(credential) = credential else {
-        return Ok("env:OPENAI_API_KEY".to_string());
-    };
-    match (
-        credential
-            .env
-            .as_deref()
-            .filter(|value| !value.trim().is_empty()),
-        credential
-            .secret_ref
-            .as_deref()
-            .filter(|value| !value.trim().is_empty()),
-    ) {
-        (Some(env), None) => Ok(format!("env:{}", env.trim())),
-        (None, Some(secret_ref)) => Ok(format!("secret:{}", secret_ref.trim())),
-        _ => Err(RuntimeError::InvalidInput(
-            "model credential must be exactly one of env or secretRef".to_string(),
-        )),
-    }
-}
-
-struct RunnerCredentialResolver {
-    transport: Option<Arc<dyn RunnerCallbackTransport>>,
-    env: EnvCredentialResolver,
-}
-
-impl RunnerCredentialResolver {
-    fn new(transport: Option<Arc<dyn RunnerCallbackTransport>>) -> Self {
-        Self {
-            transport,
-            env: EnvCredentialResolver,
-        }
-    }
-}
-
-impl CredentialResolver for RunnerCredentialResolver {
-    fn resolve_credential(&self, credential_ref: &str) -> runtime::RuntimeResult<String> {
-        let Some(secret_ref) = credential_ref.strip_prefix("secret:") else {
-            return self.env.resolve_credential(credential_ref);
-        };
-        let transport = self.transport.as_ref().ok_or_else(|| {
-            RuntimeError::InvalidInput(
-                "model credential secretRef requires interactive stdio".to_string(),
-            )
-        })?;
-        let params = RunnerSecretResolveParams {
-            protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
-            ref_name: secret_ref.to_string(),
-        };
-        let value = transport
-            .request("secret.resolve", json!(params))
-            .map_err(|_| {
-                RuntimeError::InvalidInput("model credential is unavailable".to_string())
-            })?;
-        let result = serde_json::from_value::<RunnerSecretResolveResult>(value)
-            .map_err(|_| RuntimeError::InvalidInput("invalid secret.resolve result".to_string()))?;
-        if result.value.is_empty() {
-            return Err(RuntimeError::InvalidInput(
-                "model credential is unavailable".to_string(),
-            ));
-        }
-        Ok(result.value)
-    }
-}
-
-fn expand_sessions_for_changed_file_batches(
-    sessions: Vec<RunSessionParams>,
-    changed_files: &[ChangedFileSpec],
-) -> Vec<RunSessionParams> {
-    if changed_files.len() <= LARGE_REVIEW_BATCH_THRESHOLD {
-        return sessions;
-    }
-
-    let batch_paths = changed_files
-        .iter()
-        .filter_map(changed_file_review_path)
-        .collect::<Vec<_>>();
-    if batch_paths.len() <= LARGE_REVIEW_BATCH_THRESHOLD {
-        return sessions;
-    }
-
-    let total_batches = batch_paths.len().div_ceil(LARGE_REVIEW_BATCH_SIZE);
-    let mut expanded = Vec::with_capacity(sessions.len() * total_batches);
-    for session in sessions {
-        for (batch_index, batch) in batch_paths.chunks(LARGE_REVIEW_BATCH_SIZE).enumerate() {
-            let batch_number = batch_index + 1;
-            let mut batched = session.clone();
-            batched.id = format!("{}-batch-{batch_number:02}", session.id);
-            batched.objective = format!(
-                "{} Focus on changed-file batch {batch_number}/{total_batches}.",
-                session.objective
-            );
-            batched.instructions.push(RunInstructionParams {
-                kind: "changed_file_batch".to_string(),
-                trusted: true,
-                text: changed_file_batch_instruction(batch_number, total_batches, batch),
-            });
-            expanded.push(batched);
-        }
-    }
-    expanded
-}
-
-fn default_max_active_sessions(
-    requested_session_count: usize,
-    changed_file_count: usize,
-    explicit: Option<usize>,
-) -> usize {
-    if let Some(explicit) = explicit {
-        return explicit.max(1);
-    }
-    if changed_file_count > LARGE_REVIEW_BATCH_THRESHOLD {
-        return LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS;
-    }
-    requested_session_count.max(1)
-}
-
-fn changed_file_review_path(file: &ChangedFileSpec) -> Option<String> {
-    file.new_path
-        .as_ref()
-        .or(file.old_path.as_ref())
-        .map(|path| path.to_string_lossy().into_owned())
-}
-
-fn changed_file_batch_instruction(
-    batch_number: usize,
-    total_batches: usize,
-    batch: &[String],
-) -> String {
-    let files = batch
-        .iter()
-        .enumerate()
-        .map(|(index, path)| format!("{}. {}", index + 1, path))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "Changed-file batch {batch_number}/{total_batches} ({count} files):\n{files}\n\nReview these changed files first. For each file in this batch, read the diff and inspect the file directly unless the file no longer exists or direct file inspection is impossible. For every changed hunk, identify the changed behavior, the input/state that reaches it, and the nearest caller, test, template, or contract needed to judge it. Continue reviewing all assigned files after recording a finding; one finding is not a stopping condition. You may inspect related files outside the batch when needed. Do not call finish until this batch has concrete diff, file, and search evidence, and call out any batch file you could not inspect.",
-        count = batch.len()
-    )
-}
-
-fn run_session_spec(
-    params: RunSessionParams,
-    callback_tools: &[CallbackToolGrant],
-    global_instructions: &[RunInstructionParams],
-) -> Result<ReviewSessionSpec> {
-    let budget = params.budget.map_or(
-        AgentBudget {
-            max_turns: 7,
-            max_tool_calls: 14,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-        },
-        |budget| AgentBudget {
-            max_turns: budget.max_turns,
-            max_tool_calls: budget.max_tool_calls,
-            max_prompt_tokens: budget.max_prompt_tokens,
-            max_output_tokens: budget.max_output_tokens,
-        },
-    );
-    let session_id = params.id.clone();
-    let mut spec =
-        ReviewSessionSpec::review_read_only(params.id, params.role, params.objective, budget);
-    let instructions = global_instructions
-        .iter()
-        .chain(params.instructions.iter())
-        .map(runner_instruction)
-        .collect::<Vec<_>>();
-    if !instructions.is_empty() {
-        spec = spec.with_instructions(instructions);
-    }
-    if let Some(model_profile_id) = params.model_profile_id {
-        spec = spec.with_model_profile_id(model_profile_id);
-    }
-    if let Some(cwd) = params.cwd {
-        let repo_path = paths::RepoPath::parse(&cwd).map_err(|error| anyhow::anyhow!("{error}"))?;
-        let capabilities = capabilities::CapabilitySet::review_read_only()
-            .with_fs_scope(capabilities::FsScope::subtree(repo_path));
-        spec = spec.with_capabilities(capabilities);
-    }
-    let granted_tools = if params.tool_grants.is_empty() {
-        callback_tools.iter().collect::<Vec<_>>()
-    } else {
-        let mut granted_tools = Vec::new();
-        for grant in &params.tool_grants {
-            let grant_id = ToolId::parse(grant).map_err(|error| anyhow::anyhow!("{error}"))?;
-            let tool = callback_tools
-                .iter()
-                .find(|tool| tool.id == grant_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("session {session_id} grants unknown callback tool {grant}")
-                })?;
-            granted_tools.push(tool);
-        }
-        granted_tools
-    };
-    for tool in granted_tools {
-        spec = if tool.provider_resources.is_empty() {
-            spec.grant_custom_tool_with_effects(tool.id.clone(), tool.effects)
-        } else {
-            spec.grant_custom_tool_with_effects_for_resources(
-                tool.id.clone(),
-                tool.provider_resources.clone(),
-                tool.effects,
-            )
-        };
-    }
-    Ok(spec)
-}
-
-#[derive(Debug, Clone)]
-struct CallbackToolGrant {
-    id: ToolId,
-    provider_resources: Vec<ProviderResourceId>,
-    effects: ToolEffects,
-}
-
-impl CallbackToolGrant {
-    fn from_tool_params(tool: &RunToolParams) -> Result<Self> {
-        Ok(Self {
-            id: ToolId::parse(&tool.id).map_err(|error| anyhow::anyhow!("{error}"))?,
-            provider_resources: parse_provider_resources(&tool.provider_resources)?,
-            effects: parse_tool_effects(&tool.effects)?,
-        })
-    }
-}
-
 fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
     if effects.is_empty() {
         return Ok(ToolEffects::custom_read_only());
@@ -667,38 +176,6 @@ fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
         }
     }
     Ok(parsed)
-}
-
-fn parse_provider_resources(resources: &[String]) -> Result<Vec<ProviderResourceId>> {
-    resources
-        .iter()
-        .map(|resource| {
-            ProviderResourceId::parse(resource).map_err(|error| anyhow::anyhow!("{error}"))
-        })
-        .collect()
-}
-
-fn runner_instruction(instruction: &RunInstructionParams) -> SessionInstruction {
-    SessionInstruction {
-        kind: instruction.kind.clone(),
-        text: instruction.text.clone(),
-        trusted: instruction.trusted,
-    }
-}
-
-fn runner_changed_files(changed_files: &[String], change: Option<&RunChangeParams>) -> Vec<String> {
-    if !changed_files.is_empty() {
-        return changed_files.to_vec();
-    }
-    change
-        .map(|change| {
-            change
-                .changed_files
-                .iter()
-                .map(|file| file.path.clone())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn runner_result_from_report(
@@ -923,140 +400,6 @@ fn summary_status(summary: &RunnerRunSummary) -> String {
     }
 }
 
-fn changed_file_specs(
-    repo_root: &Path,
-    changed_files: &[String],
-    change: Option<&RunChangeParams>,
-) -> Vec<ChangedFileSpec> {
-    if let Some(change) = change {
-        let files = change
-            .changed_files
-            .iter()
-            .map(|file| changed_file_spec(&file.path, file.status.as_deref()))
-            .collect::<Vec<_>>();
-        if !files.is_empty() {
-            return files;
-        }
-    }
-    changed_files
-        .iter()
-        .filter(|path| repo_root.join(path).is_file())
-        .cloned()
-        .map(|path| changed_file_spec(&path, None))
-        .collect()
-}
-
-fn runner_change_spec(
-    source: Option<&ReviewSource>,
-    change: Option<&RunChangeParams>,
-    changed_files: Vec<ChangedFileSpec>,
-    materialized_inline_diff: Option<&str>,
-    run_id: &str,
-) -> ChangeSpec {
-    let Some(change) = change else {
-        let mut spec = ChangeSpec::local("sdk-run", "head", changed_files);
-        spec.inline_diff = materialized_inline_diff.map(ToOwned::to_owned);
-        return spec;
-    };
-    ChangeSpec {
-        kind: runner_change_kind(source),
-        change_id: change
-            .review_target
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| format!("{}:{run_id}", change.kind)),
-        source_ref: change
-            .head_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "head".to_string()),
-        target_ref: change
-            .base_revision
-            .clone()
-            .or_else(|| change.start_revision.clone())
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "base".to_string()),
-        base_revision_id: change
-            .base_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "base".to_string()),
-        head_revision_id: change
-            .head_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "head".to_string()),
-        merge_base_revision_id: change
-            .start_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty()),
-        inline_diff: change
-            .diff
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| materialized_inline_diff.map(ToOwned::to_owned)),
-        snapshot_mode: SnapshotMode::WorktreeHead,
-        rename_detection: RenameDetection::None,
-        changed_files,
-    }
-}
-
-fn runner_change_kind(source: Option<&ReviewSource>) -> ChangeKind {
-    match source {
-        Some(ReviewSource::GithubPullRequest { .. }) => ChangeKind::PullRequest,
-        Some(ReviewSource::GitlabMergeRequest { .. }) => ChangeKind::MergeRequest,
-        _ => ChangeKind::LocalDiff,
-    }
-}
-
-fn changed_file_spec(path: &str, status: Option<&str>) -> ChangedFileSpec {
-    let status = match status.map(|status| status.to_ascii_lowercase()) {
-        Some(status) if matches!(status.as_str(), "added" | "add" | "a") => {
-            ChangedFileStatus::Added
-        }
-        Some(status) if matches!(status.as_str(), "deleted" | "delete" | "removed" | "d") => {
-            ChangedFileStatus::Deleted
-        }
-        Some(status) if matches!(status.as_str(), "renamed" | "rename" | "r") => {
-            ChangedFileStatus::Renamed
-        }
-        Some(status) if matches!(status.as_str(), "copied" | "copy" | "c") => {
-            ChangedFileStatus::Copied
-        }
-        Some(status) if matches!(status.as_str(), "type_changed" | "typechanged" | "t") => {
-            ChangedFileStatus::TypeChanged
-        }
-        _ => ChangedFileStatus::Modified,
-    };
-    let path = std::path::PathBuf::from(path);
-    ChangedFileSpec {
-        old_path: if status == ChangedFileStatus::Added {
-            None
-        } else {
-            Some(path.clone())
-        },
-        new_path: if status == ChangedFileStatus::Deleted {
-            None
-        } else {
-            Some(path)
-        },
-        status,
-        old_content_hash: None,
-        new_content_hash: None,
-        is_binary: false,
-        is_generated: false,
-    }
-}
-
-fn select_target_path(repo_root: &Path, changed_files: &[String]) -> Result<String> {
-    for path in changed_files {
-        if repo_root.join(path).is_file() {
-            return Ok(path.clone());
-        }
-    }
-    anyhow::bail!("run requires at least one changed file that exists in the materialized worktree")
-}
-
 #[derive(Default)]
 struct RecordingReviewEventSink {
     records: std::sync::Mutex<Vec<ReviewEventRecord>>,
@@ -1132,49 +475,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_small_reviews_as_single_sessions() {
-        let sessions = vec![test_session("correctness")];
-        let changed_files = (0..LARGE_REVIEW_BATCH_THRESHOLD)
-            .map(|index| ChangedFileSpec::modified(format!("src/file_{index}.rs")))
-            .collect::<Vec<_>>();
-
-        let expanded = expand_sessions_for_changed_file_batches(sessions, &changed_files);
-
-        assert_eq!(expanded.len(), 1);
-        assert_eq!(expanded[0].id, "correctness");
-        assert!(expanded[0].instructions.is_empty());
-    }
-
-    #[test]
-    fn defaults_large_reviews_to_four_active_sessions() {
-        assert_eq!(
-            default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, None),
-            4
-        );
-    }
-
-    #[test]
-    fn keeps_small_review_default_session_parallelism() {
-        assert_eq!(
-            default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD, None),
-            2
-        );
-        assert_eq!(default_max_active_sessions(0, 1, None), 1);
-    }
-
-    #[test]
-    fn explicit_max_active_sessions_overrides_large_review_default() {
-        assert_eq!(
-            default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(3)),
-            3
-        );
-        assert_eq!(
-            default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(0)),
-            1
-        );
-    }
-
-    #[test]
     fn dedupes_unawaited_async_iteration_cleanup_findings() {
         let findings = dedupe_runner_findings(vec![
             test_finding(
@@ -1198,19 +498,6 @@ mod tests {
             findings[0].discovered_by,
             vec!["session-finding-a", "session-finding-b"]
         );
-    }
-
-    fn test_session(id: &str) -> RunSessionParams {
-        RunSessionParams {
-            id: id.to_string(),
-            role: Role::Generalist,
-            objective: "Review the change.".to_string(),
-            cwd: None,
-            model_profile_id: None,
-            instructions: Vec::new(),
-            tool_grants: Vec::new(),
-            budget: None,
-        }
     }
 
     fn test_finding(id: &str, title: &str, claim: &str, path: &str) -> RunnerFinding {

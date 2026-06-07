@@ -1,14 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
-use moka::future::Cache;
-use parking_lot::Mutex;
 use serde_json::json;
-use tokio::sync::{Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{ByteRangeV1, EvidenceLocationV1, EvidenceRefV1, FindingV1, ToolName};
@@ -18,6 +15,8 @@ use crate::runtime::repo::RepoSnapshot;
 use crate::util::redaction_none;
 
 use super::authorization::ToolAuthorizer;
+use super::cache::ToolResultCache;
+use super::dispatch::ToolProviderDispatcher;
 use super::metrics::{ConcurrentAtomicCounters, ConcurrentToolMetricsStore};
 use super::provider::{
     BuiltinReviewToolProvider, InProcessToolProvider, JsonRpcToolProvider, ToolProvider,
@@ -41,20 +40,12 @@ pub(crate) struct ToolEngine {
     pub(crate) registry: Arc<ToolRegistry>,
     pub(crate) limits: Arc<RuntimeLimits>,
     pub(crate) redactor: Arc<Redactor>,
-    result_cache: Cache<String, Arc<ToolResultEnvelope>>,
-    inflight: Mutex<HashMap<String, Arc<InflightToolResult>>>,
+    result_cache: ToolResultCache,
     read_permits: Arc<Semaphore>,
     authorizer: ToolAuthorizer,
-    provider_permits: DashMap<String, Arc<Semaphore>>,
-    providers: Vec<Arc<dyn ToolProvider>>,
+    dispatcher: ToolProviderDispatcher,
     pub(crate) counters: Arc<ConcurrentAtomicCounters>,
     pub(crate) metrics: Arc<ConcurrentToolMetricsStore>,
-}
-
-#[derive(Debug, Default)]
-struct InflightToolResult {
-    result: TokioMutex<Option<Arc<ToolResultEnvelope>>>,
-    notify: Notify,
 }
 
 impl ToolEngine {
@@ -103,12 +94,10 @@ impl ToolEngine {
             read,
             search,
             registry,
-            result_cache: Cache::new(limits.search_result_cache_bytes.max(1)),
-            inflight: Mutex::new(HashMap::new()),
+            result_cache: ToolResultCache::new(limits.search_result_cache_bytes),
             read_permits: Arc::new(Semaphore::new(limits.max_read_concurrency_global.max(1))),
             authorizer: ToolAuthorizer::new(),
-            provider_permits: DashMap::new(),
-            providers,
+            dispatcher: ToolProviderDispatcher::new(providers, Arc::clone(&limits)),
             limits,
             redactor,
             counters,
@@ -353,63 +342,18 @@ impl ToolEngine {
         invocation: ToolInvocation,
         cancel: CancellationToken,
     ) -> ToolResultEnvelope {
-        if let Some(hit) = self.result_cache.get(&key).await {
-            self.counters
-                .artifact_cache_hits
-                .fetch_add(1, Ordering::Relaxed);
-            return hit.for_call(invocation.call_id, invocation.tool_id, CacheStatus::Hit);
-        }
-        let (cell, owner) = {
-            let mut inflight = self.inflight.lock();
-            if let Some(cell) = inflight.get(&key) {
-                (Arc::clone(cell), false)
-            } else {
-                let cell = Arc::new(InflightToolResult::default());
-                inflight.insert(key.clone(), Arc::clone(&cell));
-                (cell, true)
-            }
-        };
-        if owner {
-            let result = Arc::new(
-                self.compute_uncached(invocation.clone(), cancel, CacheStatus::Miss)
-                    .await,
-            );
-            *cell.result.lock().await = Some(Arc::clone(&result));
-            cell.notify.notify_waiters();
-            if result.ok {
-                self.result_cache
-                    .insert(key.clone(), Arc::clone(&result))
-                    .await;
-            }
-            self.inflight.lock().remove(&key);
-            result.as_ref().clone()
-        } else {
-            self.counters.search_dedupe_waiters.fetch_add(
-                (invocation.builtin_name == Some(ToolName::SearchText)) as usize,
-                Ordering::Relaxed,
-            );
-            loop {
-                if let Some(result) = cell.result.lock().await.clone() {
-                    return result.for_call(
-                        invocation.call_id,
-                        invocation.tool_id,
-                        CacheStatus::Deduped,
-                    );
-                }
-                tokio::select! {
-                    _ = cancel.cancelled() => {
-                        return self.error_result(
-                            invocation.call_id,
-                            invocation.tool_id,
-                            ToolErrorCode::Cancelled,
-                            "operation cancelled",
-                            true,
-                        );
-                    }
-                    _ = cell.notify.notified() => {}
-                }
-            }
-        }
+        self.result_cache
+            .execute(
+                key,
+                invocation,
+                cancel,
+                self.counters.as_ref(),
+                self.snapshot.snapshot_id.clone(),
+                |invocation, cancel, cache_status| {
+                    self.compute_uncached(invocation, cancel, cache_status)
+                },
+            )
+            .await
     }
 
     async fn compute_uncached(
@@ -418,77 +362,9 @@ impl ToolEngine {
         cancel: CancellationToken,
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
-        let call_id = invocation.call_id.clone();
-        let tool_id = invocation.tool_id.clone();
-        let Some(definition) = self.registry.definition(&tool_id) else {
-            return self.error_result(
-                call_id,
-                tool_id,
-                ToolErrorCode::UnknownTool,
-                "tool is not registered",
-                false,
-            );
-        };
-        let Some(provider) = self
-            .providers
-            .iter()
-            .find(|provider| provider.accepts(definition))
-        else {
-            return self.error_result(
-                call_id,
-                tool_id,
-                ToolErrorCode::UnknownTool,
-                "tool has no provider",
-                false,
-            );
-        };
-        let provider_id = provider.id();
-        let timeout = Duration::from_millis(self.limits.max_tool_provider_ms.max(1));
-        let queue_started = Instant::now();
-        let permit = match self.acquire_provider_permit(&provider_id, timeout).await {
-            Ok(permit) => permit,
-            Err(error) => {
-                let mut result = self.runtime_error_result(call_id, tool_id, error);
-                result.limits.queue_wait_ms = elapsed_ms_allow_zero(queue_started);
-                return result;
-            }
-        };
-        let queue_wait_ms = elapsed_ms_allow_zero(queue_started);
-        let _permit = permit;
-        let mut result = match tokio::time::timeout(
-            timeout,
-            provider.execute(self, invocation, cancel, cache_status),
-        )
-        .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => self.runtime_error_result(call_id, tool_id, error),
-            Err(_) => self.runtime_error_result(call_id, tool_id, RuntimeError::Timeout),
-        };
-        result.limits.queue_wait_ms = queue_wait_ms;
-        result
-    }
-
-    async fn acquire_provider_permit(
-        &self,
-        provider_id: &ToolProviderId,
-        timeout: Duration,
-    ) -> RuntimeResult<OwnedSemaphorePermit> {
-        let permits = self
-            .provider_permits
-            .entry(provider_id.as_str().to_string())
-            .or_insert_with(|| {
-                Arc::new(Semaphore::new(
-                    self.limits
-                        .max_tool_provider_concurrency_per_provider
-                        .max(1),
-                ))
-            })
-            .clone();
-        tokio::time::timeout(timeout, permits.acquire_owned())
+        self.dispatcher
+            .execute(self, invocation, cancel, cache_status)
             .await
-            .map_err(|_| RuntimeError::Timeout)?
-            .map_err(|_| RuntimeError::Cancelled)
     }
 
     pub(super) async fn execute_builtin_tool(
@@ -1818,7 +1694,7 @@ impl ToolEngine {
         }
     }
 
-    fn runtime_error_result(
+    pub(super) fn runtime_error_result(
         &self,
         call_id: ToolCallId,
         tool_name: ToolId,
@@ -1949,7 +1825,7 @@ impl ToolEngine {
 
     #[cfg(test)]
     pub(crate) fn inflight_tool_count_for_test(&self) -> usize {
-        self.inflight.lock().len()
+        self.result_cache.inflight_count()
     }
 
     fn record_batch_metrics(&self, results: &[ToolResultEnvelope]) {
@@ -1963,7 +1839,7 @@ fn elapsed_ms(started: Instant) -> u64 {
     (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
 }
 
-fn elapsed_ms_allow_zero(started: Instant) -> u64 {
+pub(super) fn elapsed_ms_allow_zero(started: Instant) -> u64 {
     started.elapsed().as_micros().div_ceil(1000) as u64
 }
 

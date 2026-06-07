@@ -5,12 +5,14 @@ mod adapters;
 mod cli;
 mod execution;
 mod materialize;
+mod planning;
 mod protocol;
 mod schema;
 mod session;
 mod stored;
 mod transport;
 mod types;
+mod wiring;
 
 pub use cli::{main_entry, run_main, RunnerCli, RunnerCommand, RunnerSchemaCommand};
 pub(crate) use execution::execute_run_start;
