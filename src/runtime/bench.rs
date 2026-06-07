@@ -38,7 +38,7 @@ pub(crate) fn run_job_concurrent_with_events(
     job: ReviewRunJobV1,
     emitter: Option<Arc<EventEmitter>>,
 ) -> Result<ConcurrentRunReport> {
-    crate::reviewer::run_review_job_with_events(job, emitter)
+    crate::reviewer::legacy::run_review_job_with_events(job, emitter)
 }
 
 #[allow(dead_code)]

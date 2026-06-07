@@ -34,5 +34,3 @@ fn bench_terminal_policy_controls_finish_tool() {
         .iter()
         .all(|persona| persona.objective.contains("record_finding exactly once")));
 }
-
-

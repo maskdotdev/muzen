@@ -2331,7 +2331,6 @@ mod tests {
         assert!(!policy.should_fail_after_terminal_errors(&retryable_terminal));
     }
 
-
     fn model_call(id: &str, index: usize, tool: ToolName) -> ModelToolCall {
         ModelToolCall {
             call_id: ToolCallId(id.to_string()),

@@ -1,0 +1,378 @@
+#![allow(unused_imports)]
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
+use crate::runtime::contracts::{
+    ArtifactId, ArtifactKey, ArtifactView, CapabilitySet, ConcurrentCounters, ConcurrentRunReport,
+    ConversationItem, FsScope, LimitInfo, ModelCostEstimate, ModelMetricsSnapshot, ModelToolCall,
+    ModelTurn, ProviderResourceId, ProviderResourceScope, RepoPath, RuntimeError, RuntimeEvent,
+    RuntimeEventContext, RuntimeEventSink, RuntimeLimits, RuntimeResult, SessionId,
+    SessionInstruction, SessionScope, SnapshotCaptureStatus, SnapshotId, SnapshotObjectStore,
+    SnapshotStorageMode, SnapshotStoragePolicy, ToolCallId, ToolEffects, ToolErrorCode, ToolGrant,
+    ToolId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
+    ToolProviderHealthState, ToolProviderId, TurnId,
+};
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::model::{
+    ConcurrentModelClient as RuntimeModelClient, ConcurrentModelRouter as RuntimeModelRouter,
+    EnvCredentialResolver, ModelLimiter, ModelProviderCanaryEvidence, ModelProviderCanaryGate,
+    ModelProviderCanaryStatus, ProfileModelRouter, StaticModelRouter,
+};
+use crate::runtime::tools::{
+    ConcurrentArtifactStore as RuntimeArtifactStore, CustomToolArtifact, CustomToolContext,
+    CustomToolHandler, CustomToolOptions, CustomToolOutput, JsonRpcToolRegistration,
+    JsonRpcToolTransport, ToolRegistry as RuntimeToolRegistry,
+};
+
+use crate::contracts::{
+    ChangeKind as ContractChangeKind, ChangeScopeV1, ChangedFileEntryV1,
+    ChangedFileStatus as ContractChangedFileStatus, EventLevel, EventType, FileReviewV1, FindingV1,
+    ModelApiProtocol, PathPolicyV1, Publishability, RenameDetection as ContractRenameDetection,
+    ReviewOutcomeV1, ReviewRunJobV1, ReviewRunResultV1, ReviewRuntimeV1,
+    SnapshotMode as ContractSnapshotMode, ToolMask, ToolName,
+};
+use crate::events::{EventEmitter, EventRecord};
+use crate::job::{effective_personas, tool_allowed, validate_job};
+use crate::runtime::contracts::stable_id;
+use crate::runtime::planned_units::PlannedReviewRuntime;
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::repo::{remote_content_addressed_uri, RepoSnapshot, SnapshotContentRef};
+use crate::runtime::tools::ToolEngine;
+use crate::util::{timestamp_utc, SCHEMA_VERSION};
+
+use crate::reviewer::adapters::{
+    capabilities, model_adapters, runtime, tool_adapters, Cancellation,
+};
+use crate::reviewer::artifacts::*;
+use crate::reviewer::canaries::*;
+use crate::reviewer::events::*;
+use crate::reviewer::model::*;
+use crate::reviewer::report::*;
+use crate::reviewer::runtime_events;
+use crate::reviewer::snapshots::*;
+use crate::reviewer::spec::*;
+use crate::reviewer::tools::*;
+pub struct RunBuilder {
+    spec: RunSpec,
+    model_router: Option<Arc<dyn RuntimeModelRouter>>,
+    tool_registry: Option<Arc<RuntimeToolRegistry>>,
+    reviewer_policy: Option<Arc<ReviewerPolicy>>,
+    event_sink: Option<Arc<dyn RuntimeEventSink>>,
+    legacy_event_emitter: Option<Arc<EventEmitter>>,
+}
+
+impl RunBuilder {
+    pub fn new(spec: RunSpec) -> Self {
+        Self {
+            spec,
+            model_router: None,
+            tool_registry: None,
+            reviewer_policy: None,
+            event_sink: None,
+            legacy_event_emitter: None,
+        }
+    }
+
+    pub fn model_router(mut self, model_router: Arc<dyn model_adapters::ModelRouter>) -> Self {
+        self.model_router = Some(model_router);
+        self
+    }
+
+    pub fn review_model(mut self, model: Arc<dyn ReviewModel>) -> Self {
+        self.model_router = Some(review_model_router(model));
+        self
+    }
+
+    pub fn tool_registry(mut self, tool_registry: tool_adapters::ToolRegistry) -> Self {
+        self.tool_registry = Some(Arc::new(tool_registry));
+        self
+    }
+
+    pub fn review_tool_registry(mut self, tool_registry: ReviewToolRegistry) -> Self {
+        self.tool_registry = Some(Arc::new(tool_registry.into_tool_registry()));
+        self
+    }
+
+    pub fn shared_tool_registry(mut self, tool_registry: Arc<tool_adapters::ToolRegistry>) -> Self {
+        self.tool_registry = Some(tool_registry);
+        self
+    }
+
+    pub fn reviewer_policy(mut self, reviewer_policy: Arc<ReviewerPolicy>) -> Self {
+        self.reviewer_policy = Some(reviewer_policy);
+        self
+    }
+
+    pub fn event_sink(mut self, event_sink: Arc<dyn runtime_events::EventSink>) -> Self {
+        self.event_sink = Some(event_sink);
+        self
+    }
+
+    pub fn review_event_sink(mut self, event_sink: Arc<dyn ReviewEventSink>) -> Self {
+        self.event_sink = Some(Arc::new(ReviewEventSinkAdapter::new(event_sink)));
+        self
+    }
+
+    pub(crate) fn legacy_event_emitter(mut self, emitter: Option<Arc<EventEmitter>>) -> Self {
+        self.legacy_event_emitter = emitter;
+        self
+    }
+
+    pub fn build(self) -> RuntimeResult<Run> {
+        let model_router = self
+            .model_router
+            .ok_or_else(|| RuntimeError::InvalidInput("run requires a model router".to_string()))?;
+        let registry = match self.tool_registry {
+            Some(registry) => registry,
+            None => Arc::new(RuntimeToolRegistry::review_defaults()?),
+        };
+        let reviewer_policy = self
+            .reviewer_policy
+            .unwrap_or_else(|| Arc::new(ReviewerPolicy::new()));
+        let limits = Arc::new(self.spec.limits.into_runtime_limits());
+        let mut shards = Vec::new();
+        for snapshot_spec in self.spec.snapshots {
+            let change: ChangeScopeV1 = snapshot_spec.change.clone().into();
+            let path_policy: PathPolicyV1 = snapshot_spec.path_policy.into();
+            let mut snapshot = RepoSnapshot::build_with_storage(
+                &snapshot_spec.repo_root,
+                &path_policy,
+                &change,
+                snapshot_spec.storage_policy,
+            )?;
+            if let Some(snapshot_id) = snapshot_spec.snapshot_id {
+                Arc::get_mut(&mut snapshot)
+                    .ok_or(RuntimeError::Invariant("snapshot unexpectedly shared"))?
+                    .snapshot_id = snapshot_id;
+            }
+            let tools = Arc::new(ToolEngine::with_registry(
+                Arc::clone(&snapshot),
+                Arc::clone(&limits),
+                Arc::clone(&registry),
+            )?);
+            shards.push(RunShard {
+                snapshot_handle: SnapshotHandle {
+                    snapshot_id: snapshot.snapshot_id.clone(),
+                },
+                snapshot,
+                tools,
+                review_revision_id: change.head_revision_id,
+                sessions: Vec::new(),
+            });
+        }
+        if shards.is_empty() {
+            return Err(RuntimeError::InvalidInput("missing snapshot".to_string()));
+        }
+        let default_snapshot_id = shards[0].snapshot_handle.snapshot_id.clone();
+        for session in self.spec.sessions {
+            let session = session.into_session_scope();
+            let target_snapshot_id = session
+                .snapshot_id
+                .clone()
+                .unwrap_or_else(|| default_snapshot_id.clone());
+            let Some(shard) = shards
+                .iter_mut()
+                .find(|shard| shard.snapshot_handle.snapshot_id == target_snapshot_id)
+            else {
+                return Err(RuntimeError::InvalidInput(format!(
+                    "unknown session snapshot id {}",
+                    target_snapshot_id.0
+                )));
+            };
+            shard.sessions.push(session);
+        }
+        let snapshot_handles = shards
+            .iter()
+            .map(|shard| shard.snapshot_handle.clone())
+            .collect::<Vec<_>>();
+        Ok(Run {
+            run_id: self.spec.run_id,
+            snapshot_handles,
+            shards,
+            limits,
+            model_router,
+            reviewer_policy,
+            event_sink: self.event_sink,
+            legacy_event_emitter: self.legacy_event_emitter,
+        })
+    }
+}
+
+pub struct Run {
+    run_id: String,
+    snapshot_handles: Vec<SnapshotHandle>,
+    pub(crate) shards: Vec<RunShard>,
+    limits: Arc<RuntimeLimits>,
+    model_router: Arc<dyn RuntimeModelRouter>,
+    reviewer_policy: Arc<ReviewerPolicy>,
+    event_sink: Option<Arc<dyn RuntimeEventSink>>,
+    legacy_event_emitter: Option<Arc<EventEmitter>>,
+}
+
+pub(crate) struct RunShard {
+    snapshot_handle: SnapshotHandle,
+    snapshot: Arc<RepoSnapshot>,
+    tools: Arc<ToolEngine>,
+    review_revision_id: String,
+    pub(crate) sessions: Vec<SessionScope>,
+}
+
+impl Run {
+    pub fn builder(spec: RunSpec) -> RunBuilder {
+        RunBuilder::new(spec)
+    }
+
+    pub async fn execute(self) -> RunReport {
+        self.execute_with_cancel(Cancellation::new()).await
+    }
+
+    pub async fn execute_with_cancel(self, cancel: Cancellation) -> RunReport {
+        let first_snapshot = self.snapshot_handles[0].clone();
+        let run_event_sink = self.event_sink.as_ref().map(|sink| {
+            Arc::new(ContextualEventSink::new(
+                Arc::clone(sink),
+                self.run_id.clone(),
+                None,
+            )) as Arc<dyn RuntimeEventSink>
+        });
+        if let Some(sink) = &run_event_sink {
+            sink.emit(RuntimeEvent::JobStarted {
+                snapshot_id: first_snapshot.snapshot_id.clone(),
+            });
+        }
+        let aggregate_artifacts = Arc::new(RuntimeArtifactStore::default());
+        let mut snapshot_readers = Vec::new();
+        let mut summaries = Vec::new();
+        let mut findings = Vec::new();
+        let mut file_reviews = Vec::new();
+        for shard in self.shards {
+            snapshot_readers.push(SnapshotReader::new(Arc::clone(&shard.snapshot)));
+            let shard_event_sink = self.event_sink.as_ref().map(|sink| {
+                Arc::new(ContextualEventSink::new(
+                    Arc::clone(sink),
+                    self.run_id.clone(),
+                    Some(shard.snapshot_handle.snapshot_id.clone()),
+                )) as Arc<dyn RuntimeEventSink>
+            });
+            if let Some(sink) = &shard_event_sink {
+                sink.emit(RuntimeEvent::SnapshotStarted {
+                    snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
+                });
+            }
+            let runtime = PlannedReviewRuntime {
+                snapshot: Arc::clone(&shard.snapshot),
+                model_router: Arc::clone(&self.model_router),
+                tools: Arc::clone(&shard.tools),
+                policy: Arc::clone(&self.reviewer_policy),
+                limits: Arc::clone(&self.limits),
+                review_revision_id: shard.review_revision_id.clone(),
+                session_templates: shard.sessions,
+                events: RuntimeEventDispatcher::new(
+                    shard_event_sink.clone(),
+                    self.legacy_event_emitter.clone(),
+                ),
+            };
+            let summary = runtime.run_with_cancel(cancel.clone()).await;
+            aggregate_artifacts.merge_from(&runtime.tools.artifacts);
+            findings.extend(summary.findings);
+            file_reviews.extend(summary.file_reviews);
+            if let Some(sink) = &shard_event_sink {
+                sink.emit(RuntimeEvent::SnapshotFinished {
+                    snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
+                    sessions: summary.metrics.sessions,
+                    completed_sessions: summary.metrics.completed_sessions,
+                });
+            }
+            summaries.push(summary.metrics);
+        }
+        let metrics = merge_run_summaries(summaries);
+        if let Some(sink) = &run_event_sink {
+            sink.emit(RuntimeEvent::JobFinished {
+                status: if metrics.completed_sessions == metrics.sessions {
+                    "completed".to_string()
+                } else {
+                    "partial".to_string()
+                },
+            });
+        }
+        RunReport {
+            run_id: self.run_id,
+            snapshot: first_snapshot,
+            snapshots: self.snapshot_handles,
+            summary: ReviewRunSummary::from_metrics(&metrics),
+            metrics,
+            artifacts: aggregate_artifacts,
+            snapshot_readers,
+            findings,
+            file_reviews,
+        }
+    }
+}
+
+struct ContextualEventSink {
+    inner: Arc<dyn RuntimeEventSink>,
+    run_id: String,
+    snapshot_id: Option<SnapshotId>,
+}
+
+impl ContextualEventSink {
+    fn new(
+        inner: Arc<dyn RuntimeEventSink>,
+        run_id: String,
+        snapshot_id: Option<SnapshotId>,
+    ) -> Self {
+        Self {
+            inner,
+            run_id,
+            snapshot_id,
+        }
+    }
+
+    fn context_for(&self, event: &RuntimeEvent) -> RuntimeEventContext {
+        let mut context = RuntimeEventContext::from_event(event).with_run_id(self.run_id.clone());
+        if let Some(snapshot_id) = &self.snapshot_id {
+            context = context.with_default_snapshot_id(snapshot_id.clone());
+        }
+        context
+    }
+}
+
+impl RuntimeEventSink for ContextualEventSink {
+    fn emit(&self, event: RuntimeEvent) {
+        let context = self.context_for(&event);
+        self.inner.emit_with_context(context, event);
+    }
+
+    fn emit_with_context(&self, context: RuntimeEventContext, event: RuntimeEvent) {
+        let mut merged = self.context_for(&event);
+        if context.session_id.is_some() {
+            merged.session_id = context.session_id;
+        }
+        if context.turn_id.is_some() {
+            merged.turn_id = context.turn_id;
+        }
+        if context.tool_call_id.is_some() {
+            merged.tool_call_id = context.tool_call_id;
+        }
+        if context.artifact_id.is_some() {
+            merged.artifact_id = context.artifact_id;
+        }
+        if context.finding_id.is_some() {
+            merged.finding_id = context.finding_id;
+        }
+        if context.snapshot_id.is_some() {
+            merged.snapshot_id = context.snapshot_id;
+        }
+        self.inner.emit_with_context(merged, event);
+    }
+}

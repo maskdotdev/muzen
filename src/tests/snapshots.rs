@@ -5,23 +5,28 @@ use super::support::*;
 fn public_snapshot_storage_policy_reports_memory_envelope_skips() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "needle\n").unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-storage",
             "head-storage",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20))
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ))
     .with_memory_storage_limit(0);
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "storage-run",
         snapshot,
         Vec::new(),
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -47,9 +52,11 @@ fn public_snapshot_storage_policy_reports_memory_envelope_skips() {
             .snapshot_reader(&report.snapshot.snapshot_id)
             .unwrap()
             .read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-            kind: "snapshot_capture_bytes"
-        })
+        Err(
+            crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                kind: "snapshot_capture_bytes"
+            }
+        )
     ));
 }
 
@@ -59,29 +66,34 @@ fn public_snapshot_content_addressed_store_serves_captured_evidence() {
     let store = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "persistent needle\n").unwrap();
     let store_root = store.path().join("snapshots");
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-content-addressed",
             "head-content-addressed",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20))
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ))
     .with_content_addressed_storage(store_root.clone(), 64 * 1024);
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "content-addressed-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run content-addressed snapshot evidence through public facade.",
         public_budget(),
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "content-addressed-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -136,23 +148,28 @@ fn public_snapshot_content_addressed_store_lifecycle_validates_and_cleans_up() {
     let store = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "lifecycle needle\n").unwrap();
     let store_root = store.path().join("snapshots");
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-storage-lifecycle",
             "head-storage-lifecycle",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20))
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ))
     .with_content_addressed_storage(store_root.clone(), 64 * 1024);
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "storage-lifecycle-run",
         snapshot,
         Vec::new(),
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -192,7 +209,7 @@ fn public_snapshot_content_addressed_store_lifecycle_validates_and_cleans_up() {
     assert_eq!(stale.stale_files[0].store_path.as_ref(), Some(&store_path));
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
+        Err(crate::reviewer::adapters::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
     ));
     fs::write(&store_path, "lifecycle needle\n").unwrap();
     assert!(reader.validate_storage().unwrap().valid);
@@ -219,7 +236,7 @@ fn public_snapshot_content_addressed_store_lifecycle_validates_and_cleans_up() {
     assert_eq!(after_cleanup.missing_files[0].path.display(), "README.md");
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer::runtime::RuntimeError::RepoUnavailable(_))
+        Err(crate::reviewer::adapters::runtime::RuntimeError::RepoUnavailable(_))
     ));
 }
 
@@ -228,30 +245,38 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "remote lifecycle needle\n").unwrap();
     let remote_client =
-        Arc::new(crate::reviewer::InMemoryRemoteSnapshotObjectClient::default());
+        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let remote_base = "s3://muzen-test-snapshots/storage-lifecycle-run";
     let remote_store = Arc::new(
-        crate::reviewer::RemoteSnapshotObjectStore::new(remote_base, remote_client.clone())
-            .unwrap(),
+        crate::reviewer::snapshots::RemoteSnapshotObjectStore::new(
+            remote_base,
+            remote_client.clone(),
+        )
+        .unwrap(),
     );
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-remote-storage-lifecycle",
             "head-remote-storage-lifecycle",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20))
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ))
     .with_remote_object_storage(remote_base, 64 * 1024, remote_store.clone())
     .unwrap();
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "remote-storage-lifecycle-run",
         snapshot,
         Vec::new(),
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -297,7 +322,7 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
     assert_eq!(stale.stale_files[0].store_uri.as_ref(), Some(store_uri));
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
+        Err(crate::reviewer::adapters::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
     ));
 
     remote_client.write(store_uri.clone(), b"remote lifecycle needle\n".to_vec());
@@ -305,13 +330,13 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
 
     let forged_uri = store_uri.replace(remote_base, "s3://forged-snapshots");
     assert!(matches!(
-        crate::reviewer::storage::SnapshotObjectStore::read_snapshot_object(
+        crate::reviewer::adapters::storage::SnapshotObjectStore::read_snapshot_object(
             remote_store.as_ref(),
             &forged_uri
         ),
-        Err(crate::reviewer::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer::adapters::runtime::RuntimeError::RepoAccessDenied)
     ));
-    assert!(crate::reviewer::RemoteSnapshotObjectStore::new(
+    assert!(crate::reviewer::snapshots::RemoteSnapshotObjectStore::new(
         "file:///tmp/muzen-snapshots",
         remote_client.clone()
     )
@@ -340,7 +365,6 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
     );
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer::runtime::RuntimeError::RepoUnavailable(_))
+        Err(crate::reviewer::adapters::runtime::RuntimeError::RepoUnavailable(_))
     ));
 }
-

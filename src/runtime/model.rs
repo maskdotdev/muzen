@@ -1507,8 +1507,6 @@ mod tests {
     use crate::contracts::{AgentBudget, Role};
     use crate::runtime::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
 
-
-
     #[test]
     fn insufficient_quota_provider_error_is_not_retryable() {
         let message = provider_error_message(
@@ -1577,9 +1575,6 @@ mod tests {
         assert_tool_call_turn(responses_turn, &internal_tool, "call_responses", 7, 4, 11);
     }
 
-
-
-
     #[test]
     fn openai_provider_canary_skips_all_protocols_without_credential() {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1599,8 +1594,6 @@ mod tests {
             )
         }));
     }
-
-
 
     #[test]
     fn model_limiter_isolates_distinct_credential_keys() {

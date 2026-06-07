@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::bench::bench_job;
 use crate::contracts::*;
 use crate::events::EventEmitter;
+use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
 use crate::reviewer::canaries::{
     export_canary_evidence_manifest, export_model_provider_canary_evidence,
     export_remote_object_store_canary_evidence, load_canary_evidence_manifest,
@@ -20,9 +21,7 @@ use crate::reviewer::canaries::{
     run_remote_snapshot_object_store_canary, CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
     EnvCredentialResolver, ModelProviderCanaryEvidence, OpenAiProviderCanaryConfig,
 };
-use crate::reviewer::{
-    HttpRemoteObjectClient, InMemoryRemoteArtifactObjectClient, InMemoryRemoteSnapshotObjectClient,
-};
+use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
 use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_events};
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 

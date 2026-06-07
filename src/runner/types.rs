@@ -8,7 +8,7 @@ use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
 };
-use crate::reviewer::artifacts::ArtifactView;
+use crate::runtime::contracts::ArtifactView;
 
 fn default_role() -> Role {
     Role::Generalist
