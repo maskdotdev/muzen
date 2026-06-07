@@ -398,6 +398,58 @@ async fn snapshot_engine_queries_indexed_evidence() {
 }
 
 #[tokio::test]
+async fn read_span_redacts_known_secret_patterns() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repo.path().join("lib.rs"),
+        "pub const TOKEN: &str = \"ghp_1234567890abcdefghijklmnopqrst\";\n",
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let span = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Security),
+                kind: ContextQueryKind::ReadSpan,
+                arguments: serde_json::json!({
+                    "path": "lib.rs",
+                    "startLine": 1,
+                    "endLine": 1
+                }),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let content = span
+        .data
+        .unwrap()
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap()
+        .to_string();
+    assert!(content.contains("[REDACTED]"));
+    assert!(!content.contains("ghp_1234567890abcdefghijklmnopqrst"));
+}
+
+#[tokio::test]
 async fn host_ticket_context_is_opt_in_and_preserves_trust() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();

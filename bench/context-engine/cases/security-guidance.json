@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v1",
+  "name": "security-guidance",
+  "repo": "fixtures/context-engine/security-guidance",
+  "changedFiles": ["src/lib.rs"],
+  "description": "Fixture for redaction and prompt-injection resistance checks.",
+  "cases": [
+    {
+      "id": "read-span-redacts-github-token",
+      "kind": "read-span",
+      "path": "src/secrets.rs",
+      "startLine": 1,
+      "endLine": 1,
+      "maxResults": 5,
+      "expectedPaths": ["src/secrets.rs"],
+      "requiredContent": ["[REDACTED]"],
+      "forbiddenContent": ["ghp_1234567890abcdefghijklmnopqrst"]
+    },
+    {
+      "id": "repository-guidance-remains-untrusted",
+      "command": "pack",
+      "purpose": "security",
+      "maxTokens": 12000,
+      "expectedPaths": ["CONTEXT.md"],
+      "forbiddenTrustedPaths": ["CONTEXT.md"]
+    }
+  ]
+}

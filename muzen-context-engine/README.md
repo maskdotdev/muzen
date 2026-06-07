@@ -48,7 +48,8 @@ Implemented on `feat/context-engine`:
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
   import extraction feeds a per-index symbol graph used by `related_symbols`.
 - A runnable context-engine evaluation harness with fixture-backed recall,
-  precision, token efficiency, omission, and latency summaries.
+  precision, token efficiency, omission, latency, secret-redaction, and
+  prompt-injection trust summaries.
 
 Still pending from the full plan:
 
@@ -58,5 +59,5 @@ Still pending from the full plan:
 - Capability-scoped network/provider retrieval for cross-repository contracts.
 - Hosted embedding provider implementation, index lifecycle wiring, and
   benchmarked semantic ranking improvements.
-- Broader replay/evaluation coverage for redaction, prompt-injection resistance,
-  sufficiency calibration, cache hit rates, and multi-fixture regressions.
+- Broader replay/evaluation coverage for sufficiency calibration, cache hit
+  rates, hosted semantic ranking, and larger multi-fixture regressions.
