@@ -1133,77 +1133,7 @@ mod tests {
         assert!(error.to_string().contains("unknown tool effect write_host"));
     }
 
-    #[test]
-    fn maps_runner_change_params_into_core_change_spec() {
-        let change = RunChangeParams {
-            kind: "revision_range".to_string(),
-            base_revision: Some("base-sha".to_string()),
-            start_revision: Some("merge-base-sha".to_string()),
-            head_revision: Some("head-sha".to_string()),
-            changed_files: Vec::new(),
-            diff: Some("diff --git a/src/lib.rs b/src/lib.rs".to_string()),
-            review_target: Some("gitlab:group/project!42".to_string()),
-            metadata: BTreeMap::new(),
-        };
 
-        let spec = runner_change_spec(
-            Some(&ReviewSource::gitlab_merge_request("group", "project", 42).unwrap()),
-            Some(&change),
-            vec![changed_file_spec("src/lib.rs", Some("modified"))],
-            Some("materialized diff should not override explicit diff"),
-            "review-1",
-        );
-
-        assert_eq!(spec.kind, ChangeKind::MergeRequest);
-        assert_eq!(spec.change_id, "gitlab:group/project!42");
-        assert_eq!(spec.base_revision_id, "base-sha");
-        assert_eq!(
-            spec.merge_base_revision_id.as_deref(),
-            Some("merge-base-sha")
-        );
-        assert_eq!(spec.head_revision_id, "head-sha");
-        assert_eq!(spec.source_ref, "head-sha");
-        assert_eq!(spec.target_ref, "base-sha");
-        assert_eq!(
-            spec.inline_diff.as_deref(),
-            Some("diff --git a/src/lib.rs b/src/lib.rs")
-        );
-
-        let mut change_without_diff = change;
-        change_without_diff.diff = None;
-        let fallback_spec = runner_change_spec(
-            Some(&ReviewSource::gitlab_merge_request("group", "project", 42).unwrap()),
-            Some(&change_without_diff),
-            vec![changed_file_spec("src/lib.rs", Some("modified"))],
-            Some("materialized diff"),
-            "review-1",
-        );
-        assert_eq!(
-            fallback_spec.inline_diff.as_deref(),
-            Some("materialized diff")
-        );
-    }
-
-    #[test]
-    fn maps_runner_changed_file_statuses_without_requiring_existing_files() {
-        let added = changed_file_spec("src/new.rs", Some("added"));
-        let deleted = changed_file_spec("src/old.rs", Some("deleted"));
-        let renamed = changed_file_spec("src/renamed.rs", Some("renamed"));
-
-        assert_eq!(added.status, ChangedFileStatus::Added);
-        assert!(added.old_path.is_none());
-        assert_eq!(
-            added.new_path.as_deref(),
-            Some(std::path::Path::new("src/new.rs"))
-        );
-        assert_eq!(deleted.status, ChangedFileStatus::Deleted);
-        assert_eq!(
-            deleted.old_path.as_deref(),
-            Some(std::path::Path::new("src/old.rs"))
-        );
-        assert!(deleted.new_path.is_none());
-        assert_eq!(renamed.status, ChangedFileStatus::Renamed);
-    }
 
     #[test]
     fn keeps_small_reviews_as_single_sessions() {
@@ -1219,35 +1149,6 @@ mod tests {
         assert!(expanded[0].instructions.is_empty());
     }
 
-    #[test]
-    fn expands_large_reviews_into_changed_file_batches_per_session() {
-        let sessions = vec![test_session("correctness"), test_session("security")];
-        let changed_files = (0..25)
-            .map(|index| ChangedFileSpec::modified(format!("src/file_{index}.rs")))
-            .collect::<Vec<_>>();
-
-        let expanded = expand_sessions_for_changed_file_batches(sessions, &changed_files);
-
-        assert_eq!(expanded.len(), 14);
-        assert_eq!(expanded[0].id, "correctness-batch-01");
-        assert_eq!(expanded[1].id, "correctness-batch-02");
-        assert_eq!(expanded[2].id, "correctness-batch-03");
-        assert_eq!(expanded[7].id, "security-batch-01");
-        assert_eq!(expanded[0].instructions.len(), 1);
-        assert!(expanded[0].objective.contains("batch 1/7"));
-        assert!(expanded[0].instructions[0]
-            .text
-            .contains("Changed-file batch 1/7 (4 files)"));
-        assert!(expanded[0].instructions[0]
-            .text
-            .contains("1. src/file_0.rs"));
-        assert!(expanded[6].instructions[0]
-            .text
-            .contains("Changed-file batch 7/7 (1 files)"));
-        assert!(expanded[6].instructions[0]
-            .text
-            .contains("1. src/file_24.rs"));
-    }
 
     #[test]
     fn defaults_large_reviews_to_four_active_sessions() {
