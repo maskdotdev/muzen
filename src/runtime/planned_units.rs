@@ -218,7 +218,7 @@ impl PlannedReviewRuntime {
         let mut model_calls = 0usize;
         let mut file_evidence = FileEvidenceTracker::new(&unit);
 
-        for turn_index in 0..3 {
+        for turn_index in 0..4 {
             if cancel.is_cancelled() {
                 break;
             }
@@ -228,9 +228,14 @@ impl PlannedReviewRuntime {
                     .plan_model_started_runtime_event(&scope, turn_id),
             );
             let model_started = Instant::now();
+            let model_scope = if turn_index == 3 {
+                final_response_scope(&scope)
+            } else {
+                scope.clone()
+            };
             let turn = match tokio::time::timeout(
                 std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
-                model.complete(&scope, &transcript, turn_id, cancel.child_token()),
+                model.complete(&model_scope, &transcript, turn_id, cancel.child_token()),
             )
             .await
             {
@@ -355,11 +360,7 @@ impl PlannedReviewRuntime {
                         },
                     );
                     transcript.push(ConversationItem::User {
-                        content: if turn_index == 0 {
-                            "Use the gathered evidence to either request one targeted follow-up batch for related searches/ranges/callers, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. Do not call terminal tools.".to_string()
-                        } else {
-                            "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings. Do not call terminal tools.".to_string()
-                        },
+                        content: next_unit_instruction(turn_index, &unit, &file_evidence),
                     });
                 }
             }
@@ -380,6 +381,41 @@ impl PlannedReviewRuntime {
             terminal_diagnostic: unit_diagnostic(&unit, false, "partial"),
         }
     }
+}
+
+fn final_response_scope(scope: &SessionScope) -> SessionScope {
+    let mut scope = scope.clone();
+    scope.capabilities.tool_grants.clear();
+    scope
+}
+
+fn next_unit_instruction(
+    turn_index: u32,
+    unit: &PlannedReviewUnit,
+    file_evidence: &FileEvidenceTracker,
+) -> String {
+    let missing = missing_assigned_file_evidence(unit, file_evidence);
+    if !missing.is_empty() && turn_index < 2 {
+        return format!(
+            "Before returning clean verdicts, gather head-file evidence for the assigned changed file(s) not yet inspected: {}. Request read_file or read_file_range for those paths, plus one targeted related search/import check if shared helper or caller contracts may be involved.",
+            missing.join(", ")
+        );
+    }
+    if turn_index < 2 {
+        return "Use the gathered evidence to either request one targeted follow-up batch for related searches/imports/callers, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. If these files participate in a repeated integration/callback/adapter/API-helper pattern, search for shared helper names, return values, imported symbols, or caller expectations across changed files before declaring them clean. Do not call terminal tools.".to_string();
+    }
+    "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings. Do not call terminal tools.".to_string()
+}
+
+fn missing_assigned_file_evidence(
+    unit: &PlannedReviewUnit,
+    file_evidence: &FileEvidenceTracker,
+) -> Vec<String> {
+    unit.file_paths
+        .iter()
+        .filter(|path| !file_evidence.has_path_evidence(&path.display()))
+        .map(RepoPath::display)
+        .collect()
 }
 
 fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
@@ -637,7 +673,7 @@ fn planned_unit_transcript(
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are a focused code-review unit reviewer. Review the assigned changed files, and use exploration tools to inspect directly related context when needed. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file if the evidence was encountered during exploration; each finding requires title, claim, path, startLine, and endLine. Do not call record_finding, record_file_review, or finish.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, and contracts with nearby helpers or callers. Report only issues directly supported by the gathered evidence.".to_string(),
+            content: "You are a focused code-review unit reviewer. Review the assigned changed files, and use exploration tools to inspect directly related context when needed. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file if the evidence was encountered during exploration; each finding requires title, claim, path, startLine, and endLine. Do not call record_finding, record_file_review, or finish.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, and contracts with nearby helpers or callers. When assigned files are part of a repeated integration/callback/adapter/API-helper batch, inspect the shared contract: search for changed helper names, return values, imported symbols, or caller expectations across the changed file set before declaring the batch clean. Report only issues directly supported by the gathered evidence.".to_string(),
         },
         ConversationItem::User {
             content: format!(
