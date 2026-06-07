@@ -15,6 +15,7 @@ pub enum ContextQueryKind {
     RelatedSymbols,
     TicketRequirements,
     HistorySimilar,
+    CrossRepoContracts,
     SufficiencyCheck,
 }
 

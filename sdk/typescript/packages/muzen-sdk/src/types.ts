@@ -561,6 +561,7 @@ export type ContextQueryKind =
   | "related_symbols"
   | "ticket_requirements"
   | "history_similar"
+  | "cross_repo_contracts"
   | "sufficiency_check";
 
 export interface ContextQueryLimits {
@@ -682,6 +683,7 @@ export interface ContextManifest {
 export interface ContextIndexOptions {
   source: ReviewSourceLike;
   changedFiles?: string[];
+  hostMetadata?: Record<string, unknown>;
   config?: ContextEngineConfig;
 }
 

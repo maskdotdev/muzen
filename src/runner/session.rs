@@ -676,8 +676,9 @@ impl RunnerStdioSession {
             .config
             .unwrap_or_else(ContextEngineConfig::snapshot_v0);
         let engine = SnapshotContextEngine::new(config);
-        let request_params =
+        let mut request_params =
             ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
+        request_params.host_metadata = params.host_metadata;
         let report =
             match block_on_context(engine.index_snapshot(request_params, CancellationToken::new()))
             {

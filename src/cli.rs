@@ -235,6 +235,7 @@ pub(crate) enum ContextQueryKindArg {
     RelatedSymbols,
     TicketRequirements,
     HistorySimilar,
+    CrossRepoContracts,
     SufficiencyCheck,
 }
 
@@ -247,6 +248,7 @@ impl From<ContextQueryKindArg> for ContextQueryKind {
             ContextQueryKindArg::RelatedSymbols => Self::RelatedSymbols,
             ContextQueryKindArg::TicketRequirements => Self::TicketRequirements,
             ContextQueryKindArg::HistorySimilar => Self::HistorySimilar,
+            ContextQueryKindArg::CrossRepoContracts => Self::CrossRepoContracts,
             ContextQueryKindArg::SufficiencyCheck => Self::SufficiencyCheck,
         }
     }
@@ -669,6 +671,9 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
                         serde_json::json!({"query": args.query.unwrap_or_default()})
                     }
                     ContextQueryKindArg::HistorySimilar => {
+                        serde_json::json!({"query": args.query.unwrap_or_default()})
+                    }
+                    ContextQueryKindArg::CrossRepoContracts => {
                         serde_json::json!({"query": args.query.unwrap_or_default()})
                     }
                     ContextQueryKindArg::SufficiencyCheck => {
