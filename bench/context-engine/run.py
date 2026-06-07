@@ -39,6 +39,7 @@ class CaseResult:
     forbidden_content_hits: list[str]
     missing_required_content: list[str]
     trusted_forbidden_paths: list[str]
+    missing_expected_ranges: list[dict[str, Any]]
     token_estimate: int
     omitted: int
 
@@ -91,6 +92,14 @@ def run_context_case(
     command.extend(["--repo", str(repo)])
     for changed_file in case_file["changedFiles"]:
         command.extend(["--changed-file", changed_file])
+    if case.get("localSemantic"):
+        command.append("--local-semantic")
+        command.extend(
+            [
+                "--max-embedding-inputs",
+                str(case.get("maxEmbeddingInputs", 512)),
+            ]
+        )
     if case.get("command") == "pack":
         command.extend(["--purpose", case.get("purpose", "general-review")])
         command.extend(["--max-tokens", str(case.get("maxTokens", 12000))])
@@ -152,6 +161,11 @@ def score_case(case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path 
             and entry.get("trust") in {"kernel", "host_trusted"}
         }
     )
+    missing_expected_ranges = [
+        expected
+        for expected in case.get("expectedRanges", [])
+        if not any(evidence_matches_range(entry, expected) for entry in evidence)
+    ]
     return CaseResult(
         id=case["id"],
         kind=case.get("kind", case.get("command", "query")),
@@ -168,8 +182,22 @@ def score_case(case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path 
         forbidden_content_hits=forbidden_content_hits,
         missing_required_content=missing_required_content,
         trusted_forbidden_paths=trusted_forbidden_paths,
+        missing_expected_ranges=missing_expected_ranges,
         token_estimate=token_estimate,
         omitted=int(result.get("omitted", 0)),
+    )
+
+
+def evidence_matches_range(entry: dict[str, Any], expected: dict[str, Any]) -> bool:
+    expected_kind = expected.get("kind")
+    if expected_kind is not None and entry.get("kind") != expected_kind:
+        return False
+    if entry.get("path") != expected.get("path"):
+        return False
+    range_value = entry.get("range") or {}
+    return (
+        range_value.get("startLine") == expected.get("startLine")
+        and range_value.get("endLine") == expected.get("endLine")
     )
 
 
@@ -181,6 +209,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         if result.missed_paths
         or not result.secret_redaction_correct
         or not result.prompt_injection_resistant
+        or result.missing_expected_ranges
     ]
     return {
         "schemaVersion": "muzen.context-eval-summary.v1",
