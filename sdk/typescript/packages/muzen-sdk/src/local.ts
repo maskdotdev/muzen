@@ -353,6 +353,8 @@ function contextIndexParams(options: ContextIndexOptions): {
   repo: string;
   changedFiles: string[];
   hostMetadata?: Record<string, unknown>;
+  crossRepoContracts?: ContextIndexOptions["crossRepoContracts"];
+  allowedCrossRepoResources?: string[];
   config?: ContextEngineConfig;
 } {
   const source = parseReviewSource(options.source);
@@ -367,8 +369,10 @@ function contextIndexParams(options: ContextIndexOptions): {
       options.changedFiles ??
       (source.type === "local"
         ? source.changedFiles ?? []
-        : source.changedFiles ?? []),
+    : source.changedFiles ?? []),
     hostMetadata: options.hostMetadata,
+    crossRepoContracts: options.crossRepoContracts,
+    allowedCrossRepoResources: options.allowedCrossRepoResources,
     config: options.config,
   };
 }

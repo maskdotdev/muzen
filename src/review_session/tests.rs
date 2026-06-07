@@ -1333,6 +1333,69 @@ fn review_http_router_persists_workspace_context_learnings() {
 }
 
 #[test]
+fn review_http_router_context_cross_repo_contracts_require_grants() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let source = json!({
+        "type": "local",
+        "repo": repo.path(),
+        "changedFiles": ["lib.rs"]
+    });
+    let candidate = json!({
+        "resourceId": "github/acme/mobile",
+        "repository": "acme/mobile",
+        "summary": "consumer requires expires_at on auth token response",
+        "originalUrl": "https://example.invalid/acme/mobile/contracts/auth"
+    });
+
+    let denied = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+            .json(&json!({
+                "source": source,
+                "kind": "cross_repo_contracts",
+                "arguments": { "query": "expires_at" },
+                "crossRepoContracts": [candidate],
+                "limits": { "maxResults": 10, "maxTokens": 1000 }
+            }))
+            .unwrap(),
+    );
+    let denied_body: Value = serde_json::from_str(&denied.body).unwrap();
+    assert_eq!(denied.status_code, HTTP_STATUS_OK);
+    assert!(denied_body["result"]["evidence"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        denied_body["result"]["data"]["omissions"][0]["deniedCandidates"],
+        json!(1)
+    );
+
+    let granted = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+            .json(&json!({
+                "source": source,
+                "kind": "cross_repo_contracts",
+                "arguments": { "query": "expires_at" },
+                "crossRepoContracts": [candidate],
+                "allowedCrossRepoResources": ["github/acme/mobile"],
+                "limits": { "maxResults": 10, "maxTokens": 1000 }
+            }))
+            .unwrap(),
+    );
+    let granted_body: Value = serde_json::from_str(&granted.body).unwrap();
+    assert_eq!(granted.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        granted_body["result"]["evidence"][0]["source"],
+        json!("external")
+    );
+    assert_eq!(
+        granted_body["result"]["evidence"][0]["trust"],
+        json!("tool_provider")
+    );
+}
+
+#[test]
 fn review_http_router_rejects_provider_context_sources_without_materialization() {
     let router = ReviewHttpRouter::new(Muzen::new());
     let response = router.handle(

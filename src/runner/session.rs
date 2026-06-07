@@ -679,6 +679,9 @@ impl RunnerStdioSession {
         let mut request_params =
             ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
         request_params.host_metadata = params.host_metadata;
+        request_params.cross_repo_contracts = params.cross_repo_contracts;
+        request_params.allowed_cross_repo_resources =
+            params.allowed_cross_repo_resources.into_iter().collect();
         let report =
             match block_on_context(engine.index_snapshot(request_params, CancellationToken::new()))
             {

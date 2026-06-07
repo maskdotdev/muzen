@@ -346,6 +346,8 @@ function contextIndexBody(options: ContextIndexOptions): Record<string, unknown>
     source,
     changedFiles: options.changedFiles,
     hostMetadata: options.hostMetadata,
+    crossRepoContracts: options.crossRepoContracts,
+    allowedCrossRepoResources: options.allowedCrossRepoResources,
     config: options.config,
   };
 }

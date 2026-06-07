@@ -828,7 +828,18 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("repo", "string"),
                 defaulted("changedFiles", "string[]", "[]"),
                 defaulted("hostMetadata", "object<string,json>", "{}"),
+                defaulted("crossRepoContracts", "CrossRepoContractCandidate[]", "[]"),
+                defaulted("allowedCrossRepoResources", "string[]", "[]"),
                 optional("config", "ContextEngineConfig"),
+            ],
+        ),
+        object(
+            "CrossRepoContractCandidate",
+            vec![
+                required("resourceId", "string"),
+                required("repository", "string"),
+                required("summary", "string"),
+                optional("originalUrl", "string"),
             ],
         ),
         object(

@@ -909,6 +909,112 @@ async fn cross_repo_contracts_returns_host_provided_scoped_evidence() {
 }
 
 #[tokio::test]
+async fn cross_repo_contracts_require_granted_provider_resource() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    let mut request = ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
+    request
+        .cross_repo_contracts
+        .push(CrossRepoContractCandidate {
+            resource_id: "github/acme/mobile".to_string(),
+            repository: "acme/mobile".to_string(),
+            summary: "consumer requires expires_at on auth token response".to_string(),
+            original_url: Some("https://example.invalid/acme/mobile/contracts/auth".to_string()),
+        });
+    engine
+        .index_snapshot(request, CancellationToken::new())
+        .await
+        .unwrap();
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Architecture),
+                kind: ContextQueryKind::CrossRepoContracts,
+                arguments: serde_json::json!({"query": "expires_at"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.evidence.is_empty());
+    assert_eq!(result.data.unwrap()["omissions"][0]["deniedCandidates"], 1);
+}
+
+#[tokio::test]
+async fn cross_repo_contracts_return_granted_provider_resource() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    let mut request = ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
+    request
+        .allowed_cross_repo_resources
+        .insert("github/acme/mobile".to_string());
+    request
+        .cross_repo_contracts
+        .push(CrossRepoContractCandidate {
+            resource_id: "github/acme/mobile".to_string(),
+            repository: "acme/mobile".to_string(),
+            summary: "consumer requires expires_at on auth token response".to_string(),
+            original_url: Some("https://example.invalid/acme/mobile/contracts/auth".to_string()),
+        });
+    request
+        .cross_repo_contracts
+        .push(CrossRepoContractCandidate {
+            resource_id: "github/acme/admin".to_string(),
+            repository: "acme/admin".to_string(),
+            summary: "admin consumer requires legacy token field".to_string(),
+            original_url: None,
+        });
+    engine
+        .index_snapshot(request, CancellationToken::new())
+        .await
+        .unwrap();
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Architecture),
+                kind: ContextQueryKind::CrossRepoContracts,
+                arguments: serde_json::json!({"query": "expires_at"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.evidence.len(), 1);
+    assert_eq!(result.evidence[0].source, ContextEvidenceSource::External);
+    assert_eq!(result.evidence[0].trust, ContextTrust::ToolProvider);
+    assert_eq!(result.evidence[0].scope, ContextScope::External);
+    assert_eq!(
+        result.evidence[0].provenance.original_url.as_deref(),
+        Some("https://example.invalid/acme/mobile/contracts/auth")
+    );
+    assert_eq!(result.data.unwrap()["deniedCandidates"], 1);
+}
+
+#[tokio::test]
 async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("CONTEXT.md"), "# Context\n").unwrap();

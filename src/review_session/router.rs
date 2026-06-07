@@ -15,7 +15,7 @@ use crate::context_engine::{
     ContextIndexRequest, ContextLearningApproval, ContextLearningApprovalReceipt,
     ContextLearningScope, ContextLearningSource, ContextManifestArtifact, ContextPack,
     ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
-    ContextQueryResult, SnapshotContextEngine,
+    ContextQueryResult, CrossRepoContractCandidate, SnapshotContextEngine,
 };
 use crate::contracts::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
@@ -561,6 +561,9 @@ impl ReviewHttpRouter {
         let index_snapshot = Arc::clone(&snapshot);
         let mut request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
         request.host_metadata = body.host_metadata;
+        request.cross_repo_contracts = body.cross_repo_contracts;
+        request.allowed_cross_repo_resources =
+            body.allowed_cross_repo_resources.into_iter().collect();
         block_on_context(async move {
             index_engine
                 .index_snapshot(request, CancellationToken::new())
@@ -719,6 +722,10 @@ struct ContextIndexBody {
     changed_files: Vec<String>,
     #[serde(default)]
     host_metadata: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+    #[serde(default)]
+    allowed_cross_repo_resources: Vec<String>,
     #[serde(default)]
     config: Option<ContextEngineConfig>,
 }

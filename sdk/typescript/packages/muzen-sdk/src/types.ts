@@ -694,7 +694,16 @@ export interface ContextIndexOptions {
   source: ReviewSourceLike;
   changedFiles?: string[];
   hostMetadata?: Record<string, unknown>;
+  crossRepoContracts?: CrossRepoContractCandidate[];
+  allowedCrossRepoResources?: string[];
   config?: ContextEngineConfig;
+}
+
+export interface CrossRepoContractCandidate {
+  resourceId: string;
+  repository: string;
+  summary: string;
+  originalUrl?: string;
 }
 
 export interface ContextPackOptions extends ContextIndexOptions {
