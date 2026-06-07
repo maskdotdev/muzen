@@ -90,6 +90,7 @@ impl ReviewHttpRequest {
 pub struct ReviewHttpRouterOptions {
     pub github_webhook_secret: Option<String>,
     pub gitlab_webhook_secret: Option<String>,
+    pub context_learning_store_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -543,7 +544,7 @@ impl ReviewHttpRouter {
 
     fn index_context_request(
         &self,
-        _workspace_id: &str,
+        workspace_id: &str,
         body: ContextIndexBody,
     ) -> Result<
         (
@@ -555,7 +556,7 @@ impl ReviewHttpRouter {
     > {
         let config = body.config.unwrap_or_else(ContextEngineConfig::snapshot_v0);
         let snapshot = build_context_snapshot_from_source(body.source, body.changed_files)?;
-        let engine = SnapshotContextEngine::new(config);
+        let engine = self.context_engine_for_workspace(workspace_id, config)?;
         let index_engine = engine.clone();
         let index_snapshot = Arc::clone(&snapshot);
         let mut request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
@@ -572,10 +573,26 @@ impl ReviewHttpRouter {
             .lock()
             .expect("context engine store poisoned")
             .insert(
-                context_engine_key(_workspace_id, &snapshot.snapshot_id.0),
+                context_engine_key(workspace_id, &snapshot.snapshot_id.0),
                 engine.clone(),
             );
         Ok((engine, snapshot, index.manifest_artifact.clone()))
+    }
+
+    fn context_engine_for_workspace(
+        &self,
+        workspace_id: &str,
+        config: ContextEngineConfig,
+    ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
+        if let Some(root) = &self.options.context_learning_store_root {
+            SnapshotContextEngine::with_learning_store_file(
+                config,
+                workspace_learning_store_path(root, workspace_id),
+            )
+            .map_err(context_runtime_error)
+        } else {
+            Ok(SnapshotContextEngine::new(config))
+        }
     }
 
     fn context_engine_for_snapshot(
@@ -999,6 +1016,20 @@ fn parse_query_lossy(query: &str) -> BTreeMap<String, String> {
 
 fn context_engine_key(workspace_id: &str, snapshot_id: &str) -> String {
     format!("{workspace_id}:{snapshot_id}")
+}
+
+fn workspace_learning_store_path(root: &std::path::Path, workspace_id: &str) -> PathBuf {
+    let safe_workspace = workspace_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    root.join(safe_workspace).join("context-learnings.json")
 }
 
 fn percent_decode(input: &str, plus_as_space: bool) -> Result<String, ReviewHttpRouteError> {
