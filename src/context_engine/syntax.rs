@@ -89,7 +89,10 @@ fn parse_rust_symbols(content: &str) -> ParsedSymbols {
                 }
             }
         }
-        if let Some(rest) = line.strip_prefix("use ") {
+        if let Some(rest) = line
+            .strip_prefix("use ")
+            .or_else(|| line.strip_prefix("pub use "))
+        {
             imports.extend(parse_rust_use(rest));
         }
     }
@@ -116,7 +119,10 @@ fn parse_typescript_symbols(content: &str) -> ParsedSymbols {
             }
         }
         if line.starts_with("import ") || line.starts_with("export ") {
-            imports.extend(parse_braced_names(line));
+            imports.extend(parse_typescript_imports(line));
+        }
+        if let Some(method) = parse_typescript_method_definition(line) {
+            definitions.push(method);
         }
     }
     ParsedSymbols {
@@ -158,27 +164,63 @@ fn parse_python_symbols(content: &str) -> ParsedSymbols {
 
 fn parse_rust_use(rest: &str) -> Vec<String> {
     let trimmed = rest.trim_end_matches(';');
+    if trimmed.contains('{') {
+        return parse_symbol_names(trimmed);
+    }
     if let Some((_, tail)) = trimmed.rsplit_once("::") {
-        return parse_braced_names(tail)
+        return parse_symbol_names(tail)
             .into_iter()
             .chain(symbol_name(tail))
             .collect();
     }
-    parse_braced_names(trimmed)
+    parse_symbol_names(trimmed)
         .into_iter()
         .chain(symbol_name(trimmed))
         .collect()
 }
 
-fn parse_braced_names(text: &str) -> Vec<String> {
-    let selected = if let Some((_, rest)) = text.split_once('{') {
-        rest.split_once('}')
-            .map(|(inside, _)| inside)
-            .unwrap_or(rest)
+fn parse_typescript_imports(line: &str) -> Vec<String> {
+    let before_from = line
+        .split_once(" from ")
+        .map(|(head, _)| head)
+        .unwrap_or(line);
+    let selected = before_from
+        .strip_prefix("import ")
+        .or_else(|| before_from.strip_prefix("export "))
+        .unwrap_or(before_from);
+    parse_symbol_names(selected)
+}
+
+fn parse_typescript_method_definition(line: &str) -> Option<String> {
+    if line.starts_with("function ")
+        || line.starts_with("if ")
+        || line.starts_with("for ")
+        || line.starts_with("while ")
+        || line.starts_with("switch ")
+        || line.starts_with("catch ")
+        || line.starts_with("return ")
+        || line.starts_with("export ")
+        || line.starts_with("import ")
+        || line.contains("=>")
+        || line.contains('=')
+        || line.contains('.')
+    {
+        return None;
+    }
+    let (candidate, _) = line.split_once('(')?;
+    let name = candidate.split_whitespace().last().and_then(symbol_name)?;
+    (!is_typescript_method_modifier(&name)).then_some(name)
+}
+
+fn parse_symbol_names(text: &str) -> Vec<String> {
+    let selected = if text.contains('{') {
+        text.chars()
+            .map(|ch| if matches!(ch, '{' | '}') { ',' } else { ch })
+            .collect::<String>()
     } else {
-        text
+        text.to_string()
     };
-    lexical_tokens(selected)
+    lexical_tokens(&selected)
         .into_iter()
         .filter(|token| {
             !matches!(
@@ -188,6 +230,13 @@ fn parse_braced_names(text: &str) -> Vec<String> {
         })
         .filter_map(|token| symbol_name(&token))
         .collect()
+}
+
+fn is_typescript_method_modifier(token: &str) -> bool {
+    matches!(
+        token,
+        "abstract" | "async" | "private" | "protected" | "public" | "readonly" | "static"
+    )
 }
 
 fn lexical_tokens(line: &str) -> Vec<String> {
@@ -247,6 +296,30 @@ mod tests {
         assert_eq!(parsed.definitions, vec!["Session", "validate"]);
         assert!(parsed.imports.contains(&"Token".to_string()));
         assert!(parsed.imports.contains(&"authorize_request".to_string()));
+    }
+
+    #[test]
+    fn parses_re_exports_aliases_nested_imports_and_methods() {
+        let rust = parse_symbols(
+            "src/lib.rs",
+            "pub use crate::{auth::{Token as AuthToken, authorize_request}, db::Pool};\nimpl Service { pub fn refresh_token(&self) {} }\n",
+        );
+        assert!(rust.definitions.contains(&"refresh_token".to_string()));
+        assert!(rust.imports.contains(&"Token".to_string()));
+        assert!(rust.imports.contains(&"AuthToken".to_string()));
+        assert!(rust.imports.contains(&"authorize_request".to_string()));
+        assert!(rust.imports.contains(&"Pool".to_string()));
+
+        let ts = parse_symbols(
+            "src/user.ts",
+            "import UserClient, { loadUser as fetchUser } from './api';\nexport { saveUser as persistUser } from './save';\nclass Store {\n  reloadUser(id: string) { return id; }\n}\n",
+        );
+        assert!(ts.definitions.contains(&"reloadUser".to_string()));
+        assert!(ts.imports.contains(&"UserClient".to_string()));
+        assert!(ts.imports.contains(&"loadUser".to_string()));
+        assert!(ts.imports.contains(&"fetchUser".to_string()));
+        assert!(ts.imports.contains(&"saveUser".to_string()));
+        assert!(ts.imports.contains(&"persistUser".to_string()));
     }
 
     #[test]
