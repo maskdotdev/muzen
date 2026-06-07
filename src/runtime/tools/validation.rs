@@ -26,38 +26,6 @@ struct SearchTextArgs {
     query: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RecordFindingArgs {
-    title: String,
-    claim: String,
-    path: String,
-    start_line: usize,
-    end_line: usize,
-}
-
-#[derive(Debug)]
-struct RecordFileReviewArgs {
-    path: String,
-    verdict: String,
-    summary: String,
-    finding_id: Option<String>,
-    related_paths: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ChallengeFindingArgs {
-    finding_id: String,
-    rationale: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FinishArgs {
-    reason: Option<String>,
-}
-
 pub(crate) fn validate_invocation(
     session_id: SessionId,
     turn_id: TurnId,
@@ -144,109 +112,6 @@ pub(crate) fn validate_invocation(
                 query: parsed.query,
             }
         }
-        Some(ToolName::RecordFinding) => {
-            let parsed: RecordFindingArgs =
-                serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                    (
-                        call.call_id.clone(),
-                        tool_id.clone(),
-                        ToolErrorCode::InvalidArgs,
-                    )
-                })?;
-            let path = RepoPath::parse(&parsed.path).map_err(|_| {
-                (
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::PathDenied,
-                )
-            })?;
-            ToolArgs::RecordFinding {
-                title: parsed.title,
-                claim: parsed.claim,
-                path,
-                start_line: Some(parsed.start_line.max(1)),
-                end_line: Some(parsed.end_line.max(parsed.start_line).max(1)),
-            }
-        }
-        Some(ToolName::RecordFileReview) => {
-            let parsed = parse_record_file_review_args(&call.raw_arguments).ok_or_else(|| {
-                (
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::InvalidArgs,
-                )
-            })?;
-            let verdict = parsed.verdict.trim().to_ascii_lowercase();
-            if !matches!(verdict.as_str(), "clean" | "issue_found" | "skipped") {
-                return Err((
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::InvalidArgs,
-                ));
-            }
-            if parsed.summary.trim().is_empty() {
-                return Err((
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::InvalidArgs,
-                ));
-            }
-            let path = RepoPath::parse(&parsed.path).map_err(|_| {
-                (
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::PathDenied,
-                )
-            })?;
-            let related_paths = parsed
-                .related_paths
-                .into_iter()
-                .map(|path| RepoPath::parse(&path))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| {
-                    (
-                        call.call_id.clone(),
-                        tool_id.clone(),
-                        ToolErrorCode::PathDenied,
-                    )
-                })?;
-            ToolArgs::RecordFileReview {
-                path,
-                verdict,
-                summary: parsed.summary,
-                finding_id: parsed
-                    .finding_id
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty()),
-                related_paths,
-            }
-        }
-        Some(ToolName::ChallengeFinding) => {
-            let parsed: ChallengeFindingArgs =
-                serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                    (
-                        call.call_id.clone(),
-                        tool_id.clone(),
-                        ToolErrorCode::InvalidArgs,
-                    )
-                })?;
-            ToolArgs::ChallengeFinding {
-                finding_id: parsed.finding_id,
-                rationale: parsed.rationale,
-            }
-        }
-        Some(ToolName::Finish) => {
-            let parsed: FinishArgs = serde_json::from_str(&call.raw_arguments).map_err(|_| {
-                (
-                    call.call_id.clone(),
-                    tool_id.clone(),
-                    ToolErrorCode::InvalidArgs,
-                )
-            })?;
-            ToolArgs::Finish {
-                reason: parsed.reason.unwrap_or_else(|| "finished".to_string()),
-            }
-        }
         None => {
             let parsed: Value = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (
@@ -273,47 +138,6 @@ pub(crate) fn validate_invocation(
         scope_key,
         assigned_changed_files: Vec::new(),
     })
-}
-
-fn parse_record_file_review_args(raw: &str) -> Option<RecordFileReviewArgs> {
-    let value = serde_json::from_str::<Value>(raw).ok()?;
-    let object = value.as_object()?;
-    let path = object.get("path")?.as_str()?.to_string();
-    let verdict = object.get("verdict")?.as_str()?.to_string();
-    let summary = object.get("summary")?.as_str()?.to_string();
-    let finding_id = object
-        .get("finding_id")
-        .or_else(|| object.get("findingId"))
-        .and_then(|value| match value {
-            Value::Null => None,
-            Value::String(value) => Some(value.clone()),
-            _ => None,
-        });
-    let related_paths = object
-        .get("related_paths")
-        .or_else(|| object.get("relatedPaths"))
-        .map(parse_related_paths)
-        .unwrap_or_else(|| Some(Vec::new()))?;
-    Some(RecordFileReviewArgs {
-        path,
-        verdict,
-        summary,
-        finding_id,
-        related_paths,
-    })
-}
-
-fn parse_related_paths(value: &Value) -> Option<Vec<String>> {
-    match value {
-        Value::Null => Some(Vec::new()),
-        Value::Array(values) => values
-            .iter()
-            .map(|value| value.as_str().map(ToString::to_string))
-            .collect(),
-        Value::String(value) if value.trim().is_empty() => Some(Vec::new()),
-        Value::String(value) => Some(vec![value.clone()]),
-        _ => None,
-    }
 }
 
 pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnvelope) {

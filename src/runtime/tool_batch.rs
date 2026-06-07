@@ -129,34 +129,31 @@ mod tests {
                 scope.clone(),
                 TurnId(3),
                 vec![
-                    model_call("finding", 0, ToolName::RecordFinding, "{}"),
-                    model_call("finish", 1, ToolName::Finish, "{}"),
-                    model_call("diff", 2, ToolName::ReadDiff, "{}"),
+                    model_call("diff", 0, ToolName::ReadDiff, "{}"),
+                    model_call("files", 1, ToolName::ListFiles, "{}"),
+                    model_call("changed", 2, ToolName::ListChangedFiles, "{}"),
                 ],
                 &SessionEvidence::default(),
-                usize::MAX,
+                2,
                 CancellationToken::new(),
             )
             .await;
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].tool_call_id, ToolCallId("finding".to_string()));
+        assert_eq!(results[0].tool_call_id, ToolCallId("diff".to_string()));
+        assert!(results[0].ok);
+        assert_eq!(results[1].tool_call_id, ToolCallId("files".to_string()));
+        assert!(results[1].ok);
+        assert_eq!(results[2].tool_call_id, ToolCallId("changed".to_string()));
         assert_eq!(
-            results[0].error.as_ref().expect("denial").code,
-            ToolErrorCode::ToolNotAllowed
+            results[2].error.as_ref().expect("denial").code,
+            ToolErrorCode::BudgetExceeded
         );
-        assert_eq!(results[1].tool_call_id, ToolCallId("finish".to_string()));
-        assert_eq!(
-            results[1].error.as_ref().expect("denial").code,
-            ToolErrorCode::ToolNotAllowed
-        );
-        assert_eq!(results[2].tool_call_id, ToolCallId("diff".to_string()));
-        assert!(results[2].ok);
         let records = runtime_sink.records.lock().expect("sink lock");
         assert!(records.iter().any(|(context, event)| {
             context.session_id.as_ref() == Some(&scope.id)
                 && context.turn_id == Some(TurnId(3))
-                && matches!(event, RuntimeEvent::ToolBatchStarted { count: 3, .. })
+                && matches!(event, RuntimeEvent::ToolBatchStarted { count: 2, .. })
         }));
     }
 

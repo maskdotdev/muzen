@@ -55,11 +55,6 @@ impl EventRecord {
         self.artifact_id = Some(artifact_id.into());
         self
     }
-
-    pub(crate) fn finding_id(mut self, finding_id: impl Into<String>) -> Self {
-        self.finding_id = Some(finding_id.into());
-        self
-    }
 }
 
 impl EventEmitter {

@@ -67,11 +67,11 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
         merged.snapshot_metrics.extend(summary.snapshot_metrics);
         merge_model_metrics(&mut merged.model_metrics, summary.model_metrics);
         merged
-            .terminal_diagnostics
-            .extend(summary.terminal_diagnostics);
+            .completion_diagnostics
+            .extend(summary.completion_diagnostics);
     }
     merged
-        .terminal_diagnostics
+        .completion_diagnostics
         .sort_by(|left, right| left.session_id.cmp(&right.session_id));
     merged.snapshot_metrics.sort_by(|left, right| {
         left.snapshot_id

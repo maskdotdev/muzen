@@ -41,16 +41,6 @@ pub(crate) fn diff_risk_hint_items(diff: &str) -> Vec<String> {
     hints
 }
 
-pub(crate) fn diff_risk_hint_paths(diff: &str) -> BTreeSet<String> {
-    async_iteration_callback_site_paths(diff)
-        .into_iter()
-        .chain(introduces_sync_to_async_contract(diff).then(|| "*".to_string()))
-        .chain(has_changed_url_fetch_boundary(diff).then(|| "*".to_string()))
-        .chain(has_changed_origin_or_frame_boundary(diff).then(|| "*".to_string()))
-        .chain(has_changed_template_or_render_boundary(diff).then(|| "*".to_string()))
-        .collect()
-}
-
 fn async_iteration_callback_sites(diff: &str) -> Vec<String> {
     async_iteration_callback_site_entries(diff)
         .into_iter()
@@ -58,13 +48,6 @@ fn async_iteration_callback_sites(diff: &str) -> Vec<String> {
             path.map(|path| format!("{path} `{pattern}`"))
                 .unwrap_or_else(|| format!("diff line `{pattern}`"))
         })
-        .collect()
-}
-
-fn async_iteration_callback_site_paths(diff: &str) -> Vec<String> {
-    async_iteration_callback_site_entries(diff)
-        .into_iter()
-        .filter_map(|(path, _)| path)
         .collect()
 }
 

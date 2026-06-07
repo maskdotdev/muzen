@@ -9,7 +9,6 @@ use crate::runtime::contracts::{
 use crate::util::redact_known_secrets;
 
 use super::ReviewerPolicy;
-use crate::runtime::policy::terminal::truncate_summary;
 use crate::runtime::policy::transcript::{compact_string_array, truncate_chars};
 impl ReviewerPolicy {
     pub(crate) fn plan_session_started_runtime_event(
@@ -100,22 +99,6 @@ impl ReviewerPolicy {
             turn_id,
             count,
         }))
-    }
-
-    pub(crate) fn plan_finding_validated_event(
-        &self,
-        scope: &SessionScope,
-        result: &ToolResultEnvelope,
-        finding_id: &str,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Info,
-            EventType::FindingValidated,
-            json!({"validationStatus": "validated"}),
-        )
-        .session_id(scope.id.0.clone())
-        .tool_call_id(result.tool_call_id.0.clone())
-        .finding_id(finding_id.to_string())
     }
 
     pub(crate) fn plan_artifact_recorded_event(
@@ -329,27 +312,9 @@ fn artifact_event_summary(result: &ToolResultEnvelope) -> String {
                 .map_or(0, Vec::len);
             format!("imports artifact {path} imports={imports}")
         }
-        Some(ToolName::RecordFileReview) => {
-            let path = data
-                .and_then(|value| value.get("path"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            let verdict = data
-                .and_then(|value| value.get("verdict"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            format!("file review {path}: {verdict}")
-        }
-        Some(ToolName::ChallengeFinding) => {
-            let finding_id = data
-                .and_then(|value| value.get("findingId"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            format!("challenge finding artifact {finding_id}")
-        }
         _ => format!("{} artifact", result.tool_name.as_str()),
     };
-    truncate_summary(&redact_known_secrets(&summary, &[]), 240)
+    truncate_chars(&redact_known_secrets(&summary, &[]), 240)
 }
 
 fn tool_call_completed_details(result: &ToolResultEnvelope) -> Option<Value> {
@@ -410,19 +375,6 @@ fn artifact_event_details(result: &ToolResultEnvelope) -> Option<Value> {
         Some(ToolName::ListImports) => json!({
             "path": data.get("path").cloned(),
             "imports": compact_string_array(data.get("imports"), 120, 300),
-        }),
-        Some(ToolName::RecordFileReview) => json!({
-            "path": data.get("path").cloned(),
-            "verdict": data.get("verdict").cloned(),
-            "summary": data
-                .get("summary")
-                .and_then(Value::as_str)
-                .map(|value| truncate_chars(value, 500)),
-            "findingId": data.get("findingId").cloned(),
-            "relatedPaths": compact_string_array(data.get("relatedPaths"), 20, 300),
-        }),
-        Some(ToolName::RecordFinding | ToolName::ChallengeFinding) => json!({
-            "findingId": data.get("findingId").cloned(),
         }),
         _ => return None,
     };

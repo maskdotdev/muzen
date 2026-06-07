@@ -6,8 +6,6 @@ mod support;
 #[cfg(test)]
 mod artifacts;
 #[cfg(test)]
-mod bench;
-#[cfg(test)]
 mod canary;
 #[cfg(test)]
 mod concurrent;

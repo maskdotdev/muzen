@@ -1,41 +1,11 @@
-use crate::contracts::ToolName;
 use crate::runtime::contracts::{ModelToolCall, ToolCallId, ToolErrorCode, ToolId};
 
 use super::{ReviewerPolicy, SessionEvidence};
 impl ReviewerPolicy {
-    pub(crate) fn terminal_denial_before_evidence(
-        &self,
-        tool_id: &ToolId,
-        evidence: &SessionEvidence,
-    ) -> Option<ToolPolicyDenial> {
-        let evidence_ready = evidence.ready();
-        if evidence_ready {
-            if tool_id.as_builtin() == Some(ToolName::Finish) && !evidence.ready_to_finish() {
-                return Some(ToolPolicyDenial {
-                    code: ToolErrorCode::ToolNotAllowed,
-                    message: evidence.finish_coverage_denial_message(),
-                    retryable: true,
-                });
-            }
-            return None;
-        }
-        if matches!(
-            tool_id.as_builtin(),
-            Some(ToolName::RecordFileReview | ToolName::RecordFinding | ToolName::Finish)
-        ) {
-            return Some(ToolPolicyDenial {
-                code: ToolErrorCode::ToolNotAllowed,
-                message: "terminal tool requires successful read_diff, read_file/read_file_range/read_head_file, and search_text evidence first".to_string(),
-                retryable: false,
-            });
-        }
-        None
-    }
-
     pub(crate) fn plan_tool_batch(
         &self,
         calls: Vec<ModelToolCall>,
-        evidence: &SessionEvidence,
+        _evidence: &SessionEvidence,
         remaining_tool_calls: usize,
     ) -> ToolBatchPolicyPlan {
         let mut scheduled_count = 0usize;
@@ -56,30 +26,7 @@ impl ReviewerPolicy {
                 continue;
             }
             scheduled_count = scheduled_count.saturating_add(1);
-            if let Some(denial) = self.terminal_denial_before_evidence(&call.name, evidence) {
-                denied_calls.push(ToolPolicyDeniedCall {
-                    index: call.index,
-                    call_id: call.call_id,
-                    tool_id: call.name,
-                    denial,
-                });
-            } else if let Some(denial) = evidence.file_review_scope_denial(&call) {
-                denied_calls.push(ToolPolicyDeniedCall {
-                    index: call.index,
-                    call_id: call.call_id,
-                    tool_id: call.name,
-                    denial,
-                });
-            } else if let Some(denial) = evidence.finding_scope_denial(&call) {
-                denied_calls.push(ToolPolicyDeniedCall {
-                    index: call.index,
-                    call_id: call.call_id,
-                    tool_id: call.name,
-                    denial,
-                });
-            } else {
-                allowed_calls.push(call);
-            }
+            allowed_calls.push(call);
         }
         ToolBatchPolicyPlan {
             scheduled_count,

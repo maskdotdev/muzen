@@ -22,22 +22,10 @@ impl ReviewerPolicy {
     pub fn tool_schemas_for_transcript(
         &self,
         registry: &ToolRegistry,
-        transcript: &[ConversationItem],
+        _transcript: &[ConversationItem],
         capabilities: &CapabilitySet,
     ) -> Vec<Value> {
-        let has_read_diff = transcript_has_successful_tool(transcript, ToolName::ReadDiff);
-        let has_read_file = transcript_has_successful_tool(transcript, ToolName::ReadFile)
-            || transcript_has_successful_tool(transcript, ToolName::ReadFileRange)
-            || transcript_has_successful_tool(transcript, ToolName::ReadHeadFile);
-        let has_search = transcript_has_successful_tool(transcript, ToolName::SearchText);
-
-        let evidence_ready = has_read_diff && has_read_file && has_search;
-        let tools = if evidence_ready {
-            exploration_and_terminal_tools()
-        } else {
-            exploration_tools()
-        };
-        schemas_for_tools(registry, capabilities, tools)
+        schemas_for_tools(registry, capabilities, exploration_tools())
     }
 
     pub fn compact_tool_result(
@@ -78,15 +66,6 @@ impl ReviewerPolicy {
     }
 }
 
-fn transcript_has_successful_tool(transcript: &[ConversationItem], expected: ToolName) -> bool {
-    transcript.iter().any(|item| {
-        matches!(
-            item,
-            ConversationItem::ToolResult { content, .. }
-                if content.ok && content.tool_name.as_builtin() == Some(expected)
-        )
-    })
-}
 fn schemas_for_tools(
     registry: &ToolRegistry,
     capabilities: &CapabilitySet,
@@ -128,29 +107,8 @@ const EXPLORATION_TOOLS: &[ToolName] = &[
     ToolName::ListImports,
 ];
 
-const EXPLORATION_AND_TERMINAL_TOOLS: &[ToolName] = &[
-    ToolName::ListChangedFiles,
-    ToolName::ReadDiff,
-    ToolName::ListFiles,
-    ToolName::ReadFile,
-    ToolName::ReadFileRange,
-    ToolName::ReadBaseFile,
-    ToolName::ReadHeadFile,
-    ToolName::SearchText,
-    ToolName::FindRelatedFiles,
-    ToolName::FindTestsForFile,
-    ToolName::ListImports,
-    ToolName::RecordFinding,
-    ToolName::RecordFileReview,
-    ToolName::Finish,
-];
-
 fn exploration_tools() -> &'static [ToolName] {
     EXPLORATION_TOOLS
-}
-
-fn exploration_and_terminal_tools() -> &'static [ToolName] {
-    EXPLORATION_AND_TERMINAL_TOOLS
 }
 
 fn compact_tool_data(tool: Option<ToolName>, data: &Value) -> Value {
@@ -185,16 +143,6 @@ fn compact_tool_data(tool: Option<ToolName>, data: &Value) -> Value {
         Some(ToolName::ListImports) => json!({
             "path": data.get("path").cloned(),
             "imports": compact_string_array(data.get("imports"), 80, 300),
-        }),
-        Some(ToolName::RecordFileReview) => json!({
-            "path": data.get("path").cloned(),
-            "verdict": data.get("verdict").cloned(),
-            "summary": data
-                .get("summary")
-                .and_then(Value::as_str)
-                .map(|value| truncate_chars(value, 500)),
-            "findingId": data.get("findingId").cloned(),
-            "relatedPaths": compact_string_array(data.get("relatedPaths"), 20, 300),
         }),
         _ => data.clone(),
     }
