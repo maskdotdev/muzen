@@ -492,12 +492,14 @@ impl ContextEngine for SnapshotContextEngine {
                         "omissions": [{
                             "reason": "requires_ungranted_capability",
                             "capability": "network_read",
+                            "deniedCandidates": index.denied_cross_repo_contracts,
                             "message": "cross-repo contracts require host-provided evidence or an explicitly granted network/provider capability"
                         }]
                     }))
                 } else {
                     Some(serde_json::json!({
-                        "omissions": []
+                        "omissions": [],
+                        "deniedCandidates": index.denied_cross_repo_contracts
                     }))
                 };
                 Ok(ContextQueryResult {

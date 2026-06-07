@@ -190,6 +190,14 @@ class ContextEngineConfig:
 
 
 @dataclass(frozen=True)
+class CrossRepoContractCandidate:
+    resource_id: str
+    repository: str
+    summary: str
+    original_url: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class ContextRange:
     start_line: int
     end_line: int

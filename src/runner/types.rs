@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::context_engine::{ContextEngineConfig, ContextLearningApproval};
+use crate::context_engine::{
+    ContextEngineConfig, ContextLearningApproval, CrossRepoContractCandidate,
+};
 use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
@@ -281,6 +283,10 @@ pub struct RunnerContextIndexParams {
     pub changed_files: Vec<String>,
     #[serde(default)]
     pub host_metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+    #[serde(default)]
+    pub allowed_cross_repo_resources: Vec<String>,
     #[serde(default)]
     pub config: Option<ContextEngineConfig>,
 }

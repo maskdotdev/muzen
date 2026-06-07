@@ -42,6 +42,9 @@ Implemented on `feat/context-engine`:
 - Cross-repository contract context has a provider-neutral query surface,
   host-provided evidence indexing, and explicit capability omission reporting
   when no cross-repo evidence or network/provider grant is available.
+- Provider-materialized cross-repository contract candidates are capability
+  scoped by resource id across Rust, HTTP, runner, and SDK adapters; ungranted
+  candidates are denied and reported instead of becoming evidence.
 - Optional semantic retrieval scaffolding is present: no-vector mode is the
   default, embedding provider/vector-index traits are defined, a deterministic
   local hashed embedding provider and in-memory vector index are available,
@@ -57,7 +60,6 @@ Still pending from the full plan:
 
 - Deeper parser coverage for re-exports, aliases, method receivers, nested
   modules/classes, and line ranges on symbol evidence.
-- Capability-scoped network/provider retrieval for cross-repository contracts.
 - Hosted embedding provider implementation, index lifecycle wiring, and
   benchmarked semantic ranking improvements.
 - Broader replay/evaluation coverage for sufficiency calibration, cache hit

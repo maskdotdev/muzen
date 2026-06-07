@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ pub struct ContextIndexRequest {
     pub(crate) review_plan: Option<ReviewPlan>,
     pub instructions: Vec<SessionInstruction>,
     pub host_metadata: BTreeMap<String, serde_json::Value>,
+    pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+    pub allowed_cross_repo_resources: BTreeSet<String>,
     pub include_host_context: bool,
     pub limits: ContextLimits,
 }
@@ -38,10 +40,22 @@ impl ContextIndexRequest {
             review_plan: None,
             instructions: Vec::new(),
             host_metadata: BTreeMap::new(),
+            cross_repo_contracts: Vec::new(),
+            allowed_cross_repo_resources: BTreeSet::new(),
             include_host_context: config.include_host_context,
             limits: ContextLimits::from_config(config),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossRepoContractCandidate {
+    pub resource_id: String,
+    pub repository: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -136,6 +150,7 @@ pub struct ContextIndex {
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
     pub symbol_graph: ContextSymbolGraph,
+    pub denied_cross_repo_contracts: usize,
     pub skips: Vec<ContextIndexSkip>,
     pub report: ContextIndexReport,
     pub manifest_artifact: ContextManifestArtifact,
@@ -149,6 +164,7 @@ impl ContextIndex {
         let mut evidence = Vec::new();
         let mut file_contents = BTreeMap::new();
         let mut symbol_graph = ContextSymbolGraph::default();
+        let mut denied_cross_repo_contracts = 0usize;
         let mut skips = Vec::new();
         let mut indexed_files = 0usize;
         let mut indexed_bytes = 0u64;
@@ -266,6 +282,23 @@ impl ContextIndex {
                 }
             }
         }
+        for candidate in &request.cross_repo_contracts {
+            if evidence.len() >= request.limits.max_evidence_items {
+                break;
+            }
+            if request
+                .allowed_cross_repo_resources
+                .contains(&candidate.resource_id)
+            {
+                evidence.push(cross_repo_contract_evidence(
+                    &snapshot,
+                    candidate,
+                    request.run_id.as_deref(),
+                ));
+            } else {
+                denied_cross_repo_contracts = denied_cross_repo_contracts.saturating_add(1);
+            }
+        }
 
         let index_id = ContextIndexId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -313,10 +346,52 @@ impl ContextIndex {
             evidence,
             file_contents,
             symbol_graph,
+            denied_cross_repo_contracts,
             skips,
             report,
             manifest_artifact,
         })
+    }
+}
+
+fn cross_repo_contract_evidence(
+    snapshot: &RepoSnapshot,
+    candidate: &CrossRepoContractCandidate,
+    run_id: Option<&str>,
+) -> ContextEvidence {
+    let text = format!("{}: {}", candidate.repository, candidate.summary);
+    ContextEvidence {
+        id: EvidenceId(stable_id(&[
+            &snapshot.snapshot_id.0,
+            "cross_repo_contract",
+            &candidate.resource_id,
+            &text,
+            run_id.unwrap_or("standalone"),
+        ])),
+        kind: ContextEvidenceKind::CrossRepoContract,
+        source: ContextEvidenceSource::External,
+        trust: ContextTrust::ToolProvider,
+        sensitivity: ContextSensitivity::Private,
+        scope: ContextScope::External,
+        path: None,
+        revision: None,
+        range: None,
+        content_hash: Some(stable_id(&[&text])),
+        summary: Some(format!(
+            "cross-repo contract {}: {}",
+            candidate.repository,
+            concise_text(&candidate.summary)
+        )),
+        token_estimate: estimate_tokens(text.len()),
+        provenance: ContextProvenance {
+            provider: "cross_repo_provider".to_string(),
+            query: Some(candidate.resource_id.clone()),
+            tool_call_id: None,
+            snapshot_id: Some(snapshot.snapshot_id.0.clone()),
+            original_url: candidate.original_url.clone(),
+        },
+        created_at_utc: None,
+        expires_at_utc: None,
     }
 }
 

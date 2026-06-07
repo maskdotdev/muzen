@@ -154,11 +154,20 @@ class RunnerBackedContextWorkspace:
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
         host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
         return await self._runner.request(
             "context.index",
-            _context_index_params(source, changed_files, host_metadata, config),
+            _context_index_params(
+                source,
+                changed_files,
+                host_metadata,
+                cross_repo_contracts,
+                allowed_cross_repo_resources,
+                config,
+            ),
         )
 
     async def build_pack(
@@ -167,6 +176,8 @@ class RunnerBackedContextWorkspace:
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
         host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         max_tokens: Optional[int] = None,
         config: Optional[ContextEngineConfig] = None,
@@ -175,6 +186,8 @@ class RunnerBackedContextWorkspace:
             source=source,
             changed_files=changed_files,
             host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
             config=config,
         )
         return await self._runner.request(
@@ -196,6 +209,8 @@ class RunnerBackedContextWorkspace:
         arguments: Optional[Dict[str, Any]] = None,
         changed_files: Optional[List[str]] = None,
         host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         current_evidence: Optional[List[str]] = None,
         limits: Optional[ContextQueryLimits] = None,
@@ -205,6 +220,8 @@ class RunnerBackedContextWorkspace:
             source=source,
             changed_files=changed_files,
             host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
             config=config,
         )
         runner_limits = (
@@ -238,6 +255,8 @@ class RunnerBackedContextWorkspace:
         evidence_ids: Optional[List[str]] = None,
         changed_files: Optional[List[str]] = None,
         host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
         learning_source: Optional[ContextLearningSource] = None,
         scope: Optional[ContextLearningScope] = None,
         config: Optional[ContextEngineConfig] = None,
@@ -246,6 +265,8 @@ class RunnerBackedContextWorkspace:
             source=source,
             changed_files=changed_files,
             host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
             config=config,
         )
         return await self._runner.request(
@@ -282,6 +303,8 @@ def _context_index_params(
     source_like: ReviewSourceLike,
     changed_files: Optional[List[str]],
     host_metadata: Optional[Dict[str, Any]],
+    cross_repo_contracts: Optional[List[Dict[str, Any]]],
+    allowed_cross_repo_resources: Optional[List[str]],
     config: Optional[ContextEngineConfig],
 ) -> Dict[str, Any]:
     source = parse_review_source(source_like)
@@ -301,6 +324,10 @@ def _context_index_params(
     }
     if host_metadata is not None:
         payload["hostMetadata"] = host_metadata
+    if cross_repo_contracts is not None:
+        payload["crossRepoContracts"] = cross_repo_contracts
+    if allowed_cross_repo_resources is not None:
+        payload["allowedCrossRepoResources"] = allowed_cross_repo_resources
     if config is not None:
         payload["config"] = _context_config_payload(config)
     return payload
