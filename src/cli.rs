@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::bench::bench_job;
 use crate::context_engine::{
-    ContextEngine, ContextEngineConfig, ContextIndexRequest, ContextPackPurpose,
-    ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits, SnapshotContextEngine,
+    ContextEmbeddingProviderKind, ContextEngine, ContextEngineConfig, ContextIndexRequest,
+    ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
+    ContextSemanticMode, SnapshotContextEngine,
 };
 use crate::contracts::*;
 use crate::events::EventEmitter;
@@ -149,6 +150,12 @@ pub(crate) struct ContextSnapshotArgs {
 
     #[arg(long, default_value_t = 120)]
     pub(crate) max_search_matches: usize,
+
+    #[arg(long)]
+    pub(crate) local_semantic: bool,
+
+    #[arg(long, default_value_t = 512)]
+    pub(crate) max_embedding_inputs: usize,
 
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
@@ -738,7 +745,7 @@ async fn index_context_snapshot(
     crate::context_engine::ContextManifestArtifact,
 )> {
     let snapshot = build_context_snapshot(args)?;
-    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    let engine = SnapshotContextEngine::new(context_engine_config(args));
     engine
         .index_snapshot(
             ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
@@ -750,6 +757,16 @@ async fn index_context_snapshot(
         .get_index(&snapshot.snapshot_id)
         .ok_or_else(|| anyhow::anyhow!("context index was not stored"))?;
     Ok((engine, snapshot, index.manifest_artifact.clone()))
+}
+
+fn context_engine_config(args: &ContextSnapshotArgs) -> ContextEngineConfig {
+    let mut config = ContextEngineConfig::snapshot_v0();
+    if args.local_semantic {
+        config.semantic.mode = ContextSemanticMode::Local;
+        config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
+        config.semantic.max_embedding_inputs = args.max_embedding_inputs;
+    }
+    config
 }
 
 fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot>> {

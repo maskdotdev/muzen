@@ -17,13 +17,36 @@
       "kind": "related-symbols",
       "path": "src/auth/token.rs",
       "maxResults": 10,
-      "expectedPaths": ["src/routes.rs", "src/auth/token.rs"]
+      "expectedPaths": ["src/routes.rs", "src/auth/token.rs"],
+      "expectedRanges": [
+        {
+          "kind": "symbol",
+          "path": "src/auth/token.rs",
+          "startLine": 1,
+          "endLine": 1
+        },
+        {
+          "kind": "symbol",
+          "path": "src/auth/token.rs",
+          "startLine": 6,
+          "endLine": 6
+        }
+      ]
     },
     {
       "id": "auth-token-text-search",
       "kind": "search-text",
       "query": "expires_at",
       "maxResults": 5,
+      "expectedPaths": ["src/auth/token.rs"]
+    },
+    {
+      "id": "auth-token-local-semantic-search",
+      "kind": "search-text",
+      "query": "user id token",
+      "maxResults": 5,
+      "localSemantic": true,
+      "maxEmbeddingInputs": 64,
       "expectedPaths": ["src/auth/token.rs"]
     }
   ]

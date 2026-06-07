@@ -57,7 +57,10 @@ Implemented on `feat/context-engine`:
   line ranges on emitted symbol evidence.
 - A runnable context-engine evaluation harness with fixture-backed recall,
   precision, token efficiency, omission, latency, secret-redaction, and
-  prompt-injection trust summaries.
+  prompt-injection trust summaries, plus expected symbol-range checks and
+  local semantic-mode cases driven through the public CLI.
+- The context CLI can opt into local semantic indexing with `--local-semantic`
+  and bound vector inputs with `--max-embedding-inputs`.
 
 Still pending from the full plan:
 

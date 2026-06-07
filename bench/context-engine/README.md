@@ -17,6 +17,9 @@ Initial metrics to track:
   context query payloads.
 - Prompt-injection resistance: hostile repository guidance remains structurally
   untrusted evidence.
+- Symbol range coverage: symbol evidence includes expected line spans.
+- Optional local semantic retrieval: cases can opt into the local hashed vector
+  index through the public CLI.
 
 Run the evaluation suite:
 
@@ -27,9 +30,14 @@ python3 bench/context-engine/run.py
 The runner drives `cargo run --bin muzen -- context query` or
 `cargo run --bin muzen -- context pack` for each case in
 `bench/context-engine/cases/`, computes recall, precision, token efficiency,
-omissions, redaction correctness, prompt-injection trust checks, and latency,
-then writes
+omissions, redaction correctness, prompt-injection trust checks, expected range
+coverage, and latency, then writes
 `bench/results-context-engine/context-engine-summary.json`.
+
+Case files may set `localSemantic: true` and `maxEmbeddingInputs` to exercise
+local semantic indexing. They may also set `expectedRanges` entries with `path`,
+`startLine`, `endLine`, and optional `kind`; the run fails when no returned
+evidence item matches each expected range.
 
 Local smoke commands:
 
