@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::context_engine::ContextEngineConfig;
+use crate::context_engine::{ContextEngineConfig, ContextLearningApproval};
 use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
@@ -281,6 +281,14 @@ pub struct RunnerContextIndexParams {
     pub changed_files: Vec<String>,
     #[serde(default)]
     pub config: Option<ContextEngineConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerContextLearningApprovalParams {
+    pub snapshot_id: crate::runtime::contracts::SnapshotId,
+    #[serde(flatten)]
+    pub approval: ContextLearningApproval,
 }
 
 #[derive(Debug, Clone, Deserialize)]

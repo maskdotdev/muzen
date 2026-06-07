@@ -25,6 +25,8 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "context.index".to_string(),
                 "context.pack".to_string(),
                 "context.query".to_string(),
+                "context.feedback".to_string(),
+                "context.learning.approve".to_string(),
                 "webhook.github.handle".to_string(),
                 "webhook.gitlab.handle".to_string(),
                 "worker.runOnce".to_string(),
@@ -99,6 +101,14 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
                 "context.query",
                 "Query an indexed snapshot or context pack outside agent execution.",
             ),
+            implemented(
+                "context.feedback",
+                "Record feedback as a proposed context learning for an indexed snapshot.",
+            ),
+            implemented(
+                "context.learning.approve",
+                "Approve or reject a proposed context learning for an indexed snapshot.",
+            ),
         ],
         callbacks: vec![
             implemented_runner_to_sdk(
@@ -172,6 +182,8 @@ fn method_params(method: &str) -> Option<RunnerPayloadRef> {
         "context.index" => Some(payload_ref("ContextIndexParams")),
         "context.pack" => Some(payload_ref("ContextPackRequest")),
         "context.query" => Some(payload_ref("ContextQuery")),
+        "context.feedback" => Some(payload_ref("ContextFeedback")),
+        "context.learning.approve" => Some(payload_ref("ContextLearningApprovalParams")),
         "source.materialize" => Some(payload_ref("SourceMaterializeParams")),
         "run.heartbeat" => Some(payload_ref("RunHeartbeatParams")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
@@ -203,6 +215,8 @@ fn method_result(method: &str) -> Option<RunnerPayloadRef> {
         "context.index" => Some(payload_ref("ContextManifest")),
         "context.pack" => Some(payload_ref("ContextPack")),
         "context.query" => Some(payload_ref("ContextQueryResult")),
+        "context.feedback" => Some(payload_ref("ContextFeedbackReceipt")),
+        "context.learning.approve" => Some(payload_ref("ContextLearningApprovalReceipt")),
         "source.materialize" => Some(payload_ref("SourceMaterializeResult")),
         "run.heartbeat" => Some(payload_ref("RunHeartbeatResult")),
         "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
@@ -1041,6 +1055,80 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("sufficiency", "ContextSufficiency"),
                 optional("data", "json"),
                 required("omitted", "integer"),
+            ],
+        ),
+        object(
+            "ContextFeedback",
+            vec![
+                required("snapshotId", "string"),
+                defaulted("evidenceIds", "string[]", "[]"),
+                required("feedback", "string"),
+                optional("source", "ContextLearningSource"),
+                optional("scope", "ContextLearningScope"),
+            ],
+        ),
+        object(
+            "ContextFeedbackReceipt",
+            vec![
+                required("accepted", "boolean"),
+                required("message", "string"),
+                optional("proposedLearning", "ContextLearning"),
+            ],
+        ),
+        object(
+            "ContextLearning",
+            vec![
+                required("id", "string"),
+                required("snapshotId", "string"),
+                required("source", "ContextLearningSource"),
+                required("status", "ContextLearningStatus"),
+                required("scope", "ContextLearningScope"),
+                required("evidenceIds", "string[]"),
+                required("summary", "string"),
+                required("createdAtUtc", "string"),
+                optional("expiresAtUtc", "string"),
+            ],
+        ),
+        enum_definition(
+            "ContextLearningSource",
+            vec![
+                "accepted_finding",
+                "dismissed_finding",
+                "human_feedback",
+                "merged_pr",
+                "manual_rule",
+            ],
+        ),
+        enum_definition(
+            "ContextLearningStatus",
+            vec!["proposed", "approved", "expired", "rejected"],
+        ),
+        enum_definition(
+            "ContextLearningScope",
+            vec!["repository", "workspace", "organization"],
+        ),
+        object(
+            "ContextLearningApproval",
+            vec![
+                required("learningId", "string"),
+                defaulted("approve", "boolean", "false"),
+                optional("expiresAtUtc", "string"),
+            ],
+        ),
+        object(
+            "ContextLearningApprovalParams",
+            vec![
+                required("snapshotId", "string"),
+                required("learningId", "string"),
+                defaulted("approve", "boolean", "false"),
+                optional("expiresAtUtc", "string"),
+            ],
+        ),
+        object(
+            "ContextLearningApprovalReceipt",
+            vec![
+                required("accepted", "boolean"),
+                required("learning", "ContextLearning"),
             ],
         ),
         object(

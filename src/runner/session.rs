@@ -18,14 +18,14 @@ use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportE
 use super::types::{
     ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunFailedNotification,
     RunLookupParams, RunStartParams, RunStatusResult, RunnerArtifactExportResult,
-    RunnerArtifactReadResult, RunnerContextIndexParams, RunnerHandshakeParams,
-    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams,
-    WorkerRunOnceResult,
+    RunnerArtifactReadResult, RunnerContextIndexParams, RunnerContextLearningApprovalParams,
+    RunnerHandshakeParams, RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams,
+    WorkerRunOnceParams, WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::context_engine::{
-    ContextEngine, ContextEngineConfig, ContextIndexRequest, ContextPackRequest, ContextQuery,
-    SnapshotContextEngine,
+    ContextEngine, ContextEngineConfig, ContextFeedback, ContextIndexRequest, ContextPackRequest,
+    ContextQuery, SnapshotContextEngine,
 };
 use crate::contracts::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
@@ -148,6 +148,8 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
         | "context.index"
         | "context.pack"
         | "context.query"
+        | "context.feedback"
+        | "context.learning.approve"
         | "webhook.github.handle"
         | "webhook.gitlab.handle"
         | "worker.runOnce" => JsonRpcResponse::error(
@@ -345,6 +347,8 @@ impl RunnerStdioSession {
             "context.index" => self.handle_context_index(request),
             "context.pack" => self.handle_context_pack(request),
             "context.query" => self.handle_context_query(request),
+            "context.feedback" => self.handle_context_feedback(request),
+            "context.learning.approve" => self.handle_context_learning_approval(request),
             "webhook.github.handle" => self.handle_webhook(request, "github"),
             "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
             "worker.runOnce" => self.handle_worker_run_once(request),
@@ -492,6 +496,8 @@ impl RunnerStdioSession {
             "context.index" => self.handle_context_index(request),
             "context.pack" => self.handle_context_pack(request),
             "context.query" => self.handle_context_query(request),
+            "context.feedback" => self.handle_context_feedback(request),
+            "context.learning.approve" => self.handle_context_learning_approval(request),
             "webhook.github.handle" => self.handle_webhook(request, "github"),
             "webhook.gitlab.handle" => self.handle_webhook(request, "gitlab"),
             "worker.runOnce" => self.handle_worker_run_once(request),
@@ -721,6 +727,36 @@ impl RunnerStdioSession {
         };
         match block_on_context(engine.query(params, CancellationToken::new())) {
             Ok(result) => Ok(JsonRpcResponse::success(request.id, json!(result))),
+            Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
+        }
+    }
+
+    fn handle_context_feedback(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<ContextFeedback>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let engine = match self.context_engine_for_snapshot(&params.snapshot_id) {
+            Ok(engine) => engine,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        match block_on_context(engine.record_feedback(params, CancellationToken::new())) {
+            Ok(receipt) => Ok(JsonRpcResponse::success(request.id, json!(receipt))),
+            Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
+        }
+    }
+
+    fn handle_context_learning_approval(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<RunnerContextLearningApprovalParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let engine = match self.context_engine_for_snapshot(&params.snapshot_id) {
+            Ok(engine) => engine,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        match block_on_context(engine.approve_learning(params.approval, CancellationToken::new())) {
+            Ok(receipt) => Ok(JsonRpcResponse::success(request.id, json!(receipt))),
             Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
         }
     }

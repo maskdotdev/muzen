@@ -17,6 +17,8 @@ pub(crate) fn stateful_method(method: &str) -> bool {
             | "context.index"
             | "context.pack"
             | "context.query"
+            | "context.feedback"
+            | "context.learning.approve"
             | "webhook.github.handle"
             | "webhook.gitlab.handle"
             | "worker.runOnce"

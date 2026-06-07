@@ -20,6 +20,8 @@ from .runner_mapping import (
 from .sources import parse_review_source
 from .types import (
     ContextEngineConfig,
+    ContextLearningScope,
+    ContextLearningSource,
     ContextPackPurpose,
     ContextQueryKind,
     ContextQueryLimits,
@@ -220,6 +222,51 @@ class RunnerBackedContextWorkspace:
                 "arguments": arguments or {},
                 "currentEvidence": current_evidence or [],
                 "limits": runner_limits,
+            },
+        )
+
+    async def record_feedback(
+        self,
+        *,
+        source: ReviewSourceLike,
+        feedback: str,
+        evidence_ids: Optional[List[str]] = None,
+        changed_files: Optional[List[str]] = None,
+        learning_source: Optional[ContextLearningSource] = None,
+        scope: Optional[ContextLearningScope] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            config=config,
+        )
+        return await self._runner.request(
+            "context.feedback",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "evidenceIds": evidence_ids or [],
+                "feedback": feedback,
+                "source": learning_source,
+                "scope": scope,
+            },
+        )
+
+    async def approve_learning(
+        self,
+        *,
+        snapshot_id: str,
+        learning_id: str,
+        approve: bool = False,
+        expires_at_utc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return await self._runner.request(
+            "context.learning.approve",
+            {
+                "snapshotId": snapshot_id,
+                "learningId": learning_id,
+                "approve": approve,
+                "expiresAtUtc": expires_at_utc,
             },
         )
 

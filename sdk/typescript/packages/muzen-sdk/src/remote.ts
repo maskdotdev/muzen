@@ -24,7 +24,11 @@ import {
 } from "./wire-validation.js";
 import type {
   CreateMuzenClientOptions,
+  ContextFeedbackOptions,
+  ContextFeedbackReceipt,
   ContextIndexOptions,
+  ContextLearningApprovalOptions,
+  ContextLearningApprovalReceipt,
   ContextManifest,
   ContextPack,
   ContextPackOptions,
@@ -297,7 +301,41 @@ class RemoteContextWorkspace implements MuzenContextWorkspace {
     return (value as { result: ContextQueryResult }).result;
   }
 
-  private contextPath(kind: "index" | "packs" | "query"): string {
+  async recordFeedback(
+    options: ContextFeedbackOptions,
+  ): Promise<ContextFeedbackReceipt> {
+    const value = await this.client.requestJson(this.contextPath("feedback"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        evidenceIds: options.evidenceIds ?? [],
+        feedback: options.feedback,
+        learningSource: options.learningSource,
+        scope: options.scope,
+      },
+    });
+    return (value as { receipt: ContextFeedbackReceipt }).receipt;
+  }
+
+  async approveLearning(
+    options: ContextLearningApprovalOptions,
+  ): Promise<ContextLearningApprovalReceipt> {
+    const value = await this.client.requestJson(
+      this.contextPath("learnings/approve"),
+      {
+        method: "POST",
+        body: {
+          snapshotId: options.snapshotId,
+          learningId: options.learningId,
+          approve: options.approve ?? false,
+          expiresAtUtc: options.expiresAtUtc,
+        },
+      },
+    );
+    return (value as { receipt: ContextLearningApprovalReceipt }).receipt;
+  }
+
+  private contextPath(kind: string): string {
     return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/context/${kind}`;
   }
 }

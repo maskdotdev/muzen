@@ -1194,9 +1194,32 @@ fn review_http_router_serves_workspace_context_routes() {
             }))
             .unwrap(),
     );
+    let feedback_response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/feedback")
+            .json(&json!({
+                "source": source,
+                "feedback": "Suppress duplicate generated auth wrapper warning."
+            }))
+            .unwrap(),
+    );
     let index_body: Value = serde_json::from_str(&index_response.body).unwrap();
     let pack_body: Value = serde_json::from_str(&pack_response.body).unwrap();
     let query_body: Value = serde_json::from_str(&query_response.body).unwrap();
+    let feedback_body: Value = serde_json::from_str(&feedback_response.body).unwrap();
+    let snapshot_id = index_body["manifest"]["snapshotId"].as_str().unwrap();
+    let learning_id = feedback_body["receipt"]["proposedLearning"]["id"]
+        .as_str()
+        .unwrap();
+    let approval_response = router.handle(
+        ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/learnings/approve")
+            .json(&json!({
+                "snapshotId": snapshot_id,
+                "learningId": learning_id,
+                "approve": true
+            }))
+            .unwrap(),
+    );
+    let approval_body: Value = serde_json::from_str(&approval_response.body).unwrap();
 
     assert_eq!(index_response.status_code, HTTP_STATUS_OK);
     assert_eq!(
@@ -1213,6 +1236,16 @@ fn review_http_router_serves_workspace_context_routes() {
         .unwrap()
         .iter()
         .any(|item| item["path"] == json!("tests/auth/token_test.rs")));
+    assert_eq!(feedback_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        feedback_body["receipt"]["proposedLearning"]["status"],
+        json!("proposed")
+    );
+    assert_eq!(approval_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        approval_body["receipt"]["learning"]["status"],
+        json!("approved")
+    );
 }
 
 #[test]
