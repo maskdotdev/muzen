@@ -398,6 +398,55 @@ async fn snapshot_engine_queries_indexed_evidence() {
 }
 
 #[tokio::test]
+async fn local_semantic_mode_builds_vector_index_for_search() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repo.path().join("lib.rs"),
+        "pub fn authorize_mobile_token() -> bool { true }\n",
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.semantic.mode = ContextSemanticMode::Local;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
+    config.semantic.max_embedding_inputs = 32;
+    let engine = SnapshotContextEngine::new(config);
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(index.semantic_vectors.is_some());
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Correctness),
+                kind: ContextQueryKind::SearchText,
+                arguments: serde_json::json!({"query": "mobile token"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(result
+        .evidence
+        .iter()
+        .any(|evidence| evidence.path.as_ref().unwrap().display() == "lib.rs"));
+}
+
+#[tokio::test]
 async fn read_span_redacts_known_secret_patterns() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(

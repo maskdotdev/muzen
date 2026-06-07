@@ -47,9 +47,10 @@ Implemented on `feat/context-engine`:
   candidates are denied and reported instead of becoming evidence.
 - Optional semantic retrieval scaffolding is present: no-vector mode is the
   default, embedding provider/vector-index traits are defined, a deterministic
-  local hashed embedding provider and in-memory vector index are available,
-  semantic score is an additive ranking signal, and hosted embedding inputs
-  reject restricted evidence unless explicitly allowed.
+  local hashed embedding provider, in-memory vector index, local-mode semantic
+  index lifecycle, and search merge are available, semantic score is an
+  additive ranking signal, and hosted embedding inputs reject restricted
+  evidence unless explicitly allowed.
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
   import extraction feeds a per-index symbol graph used by `related_symbols`.
 - A runnable context-engine evaluation harness with fixture-backed recall,
@@ -60,7 +61,7 @@ Still pending from the full plan:
 
 - Deeper parser coverage for re-exports, aliases, method receivers, nested
   modules/classes, and line ranges on symbol evidence.
-- Hosted embedding provider implementation, index lifecycle wiring, and
-  benchmarked semantic ranking improvements.
+- Hosted embedding provider implementation and benchmarked hosted semantic
+  ranking improvements.
 - Broader replay/evaluation coverage for sufficiency calibration, cache hit
   rates, hosted semantic ranking, and larger multi-fixture regressions.

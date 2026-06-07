@@ -59,7 +59,7 @@ impl LocalHashEmbeddingProvider {
         Ok(Self { dimensions })
     }
 
-    fn embed_text(&self, text: &str) -> EmbeddingVector {
+    pub fn embed_text(&self, text: &str) -> EmbeddingVector {
         let mut values = vec![0.0; self.dimensions];
         for token in semantic_tokens(text) {
             let index = stable_token_hash(token) as usize % self.dimensions;
@@ -67,6 +67,20 @@ impl LocalHashEmbeddingProvider {
         }
         EmbeddingVector::normalized(values)
     }
+}
+
+pub fn context_embedding_text(evidence: &ContextEvidence, file_content: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if let Some(summary) = &evidence.summary {
+        parts.push(summary.clone());
+    }
+    if let Some(path) = &evidence.path {
+        parts.push(path.display());
+    }
+    if let Some(content) = file_content {
+        parts.push(content.to_string());
+    }
+    parts.join("\n")
 }
 
 #[async_trait]
@@ -201,7 +215,7 @@ pub fn validate_embedding_batch(
 }
 
 fn semantic_tokens(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
+    text.split(|ch: char| !ch.is_ascii_alphanumeric())
         .filter(|token| token.len() >= 2)
 }
 
