@@ -376,9 +376,19 @@ export interface SwarmResult {
 }
 
 export type ContextEngineMode = "disabled" | "snapshot_v0";
+export type ContextSemanticMode = "no_vector" | "local" | "hosted";
+export type ContextEmbeddingProviderKind = "local" | "hosted";
+
+export interface ContextSemanticConfig {
+  mode: ContextSemanticMode;
+  provider?: ContextEmbeddingProviderKind;
+  allowRestrictedHostedInputs: boolean;
+  maxEmbeddingInputs: number;
+}
 
 export interface ContextEngineConfig {
   mode: ContextEngineMode;
+  semantic?: ContextSemanticConfig;
   maxIndexedFiles: number;
   maxIndexedBytes: number;
   maxEvidenceItems: number;

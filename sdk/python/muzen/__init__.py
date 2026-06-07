@@ -13,6 +13,7 @@ from .sources import (
 from .types import (
     ContextBudgetUsage,
     ContextEngineConfig,
+    ContextSemanticConfig,
     ContextEvidence,
     ContextFeedback,
     ContextFeedbackReceipt,
@@ -82,6 +83,7 @@ __all__ = [
     "Client",
     "ContextBudgetUsage",
     "ContextEngineConfig",
+    "ContextSemanticConfig",
     "ContextEvidence",
     "ContextFeedback",
     "ContextFeedbackReceipt",

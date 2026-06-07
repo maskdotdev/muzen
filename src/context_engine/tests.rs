@@ -20,6 +20,7 @@ use crate::runtime::repo::RepoSnapshot;
 fn config_defaults_to_disabled() {
     let config = ContextEngineConfig::default();
     assert_eq!(config.mode, ContextEngineMode::Disabled);
+    assert_eq!(config.semantic.mode, ContextSemanticMode::NoVector);
     assert!(config.include_repository_guidance);
     assert!(!config.include_host_context);
 }
@@ -55,6 +56,59 @@ fn context_contracts_serde_round_trip() {
     let json = serde_json::to_string(&evidence).unwrap();
     let decoded: ContextEvidence = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, evidence);
+}
+
+#[test]
+fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
+    let mut config = ContextEngineConfig::snapshot_v0();
+    let evidence = ContextEvidence {
+        id: crate::runtime::contracts::EvidenceId("ev_restricted".to_string()),
+        kind: ContextEvidenceKind::FileSpan,
+        source: ContextEvidenceSource::Snapshot,
+        trust: ContextTrust::Kernel,
+        sensitivity: ContextSensitivity::Restricted,
+        scope: ContextScope::Snapshot,
+        path: None,
+        revision: None,
+        range: None,
+        content_hash: None,
+        summary: Some("restricted evidence".to_string()),
+        token_estimate: 4,
+        provenance: ContextProvenance {
+            provider: "test".to_string(),
+            query: None,
+            tool_call_id: None,
+            snapshot_id: None,
+            original_url: None,
+        },
+        created_at_utc: None,
+        expires_at_utc: None,
+    };
+
+    assert_eq!(
+        semantic_input_decision(&config, &evidence),
+        SemanticInputDecision::SkippedNoVector
+    );
+
+    config.semantic.mode = ContextSemanticMode::Hosted;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Hosted);
+    config.semantic.max_embedding_inputs = 8;
+    assert_eq!(
+        semantic_input_decision(&config, &evidence),
+        SemanticInputDecision::SkippedRestrictedHosted
+    );
+    let error = validate_embedding_batch(
+        &config,
+        &[EmbeddingInput {
+            id: "ev_restricted".to_string(),
+            text: "restricted evidence".to_string(),
+            sensitivity: ContextSensitivity::Restricted,
+        }],
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, RuntimeError::InvalidInput(message) if message.contains("restricted evidence"))
+    );
 }
 
 #[tokio::test]
