@@ -175,13 +175,11 @@ pub(crate) fn execute_run_start(
         builder = builder.model_router(Arc::new(router));
     } else {
         #[cfg(test)]
-        if model.test {
+        {
             builder = builder.review_model(Arc::new(TestRunnerModel::new(
                 target_path,
                 "TODO|fn|class|export|pub".to_string(),
             )));
-        } else {
-            anyhow::bail!("run model must be callback or hosted provider model");
         }
         #[cfg(not(test))]
         anyhow::bail!("run model must be callback or hosted provider model");

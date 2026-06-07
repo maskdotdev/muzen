@@ -118,7 +118,6 @@ impl ReviewOptions {
                 callback: false,
                 default_model_profile_id: None,
                 model_profiles: Vec::new(),
-                test: true,
             })
         }
         #[cfg(not(test))]
@@ -147,8 +146,6 @@ impl ReviewOptions {
                 temperature: None,
                 top_p: None,
             }],
-            #[cfg(test)]
-            test: false,
         })
     }
 

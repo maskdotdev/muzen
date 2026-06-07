@@ -108,7 +108,7 @@ mod tests {
                 "runId": "fixture-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
-                "model": {"test": true},
+                "model": {},
                 "sessions": [
                     {
                         "id": "security",
@@ -243,7 +243,7 @@ mod tests {
                 "runId": "resource-run",
                 "repo": repo.path(),
                 "changedFiles": ["Cargo.toml"],
-                "model": {"test": true},
+                "model": {},
                 "sessions": [
                     {
                         "id": "security",

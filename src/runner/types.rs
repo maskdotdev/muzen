@@ -127,9 +127,6 @@ pub struct RunModelParams {
     pub default_model_profile_id: Option<String>,
     #[serde(default)]
     pub model_profiles: Vec<RunModelProfileParams>,
-    #[cfg(test)]
-    #[serde(default)]
-    pub test: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
