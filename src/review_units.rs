@@ -135,31 +135,3 @@ fn finalize_unit(
             .any(|file| file.estimated_bytes.unwrap_or(0) > options.max_estimated_bytes),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::contracts::ChangedFileStatus;
-    use crate::review_plan::{
-        PlannedFileContentState, PlannedReviewFile, ReviewPlan, ReviewPlanCounts,
-        ReviewPlanFileMode, ReviewPlanReason,
-    };
-    use crate::runtime::contracts::SnapshotId;
-
-
-    fn file(path: &str, score: u8, bytes: u64) -> PlannedReviewFile {
-        PlannedReviewFile {
-            file_id: path.to_string(),
-            path: RepoPath::parse(path).unwrap(),
-            status: ChangedFileStatus::Modified,
-            content_state: PlannedFileContentState::Available,
-            estimated_bytes: Some(bytes),
-            mode: ReviewPlanFileMode::Full,
-            score,
-            reasons: vec![ReviewPlanReason {
-                code: "test",
-                detail: "test".to_string(),
-            }],
-        }
-    }
-}
