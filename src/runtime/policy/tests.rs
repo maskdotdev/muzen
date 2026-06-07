@@ -1,26 +1,15 @@
-#![allow(unused_imports)]
-
 use std::collections::BTreeSet;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventRecord;
+use crate::contracts::{AgentBudget, Role, ToolName};
 use crate::runtime::contracts::{
-    ArtifactView, CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, RuntimeError,
-    RuntimeEvent, RuntimeEventContext, SessionId, SessionScope, SessionTerminalDiagnostic,
-    ToolCallId, ToolErrorCode, ToolId, ToolResultEnvelope, TurnId,
+    ArtifactId, CacheInfo, CacheStatus, CapabilitySet, LimitInfo, ModelOutputPolicy, ModelToolCall,
+    SessionId, SessionScope, SnapshotId, ToolCallId, ToolErrorCode, ToolErrorInfo, ToolId,
+    ToolProviderId, ToolResultEnvelope,
 };
-use crate::runtime::repo::RepoSnapshot;
-use crate::runtime::tools::ToolRegistry;
-use crate::util::redact_known_secrets;
 
 use super::*;
-use super::*;
-use crate::contracts::{AgentBudget, Role};
-use crate::runtime::contracts::{
-    ArtifactId, CacheInfo, CacheStatus, LimitInfo, SnapshotId, ToolErrorInfo, ToolProviderId,
-};
 #[test]
 fn transcript_policy_compacts_model_visible_tool_output() {
     let result = ToolResultEnvelope {
