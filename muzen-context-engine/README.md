@@ -52,15 +52,16 @@ Implemented on `feat/context-engine`:
   additive ranking signal, and hosted embedding inputs reject restricted
   evidence unless explicitly allowed.
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
-  import extraction feeds a per-index symbol graph used by `related_symbols`.
+  import extraction feeds a per-index symbol graph used by `related_symbols`,
+  including common re-export, alias, nested import, and method-definition forms.
 - A runnable context-engine evaluation harness with fixture-backed recall,
   precision, token efficiency, omission, latency, secret-redaction, and
   prompt-injection trust summaries.
 
 Still pending from the full plan:
 
-- Deeper parser coverage for re-exports, aliases, method receivers, nested
-  modules/classes, and line ranges on symbol evidence.
+- Line ranges on symbol evidence and broader parser coverage for more deeply
+  nested module/class shapes.
 - Hosted embedding provider implementation and benchmarked hosted semantic
   ranking improvements.
 - Broader replay/evaluation coverage for sufficiency calibration, cache hit
