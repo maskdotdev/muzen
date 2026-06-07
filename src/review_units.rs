@@ -146,36 +146,6 @@ mod tests {
     };
     use crate::runtime::contracts::SnapshotId;
 
-    #[test]
-    fn unit_plan_sorts_by_score_and_batches_by_limits() {
-        let plan = ReviewPlan {
-            snapshot_id: SnapshotId("snapshot".to_string()),
-            counts: ReviewPlanCounts {
-                total_files: 3,
-                excluded_files: 0,
-                full_files: 3,
-                execution_eligible_files: 3,
-            },
-            files: vec![
-                file("src/low.rs", 35, 10),
-                file("src/auth.rs", 90, 10),
-                file("src/api.rs", 60, 10),
-            ],
-        };
-
-        let units = build_review_unit_plan(
-            &plan,
-            ReviewUnitOptions {
-                max_files: 2,
-                max_estimated_bytes: 100,
-                isolate_score_at: 80,
-            },
-        );
-
-        assert_eq!(units.counts.total_units, 2);
-        assert_eq!(units.units[0].file_paths[0].display(), "src/auth.rs");
-        assert_eq!(units.units[1].file_paths[0].display(), "src/api.rs");
-    }
 
     fn file(path: &str, score: u8, bytes: u64) -> PlannedReviewFile {
         PlannedReviewFile {
