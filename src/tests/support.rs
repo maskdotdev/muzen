@@ -285,7 +285,7 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
                 }],
                 "findings": [{
                     "title": "public facade finding",
-                    "claim": "public facade gathered diff, file, and search evidence",
+                    "claim": format!("public facade gathered diff, file, and search evidence for {}", self.query),
                     "path": self.path,
                     "startLine": 1,
                     "endLine": 1

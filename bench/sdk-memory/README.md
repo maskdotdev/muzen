@@ -50,56 +50,13 @@ The live report uses `mode: local-runner-stdio-real-model-callback` and records
 model callback counts/tokens alongside client, runner, and combined RSS. It is a
 runner-callback benchmark, not the default deterministic `createMuzen()` path.
 
-## Shared Runner Callback Benchmarks
+This is a protocol and memory benchmark only. Do not use it as a review-quality
+benchmark, because the callback harness is not the production reviewer entrypoint.
 
-Use the shared-runner benchmark to model a production-style long-lived runner:
-one `muzen-runner stdio` process stays alive while several `run.start` requests
-execute concurrently over the same JSON-RPC connection.
+## Review Quality Benchmarks
 
-Create a workload JSON array:
-
-```json
-[
-  {
-    "id": "cal-pr-8330",
-    "repo": "/tmp/cal-pr-8330-worktree",
-    "baseRef": "aci-martian/pr-8330-base",
-    "sessions": 1,
-    "changedFiles": [
-      "apps/web/test/lib/getSchedule.test.ts",
-      "packages/lib/slots.ts"
-    ]
-  },
-  {
-    "id": "cal-pr-11059",
-    "repo": "/tmp/cal-pr-11059-worktree",
-    "baseRef": "aci-martian/pr-11059-base",
-    "sessions": 11,
-    "changedFiles": ["packages/app-store/_utils/oauth/refreshOAuthTokens.ts"]
-  }
-]
-```
-
-Run it:
-
-```sh
-source ~/.zshrc
-cargo build --release --bin muzen-runner
-
-node bench/sdk-memory/typescript-shared-runner-callback.mjs \
-  --workloads /tmp/muzen-shared-workloads.json \
-  --runner-path target/release/muzen-runner \
-  --model gpt-5.4-mini \
-  --api-key-env OPENAI_API_KEY \
-  --output bench/results-sdk-memory-real/shared-runner.json
-```
-
-The report schema is `muzen.shared-runner-benchmark.v1`. Key memory fields:
-
-- `memory.peakRunnerRssBytes`: RSS for the single shared `muzen-runner`.
-- `memory.peakClientRssBytes`: RSS for the Node benchmark/model-callback host.
-- `memory.peakCombinedRssBytes`: client plus shared runner RSS.
-
-This benchmark is the right comparison point for production-style concurrency.
-The older PR callback script starts one runner per invocation, so concurrent
-shell invocations have additive runner memory.
+Review-quality benchmarks must call the same production reviewer path users run.
+Do not add benchmark paths that synthesize model tool turns, hardcode exploration,
+or pre-plan file reads outside the production strategy. Historical PR-specific
+planned-unit callback scripts were removed because they produced misleading
+quality signals while bypassing the real reviewer behavior.
