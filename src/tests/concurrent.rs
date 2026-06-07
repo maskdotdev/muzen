@@ -213,11 +213,10 @@ fn concurrent_deduped_search_waiter_observes_its_own_cancellation() {
         );
 
         waiter_cancel.cancel();
-        let waiter_results =
-            tokio::time::timeout(std::time::Duration::from_millis(200), waiter)
-                .await
-                .expect("deduped waiter should observe its own cancellation")
-                .expect("deduped waiter task should join");
+        let waiter_results = tokio::time::timeout(std::time::Duration::from_millis(200), waiter)
+            .await
+            .expect("deduped waiter should observe its own cancellation")
+            .expect("deduped waiter task should join");
         assert_eq!(waiter_results.len(), 1);
         assert!(!waiter_results[0].ok);
         assert_eq!(
@@ -679,8 +678,7 @@ fn concurrent_in_process_tool_provider_timeout_is_typed() {
             Arc::new(SlowCustomTool),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -762,8 +760,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -865,8 +862,7 @@ fn concurrent_jsonrpc_provider_artifact_write_requires_capability_policy() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -947,8 +943,7 @@ fn concurrent_jsonrpc_provider_network_read_requires_runtime_authority_policy() 
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1022,8 +1017,7 @@ fn concurrent_jsonrpc_provider_requires_runtime_provider_scope() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1101,19 +1095,19 @@ fn concurrent_jsonrpc_provider_resource_requires_runtime_resource_scope() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority = capabilities
-        .runtime_authority
-        .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-            provider_id,
-            ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
-        )]);
+    capabilities.runtime_authority =
+        capabilities
+            .runtime_authority
+            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
+                provider_id,
+                ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
+            )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1184,19 +1178,19 @@ fn concurrent_jsonrpc_provider_resource_scope_is_sent_when_allowed() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority = capabilities
-        .runtime_authority
-        .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-            provider_id.clone(),
-            resource_id,
-        )]);
+    capabilities.runtime_authority =
+        capabilities
+            .runtime_authority
+            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
+                provider_id.clone(),
+                resource_id,
+            )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1267,8 +1261,7 @@ fn concurrent_jsonrpc_provider_rejects_oversized_artifacts_before_storage() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1347,8 +1340,7 @@ fn concurrent_jsonrpc_provider_rejects_oversized_output_data() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1417,8 +1409,7 @@ fn concurrent_tool_provider_concurrency_is_bounded_per_provider() {
             }),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1486,8 +1477,7 @@ fn concurrent_in_process_tool_provider_panic_is_contained() {
             Arc::new(PanicCustomTool),
         )
         .unwrap();
-    let engine =
-        ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
+    let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

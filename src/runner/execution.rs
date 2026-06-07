@@ -13,13 +13,18 @@ use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, ToolCallingMode,
 };
 use crate::review_session::ReviewSource;
-use crate::reviewer::runtime::RuntimeError;
-use crate::reviewer::{
-    capabilities, ids::ToolId, paths, runtime_events::EventSink as RuntimeEventSink, ChangeKind,
-    ChangeSpec, ChangedFileSpec, ChangedFileStatus, ReviewEventRecord, ReviewEventSink,
-    ReviewRunLimits, ReviewRunSummary, ReviewSessionSpec, ReviewToolRegistry, Run, RunSpec,
+use crate::reviewer::adapters::{capabilities, ids::ToolId, paths, runtime};
+use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
+use crate::reviewer::report::{ReviewRunSummary, RunReport};
+use crate::reviewer::run::Run;
+use crate::reviewer::runtime_events::EventSink as RuntimeEventSink;
+use crate::reviewer::snapshots::{
+    ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
     SnapshotPathPolicy, SnapshotSpec,
 };
+use crate::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
+use crate::reviewer::tools::ReviewToolRegistry;
+use crate::runtime::contracts::RuntimeError;
 use crate::runtime::contracts::{ProviderResourceId, SessionInstruction, ToolEffects};
 use crate::runtime::model::{
     CredentialResolver, EnvCredentialResolver, ModelLimiter, ProfileModelRouter,
@@ -314,12 +319,12 @@ fn hosted_model_router(
     tool_registry: Arc<RuntimeToolRegistry>,
     reviewer_policy: Arc<ReviewerPolicy>,
     transport: Option<Arc<dyn RunnerCallbackTransport>>,
-) -> crate::reviewer::runtime::RuntimeResult<ProfileModelRouter> {
+) -> runtime::RuntimeResult<ProfileModelRouter> {
     let profiles = model
         .model_profiles
         .iter()
         .map(model_profile_ref)
-        .collect::<crate::reviewer::runtime::RuntimeResult<Vec<_>>>()?;
+        .collect::<runtime::RuntimeResult<Vec<_>>>()?;
     let default_profile_id = model
         .default_model_profile_id
         .clone()
@@ -343,7 +348,7 @@ fn hosted_model_router(
 fn hosted_model_base_url(
     model: &RunModelParams,
     default_profile_id: &str,
-) -> crate::reviewer::runtime::RuntimeResult<String> {
+) -> runtime::RuntimeResult<String> {
     let mut configured_base_url: Option<&str> = None;
     for profile in &model.model_profiles {
         let Some(base_url) = profile
@@ -380,9 +385,7 @@ fn hosted_model_base_url(
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string()))
 }
 
-fn model_profile_ref(
-    params: &RunModelProfileParams,
-) -> crate::reviewer::runtime::RuntimeResult<ModelProfileRefV1> {
+fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
     let provider_kind = match params.provider.as_str() {
         "openai" | "openai_compatible" => ProviderKind::OpenaiCompatible,
         unknown => {
@@ -415,9 +418,7 @@ fn model_profile_ref(
     })
 }
 
-fn credential_ref(
-    credential: Option<&RunModelCredentialParams>,
-) -> crate::reviewer::runtime::RuntimeResult<String> {
+fn credential_ref(credential: Option<&RunModelCredentialParams>) -> runtime::RuntimeResult<String> {
     let Some(credential) = credential else {
         return Ok("env:OPENAI_API_KEY".to_string());
     };
@@ -454,10 +455,7 @@ impl RunnerCredentialResolver {
 }
 
 impl CredentialResolver for RunnerCredentialResolver {
-    fn resolve_credential(
-        &self,
-        credential_ref: &str,
-    ) -> crate::reviewer::runtime::RuntimeResult<String> {
+    fn resolve_credential(&self, credential_ref: &str) -> runtime::RuntimeResult<String> {
         let Some(secret_ref) = credential_ref.strip_prefix("secret:") else {
             return self.env.resolve_credential(credential_ref);
         };
@@ -704,7 +702,7 @@ fn runner_changed_files(changed_files: &[String], change: Option<&RunChangeParam
 }
 
 fn runner_result_from_report(
-    report: &crate::reviewer::RunReport,
+    report: &RunReport,
     metadata: BTreeMap<String, Value>,
 ) -> RunnerRunResult {
     let mut summary = runner_summary_from_review(&report.summary);
@@ -721,7 +719,7 @@ fn runner_result_from_report(
                 .filter(|file| {
                     matches!(
                         file.capture_status,
-                        crate::reviewer::storage::SnapshotCaptureStatus::Captured
+                        crate::runtime::contracts::SnapshotCaptureStatus::Captured
                     )
                 })
                 .count(),
@@ -997,8 +995,8 @@ fn runner_change_spec(
             .clone()
             .filter(|value| !value.trim().is_empty())
             .or_else(|| materialized_inline_diff.map(ToOwned::to_owned)),
-        snapshot_mode: crate::reviewer::SnapshotMode::WorktreeHead,
-        rename_detection: crate::reviewer::RenameDetection::None,
+        snapshot_mode: SnapshotMode::WorktreeHead,
+        rename_detection: RenameDetection::None,
         changed_files,
     }
 }
@@ -1133,8 +1131,6 @@ mod tests {
         assert!(error.to_string().contains("unknown tool effect write_host"));
     }
 
-
-
     #[test]
     fn keeps_small_reviews_as_single_sessions() {
         let sessions = vec![test_session("correctness")];
@@ -1148,7 +1144,6 @@ mod tests {
         assert_eq!(expanded[0].id, "correctness");
         assert!(expanded[0].instructions.is_empty());
     }
-
 
     #[test]
     fn defaults_large_reviews_to_four_active_sessions() {

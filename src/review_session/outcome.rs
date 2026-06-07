@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::reviewer::{
+use crate::reviewer::events::{
     ReviewEvent as InternalReviewEvent, ReviewEventRecord as InternalReviewEventRecord,
 };
 use crate::runner::{

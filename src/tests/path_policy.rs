@@ -37,4 +37,3 @@ fn path_policy_blocks_symlink_escape() {
     let files = repo.walk_files().unwrap();
     assert!(!files.iter().any(|path| path == Path::new("link.txt")));
 }
-

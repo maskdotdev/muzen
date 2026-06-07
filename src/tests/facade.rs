@@ -5,29 +5,34 @@ use super::support::*;
 fn public_reviewer_facade_runs_mock_review() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "needle\n").unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-1",
             "head-1",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20));
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run through the public reviewer facade.",
         public_budget(),
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -88,12 +93,12 @@ fn public_reviewer_facade_runs_mock_review() {
             .map(|location| location.path.as_str()),
         Some("README.md")
     );
-    let redacted_artifact_policy = crate::reviewer::ArtifactExportPolicy::redacted_all();
+    let redacted_artifact_policy = crate::reviewer::artifacts::ArtifactExportPolicy::redacted_all();
     let mut raw_artifact_capabilities =
-        crate::reviewer::capabilities::CapabilitySet::review_read_only();
+        crate::reviewer::adapters::capabilities::CapabilitySet::review_read_only();
     raw_artifact_capabilities.artifact_access.read_raw = true;
     let raw_artifact_policy =
-        crate::reviewer::ArtifactExportPolicy::raw(&raw_artifact_capabilities).unwrap();
+        crate::reviewer::artifacts::ArtifactExportPolicy::raw(&raw_artifact_capabilities).unwrap();
     let evidence_artifacts = report
         .finding_evidence_artifacts(&findings[0].id, redacted_artifact_policy.clone())
         .unwrap();
@@ -113,8 +118,8 @@ fn public_reviewer_facade_runs_mock_review() {
     if let Some(evidence_artifact) = evidence_artifacts.first() {
         let scoped_artifact_id = evidence_artifact.artifact_id().to_string();
         let scoped_artifact_policy =
-            crate::reviewer::ArtifactExportPolicy::redacted_artifacts([
-                scoped_artifact_id.as_str()
+            crate::reviewer::artifacts::ArtifactExportPolicy::redacted_artifacts([
+                scoped_artifact_id.as_str(),
             ]);
         let scoped_evidence_artifacts = report
             .finding_evidence_artifacts(&findings[0].id, scoped_artifact_policy.clone())
@@ -132,25 +137,26 @@ fn public_reviewer_facade_runs_mock_review() {
             scoped_export.first_artifact_id(),
             Some(scoped_artifact_id.as_str())
         );
-        let retained_scoped_artifact_policy = scoped_artifact_policy
-            .clone()
-            .with_retention_policy(crate::reviewer::ArtifactRetentionPolicy::max_artifacts(1));
+        let retained_scoped_artifact_policy = scoped_artifact_policy.clone().with_retention_policy(
+            crate::reviewer::artifacts::ArtifactRetentionPolicy::max_artifacts(1),
+        );
         let retained_scoped_export = report
             .export_artifacts(retained_scoped_artifact_policy.clone())
             .unwrap();
         assert_eq!(retained_scoped_export.artifact_count, 1);
         assert_eq!(
             retained_scoped_export.retention,
-            crate::reviewer::ArtifactRetentionPolicy::max_artifacts(1)
+            crate::reviewer::artifacts::ArtifactRetentionPolicy::max_artifacts(1)
         );
         let retained_scoped_evidence = report
             .finding_evidence_artifacts(&findings[0].id, retained_scoped_artifact_policy)
             .unwrap();
         assert_eq!(retained_scoped_evidence.len(), 1);
-        let memory_artifact_store = crate::reviewer::InMemoryArtifactObjectStore::default();
-        let retained_memory_policy = scoped_artifact_policy
-            .clone()
-            .with_retention_policy(crate::reviewer::ArtifactRetentionPolicy::max_artifacts(1));
+        let memory_artifact_store =
+            crate::reviewer::artifacts::InMemoryArtifactObjectStore::default();
+        let retained_memory_policy = scoped_artifact_policy.clone().with_retention_policy(
+            crate::reviewer::artifacts::ArtifactRetentionPolicy::max_artifacts(1),
+        );
         let retained_memory_manifest = report
             .persist_artifacts(&memory_artifact_store, retained_memory_policy)
             .unwrap();
@@ -161,13 +167,13 @@ fn public_reviewer_facade_runs_mock_review() {
         );
         assert_eq!(
             retained_memory_manifest.retention,
-            crate::reviewer::ArtifactRetentionPolicy::max_artifacts(1)
+            crate::reviewer::artifacts::ArtifactRetentionPolicy::max_artifacts(1)
         );
         assert_eq!(memory_artifact_store.object_count(), 1);
         let memory_object = &retained_memory_manifest.objects[0];
         assert_eq!(
             memory_object.view,
-            crate::reviewer::ArtifactViewMode::Redacted
+            crate::reviewer::artifacts::ArtifactViewMode::Redacted
         );
         assert_eq!(memory_object.artifact_id(), scoped_artifact_id);
         assert!(memory_object.path.is_none());
@@ -206,75 +212,92 @@ fn public_reviewer_facade_runs_mock_review() {
     let export = report
         .export_artifacts(redacted_artifact_policy.clone())
         .unwrap();
-    assert_eq!(export.view, crate::reviewer::ArtifactViewMode::Redacted);
+    assert_eq!(
+        export.view,
+        crate::reviewer::artifacts::ArtifactViewMode::Redacted
+    );
     assert_eq!(
         export.retention,
-        crate::reviewer::ArtifactRetentionPolicy::unlimited()
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::unlimited()
     );
     assert_eq!(export.artifact_count, report.artifacts.list().len());
     assert!(export.total_bytes > 0);
-    let no_artifacts_policy = redacted_artifact_policy
-        .clone()
-        .with_retention_policy(crate::reviewer::ArtifactRetentionPolicy::max_artifacts(0));
+    let no_artifacts_policy = redacted_artifact_policy.clone().with_retention_policy(
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::max_artifacts(0),
+    );
     assert!(matches!(
         report.export_artifacts(no_artifacts_policy.clone()),
-        Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-            kind: "artifact_retention_artifacts"
-        })
+        Err(
+            crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                kind: "artifact_retention_artifacts"
+            }
+        )
     ));
     if findings[0].evidence_count > 0 {
         assert!(matches!(
             report.finding_evidence_artifacts(&findings[0].id, no_artifacts_policy.clone()),
-            Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-                kind: "artifact_retention_artifacts"
-            })
+            Err(
+                crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                    kind: "artifact_retention_artifacts"
+                }
+            )
         ));
     }
     let too_few_bytes_policy = redacted_artifact_policy.clone().with_retention_policy(
-        crate::reviewer::ArtifactRetentionPolicy::max_bytes(export.total_bytes - 1),
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::max_bytes(export.total_bytes - 1),
     );
     assert!(matches!(
         report.export_artifacts(too_few_bytes_policy.clone()),
-        Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-            kind: "artifact_retention_bytes"
-        })
+        Err(
+            crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                kind: "artifact_retention_bytes"
+            }
+        )
     ));
-    let rejected_memory_store = crate::reviewer::InMemoryArtifactObjectStore::default();
+    let rejected_memory_store = crate::reviewer::artifacts::InMemoryArtifactObjectStore::default();
     assert!(matches!(
         report.persist_artifacts(&rejected_memory_store, too_few_bytes_policy.clone()),
-        Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-            kind: "artifact_retention_bytes"
-        })
+        Err(
+            crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                kind: "artifact_retention_bytes"
+            }
+        )
     ));
     assert_eq!(rejected_memory_store.object_count(), 0);
     let rejected_bundle_dir = tempfile::tempdir().unwrap();
     assert!(matches!(
         report.export_artifact_bundle(rejected_bundle_dir.path(), too_few_bytes_policy),
-        Err(crate::reviewer::runtime::RuntimeError::LimitExceeded {
-            kind: "artifact_retention_bytes"
-        })
+        Err(
+            crate::reviewer::adapters::runtime::RuntimeError::LimitExceeded {
+                kind: "artifact_retention_bytes"
+            }
+        )
     ));
     assert!(!rejected_bundle_dir.path().join("manifest.json").exists());
     assert!(!rejected_bundle_dir.path().join("artifacts").exists());
-    assert!(crate::reviewer::ArtifactExportPolicy::raw(
-        &crate::reviewer::capabilities::CapabilitySet::review_read_only()
+    assert!(crate::reviewer::artifacts::ArtifactExportPolicy::raw(
+        &crate::reviewer::adapters::capabilities::CapabilitySet::review_read_only()
     )
     .is_err());
     let raw_export = report
         .export_artifacts(raw_artifact_policy.clone())
         .unwrap();
-    assert_eq!(raw_export.view, crate::reviewer::ArtifactViewMode::Raw);
+    assert_eq!(
+        raw_export.view,
+        crate::reviewer::artifacts::ArtifactViewMode::Raw
+    );
     assert_eq!(raw_export.artifact_count, export.artifact_count);
     assert!(raw_export.total_bytes > 0);
     let local_artifact_dir = tempfile::tempdir().unwrap();
-    let local_artifact_store =
-        crate::reviewer::LocalArtifactObjectStore::new(local_artifact_dir.path().to_path_buf());
+    let local_artifact_store = crate::reviewer::artifacts::LocalArtifactObjectStore::new(
+        local_artifact_dir.path().to_path_buf(),
+    );
     let local_manifest = report
         .persist_artifacts(&local_artifact_store, redacted_artifact_policy.clone())
         .unwrap();
     assert_eq!(
         local_manifest.view,
-        crate::reviewer::ArtifactViewMode::Redacted
+        crate::reviewer::artifacts::ArtifactViewMode::Redacted
     );
     assert_eq!(local_manifest.artifact_count, export.artifact_count);
     assert_eq!(local_manifest.total_bytes, export.total_bytes);
@@ -292,10 +315,11 @@ fn public_reviewer_facade_runs_mock_review() {
         assert_eq!(fs::read_to_string(path).unwrap(), exported_artifact.content);
     }
     let serialized_local_manifest = serde_json::to_string_pretty(&local_manifest).unwrap();
-    let restored_local_manifest: crate::reviewer::ArtifactPersistenceManifest =
+    let restored_local_manifest: crate::reviewer::artifacts::ArtifactPersistenceManifest =
         serde_json::from_str(&serialized_local_manifest).unwrap();
-    let reopened_local_store =
-        crate::reviewer::LocalArtifactObjectStore::new(local_artifact_dir.path().to_path_buf());
+    let reopened_local_store = crate::reviewer::artifacts::LocalArtifactObjectStore::new(
+        local_artifact_dir.path().to_path_buf(),
+    );
     let local_validation = restored_local_manifest
         .validate_storage(&reopened_local_store)
         .unwrap();
@@ -364,8 +388,8 @@ fn public_reviewer_facade_runs_mock_review() {
             .valid
     );
     let remote_artifact_client =
-        Arc::new(crate::reviewer::InMemoryRemoteArtifactObjectClient::default());
-    let remote_artifact_store = crate::reviewer::RemoteArtifactObjectStore::new(
+        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let remote_artifact_store = crate::reviewer::artifacts::RemoteArtifactObjectStore::new(
         "s3://muzen-test-artifacts/public-run/",
         remote_artifact_client.clone(),
     )
@@ -375,7 +399,7 @@ fn public_reviewer_facade_runs_mock_review() {
         .unwrap();
     assert_eq!(
         remote_manifest.view,
-        crate::reviewer::ArtifactViewMode::Redacted
+        crate::reviewer::artifacts::ArtifactViewMode::Redacted
     );
     assert_eq!(remote_manifest.artifact_count, export.artifact_count);
     assert_eq!(remote_manifest.total_bytes, export.total_bytes);
@@ -396,7 +420,7 @@ fn public_reviewer_facade_runs_mock_review() {
         );
     }
     let serialized_remote_manifest = serde_json::to_string_pretty(&remote_manifest).unwrap();
-    let restored_remote_manifest: crate::reviewer::ArtifactPersistenceManifest =
+    let restored_remote_manifest: crate::reviewer::artifacts::ArtifactPersistenceManifest =
         serde_json::from_str(&serialized_remote_manifest).unwrap();
     let remote_validation = restored_remote_manifest
         .validate_storage(&remote_artifact_store)
@@ -438,11 +462,11 @@ fn public_reviewer_facade_runs_mock_review() {
         .uri
         .replace(remote_artifact_store.base_uri(), "s3://forged-bucket");
     assert!(matches!(
-        crate::reviewer::ArtifactObjectReader::read_artifact_object(
+        crate::reviewer::artifacts::ArtifactObjectReader::read_artifact_object(
             &remote_artifact_store,
             &forged_remote_object
         ),
-        Err(crate::reviewer::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer::adapters::runtime::RuntimeError::RepoAccessDenied)
     ));
     let remote_cleanup = restored_remote_manifest
         .cleanup_storage(&remote_artifact_store)
@@ -462,7 +486,7 @@ fn public_reviewer_facade_runs_mock_review() {
             .unwrap()
             .valid
     );
-    assert!(crate::reviewer::RemoteArtifactObjectStore::new(
+    assert!(crate::reviewer::artifacts::RemoteArtifactObjectStore::new(
         "file:///tmp/muzen-artifacts",
         remote_artifact_client.clone()
     )
@@ -471,13 +495,16 @@ fn public_reviewer_facade_runs_mock_review() {
     let bundle = report
         .export_artifact_bundle(bundle_dir.path(), redacted_artifact_policy)
         .unwrap();
-    assert_eq!(bundle.view, crate::reviewer::ArtifactViewMode::Redacted);
+    assert_eq!(
+        bundle.view,
+        crate::reviewer::artifacts::ArtifactViewMode::Redacted
+    );
     assert_eq!(bundle.artifact_count, export.artifact_count);
     assert_eq!(bundle.total_bytes, export.total_bytes);
     assert_eq!(bundle.root, bundle_dir.path());
     assert_eq!(
         bundle.retention,
-        crate::reviewer::ArtifactRetentionPolicy::unlimited()
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::unlimited()
     );
     assert!(bundle.manifest_path.exists());
     let manifest: serde_json::Value =
@@ -505,7 +532,7 @@ fn public_reviewer_facade_runs_mock_review() {
     assert!(bundle_validation.manifest_present);
     assert_eq!(
         bundle_validation.retention,
-        crate::reviewer::ArtifactRetentionPolicy::unlimited()
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::unlimited()
     );
     assert_eq!(bundle_validation.checked_artifacts, bundle.artifact_count);
     assert_eq!(bundle_validation.checked_bytes, bundle.total_bytes);
@@ -528,16 +555,22 @@ fn public_reviewer_facade_runs_mock_review() {
     let raw_bundle = report
         .export_artifact_bundle(bundle_dir.path().join("raw"), raw_artifact_policy)
         .unwrap();
-    assert_eq!(raw_bundle.view, crate::reviewer::ArtifactViewMode::Raw);
+    assert_eq!(
+        raw_bundle.view,
+        crate::reviewer::artifacts::ArtifactViewMode::Raw
+    );
     let raw_manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&raw_bundle.manifest_path).unwrap()).unwrap();
     assert_eq!(raw_manifest["view"].as_str(), Some("raw"));
     let cleanup = bundle.cleanup_storage().unwrap();
     assert_eq!(cleanup.root, bundle.root);
-    assert_eq!(cleanup.view, crate::reviewer::ArtifactViewMode::Redacted);
+    assert_eq!(
+        cleanup.view,
+        crate::reviewer::artifacts::ArtifactViewMode::Redacted
+    );
     assert_eq!(
         cleanup.retention,
-        crate::reviewer::ArtifactRetentionPolicy::unlimited()
+        crate::reviewer::artifacts::ArtifactRetentionPolicy::unlimited()
     );
     assert_eq!(cleanup.removed_artifacts, bundle.artifact_count);
     assert_eq!(cleanup.removed_bytes, bundle.total_bytes);
@@ -562,14 +595,14 @@ fn public_reviewer_facade_runs_mock_review() {
         assert_eq!(record.run_id.as_deref(), Some("public-run"));
     }
     let review_event_log_dir = tempfile::tempdir().unwrap();
-    let review_event_log = crate::reviewer::export_review_event_records_jsonl(
+    let review_event_log = crate::reviewer::events::export_review_event_records_jsonl(
         review_event_log_dir.path().join("review-events.jsonl"),
         &event_records,
     )
     .unwrap();
     assert_eq!(
         review_event_log.schema_version,
-        crate::reviewer::REVIEW_EVENT_LOG_SCHEMA_VERSION
+        crate::reviewer::events::REVIEW_EVENT_LOG_SCHEMA_VERSION
     );
     assert_eq!(review_event_log.record_count, event_records.len());
     assert!(review_event_log.bytes > 0);
@@ -581,18 +614,18 @@ fn public_reviewer_facade_runs_mock_review() {
         .unwrap();
     assert_eq!(
         first_review_event_line["schemaVersion"].as_str(),
-        Some(crate::reviewer::REVIEW_EVENT_LOG_SCHEMA_VERSION)
+        Some(crate::reviewer::events::REVIEW_EVENT_LOG_SCHEMA_VERSION)
     );
     assert_eq!(
         first_review_event_line["runId"].as_str(),
         Some("public-run")
     );
     let loaded_review_event_log =
-        crate::reviewer::load_review_event_records_jsonl(&review_event_log.path).unwrap();
+        crate::reviewer::events::load_review_event_records_jsonl(&review_event_log.path).unwrap();
     assert_eq!(loaded_review_event_log.path, review_event_log.path);
     assert_eq!(
         loaded_review_event_log.schema_version,
-        crate::reviewer::REVIEW_EVENT_LOG_SCHEMA_VERSION
+        crate::reviewer::events::REVIEW_EVENT_LOG_SCHEMA_VERSION
     );
     assert_eq!(loaded_review_event_log.record_count, event_records.len());
     assert_eq!(loaded_review_event_log.records, event_records);
@@ -602,7 +635,7 @@ fn public_reviewer_facade_runs_mock_review() {
     );
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ToolCallCompleted {
+        crate::reviewer::events::ReviewEvent::ToolCallCompleted {
             ok: true,
             error_code: None,
             ..
@@ -618,31 +651,31 @@ fn public_reviewer_facade_runs_mock_review() {
     let event_types = events.events();
     assert!(matches!(
         event_types.first(),
-        Some(crate::reviewer::ReviewEvent::RunStarted { .. })
+        Some(crate::reviewer::events::ReviewEvent::RunStarted { .. })
     ));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::ReviewEvent::SessionStarted { session_id }
+        crate::reviewer::events::ReviewEvent::SessionStarted { session_id }
             if session_id.starts_with("unit-")
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::ReviewEvent::ModelStarted { session_id, .. }
+        crate::reviewer::events::ReviewEvent::ModelStarted { session_id, .. }
             if session_id.starts_with("unit-")
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::ReviewEvent::ToolBatchStarted { count, .. } if *count == 3
+        crate::reviewer::events::ReviewEvent::ToolBatchStarted { count, .. } if *count == 3
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::ReviewEvent::SearchBatchCompleted { searched_files, .. }
+        crate::reviewer::events::ReviewEvent::SearchBatchCompleted { searched_files, .. }
             if *searched_files > 0
     )));
     let artifact_event_ids = event_types
         .iter()
         .filter_map(|event| match event {
-            crate::reviewer::ReviewEvent::ArtifactCreated { artifact_id, .. } => {
+            crate::reviewer::events::ReviewEvent::ArtifactCreated { artifact_id, .. } => {
                 Some(artifact_id)
             }
             _ => None,
@@ -654,12 +687,12 @@ fn public_reviewer_facade_runs_mock_review() {
     }
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::ReviewEvent::FindingRecorded { finding_id, .. }
+        crate::reviewer::events::ReviewEvent::FindingRecorded { finding_id, .. }
             if !finding_id.is_empty()
     )));
     assert!(matches!(
         event_types.last(),
-        Some(crate::reviewer::ReviewEvent::RunFinished { .. })
+        Some(crate::reviewer::events::ReviewEvent::RunFinished { .. })
     ));
 }
 
@@ -667,30 +700,37 @@ fn public_reviewer_facade_runs_mock_review() {
 fn public_reviewer_facade_emits_tool_denial_events() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "needle\n").unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-denied",
             "head-denied",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20));
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "denied-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run with read_diff denied.",
         public_budget(),
     )
-    .deny_tool(crate::reviewer::ids::ToolId::from(ToolName::ReadDiff));
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    .deny_tool(crate::reviewer::adapters::ids::ToolId::from(
+        ToolName::ReadDiff,
+    ));
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "denied-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -707,9 +747,9 @@ fn public_reviewer_facade_emits_tool_denial_events() {
     let event_records = events.records();
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ToolCallDenied {
+        crate::reviewer::events::ReviewEvent::ToolCallDenied {
             tool_id,
-            error_code: crate::reviewer::tool_adapters::ToolErrorCode::ToolNotAllowed,
+            error_code: crate::reviewer::adapters::tool_adapters::ToolErrorCode::ToolNotAllowed,
             reason,
             ..
         } if tool_id == "read_diff"
@@ -728,31 +768,36 @@ fn public_reviewer_facade_emits_tool_denial_events() {
 fn public_reviewer_facade_cancelled_run_emits_review_events() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "needle\n").unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-cancel",
             "head-public-cancel",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20));
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-cancel-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run cancellation through the public reviewer facade.",
         public_budget(),
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-cancel-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let cancel = crate::reviewer::Cancellation::new();
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let cancel = crate::reviewer::adapters::Cancellation::new();
     let model_calls = Arc::new(AtomicUsize::new(0));
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(CancellingModel {
             parent_cancel: cancel.clone(),
             calls: Arc::clone(&model_calls),
@@ -775,7 +820,7 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     let event_records = events.records();
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ModelStarted { session_id, .. }
+        crate::reviewer::events::ReviewEvent::ModelStarted { session_id, .. }
             if session_id.starts_with("unit-")
                 && record.run_id.as_deref() == Some("public-cancel-run")
                 && record
@@ -786,13 +831,13 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     )));
     assert!(!event_records.iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ModelCompleted { .. }
-            | crate::reviewer::ReviewEvent::ToolBatchStarted { .. }
-            | crate::reviewer::ReviewEvent::ToolCallCompleted { .. }
+        crate::reviewer::events::ReviewEvent::ModelCompleted { .. }
+            | crate::reviewer::events::ReviewEvent::ToolBatchStarted { .. }
+            | crate::reviewer::events::ReviewEvent::ToolCallCompleted { .. }
     )));
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::SessionFinished { session_id, status }
+        crate::reviewer::events::ReviewEvent::SessionFinished { session_id, status }
             if session_id.starts_with("unit-")
                 && status == "partial"
                 && record.run_id.as_deref() == Some("public-cancel-run")
@@ -803,7 +848,7 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     )));
     assert!(matches!(
         event_records.last().map(|record| &record.event),
-        Some(crate::reviewer::ReviewEvent::RunFinished { status }) if status == "partial"
+        Some(crate::reviewer::events::ReviewEvent::RunFinished { status }) if status == "partial"
     ));
 }
 
@@ -813,52 +858,62 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
     let second = tempfile::tempdir().unwrap();
     fs::write(first.path().join("README.md"), "needle in first\n").unwrap();
     fs::write(second.path().join("README.md"), "needle in second\n").unwrap();
-    let first_id = crate::reviewer::ids::SnapshotId("snapshot-first".to_string());
-    let second_id = crate::reviewer::ids::SnapshotId("snapshot-second".to_string());
-    let first_snapshot = crate::reviewer::SnapshotSpec::new(
+    let first_id = crate::reviewer::adapters::ids::SnapshotId("snapshot-first".to_string());
+    let second_id = crate::reviewer::adapters::ids::SnapshotId("snapshot-second".to_string());
+    let first_snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         first.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-first",
             "head-first",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
     .with_snapshot_id(first_id.clone())
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20));
-    let second_snapshot = crate::reviewer::SnapshotSpec::new(
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let second_snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         second.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-second",
             "head-second",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     )
     .with_snapshot_id(second_id.clone())
-    .with_path_policy(crate::reviewer::SnapshotPathPolicy::standard(64 * 1024, 20));
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
     let sessions = vec![
-        crate::reviewer::ReviewSessionSpec::review_read_only(
+        crate::reviewer::spec::ReviewSessionSpec::review_read_only(
             "first-session",
-            crate::reviewer::Role::Generalist,
+            crate::contracts::Role::Generalist,
             "Review first snapshot.",
             public_budget(),
         )
         .with_snapshot_id(first_id.clone()),
-        crate::reviewer::ReviewSessionSpec::review_read_only(
+        crate::reviewer::spec::ReviewSessionSpec::review_read_only(
             "second-session",
-            crate::reviewer::Role::Generalist,
+            crate::contracts::Role::Generalist,
             "Review second snapshot.",
             public_budget(),
         )
         .with_snapshot_id(second_id.clone()),
     ];
-    let spec = crate::reviewer::RunSpec {
+    let spec = crate::reviewer::spec::RunSpec {
         run_id: "multi-snapshot-run".to_string(),
         snapshots: vec![first_snapshot, second_snapshot],
         sessions,
-        limits: crate::reviewer::ReviewRunLimits::standard(2, 64 * 1024, 20),
+        limits: crate::reviewer::spec::ReviewRunLimits::standard(2, 64 * 1024, 20),
     };
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
@@ -907,7 +962,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
             .iter()
             .filter(|event| matches!(
                 event,
-                crate::reviewer::ReviewEvent::SnapshotStarted { .. }
+                crate::reviewer::events::ReviewEvent::SnapshotStarted { .. }
             ))
             .count(),
         2
@@ -917,7 +972,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
             .iter()
             .filter(|event| matches!(
                 event,
-                crate::reviewer::ReviewEvent::SnapshotFinished { .. }
+                crate::reviewer::events::ReviewEvent::SnapshotFinished { .. }
             ))
             .count(),
         2
@@ -928,7 +983,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
 fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
         .register_read_only_tool(
             "host_custom_check",
@@ -945,29 +1000,31 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
             Arc::new(EchoCustomTool),
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-1",
             "head-1",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "custom-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run host custom check.",
         public_budget(),
     )
     .with_model_profile_id("mock")
     .grant_custom_read_only_tool(custom_tool_id.clone());
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-custom-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id.clone())))
         .review_tool_registry(registry)
         .build()
@@ -979,8 +1036,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     let report = tokio.block_on(run.execute());
 
     assert_eq!(report.summary.completed_sessions, 1);
-    let custom_metrics =
-        &report.metrics.tool_metrics[&ToolMetricKey::in_process(&custom_tool_id)];
+    let custom_metrics = &report.metrics.tool_metrics[&ToolMetricKey::in_process(&custom_tool_id)];
     assert_eq!(custom_metrics.calls, 1);
     assert_eq!(custom_metrics.successes, 1);
     assert_eq!(custom_metrics.artifacts, 1);
@@ -996,7 +1052,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
         .unwrap();
     assert_eq!(
         in_process_health.state,
-        crate::reviewer::tool_adapters::ToolProviderHealthState::Healthy
+        crate::reviewer::adapters::tool_adapters::ToolProviderHealthState::Healthy
     );
     assert_eq!(in_process_health.calls, 1);
     assert_eq!(in_process_health.errors, 0);
@@ -1010,11 +1066,12 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     assert!(artifact_text.contains("[REDACTED]"));
     assert!(!artifact_text.contains("AKIA1234567890ABCDEF"));
     let mut raw_artifact_capabilities =
-        crate::reviewer::capabilities::CapabilitySet::review_read_only();
+        crate::reviewer::adapters::capabilities::CapabilitySet::review_read_only();
     raw_artifact_capabilities.artifact_access.read_raw = true;
     let raw_artifact_text = report
         .export_artifacts(
-            crate::reviewer::ArtifactExportPolicy::raw(&raw_artifact_capabilities).unwrap(),
+            crate::reviewer::artifacts::ArtifactExportPolicy::raw(&raw_artifact_capabilities)
+                .unwrap(),
         )
         .unwrap()
         .artifacts
@@ -1031,7 +1088,7 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
     let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
         .register_scoped_read_only_tool(
             "host_resource_scoped_check",
@@ -1052,29 +1109,31 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
             }),
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-host-resource",
             "head-host-resource",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "host-resource-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run host custom check with a provider resource.",
         public_budget(),
     )
     .with_model_profile_id("mock")
     .grant_custom_read_only_tool_for_resources(custom_tool_id.clone(), vec![resource_id]);
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-host-resource-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
         .review_tool_registry(registry)
         .build()
@@ -1096,7 +1155,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     let allowed_resource = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let denied_resource = ProviderResourceId::parse("github/org-b/repo-b").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
         .register_scoped_read_only_tool(
             "host_resource_denied_check",
@@ -1117,30 +1176,32 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
             }),
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-host-resource-denied",
             "head-host-resource-denied",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "host-resource-denied-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run host custom check outside provider resource scope.",
         public_budget(),
     )
     .with_model_profile_id("mock")
     .grant_custom_read_only_tool_for_resources(custom_tool_id.clone(), vec![denied_resource]);
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-host-resource-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
         .review_tool_registry(registry)
         .review_event_sink(events.clone())
@@ -1155,8 +1216,8 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(events.records().iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ToolCallDenied {
-            error_code: crate::reviewer::tool_adapters::ToolErrorCode::ToolNotAllowed,
+        crate::reviewer::events::ReviewEvent::ToolCallDenied {
+            error_code: crate::reviewer::adapters::tool_adapters::ToolErrorCode::ToolNotAllowed,
             reason,
             ..
         } if reason.contains("provider resource")
@@ -1173,20 +1234,19 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
     let provider_id =
-        crate::reviewer::tool_adapters::ToolProviderId::parse("public_jsonrpc_provider")
+        crate::reviewer::adapters::tool_adapters::ToolProviderId::parse("public_jsonrpc_provider")
             .unwrap();
     let resource_id =
-        crate::reviewer::tool_adapters::ProviderResourceId::parse("github/org-a/repo-a")
+        crate::reviewer::adapters::tool_adapters::ProviderResourceId::parse("github/org-a/repo-a")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
         .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer::ReviewJsonRpcReadOnlyToolRegistration {
+            crate::reviewer::tools::ReviewJsonRpcReadOnlyToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_check".to_string(),
-                description: "External JSON-RPC check scoped to one provider resource."
-                    .to_string(),
+                description: "External JSON-RPC check scoped to one provider resource.".to_string(),
                 parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1206,17 +1266,19 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
             },
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-jsonrpc",
             "head-public-jsonrpc",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run public JSON-RPC provider check.",
         public_budget(),
     )
@@ -1226,13 +1288,13 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         tool_id.clone(),
         vec![resource_id],
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-jsonrpc-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .review_tool_registry(registry)
         .build()
@@ -1245,7 +1307,8 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
 
     assert_eq!(report.summary.completed_sessions, 1);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let metric_key = crate::reviewer::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
+    let metric_key =
+        crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
     let metrics = &report.metrics.tool_metrics[&metric_key];
     assert_eq!(metrics.calls, 1);
     assert_eq!(metrics.successes, 1);
@@ -1257,7 +1320,7 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         .unwrap();
     assert_eq!(
         provider_health.state,
-        crate::reviewer::tool_adapters::ToolProviderHealthState::Healthy
+        crate::reviewer::adapters::tool_adapters::ToolProviderHealthState::Healthy
     );
 }
 
@@ -1265,20 +1328,21 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
 fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let provider_id =
-        crate::reviewer::tool_adapters::ToolProviderId::parse("public_http_jsonrpc_provider")
-            .unwrap();
+    let provider_id = crate::reviewer::adapters::tool_adapters::ToolProviderId::parse(
+        "public_http_jsonrpc_provider",
+    )
+    .unwrap();
     let resource_id =
-        crate::reviewer::tool_adapters::ProviderResourceId::parse("github/org-http/repo")
+        crate::reviewer::adapters::tool_adapters::ProviderResourceId::parse("github/org-http/repo")
             .unwrap();
     let server = LoopbackJsonRpcToolServer::spawn();
     let transport =
-        crate::reviewer::tool_adapters::HttpJsonRpcToolTransport::new(server.endpoint())
+        crate::reviewer::adapters::tool_adapters::HttpJsonRpcToolTransport::new(server.endpoint())
             .unwrap();
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
         .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer::ReviewJsonRpcReadOnlyToolRegistration {
+            crate::reviewer::tools::ReviewJsonRpcReadOnlyToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_http_jsonrpc_check".to_string(),
                 description: "External HTTP JSON-RPC check scoped to one provider resource."
@@ -1297,17 +1361,19 @@ fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
             },
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-http-jsonrpc",
             "head-public-http-jsonrpc",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-http-jsonrpc-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run public HTTP JSON-RPC provider check.",
         public_budget(),
     )
@@ -1317,13 +1383,13 @@ fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
         tool_id.clone(),
         vec![resource_id.clone()],
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-http-jsonrpc-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .review_tool_registry(registry)
         .build()
@@ -1345,7 +1411,8 @@ fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
         serde_json::json!([resource_id.as_str()])
     );
     assert_eq!(wire_request["params"]["arguments"]["value"], "ok");
-    let metric_key = crate::reviewer::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
+    let metric_key =
+        crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
     let metrics = &report.metrics.tool_metrics[&metric_key];
     assert_eq!(metrics.calls, 1);
     assert_eq!(metrics.successes, 1);
@@ -1355,18 +1422,19 @@ fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
 fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let provider_id = crate::reviewer::tool_adapters::ToolProviderId::parse(
+    let provider_id = crate::reviewer::adapters::tool_adapters::ToolProviderId::parse(
         "public_jsonrpc_network_provider",
     )
     .unwrap();
-    let resource_id =
-        crate::reviewer::tool_adapters::ProviderResourceId::parse("github/org-network/repo")
-            .unwrap();
+    let resource_id = crate::reviewer::adapters::tool_adapters::ProviderResourceId::parse(
+        "github/org-network/repo",
+    )
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
         .register_scoped_jsonrpc_network_read_tool(
-            crate::reviewer::ReviewJsonRpcNetworkReadToolRegistration {
+            crate::reviewer::tools::ReviewJsonRpcNetworkReadToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_network_check".to_string(),
                 description: "External JSON-RPC check that needs network read.".to_string(),
@@ -1389,17 +1457,19 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
             },
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-jsonrpc-network",
             "head-public-jsonrpc-network",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-network-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run public JSON-RPC provider network check.",
         public_budget(),
     )
@@ -1409,13 +1479,13 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         tool_id.clone(),
         vec![resource_id],
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-jsonrpc-network-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let run = crate::reviewer::Run::builder(spec)
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .review_tool_registry(registry)
         .build()
@@ -1428,7 +1498,8 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
 
     assert_eq!(report.summary.completed_sessions, 1);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let metric_key = crate::reviewer::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
+    let metric_key =
+        crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
     let metrics = &report.metrics.tool_metrics[&metric_key];
     assert_eq!(metrics.calls, 1);
     assert_eq!(metrics.successes, 1);
@@ -1438,11 +1509,12 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
 fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let provider_id =
-        crate::reviewer::tool_adapters::ToolProviderId::parse("public_jsonrpc_network_denied")
-            .unwrap();
+    let provider_id = crate::reviewer::adapters::tool_adapters::ToolProviderId::parse(
+        "public_jsonrpc_network_denied",
+    )
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
         .register_jsonrpc_network_read_tool(
             provider_id.clone(),
@@ -1465,42 +1537,45 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
             }),
         )
         .unwrap();
-    let mut capabilities = crate::reviewer::capabilities::CapabilitySet::review_read_only();
+    let mut capabilities =
+        crate::reviewer::adapters::capabilities::CapabilitySet::review_read_only();
     capabilities.grant_tool(
         tool_id.clone(),
-        crate::reviewer::capabilities::ToolGrant {
+        crate::reviewer::adapters::capabilities::ToolGrant {
             allow: true,
             max_calls: None,
-            effects_allowed: crate::reviewer::capabilities::ToolEffects {
+            effects_allowed: crate::reviewer::adapters::capabilities::ToolEffects {
                 network_read: true,
-                ..crate::reviewer::capabilities::ToolEffects::review_read_only()
+                ..crate::reviewer::adapters::capabilities::ToolEffects::review_read_only()
             },
         },
     );
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-jsonrpc-network-denied",
             "head-public-jsonrpc-network-denied",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-network-denied-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run public JSON-RPC provider network check without network authority.",
         public_budget(),
     )
     .with_model_profile_id("mock")
     .with_capabilities(capabilities);
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-jsonrpc-network-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .review_tool_registry(registry)
         .review_event_sink(events.clone())
@@ -1516,8 +1591,8 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(events.records().iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ToolCallDenied {
-            error_code: crate::reviewer::tool_adapters::ToolErrorCode::ToolNotAllowed,
+        crate::reviewer::events::ReviewEvent::ToolCallDenied {
+            error_code: crate::reviewer::adapters::tool_adapters::ToolErrorCode::ToolNotAllowed,
             reason,
             ..
         } if reason.contains("network read")
@@ -1527,7 +1602,8 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
                 .as_deref()
                 .is_some_and(|session_id| session_id.starts_with("unit-"))
     )));
-    let metric_key = crate::reviewer::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
+    let metric_key =
+        crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
     let metrics = &report.metrics.tool_metrics[&metric_key];
     assert_eq!(metrics.calls, 1);
     assert_eq!(metrics.errors, 1);
@@ -1537,20 +1613,21 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
 fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let provider_id =
-        crate::reviewer::tool_adapters::ToolProviderId::parse("public_jsonrpc_denied_provider")
-            .unwrap();
+    let provider_id = crate::reviewer::adapters::tool_adapters::ToolProviderId::parse(
+        "public_jsonrpc_denied_provider",
+    )
+    .unwrap();
     let allowed_resource =
-        crate::reviewer::tool_adapters::ProviderResourceId::parse("github/org-a/repo-a")
+        crate::reviewer::adapters::tool_adapters::ProviderResourceId::parse("github/org-a/repo-a")
             .unwrap();
     let denied_resource =
-        crate::reviewer::tool_adapters::ProviderResourceId::parse("github/org-b/repo-b")
+        crate::reviewer::adapters::tool_adapters::ProviderResourceId::parse("github/org-b/repo-b")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry = crate::reviewer::ReviewToolRegistry::review_defaults().unwrap();
+    let mut registry = crate::reviewer::tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
         .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer::ReviewJsonRpcReadOnlyToolRegistration {
+            crate::reviewer::tools::ReviewJsonRpcReadOnlyToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_denied_check".to_string(),
                 description: "External JSON-RPC check scoped to another provider resource."
@@ -1574,17 +1651,19 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
             },
         )
         .unwrap();
-    let snapshot = crate::reviewer::SnapshotSpec::new(
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
-        crate::reviewer::ChangeSpec::local(
+        crate::reviewer::snapshots::ChangeSpec::local(
             "change-public-jsonrpc-denied",
             "head-public-jsonrpc-denied",
-            vec![crate::reviewer::ChangedFileSpec::modified("README.md")],
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
         ),
     );
-    let session = crate::reviewer::ReviewSessionSpec::review_read_only(
+    let session = crate::reviewer::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-denied-session",
-        crate::reviewer::Role::Generalist,
+        crate::contracts::Role::Generalist,
         "Run public JSON-RPC provider check outside resource scope.",
         public_budget(),
     )
@@ -1594,14 +1673,14 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
         tool_id.clone(),
         vec![denied_resource],
     );
-    let spec = crate::reviewer::RunSpec::single_snapshot(
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
         "public-jsonrpc-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
     );
-    let events = Arc::new(crate::reviewer::InMemoryReviewEventSink::default());
-    let run = crate::reviewer::Run::builder(spec)
+    let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .review_tool_registry(registry)
         .review_event_sink(events.clone())
@@ -1617,8 +1696,8 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(events.records().iter().any(|record| matches!(
         &record.event,
-        crate::reviewer::ReviewEvent::ToolCallDenied {
-            error_code: crate::reviewer::tool_adapters::ToolErrorCode::ToolNotAllowed,
+        crate::reviewer::events::ReviewEvent::ToolCallDenied {
+            error_code: crate::reviewer::adapters::tool_adapters::ToolErrorCode::ToolNotAllowed,
             reason,
             ..
         } if reason.contains("provider resource")
@@ -1628,7 +1707,8 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
                 .as_deref()
                 .is_some_and(|session_id| session_id.starts_with("unit-"))
     )));
-    let metric_key = crate::reviewer::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
+    let metric_key =
+        crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
     let metrics = &report.metrics.tool_metrics[&metric_key];
     assert_eq!(metrics.calls, 1);
     assert_eq!(metrics.errors, 1);
@@ -1640,7 +1720,7 @@ fn public_bounded_event_sink_drops_after_capacity() {
     crate::reviewer::runtime_events::EventSink::emit(
         &sink,
         crate::reviewer::runtime_events::RuntimeEvent::JobStarted {
-            snapshot_id: crate::reviewer::ids::SnapshotId("snapshot".to_string()),
+            snapshot_id: crate::reviewer::adapters::ids::SnapshotId("snapshot".to_string()),
         },
     );
     crate::reviewer::runtime_events::EventSink::emit(
@@ -1655,7 +1735,9 @@ fn public_bounded_event_sink_drops_after_capacity() {
     assert_eq!(records[0].seq, 1);
     assert_eq!(
         records[0].context.snapshot_id,
-        Some(crate::reviewer::ids::SnapshotId("snapshot".to_string()))
+        Some(crate::reviewer::adapters::ids::SnapshotId(
+            "snapshot".to_string()
+        ))
     );
     assert_eq!(sink.dropped_count(), 1);
     let event_log_dir = tempfile::tempdir().unwrap();
@@ -1676,7 +1758,7 @@ fn public_bounded_event_sink_drops_after_capacity() {
     crate::reviewer::runtime_events::EventSink::emit(
         &oldest,
         crate::reviewer::runtime_events::RuntimeEvent::JobStarted {
-            snapshot_id: crate::reviewer::ids::SnapshotId("snapshot".to_string()),
+            snapshot_id: crate::reviewer::adapters::ids::SnapshotId("snapshot".to_string()),
         },
     );
     crate::reviewer::runtime_events::EventSink::emit(
@@ -1694,7 +1776,3 @@ fn public_bounded_event_sink_drops_after_capacity() {
     ));
     assert_eq!(oldest.dropped_count(), 1);
 }
-
-
-
-

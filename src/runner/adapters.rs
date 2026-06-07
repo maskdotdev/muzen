@@ -6,15 +6,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::contracts::Role;
-use crate::reviewer::{
-    runtime::RuntimeError,
-    runtime_events::{
-        EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
-    },
-    Cancellation, ReviewEvent, ReviewEventRecord, ReviewModel, ReviewModelRequest, ReviewModelTurn,
-    ReviewToolArtifact, ReviewToolCall, ReviewToolContext, ReviewToolHandler, ReviewToolOutput,
-    TokenUsage,
+use crate::contracts::TokenUsage;
+use crate::reviewer::adapters::{runtime, Cancellation};
+use crate::reviewer::events::{ReviewEvent, ReviewEventRecord};
+use crate::reviewer::model::{
+    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall, ReviewTranscriptItem,
 };
+use crate::reviewer::runtime_events::{
+    EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
+};
+use crate::reviewer::tools::{
+    ReviewToolArtifact, ReviewToolContext, ReviewToolHandler, ReviewToolOutput,
+};
+use crate::runtime::contracts::RuntimeError;
 use crate::util::timestamp_utc;
 
 use super::transport::RunnerCallbackTransport;
@@ -43,7 +47,7 @@ impl ReviewModel for TestRunnerModel {
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> runtime::RuntimeResult<ReviewModelTurn> {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64 * 64,
             output_tokens: 32,
@@ -96,7 +100,7 @@ impl ReviewModel for CallbackReviewModel {
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> runtime::RuntimeResult<ReviewModelTurn> {
         let params = RunnerModelCompleteParams::from_request(&self.run_id, request);
         let value = self
             .transport
@@ -146,7 +150,7 @@ impl ReviewToolHandler for CallbackReviewTool {
         context: ReviewToolContext,
         arguments: Value,
         _cancel: Cancellation,
-    ) -> crate::reviewer::runtime::RuntimeResult<ReviewToolOutput> {
+    ) -> runtime::RuntimeResult<ReviewToolOutput> {
         let params = RunnerToolExecuteParams {
             protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
             run_id: self.run_id.clone(),
@@ -259,18 +263,18 @@ impl RunnerModelCompleteParams {
     }
 }
 
-fn runner_transcript_item(item: crate::reviewer::ReviewTranscriptItem) -> Value {
+fn runner_transcript_item(item: ReviewTranscriptItem) -> Value {
     match item {
-        crate::reviewer::ReviewTranscriptItem::System { content } => {
+        ReviewTranscriptItem::System { content } => {
             json!({"kind": "system", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::User { content } => {
+        ReviewTranscriptItem::User { content } => {
             json!({"kind": "user", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::AssistantText { content } => {
+        ReviewTranscriptItem::AssistantText { content } => {
             json!({"kind": "assistant_text", "content": content})
         }
-        crate::reviewer::ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
+        ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
             "kind": "assistant_tool_calls",
             "calls": calls.into_iter().map(|call| json!({
                 "callId": call.call_id,
@@ -278,7 +282,7 @@ fn runner_transcript_item(item: crate::reviewer::ReviewTranscriptItem) -> Value 
                 "arguments": call.arguments,
             })).collect::<Vec<_>>()
         }),
-        crate::reviewer::ReviewTranscriptItem::ToolResult {
+        ReviewTranscriptItem::ToolResult {
             call_id,
             tool_id,
             ok,

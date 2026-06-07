@@ -63,11 +63,6 @@ fn rejects_invalid_source_shorthand() {
         .contains("missing `#` review number delimiter"));
 }
 
-
-
-
-
-
 #[test]
 fn muzen_executes_local_review_session_and_waits_for_result() {
     let repo = tempfile::tempdir().unwrap();
@@ -560,7 +555,6 @@ fn review_store_records_retry_backoff_and_final_failure() {
     );
 }
 
-
 #[test]
 fn review_store_enforces_global_running_limit() {
     let store = InMemoryReviewSessionStore::default();
@@ -911,7 +905,6 @@ fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
     assert!(!serialized.contains("token"));
     assert!(!serialized.contains("sk-live"));
 }
-
 
 #[test]
 fn review_session_logs_are_redacted_before_persistence() {
