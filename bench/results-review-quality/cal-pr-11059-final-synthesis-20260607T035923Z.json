@@ -1,0 +1,721 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T04:02:08.407Z",
+  "mode": "production-review-run",
+  "reviewValid": false,
+  "exitCode": 4,
+  "error": "{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-1\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":1,\"timestampUtc\":\"1780804774.425281000Z\",\"level\":\"info\",\"eventType\":\"run_started\",\"sessionId\":null,\"toolCallId\":null,\"artifactId\":null,\"findingId\":null,\"payload\":{\"projectId\":\"muzen-review-quality\",\"runtime\":\"concurrent\",\"sessions\":11},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-2\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":2,\"timestampUtc\":\"1780804774.425929000Z\",\"level\":\"info\",\"eventType\":\"tool_call_completed\",\"sessionId\":null,\"toolCallId\":null,\"artifactId\":null,\"findingId\":null,\"payload\":{\"plannedReview\":{\"contractRiskUnits\":11,\"contractSeedCount\":53,\"excludedFiles\":1,\"fullFiles\":39,\"totalFiles\":40,\"units\":11}},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-3\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":3,\"timestampUtc\":\"1780804774.426543000Z\",\"level\":\"info\",\"eventType\":\"artifact_recorded\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-0-read_diff\",\"artifactId\":\"art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2\",\"findingId\":null,\"payload\":{\"status\":\"ok\",\"summary\":\"diff artifact contentHash=d098793a92c6316a86bbdbca92d3addaec6070151833b10f67a0e4a7339c421b\",\"toolName\":\"read_diff\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-4\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":4,\"timestampUtc\":\"1780804774.426548000Z\",\"level\":\"info\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-0-read_diff\",\"artifactId\":null,\"findingId\":null,\"payload\":{\"errorCode\":null,\"errorMessage\":null,\"status\":\"ok\",\"toolName\":\"read_diff\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-5\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":5,\"timestampUtc\":\"1780804774.426559000Z\",\"level\":\"info\",\"eventType\":\"artifact_recorded\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-1-read_head_file\",\"artifactId\":\"art_41c9b613a8cfab15158e8f6c7ae9311435f895e2b08b6a32d23b9460fd005ee4\",\"findingId\":null,\"payload\":{\"status\":\"ok\",\"summary\":\"read file artifact apps/web/pages/api/webhook/app-credential.ts\",\"toolName\":\"read_head_file\"},\"redaction\":{\"redactionState\":\"none\",\"redactionPolicyId\":\"review-quality-redaction-v1\",\"containsRepoContent\":false,\"containsPromptContent\":false,\"containsModelOutput\":false,\"containsSecretMaterial\":false},\"trace\":{\"parentEventId\":null,\"correlationId\":null}}\n{\"schemaVersion\":\"heimdaal.review-run.v1\",\"eventId\":\"review-quality-20260607T035933Z-event-6\",\"runId\":\"review-quality-20260607T035933Z\",\"attempt\":1,\"seq\":6,\"timestampUtc\":\"1780804774.426564000Z\",\"level\":\"info\",\"eventType\":\"tool_call_completed\",\"sessionId\":\"unit-001\",\"toolCallId\":\"bootstrap-1-read_head_file\",\"artifactId\":null,\"findingId\":null,\"payload...",
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-aVN97n/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-aVN97n/events.jsonl"
+  },
+  "review": {
+    "outcome": "failed_partial",
+    "publishability": "diagnostic_only",
+    "sessions": 12,
+    "completedSessions": 10,
+    "fileReviews": 36,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 4,
+      "clean": 23,
+      "needs_review": 8
+    },
+    "findings": 4,
+    "modelCalls": 75,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 2,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 10,
+      "readFile": 4,
+      "readFileRange": 8,
+      "readHeadFile": 34,
+      "searchText": 11
+    },
+    "tokens": {
+      "inputTokens": 300971,
+      "outputTokens": 3584,
+      "totalTokens": 304555
+    },
+    "artifactStats": {
+      "artifactBytes": 274300,
+      "artifacts": 57,
+      "contentRefs": 57
+    },
+    "elapsedMs": 153976
+  },
+  "benchmark": {
+    "elapsedMs": 154383,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "findingId": "5f972813b329b505f49e9242a3ace2c9378e09073a2b9e0aba2bc7999f8b59d0",
+        "title": "App credential webhook looks up existing credentials by the app slug instead of the app record id"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      }
+    ],
+    "falsePositiveCount": 3,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 11,
+    "importCount": 0,
+    "needsReviewCount": 8,
+    "cleanCount": 23,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new webhook handler uses `prisma.credential.findFirst({ where: { userId, appId: appMetadata.slug } })` and later creates with `appId: appMetadata.slug`, but `appId` is typically a foreign-key/id field rather than a slug. This cross-file contract mismatch means existing credentials will not be found and updates may duplicate or fail depending on the schema.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_13d873b6220e793a2a5d69be797e1a42e52152972275e6fa237c463097124647",
+          "byteRange": {
+            "endByte": 481,
+            "startByte": 0
+          },
+          "contentHash": "a4672c2ba6c20d308d810cc0537374fef820385439ad00e835d4265835889ab7",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_13d873b6220e793a2a5d69be797e1a42e52152972275e6fa237c463097124647",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_371d611325a28c92a3e68f6539ff9a8241d9f9fefbb25d5e973e65510299d40a",
+          "byteRange": {
+            "endByte": 365,
+            "startByte": 0
+          },
+          "contentHash": "b7f7c41195c42ac887f07ddbd39034f7e83d84dc08e79b467aacaec8b8a099ae",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_371d611325a28c92a3e68f6539ff9a8241d9f9fefbb25d5e973e65510299d40a",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_41c9b613a8cfab15158e8f6c7ae9311435f895e2b08b6a32d23b9460fd005ee4",
+          "byteRange": {
+            "endByte": 2783,
+            "startByte": 0
+          },
+          "contentHash": "a0ff3713560356e1e0423fb52cf087d8fb7aeb0e4c978baa77a757f94e3b3f71",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_41c9b613a8cfab15158e8f6c7ae9311435f895e2b08b6a32d23b9460fd005ee4",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_a149d3e87e5667843f3c724ec0f4eb2320d389e3ec18f973a9e0a7820ede7062",
+          "byteRange": {
+            "endByte": 3434,
+            "startByte": 0
+          },
+          "contentHash": "47f6152ebb088133198841e051406ba803537755eb622912d7963a953d9026e1",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_a149d3e87e5667843f3c724ec0f4eb2320d389e3ec18f973a9e0a7820ede7062",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_c04cec3fa9b6fcac318917cec8860e0cc9bf7c11511c40baa6eb6f6edd0b19b5",
+          "byteRange": {
+            "endByte": 3145,
+            "startByte": 0
+          },
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_c04cec3fa9b6fcac318917cec8860e0cc9bf7c11511c40baa6eb6f6edd0b19b5",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 83,
+            "startLine": 55
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "apps/web/pages/api/webhook/app-credential.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "apps/web/pages/api/webhook/app-credential.ts"
+        }
+      ],
+      "id": "5f972813b329b505f49e9242a3ace2c9378e09073a2b9e0aba2bc7999f8b59d0",
+      "locationLineRange": {
+        "endLine": 83,
+        "startLine": 55
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "App credential webhook looks up existing credentials by the app slug instead of the app record id",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The helper returns `refreshTokenResponse` (the full `safeParse` result), yet callers in `googlecalendar`, `office365calendar`, `salesforce`, and `zoomvideo` assign it to `key`/`parsedToken` and then read `.success` or `.data` inconsistently. In `GoogleCalendarService`, `key` is written directly into Prisma as if it were the parsed credential payload, which breaks the caller/callee contract and can persist the wrong shape.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_20804b049365533f7efd40c91222b36b58830474c12c6c533976d26961b3dbf0",
+          "byteRange": {
+            "endByte": 1031,
+            "startByte": 0
+          },
+          "contentHash": "6286ce7c1e5ec69f41b1e8498554e41ebdead088c725bfd002bee666cf9db6fd",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_20804b049365533f7efd40c91222b36b58830474c12c6c533976d26961b3dbf0",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 32,
+            "startLine": 12
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 32,
+            "startLine": 12
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_9848a895fde40a7058265399c08ad8ab702cbdb98bd378816a5e10ceedf87226",
+          "byteRange": {
+            "endByte": 7979,
+            "startByte": 0
+          },
+          "contentHash": "a726a93f19a1bb9f4705f5199bfbd381adf8906b2df42b29cb1c0131d4fe28c0",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_9848a895fde40a7058265399c08ad8ab702cbdb98bd378816a5e10ceedf87226",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 32,
+            "startLine": 12
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+        }
+      ],
+      "id": "e566d962bc81390e667ee1e872124db75197cb7478cd49ca6d487ed0594961a1",
+      "locationLineRange": {
+        "endLine": 32,
+        "startLine": 12
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "`parseRefreshTokenResponse` returns a Zod result wrapper, but callers use it like parsed token data",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "In `SalesforceCalendarService`, `parseRefreshTokenResponse(accessTokenJson, salesforceTokenSchema)` returns a parsed object, but the code still checks `accessTokenParsed.success` and then stores `accessTokenParsed.data` as if the helper returned a Zod response. That is already inconsistent with the helper's intended use elsewhere, and the file also updates the credential with only the parsed schema payload, dropping refresh-token preservation semantics relied on by other integrations.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 107,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_64a282a2631d7ae6e31d19c2e652ab08091142723c674e8a71fc694f6385a746",
+          "byteRange": {
+            "endByte": 11433,
+            "startByte": 0
+          },
+          "contentHash": "e4c78e8b5bbccf9937d94dbe9a5c9133d3d0becde4c389cb2f7e6b44cf81d3b3",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_64a282a2631d7ae6e31d19c2e652ab08091142723c674e8a71fc694f6385a746",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 107,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_e86fc3684170b36a34b49d62f773ede4e65af84daa50d4d266b179b2814025f6",
+          "byteRange": {
+            "endByte": 14536,
+            "startByte": 0
+          },
+          "contentHash": "9514487a7adb81d760889797285596d0f48043b27eebcec2a775c2a9a8f4ea3a",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_e86fc3684170b36a34b49d62f773ede4e65af84daa50d4d266b179b2814025f6",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 107,
+            "startLine": 72
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/salesforce/lib/CalendarService.ts"
+        }
+      ],
+      "id": "a05e4748976c7d12d7c2bdb182ace3397e070921cd8eee8600ece1af444145be",
+      "locationLineRange": {
+        "endLine": 107,
+        "startLine": 72
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Salesforce refresh flow passes the parsed result into code that expects a raw HTTP response",
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "`APP_CREDENTIAL_SHARING_ENABLED` is defined as `process.env.CALCOM_WEBHOOK_SECRET && process.env.CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY`, which yields a string or undefined instead of a boolean. Callers use it as a boolean feature flag in webhook and token-refresh paths; this can create subtle equality/guard behavior differences versus an explicit enabled/disabled boolean contract.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "byteRange": {
+            "endByte": 3113,
+            "startByte": 0
+          },
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4f3d90b68d7bb220afe0332e52716f1211bca5d4a439bee10a611a560baccae2",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 103,
+            "startLine": 102
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/constants.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_b05e4a007c072eabcb99b917d72b68c5586fad01d7b3c4d154e5d5efa5dd0015",
+          "byteRange": {
+            "endByte": 936,
+            "startByte": 0
+          },
+          "contentHash": "7c51f76409defce47aacd68cf522a04f8466eedd0f12dc6cf334f612bbcb0c8a",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_b05e4a007c072eabcb99b917d72b68c5586fad01d7b3c4d154e5d5efa5dd0015",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 103,
+            "startLine": 102
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/constants.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_bdc206670aa0ba8873c11b1d0c14ac00a2274f3b01e61f03c8594cd1ae547c3f",
+          "byteRange": {
+            "endByte": 3549,
+            "startByte": 0
+          },
+          "contentHash": "187f9bae24399bf4d13bcbf1d4309a7f99adea64be75eb8a22eb3c6c233572de",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_bdc206670aa0ba8873c11b1d0c14ac00a2274f3b01e61f03c8594cd1ae547c3f",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 103,
+            "startLine": 102
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/constants.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_d8eb8655ed5a10d96f15c44107d44b27f5a2c010635182c3237698d150b86ad5",
+          "byteRange": {
+            "endByte": 5551,
+            "startByte": 0
+          },
+          "contentHash": "721fdeb8fe8fafeedce6b9d322556fd0a40debbd1104a557ab75c15f25fab780",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_d8eb8655ed5a10d96f15c44107d44b27f5a2c010635182c3237698d150b86ad5",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 103,
+            "startLine": 102
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/constants.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_fd7ef8293462863ae2115a7875f54697983db89a18710b1e072eedc11c78493b",
+          "byteRange": {
+            "endByte": 783,
+            "startByte": 0
+          },
+          "contentHash": "e3b53d1939a846156a66b112b77e22ee28cc048aacebd035b40f37d8978c139b",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fd7ef8293462863ae2115a7875f54697983db89a18710b1e072eedc11c78493b",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 103,
+            "startLine": 102
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/lib/constants.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/lib/constants.ts"
+        }
+      ],
+      "id": "9e81debaec535e4f71923d67947bdef9911e91d95939602ef0874376c117b53a",
+      "locationLineRange": {
+        "endLine": 103,
+        "startLine": 102
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "`APP_CREDENTIAL_SHARING_ENABLED` is not a strict boolean and can short-circuit feature gating incorrectly",
+      "validationStatus": "validated"
+    }
+  ]
+}

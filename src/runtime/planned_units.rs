@@ -93,6 +93,24 @@ impl PlannedReviewRuntime {
             file_reviews.extend(report.file_reviews);
             completion_diagnostics.push(report.completion_diagnostic);
         }
+        if should_run_review_quality_enhancements(&self.session_templates) && !cancel.is_cancelled()
+        {
+            let synthesis_report = self
+                .run_final_synthesis_pass(
+                    &review_plan,
+                    &unit_plan.units,
+                    &contract_risk,
+                    &file_reviews,
+                    &candidate_findings,
+                    cancel.child_token(),
+                )
+                .await;
+            model_calls += synthesis_report.model_calls;
+            add_model_metrics(&mut model_metrics, &synthesis_report.model_metrics);
+            tokens.add(synthesis_report.tokens);
+            candidate_findings.extend(synthesis_report.verified_candidate_findings);
+            completion_diagnostics.push(synthesis_report.completion_diagnostic);
+        }
         let synthesis = synthesize_findings(
             &review_plan,
             &unit_plan.units,
@@ -144,7 +162,9 @@ impl PlannedReviewRuntime {
         let elapsed_ms = elapsed_ms(started);
         let review_sessions = completion_diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.session_id != "synthesis")
+            .filter(|diagnostic| {
+                diagnostic.session_id != "synthesis" && diagnostic.session_id != "final-synthesis"
+            })
             .count();
         let mut metrics = ConcurrentRunReport {
             runtime: "planned_units",
@@ -228,18 +248,36 @@ impl PlannedReviewRuntime {
         let mut tokens = TokenUsage::default();
         let mut model_calls = 0usize;
         let mut file_evidence = FileEvidenceTracker::new(&unit);
+        let turn_limit = scope.budget.max_turns.max(1);
 
-        for turn_index in 0..4 {
+        if should_run_review_quality_enhancements_for_scope(&scope) {
+            bootstrap_unit_evidence(
+                self,
+                &scope,
+                review_plan,
+                &unit,
+                &mut transcript,
+                &mut evidence,
+                &mut tool_counts,
+                &mut file_evidence,
+                cancel.child_token(),
+            )
+            .await;
+        }
+
+        for turn_index in 0..turn_limit {
             if cancel.is_cancelled() {
                 break;
             }
-            let turn_id = TurnId(turn_index);
+            let turn_id = TurnId(turn_index as u32);
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
             );
             let model_started = Instant::now();
-            let model_scope = if turn_index == 3 {
+            let final_turn =
+                turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
+            let model_scope = if final_turn {
                 final_response_scope(&scope)
             } else {
                 scope.clone()
@@ -292,7 +330,7 @@ impl PlannedReviewRuntime {
                         result.file_verdicts,
                         &file_evidence,
                     );
-                    if !validation.missing_obligations.is_empty() && turn_index < 3 {
+                    if !validation.missing_obligations.is_empty() && !final_turn {
                         transcript.push(ConversationItem::AssistantText { content });
                         transcript.push(ConversationItem::User {
                             content: missing_evidence_instruction(
@@ -396,7 +434,7 @@ impl PlannedReviewRuntime {
                     );
                     transcript.push(ConversationItem::User {
                         content: next_unit_instruction(
-                            turn_index,
+                            next_turn_can_explore(turn_index, turn_limit, &scope, &tool_counts),
                             &unit,
                             unit_risk,
                             &file_evidence,
@@ -421,6 +459,348 @@ impl PlannedReviewRuntime {
             completion_diagnostic: unit_diagnostic(&unit, false, "partial"),
         }
     }
+
+    async fn run_final_synthesis_pass(
+        &self,
+        review_plan: &ReviewPlan,
+        units: &[PlannedReviewUnit],
+        contract_risk: &ContractRiskPlan,
+        file_reviews: &[FileReviewV1],
+        existing_candidates: &[CandidateFinding],
+        cancel: CancellationToken,
+    ) -> FinalSynthesisReport {
+        let scope =
+            final_synthesis_scope(&self.snapshot.snapshot_id, self.session_templates.first());
+        let model = match self.model_router.client_for(&scope).await {
+            Ok(model) => model,
+            Err(error) => {
+                self.events
+                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
+                    false,
+                    "model_router_failed",
+                    0,
+                ));
+            }
+        };
+        let transcript = final_synthesis_transcript(
+            review_plan,
+            units,
+            contract_risk,
+            file_reviews,
+            self.snapshot.diff.content.as_str(),
+        );
+        let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut tokens = TokenUsage::default();
+        let turn_id = TurnId(0);
+        self.events.emit_planned_runtime(
+            self.policy
+                .plan_model_started_runtime_event(&scope, turn_id),
+        );
+        let model_started = Instant::now();
+        let turn = match tokio::time::timeout(
+            std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
+            model.complete(
+                &final_response_scope(&scope),
+                &transcript,
+                turn_id,
+                cancel.child_token(),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(turn)) => turn,
+            Ok(Err(error)) => {
+                self.events.emit_planned_runtime(
+                    self.policy
+                        .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
+                );
+                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
+                    false,
+                    "model_failed",
+                    0,
+                ));
+            }
+            Err(_) => {
+                self.events
+                    .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
+                        &scope,
+                        turn_id,
+                        1,
+                        false,
+                        &RuntimeError::Timeout,
+                    ));
+                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
+                    false, "timeout", 0,
+                ));
+            }
+        };
+        model_metrics.calls += 1;
+        model_metrics.successes += 1;
+        model_metrics.latency_ms += elapsed_ms(model_started);
+        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+        match turn {
+            ModelTurn::Text { content, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events.emit_planned_runtime(
+                    self.policy
+                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                );
+                let result = parse_synthesis_result(&content);
+                let evidence_by_path = synthesis_evidence_by_path(file_reviews);
+                let verified = collect_synthesis_candidate_findings(
+                    &scope,
+                    review_plan,
+                    self.snapshot.diff.content.as_str(),
+                    result.findings,
+                    &evidence_by_path,
+                    existing_candidates,
+                );
+                FinalSynthesisReport {
+                    model_calls: 1,
+                    model_metrics,
+                    tokens,
+                    verified_candidate_findings: verified.candidates,
+                    completion_diagnostic: final_synthesis_diagnostic(
+                        true,
+                        &format!(
+                            "{} raw={} accepted={} rejected={} duplicateMerged=0 rejectionReasons={}",
+                            result.summary,
+                            result.finding_count,
+                            verified.accepted_count,
+                            verified.rejected_count,
+                            format_rejection_reasons(&verified.rejection_reasons)
+                        ),
+                        verified.accepted_count,
+                    ),
+                }
+            }
+            ModelTurn::ToolCalls { calls, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events
+                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
+                        &scope,
+                        turn_id,
+                        calls.len(),
+                    ));
+                FinalSynthesisReport {
+                    model_calls: 1,
+                    model_metrics,
+                    tokens,
+                    verified_candidate_findings: Vec::new(),
+                    completion_diagnostic: final_synthesis_diagnostic(
+                        false,
+                        "unexpected_tool_calls",
+                        0,
+                    ),
+                }
+            }
+        }
+    }
+}
+
+fn should_run_review_quality_enhancements(session_templates: &[SessionScope]) -> bool {
+    session_templates
+        .first()
+        .map(should_run_review_quality_enhancements_for_scope)
+        .unwrap_or(false)
+}
+
+fn should_run_review_quality_enhancements_for_scope(scope: &SessionScope) -> bool {
+    scope.budget.max_turns > 4
+        && scope
+            .objective
+            .contains("production-materialized pull request")
+}
+
+async fn bootstrap_unit_evidence(
+    runtime: &PlannedReviewRuntime,
+    scope: &SessionScope,
+    review_plan: &ReviewPlan,
+    unit: &PlannedReviewUnit,
+    transcript: &mut Vec<ConversationItem>,
+    evidence: &mut SessionEvidence,
+    tool_counts: &mut ToolCounts,
+    file_evidence: &mut FileEvidenceTracker,
+    cancel: CancellationToken,
+) {
+    if cancel.is_cancelled() || scope.budget.max_tool_calls == 0 {
+        return;
+    }
+    let plan = deterministic_bootstrap_calls(
+        review_plan,
+        unit,
+        runtime.snapshot.diff.content.as_str(),
+        runtime.limits.max_file_bytes_read,
+        scope
+            .budget
+            .max_tool_calls
+            .saturating_sub(tool_counts.total()),
+    );
+    if plan.calls.is_empty() {
+        return;
+    }
+    let turn_id = TurnId(u32::MAX);
+    transcript.push(ConversationItem::AssistantToolCalls {
+        calls: plan.calls.clone(),
+    });
+    let results = ToolBatchRunner::new(
+        runtime.policy.as_ref(),
+        runtime.tools.as_ref(),
+        &runtime.events,
+    )
+    .execute(
+        scope.clone(),
+        turn_id,
+        plan.calls,
+        evidence,
+        scope
+            .budget
+            .max_tool_calls
+            .saturating_sub(tool_counts.total()),
+        cancel,
+    )
+    .await;
+    file_evidence.observe_results(&results, &runtime.tools.artifacts);
+    ToolResultEffectProcessor::new(
+        runtime.policy.as_ref(),
+        runtime.tools.as_ref(),
+        &runtime.events,
+        &runtime.review_revision_id,
+    )
+    .apply_batch(
+        scope,
+        turn_id,
+        results,
+        ToolResultBatchState {
+            evidence,
+            tool_counts,
+            transcript,
+        },
+    );
+    let skipped = if plan.skipped_paths.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Bootstrap skipped these assigned files to reserve tool budget for model-driven exploration: {}.",
+            plan.skipped_paths.join(", ")
+        )
+    };
+    transcript.push(ConversationItem::User {
+        content: format!("Deterministic bootstrap evidence has been loaded for this review unit.{skipped} Use it to review the assigned files, request only focused follow-up exploration when needed, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings."),
+    });
+}
+
+struct BootstrapPlan {
+    calls: Vec<ModelToolCall>,
+    skipped_paths: Vec<String>,
+}
+
+fn deterministic_bootstrap_calls(
+    review_plan: &ReviewPlan,
+    unit: &PlannedReviewUnit,
+    diff: &str,
+    max_file_bytes_read: usize,
+    remaining_tool_budget: usize,
+) -> BootstrapPlan {
+    const RESERVED_MODEL_TOOL_CALLS: usize = 4;
+    let bootstrap_budget = remaining_tool_budget.saturating_sub(RESERVED_MODEL_TOOL_CALLS);
+    if bootstrap_budget == 0 {
+        return BootstrapPlan {
+            calls: Vec::new(),
+            skipped_paths: unit.file_paths.iter().map(RepoPath::display).collect(),
+        };
+    }
+    let changed_ranges = changed_line_ranges_by_path(diff);
+    let mut calls = vec![bootstrap_call(0, ToolName::ReadDiff, "{}".to_string())];
+    let file_budget = bootstrap_budget.saturating_sub(calls.len());
+    let mut scored_paths = unit
+        .file_paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let score = review_plan
+                .files
+                .iter()
+                .find(|file| file.path == *path)
+                .map(|file| file.score)
+                .unwrap_or(0);
+            (path, score, index)
+        })
+        .collect::<Vec<_>>();
+    scored_paths.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.2.cmp(&right.2)));
+    let prefer_ranges = scored_paths.len() > file_budget;
+    let mut skipped_paths = Vec::new();
+    for (selected_count, (path, _, _)) in scored_paths.into_iter().enumerate() {
+        if selected_count >= file_budget {
+            skipped_paths.push(path.display());
+            continue;
+        }
+        let display = path.display();
+        let estimated_bytes = review_plan
+            .files
+            .iter()
+            .find(|file| file.path == *path)
+            .and_then(|file| file.estimated_bytes)
+            .unwrap_or(0);
+        let (tool, raw_arguments) = if prefer_ranges || estimated_bytes > max_file_bytes_read as u64
+        {
+            changed_ranges
+                .get(&display)
+                .and_then(|ranges| expanded_changed_range(ranges))
+                .map(|(start_line, end_line)| {
+                    (
+                        ToolName::ReadFileRange,
+                        json!({
+                            "path": display,
+                            "start_line": start_line,
+                            "end_line": end_line
+                        })
+                        .to_string(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    (
+                        ToolName::ReadHeadFile,
+                        json!({ "path": display }).to_string(),
+                    )
+                })
+        } else {
+            (
+                ToolName::ReadHeadFile,
+                json!({ "path": display }).to_string(),
+            )
+        };
+        calls.push(bootstrap_call(calls.len(), tool, raw_arguments));
+    }
+    BootstrapPlan {
+        calls,
+        skipped_paths,
+    }
+}
+
+fn bootstrap_call(index: usize, tool: ToolName, raw_arguments: String) -> ModelToolCall {
+    ModelToolCall {
+        call_id: ToolCallId(format!("bootstrap-{index}-{}", tool.as_str())),
+        index,
+        name: ToolId::from(tool),
+        raw_arguments,
+    }
+}
+
+fn expanded_changed_range(ranges: &[(usize, usize)]) -> Option<(usize, usize)> {
+    let start = ranges.iter().map(|(start, _)| *start).min()?;
+    let end = ranges.iter().map(|(_, end)| *end).max()?;
+    Some((start.saturating_sub(20).max(1), end.saturating_add(20)))
+}
+
+fn next_turn_can_explore(
+    turn_index: usize,
+    turn_limit: usize,
+    scope: &SessionScope,
+    tool_counts: &ToolCounts,
+) -> bool {
+    turn_index + 2 < turn_limit && tool_counts.total() < scope.budget.max_tool_calls
 }
 
 fn final_response_scope(scope: &SessionScope) -> SessionScope {
@@ -430,30 +810,29 @@ fn final_response_scope(scope: &SessionScope) -> SessionScope {
 }
 
 fn next_unit_instruction(
-    turn_index: u32,
+    can_explore: bool,
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
     file_evidence: &FileEvidenceTracker,
 ) -> String {
+    if !can_explore {
+        return "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings.".to_string();
+    }
     let missing = missing_assigned_file_evidence(unit, file_evidence);
-    if !missing.is_empty() && turn_index < 2 {
+    if !missing.is_empty() {
         return format!(
             "Before returning clean verdicts, inspect the assigned changed file(s) not yet read: {}. Use read_file, read_file_range, or read_head_file. If those files call helpers, return structured values, or participate in a shared integration/API contract, also inspect the relevant changed callers/helpers/imports even when they are outside this unit.",
             missing.join(", ")
         );
     }
-    if unit_risk.high_risk && !file_evidence.has_contract_evidence(unit_risk) && turn_index < 2 {
+    if unit_risk.high_risk && !file_evidence.has_contract_evidence(unit_risk) {
         return format!(
             "This unit has high cross-file contract risk: {}. You are expected to explore beyond the assigned files when needed: use search_text, list_imports, read_head_file, read_file_range, or find_related_files to compare helper return shapes, imports, callers, and repeated integration implementations. Useful seed queries: {}.",
             unit_risk.reasons.join(", "),
             unit_risk.suggested_queries.join(" | ")
         );
     }
-    if turn_index < 2 {
-        return "Use the gathered evidence to either request a focused follow-up batch for related searches, imports, callers, helpers, or comparable changed implementations, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. Exploration may include changed files outside this unit when they are needed to prove or disprove a shared contract issue.".to_string();
-    }
-    "Return the final review unit result now as JSON with keys summary, fileVerdicts, and findings."
-        .to_string()
+    "Use the gathered evidence to either request a focused follow-up batch for related searches, imports, callers, helpers, or comparable changed implementations, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings. Exploration may include changed files outside this unit when they are needed to prove or disprove a shared contract issue.".to_string()
 }
 
 fn missing_assigned_file_evidence(
@@ -943,6 +1322,14 @@ struct PlannedReviewUnitReport {
     completion_diagnostic: SessionCompletionDiagnostic,
 }
 
+struct FinalSynthesisReport {
+    model_calls: usize,
+    model_metrics: ModelMetricsSnapshot,
+    tokens: TokenUsage,
+    verified_candidate_findings: Vec<CandidateFinding>,
+    completion_diagnostic: SessionCompletionDiagnostic,
+}
+
 impl PlannedReviewUnitReport {
     fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
         Self {
@@ -953,6 +1340,18 @@ impl PlannedReviewUnitReport {
             tokens: TokenUsage::default(),
             candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
+            completion_diagnostic,
+        }
+    }
+}
+
+impl FinalSynthesisReport {
+    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
+        Self {
+            model_calls: 0,
+            model_metrics: ModelMetricsSnapshot::default(),
+            tokens: TokenUsage::default(),
+            verified_candidate_findings: Vec::new(),
             completion_diagnostic,
         }
     }
@@ -985,11 +1384,29 @@ struct StructuredFileVerdict {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StructuredFinding {
+    #[serde(default)]
     title: String,
+    #[serde(default)]
     claim: String,
+    #[serde(default)]
     path: String,
     start_line: Option<usize>,
     end_line: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredSynthesisResult {
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    findings: Vec<StructuredFinding>,
+}
+
+struct ParsedSynthesisResult {
+    summary: String,
+    findings: Vec<StructuredFinding>,
+    finding_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1010,6 +1427,13 @@ struct SynthesisOutcome {
     findings: Vec<FindingV1>,
     candidate_count: usize,
     rescued_count: usize,
+    rejected_count: usize,
+    rejection_reasons: BTreeMap<String, usize>,
+}
+
+struct VerifiedSynthesisCandidates {
+    candidates: Vec<CandidateFinding>,
+    accepted_count: usize,
     rejected_count: usize,
     rejection_reasons: BTreeMap<String, usize>,
 }
@@ -1101,6 +1525,131 @@ fn unit_scope(
     }
 }
 
+fn final_synthesis_scope(
+    snapshot_id: &SnapshotId,
+    template: Option<&SessionScope>,
+) -> SessionScope {
+    let mut scope = unit_scope(
+        &PlannedReviewUnit {
+            id: "final-synthesis".to_string(),
+            file_paths: Vec::new(),
+            score_min: 0,
+            score_max: 0,
+            estimated_bytes: 0,
+            file_count: 0,
+            requires_further_split: false,
+        },
+        snapshot_id,
+        template,
+    );
+    scope.id = SessionId("final-synthesis".to_string());
+    scope.objective =
+        "Synthesize final cross-file review findings from gathered review evidence.".to_string();
+    scope.instructions = Vec::new();
+    scope
+}
+
+fn final_synthesis_transcript(
+    review_plan: &ReviewPlan,
+    units: &[PlannedReviewUnit],
+    contract_risk: &ContractRiskPlan,
+    file_reviews: &[FileReviewV1],
+    diff: &str,
+) -> Vec<ConversationItem> {
+    let changed_files = review_plan
+        .files
+        .iter()
+        .filter(|file| file.mode == ReviewPlanFileMode::Full)
+        .map(|file| format!("- {} score={}", file.path.display(), file.score))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let unit_risks = units
+        .iter()
+        .map(|unit| {
+            let risk = contract_risk.unit_risk(unit);
+            format!(
+                "- {} files=[{}] highRisk={} reasons=[{}] seeds=[{}]",
+                unit.id,
+                unit.file_paths
+                    .iter()
+                    .map(RepoPath::display)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                risk.high_risk,
+                risk.reasons.join(", "),
+                risk.seeds.join(", ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let verdicts = file_reviews
+        .iter()
+        .map(|review| {
+            format!(
+                "- {} verdict={} unit={} summary={}",
+                review.path,
+                review.verdict,
+                review.unit_id,
+                truncate_chars(&review.summary, 500)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    vec![
+        ConversationItem::System {
+            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, and endLine. Report only changed-file issues directly supported by the provided diff evidence.".to_string(),
+        },
+        ConversationItem::User {
+            content: format!(
+                "Changed files:\n{}\n\nContract-risk units:\n{}\n\nUnit verdicts:\n{}\n\nDeterministic contract probe:\n{}\n\nDiff excerpt:\n{}\n\nReturn JSON now with keys summary and findings. Findings should anchor to changed lines and use terms from the changed code where possible.",
+                changed_files,
+                unit_risks,
+                verdicts,
+                contract_probe_pack(diff, 20_000),
+                diff_excerpt(diff, 120_000)
+            ),
+        },
+    ]
+}
+
+fn contract_probe_pack(diff: &str, max_chars: usize) -> String {
+    let mut current_path = String::new();
+    let mut lines = Vec::new();
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = path.to_string();
+            continue;
+        }
+        let Some(added) = line.strip_prefix('+') else {
+            continue;
+        };
+        if added.starts_with("+++") {
+            continue;
+        }
+        let normalized = added.trim();
+        let lower = normalized.to_ascii_lowercase();
+        let interesting = lower.contains("return")
+            || lower.contains("safeparse")
+            || lower.contains(".data")
+            || lower.contains(".success")
+            || lower.contains("import ")
+            || lower.contains("from ")
+            || lower.contains("delete")
+            || lower.contains("update")
+            || lower.contains("create")
+            || lower.contains("credential")
+            || lower.contains("token")
+            || lower.contains("callback");
+        if interesting && !current_path.is_empty() {
+            lines.push(format!("{}: {}", current_path, normalized));
+        }
+    }
+    if lines.is_empty() {
+        return "No deterministic contract probe lines selected.".to_string();
+    }
+    truncate_chars(&lines.join("\n"), max_chars)
+}
+
 fn parse_unit_result(content: &str, unit: &PlannedReviewUnit) -> StructuredUnitResult {
     let trimmed = content.trim();
     if let Ok(result) = serde_json::from_str::<StructuredUnitResult>(trimmed) {
@@ -1115,6 +1664,27 @@ fn parse_unit_result(content: &str, unit: &PlannedReviewUnit) -> StructuredUnitR
     serde_json::from_str(&trimmed[start..=end]).unwrap_or_else(|_| clean_result(unit))
 }
 
+fn parse_synthesis_result(content: &str) -> ParsedSynthesisResult {
+    let trimmed = content.trim();
+    let result = serde_json::from_str::<StructuredSynthesisResult>(trimmed)
+        .or_else(|_| {
+            let Some(start) = trimmed.find('{') else {
+                return Ok(StructuredSynthesisResult::default());
+            };
+            let Some(end) = trimmed.rfind('}') else {
+                return Ok(StructuredSynthesisResult::default());
+            };
+            serde_json::from_str(&trimmed[start..=end])
+        })
+        .unwrap_or_default();
+    let finding_count = result.findings.len();
+    ParsedSynthesisResult {
+        summary: result.summary,
+        findings: result.findings,
+        finding_count,
+    }
+}
+
 fn clean_result(unit: &PlannedReviewUnit) -> StructuredUnitResult {
     StructuredUnitResult {
         summary: format!(
@@ -1124,6 +1694,252 @@ fn clean_result(unit: &PlannedReviewUnit) -> StructuredUnitResult {
         file_verdicts: Vec::new(),
         findings: Vec::new(),
     }
+}
+
+fn synthesis_evidence_by_path(file_reviews: &[FileReviewV1]) -> BTreeMap<String, Vec<String>> {
+    let mut by_path: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for review in file_reviews {
+        by_path
+            .entry(review.path.clone())
+            .or_default()
+            .extend(review.evidence_artifact_ids.iter().cloned());
+    }
+    by_path
+        .into_iter()
+        .map(|(path, evidence)| (path, evidence.into_iter().collect()))
+        .collect()
+}
+
+fn collect_synthesis_candidate_findings(
+    scope: &SessionScope,
+    review_plan: &ReviewPlan,
+    diff: &str,
+    candidates: Vec<StructuredFinding>,
+    evidence_by_path: &BTreeMap<String, Vec<String>>,
+    existing_candidates: &[CandidateFinding],
+) -> VerifiedSynthesisCandidates {
+    if review_plan.counts.full_files > 20 {
+        let rejected_count = candidates.len();
+        let mut rejection_reasons = BTreeMap::new();
+        if rejected_count > 0 {
+            rejection_reasons.insert(
+                "large_pr_synthesis_diagnostic_only".to_string(),
+                rejected_count,
+            );
+        }
+        return VerifiedSynthesisCandidates {
+            candidates: Vec::new(),
+            accepted_count: 0,
+            rejected_count,
+            rejection_reasons,
+        };
+    }
+    let changed_paths = changed_paths(review_plan);
+    let changed_ranges = changed_line_ranges_by_path(diff);
+    let added_tokens = added_line_tokens_by_path(diff);
+    let mut accepted = Vec::new();
+    let mut rejected_count = 0usize;
+    let mut rejection_reasons = BTreeMap::new();
+    for candidate in candidates {
+        let parsed_path = RepoPath::parse(&candidate.path).ok();
+        let path = parsed_path
+            .as_ref()
+            .map(RepoPath::display)
+            .unwrap_or_else(|| candidate.path.trim().to_string());
+        let title = candidate.title.trim();
+        let claim = candidate.claim.trim();
+        let evidence_artifact_ids = evidence_by_path.get(&path).cloned().unwrap_or_default();
+        let rejection_reason = verify_synthesis_candidate(
+            &candidate,
+            parsed_path.as_ref(),
+            &path,
+            title,
+            claim,
+            &evidence_artifact_ids,
+            &changed_paths,
+            &changed_ranges,
+            &added_tokens,
+            evidence_by_path,
+            existing_candidates,
+        );
+        if let Some(reason) = rejection_reason {
+            rejected_count += 1;
+            *rejection_reasons.entry(reason).or_insert(0) += 1;
+            continue;
+        }
+        accepted.push(CandidateFinding {
+            source_unit_id: "final-synthesis".to_string(),
+            source_session_id: scope.id.0.clone(),
+            title: title.to_string(),
+            claim: claim.to_string(),
+            path,
+            start_line: candidate.start_line,
+            end_line: candidate.end_line,
+            evidence_artifact_ids,
+            source_unit_assigned_path: true,
+            rejection_reason: None,
+        });
+    }
+    let accepted_count = accepted.len();
+    VerifiedSynthesisCandidates {
+        candidates: accepted,
+        accepted_count,
+        rejected_count,
+        rejection_reasons,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_synthesis_candidate(
+    candidate: &StructuredFinding,
+    parsed_path: Option<&RepoPath>,
+    path: &str,
+    title: &str,
+    claim: &str,
+    evidence_artifact_ids: &[String],
+    changed_paths: &BTreeSet<String>,
+    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
+    added_tokens: &BTreeMap<String, Vec<(usize, Vec<String>)>>,
+    evidence_by_path: &BTreeMap<String, Vec<String>>,
+    existing_candidates: &[CandidateFinding],
+) -> Option<String> {
+    if parsed_path.is_none() {
+        return Some("invalid_path".to_string());
+    }
+    if !changed_paths.contains(path) {
+        return Some("unchanged_path".to_string());
+    }
+    if title.is_empty() || claim.is_empty() {
+        return Some("empty_title_or_claim".to_string());
+    }
+    if is_speculative_finding_text(&format!("{title} {claim}")) {
+        return Some("speculative_claim".to_string());
+    }
+    let Some((start_line, end_line)) = candidate.start_line.zip(candidate.end_line) else {
+        return Some("missing_line_range".to_string());
+    };
+    let end_line = end_line.max(start_line);
+    if let Some(ranges) = changed_ranges.get(path) {
+        if !ranges
+            .iter()
+            .any(|range| ranges_overlap(start_line, end_line, range.0, range.1))
+        {
+            return Some("line_range_not_changed".to_string());
+        }
+    } else if !changed_ranges.is_empty() {
+        return Some("path_has_no_changed_lines".to_string());
+    }
+    let finding_text = format!("{title} {claim}");
+    if let Some(tokens_by_line) = added_tokens.get(path) {
+        let mentions_changed_token = tokens_by_line.iter().any(|(line, tokens)| {
+            *line >= start_line
+                && *line <= end_line
+                && tokens
+                    .iter()
+                    .any(|token| contains_token(&finding_text, token))
+        });
+        if !mentions_changed_token {
+            return Some("missing_changed_line_token".to_string());
+        }
+    }
+    if evidence_artifact_ids.is_empty() {
+        return Some("missing_artifact_evidence".to_string());
+    }
+    if existing_candidates.iter().any(|existing| {
+        existing.source_unit_id != "final-synthesis"
+            && existing.path == path
+            && candidate_ranges_overlap(
+                existing.start_line,
+                existing.end_line,
+                Some(start_line),
+                Some(end_line),
+            )
+    }) {
+        return Some("duplicate_existing_unit_candidate".to_string());
+    }
+    if is_cross_file_claim(&finding_text)
+        && !has_related_path_evidence(path, &finding_text, changed_paths, evidence_by_path)
+    {
+        return Some("missing_related_file_evidence".to_string());
+    }
+    None
+}
+
+fn candidate_ranges_overlap(
+    left_start: Option<usize>,
+    left_end: Option<usize>,
+    right_start: Option<usize>,
+    right_end: Option<usize>,
+) -> bool {
+    let Some((left_start, left_end)) = left_start.zip(left_end) else {
+        return false;
+    };
+    let Some((right_start, right_end)) = right_start.zip(right_end) else {
+        return false;
+    };
+    ranges_overlap(left_start, left_end, right_start, right_end)
+}
+
+fn is_cross_file_claim(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        "caller",
+        "callee",
+        "contract",
+        "return shape",
+        "return-shape",
+        "helper",
+        "callers",
+        "cross-file",
+        "schema",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn is_speculative_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        " likely ",
+        " if this ",
+        " if the ",
+        " can break",
+        " may break",
+        " fragile",
+        " subtle ",
+        " depending on",
+        " meant to",
+        " probably",
+        " can incorrectly",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn has_related_path_evidence(
+    anchored_path: &str,
+    text: &str,
+    changed_paths: &BTreeSet<String>,
+    evidence_by_path: &BTreeMap<String, Vec<String>>,
+) -> bool {
+    changed_paths.iter().any(|path| {
+        path != anchored_path
+            && !evidence_by_path
+                .get(path)
+                .cloned()
+                .unwrap_or_default()
+                .is_empty()
+            && path_tokens(path)
+                .iter()
+                .any(|token| token.len() >= 4 && contains_token(text, token))
+    })
+}
+
+fn path_tokens(path: &str) -> Vec<String> {
+    path.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
 }
 
 fn validate_file_reviews(
@@ -1333,7 +2149,7 @@ fn synthesize_findings(
     let mut rejected_count = 0usize;
     let mut rescued_count = 0usize;
     let mut rejection_reasons = BTreeMap::new();
-    let mut by_key: BTreeMap<String, FindingV1> = BTreeMap::new();
+    let mut findings = Vec::<FindingV1>::new();
     for unit_risk in contract_risk.by_unit.values().filter(|risk| risk.high_risk) {
         if unit_risk.seeds.is_empty() {
             rejected_count += 1;
@@ -1356,10 +2172,14 @@ fn synthesize_findings(
                 if !source_unit_assigned_path {
                     rescued_count += 1;
                 }
-                by_key
-                    .entry(finding_key(&finding))
-                    .and_modify(|existing| merge_finding(existing, finding.clone()))
-                    .or_insert(finding);
+                if let Some(existing) = findings
+                    .iter_mut()
+                    .find(|existing| should_merge_findings(existing, &finding))
+                {
+                    merge_finding(existing, finding);
+                } else {
+                    findings.push(finding);
+                }
             }
             Err(reason) => {
                 rejected_count += 1;
@@ -1368,7 +2188,7 @@ fn synthesize_findings(
         }
     }
     SynthesisOutcome {
-        findings: by_key.into_values().collect(),
+        findings,
         candidate_count,
         rescued_count,
         rejected_count,
@@ -1405,6 +2225,9 @@ fn validate_candidate_finding(
     let claim = candidate.claim.trim();
     if title.is_empty() || claim.is_empty() {
         return Err("empty_title_or_claim".to_string());
+    }
+    if is_speculative_finding_text(&format!("{title} {claim}")) {
+        return Err("speculative_claim".to_string());
     }
     let mut line_range = candidate
         .start_line
@@ -1523,20 +2346,65 @@ fn changed_paths(review_plan: &ReviewPlan) -> BTreeSet<String> {
         .collect()
 }
 
-fn finding_key(finding: &FindingV1) -> String {
-    let path = finding
+fn should_merge_findings(existing: &FindingV1, duplicate: &FindingV1) -> bool {
+    if finding_key(existing) == finding_key(duplicate) {
+        return true;
+    }
+    if finding_path(existing) != finding_path(duplicate) {
+        return false;
+    }
+    let Some(left_range) = existing.location_line_range else {
+        return false;
+    };
+    let Some(right_range) = duplicate.location_line_range else {
+        return false;
+    };
+    if !ranges_overlap(
+        left_range.start_line,
+        left_range.end_line,
+        right_range.start_line,
+        right_range.end_line,
+    ) {
+        return false;
+    }
+    let left_tokens = normalized_token_set(&format!("{} {}", existing.title, existing.claim));
+    let right_tokens = normalized_token_set(&format!("{} {}", duplicate.title, duplicate.claim));
+    if left_tokens.is_empty() || right_tokens.is_empty() {
+        return false;
+    }
+    let shared = left_tokens.intersection(&right_tokens).count();
+    let smaller = left_tokens.len().min(right_tokens.len());
+    shared * 100 >= smaller * 55
+        || left_tokens.is_subset(&right_tokens)
+        || right_tokens.is_subset(&left_tokens)
+}
+
+fn finding_path(finding: &FindingV1) -> String {
+    finding
         .file_refs
         .first()
         .map(|location| match location {
             EvidenceLocationV1::SinglePath { path } => path.clone(),
             EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn finding_key(finding: &FindingV1) -> String {
+    let path = finding_path(finding);
     format!(
         "{}:{}",
         path,
         normalize_finding_text(&format!("{} {}", finding.title, finding.claim))
     )
+}
+
+fn normalized_token_set(value: &str) -> BTreeSet<String> {
+    value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|part| part.len() >= 4)
+        .map(str::to_ascii_lowercase)
+        .collect()
 }
 
 fn normalize_finding_text(value: &str) -> String {
@@ -1787,6 +2655,40 @@ fn unit_diagnostic(
     }
 }
 
+fn final_synthesis_diagnostic(
+    completed: bool,
+    status: &str,
+    finding_count: usize,
+) -> SessionCompletionDiagnostic {
+    SessionCompletionDiagnostic {
+        session_id: "final-synthesis".to_string(),
+        completed,
+        completion_kind: Some("structured_final_synthesis".to_string()),
+        completion_summary: Some(format!("{status} synthesisFindings={finding_count}")),
+        saw_diff: true,
+        saw_file: true,
+        saw_search: false,
+        model_calls: usize::from(completed),
+        tool_counts: ToolCounts::default(),
+    }
+}
+
+fn diff_excerpt(diff: &str, max_chars: usize) -> String {
+    truncate_chars(diff, max_chars)
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut output = String::new();
+    for (index, character) in value.chars().enumerate() {
+        if index >= max_chars {
+            output.push_str("\n...[truncated]");
+            break;
+        }
+        output.push(character);
+    }
+    output
+}
+
 fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
     let mut failures = Vec::new();
     if report.sessions > 0 && report.completed_sessions == 0 {
@@ -1811,8 +2713,8 @@ mod tests {
 
     use super::*;
     use crate::contracts::{
-        ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
-        RenameDetection, SnapshotMode,
+        AgentBudget, ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus,
+        PathPolicyV1, RenameDetection, SnapshotMode,
     };
     use crate::runtime::model::StaticModelRouter;
     use crate::runtime::repo::RepoSnapshot;
@@ -1828,6 +2730,10 @@ mod tests {
         LowRiskClean,
         HighRiskCleanWithoutContractEvidence,
         HighRiskCleanWithContractEvidence,
+        BootstrapClean,
+        NeedsFiveTurns,
+        AssertFinalTurnHasNoTools,
+        FinalSynthesisFinding,
     }
 
     #[async_trait]
@@ -1839,6 +2745,90 @@ mod tests {
             turn_id: TurnId,
             _cancel: CancellationToken,
         ) -> RuntimeResult<ModelTurn> {
+            if scope.id.0 == "final-synthesis" {
+                let content = match self.mode {
+                    TestModelMode::FinalSynthesisFinding => json!({
+                        "summary": "synthesis found one issue",
+                        "findings": [{
+                            "title": "Widget synthesis exposes unsafe state",
+                            "claim": "The changed render_widget branch returns unsafe_widget_state.",
+                            "path": "src/widget.rs",
+                            "startLine": 1,
+                            "endLine": 1
+                        }]
+                    }),
+                    _ => json!({
+                        "summary": "synthesis found no additional issues",
+                        "findings": []
+                    }),
+                };
+                return Ok(ModelTurn::Text {
+                    content: content.to_string(),
+                    usage: TokenUsage::default(),
+                });
+            }
+            match self.mode {
+                TestModelMode::BootstrapClean => {
+                    return Ok(ModelTurn::Text {
+                        content: json!({
+                            "summary": "clean from bootstrap",
+                            "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
+                            "findings": []
+                        })
+                        .to_string(),
+                        usage: TokenUsage::default(),
+                    });
+                }
+                TestModelMode::NeedsFiveTurns if turn_id.0 < 4 => {
+                    let mut calls = Vec::new();
+                    if turn_id.0 == 0 {
+                        calls.push(ModelToolCall {
+                            call_id: ToolCallId(format!("{}-turn-{}-read", scope.id.0, turn_id.0)),
+                            index: 0,
+                            name: ToolId::from(ToolName::ReadHeadFile),
+                            raw_arguments: r#"{"path":"src/widget.rs"}"#.to_string(),
+                        });
+                    }
+                    calls.push(ModelToolCall {
+                        call_id: ToolCallId(format!("{}-turn-{}-search", scope.id.0, turn_id.0)),
+                        index: calls.len(),
+                        name: ToolId::from(ToolName::SearchText),
+                        raw_arguments: r#"{"query":"render_widget"}"#.to_string(),
+                    });
+                    return Ok(ModelTurn::ToolCalls {
+                        calls,
+                        usage: TokenUsage::default(),
+                    });
+                }
+                TestModelMode::NeedsFiveTurns => {
+                    return Ok(ModelTurn::Text {
+                        content: json!({
+                            "summary": "finished after extra turns",
+                            "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
+                            "findings": []
+                        })
+                        .to_string(),
+                        usage: TokenUsage::default(),
+                    });
+                }
+                TestModelMode::AssertFinalTurnHasNoTools => {
+                    if turn_id.0 == 0 {
+                        assert!(!scope
+                            .capabilities
+                            .allow_tool(&ToolId::from(ToolName::SearchText)));
+                    }
+                    return Ok(ModelTurn::Text {
+                        content: json!({
+                            "summary": "final scoped",
+                            "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
+                            "findings": []
+                        })
+                        .to_string(),
+                        usage: TokenUsage::default(),
+                    });
+                }
+                _ => {}
+            }
             if turn_id.0 == 0 {
                 let mut calls = vec![ModelToolCall {
                     call_id: ToolCallId(format!("{}-read-diff", scope.id.0)),
@@ -1939,6 +2929,10 @@ mod tests {
                             raw_arguments: r#"{"query":"refresh_token"}"#.to_string(),
                         });
                     }
+                    TestModelMode::BootstrapClean
+                    | TestModelMode::NeedsFiveTurns
+                    | TestModelMode::AssertFinalTurnHasNoTools
+                    | TestModelMode::FinalSynthesisFinding => {}
                 }
                 return Ok(ModelTurn::ToolCalls {
                     calls,
@@ -2017,6 +3011,14 @@ mod tests {
                 TestModelMode::HighRiskCleanWithContractEvidence => json!({
                     "summary": "high risk clean with contract evidence",
                     "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "findings": []
+                }),
+                TestModelMode::BootstrapClean
+                | TestModelMode::NeedsFiveTurns
+                | TestModelMode::AssertFinalTurnHasNoTools
+                | TestModelMode::FinalSynthesisFinding => json!({
+                    "summary": "fallback clean",
+                    "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
                     "findings": []
                 }),
             };
@@ -2136,6 +3138,34 @@ mod tests {
             }));
     }
 
+    #[tokio::test]
+    async fn final_synthesis_can_publish_artifact_backed_candidate() {
+        let report = run_test_review_with_quality_budget(
+            vec![(
+                "src/widget.rs",
+                "pub fn render_widget() -> bool { unsafe_widget_state }\n",
+            )],
+            TestModelMode::FinalSynthesisFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.metrics.sessions, 1);
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.metrics.model_calls, 3);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].title,
+            "Widget synthesis exposes unsafe state"
+        );
+        assert!(!report.findings[0].evidence.is_empty());
+        assert!(report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.session_id == "final-synthesis" && diagnostic.completed));
+    }
+
     #[test]
     fn contract_risk_classifier_flags_repeated_callback_batch_and_seeds() {
         let snapshot = build_test_snapshot(vec![
@@ -2216,9 +3246,298 @@ mod tests {
         assert!(report.metrics.tool_counts.search_text > 0);
     }
 
+    #[tokio::test]
+    async fn deterministic_bootstrap_allows_clean_verdict_without_model_reads() {
+        let report = run_test_review_with_quality_budget(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::BootstrapClean,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "src/widget.rs");
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+        assert!(report.file_reviews[0].evidence_count > 0);
+        assert!(report.metrics.tool_counts.read_diff > 0);
+        assert!(report.metrics.tool_counts.read_head_file > 0);
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_honors_budgeted_turns_beyond_four() {
+        let report = run_test_review_with_budget(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::NeedsFiveTurns,
+            AgentBudget {
+                max_turns: 6,
+                max_tool_calls: 16,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+            },
+        )
+        .await;
+
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.metrics.model_calls, 5);
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+    }
+
+    #[tokio::test]
+    async fn final_turn_strips_tool_grants_when_budget_is_exhausted() {
+        let report = run_test_review_with_budget(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::AssertFinalTurnHasNoTools,
+            AgentBudget {
+                max_turns: 5,
+                max_tool_calls: 0,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+            },
+        )
+        .await;
+
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.metrics.model_calls, 1);
+        assert_eq!(report.file_reviews[0].verdict, "needs_review");
+    }
+
+    #[test]
+    fn deterministic_bootstrap_uses_ranges_for_oversized_files() {
+        let snapshot = build_test_snapshot(vec![(
+            "src/large.rs",
+            "pub fn large_widget() -> bool { true }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let calls = deterministic_bootstrap_calls(
+            &review_plan,
+            unit_plan.units.first().expect("unit"),
+            snapshot.diff.content.as_str(),
+            1,
+            8,
+        );
+
+        assert_eq!(calls.calls[0].name, ToolId::from(ToolName::ReadDiff));
+        assert!(calls.calls.iter().any(|call| {
+            call.name == ToolId::from(ToolName::ReadFileRange)
+                && call.raw_arguments.contains(r#""path":"src/large.rs""#)
+        }));
+    }
+
+    #[test]
+    fn deterministic_bootstrap_reserves_followup_budget_and_skips_low_priority_files() {
+        let snapshot = build_test_snapshot(vec![
+            ("src/a.rs", "pub fn a() -> bool { true }\n"),
+            ("src/b.rs", "pub fn b() -> bool { true }\n"),
+            ("src/c.rs", "pub fn c() -> bool { true }\n"),
+        ]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let plan = deterministic_bootstrap_calls(
+            &review_plan,
+            unit_plan.units.first().expect("unit"),
+            snapshot.diff.content.as_str(),
+            64 * 1024,
+            6,
+        );
+
+        assert_eq!(plan.calls.len(), 2);
+        assert_eq!(plan.calls[0].name, ToolId::from(ToolName::ReadDiff));
+        assert_eq!(plan.skipped_paths.len(), 2);
+    }
+
+    #[test]
+    fn synthesis_verifier_rejects_cross_file_claim_without_related_evidence() {
+        let snapshot = build_test_snapshot(vec![
+            (
+                "src/helper.rs",
+                "pub fn helper() -> bool { unsafe_widget_state }\n",
+            ),
+            ("src/caller.rs", "pub fn caller() -> bool { helper() }\n"),
+        ]);
+        let review_plan = build_review_plan(&snapshot);
+        let candidate = StructuredFinding {
+            title: "Helper return shape breaks caller".to_string(),
+            claim: "The changed helper return shape breaks the caller contract.".to_string(),
+            path: "src/helper.rs".to_string(),
+            start_line: Some(1),
+            end_line: Some(1),
+        };
+        let mut evidence_by_path = BTreeMap::new();
+        evidence_by_path.insert("src/helper.rs".to_string(), vec!["art-helper".to_string()]);
+        let verified = collect_synthesis_candidate_findings(
+            &test_scope("final-synthesis"),
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            vec![candidate],
+            &evidence_by_path,
+            &[],
+        );
+
+        assert!(verified.candidates.is_empty());
+        assert_eq!(
+            verified
+                .rejection_reasons
+                .get("missing_related_file_evidence"),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn synthesis_verifier_keeps_large_pr_synthesis_diagnostic_only() {
+        let files = (0..21)
+            .map(|index| {
+                let path = format!("src/file_{index}.rs");
+                let content = format!("pub fn file_{index}() -> bool {{ unsafe_widget_state }}\n");
+                (path, content)
+            })
+            .collect::<Vec<_>>();
+        let snapshot = build_owned_test_snapshot(files);
+        let review_plan = build_review_plan(&snapshot);
+        let candidate = StructuredFinding {
+            title: "Widget synthesis exposes unsafe state".to_string(),
+            claim: "The changed file_0 branch returns unsafe_widget_state.".to_string(),
+            path: "src/file_0.rs".to_string(),
+            start_line: Some(1),
+            end_line: Some(1),
+        };
+        let mut evidence_by_path = BTreeMap::new();
+        evidence_by_path.insert("src/file_0.rs".to_string(), vec!["art-file-0".to_string()]);
+        let verified = collect_synthesis_candidate_findings(
+            &test_scope("final-synthesis"),
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            vec![candidate],
+            &evidence_by_path,
+            &[],
+        );
+
+        assert!(verified.candidates.is_empty());
+        assert_eq!(
+            verified
+                .rejection_reasons
+                .get("large_pr_synthesis_diagnostic_only"),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn synthesis_merge_collapses_adjacent_same_line_claims() {
+        let first = test_finding(
+            "unit-001",
+            "src/workflow.rs",
+            "deleteMany removes unrelated reminders",
+            "The changed deleteMany branch deletes any retryCount reminder.",
+        );
+        let duplicate = test_finding(
+            "final-synthesis",
+            "src/workflow.rs",
+            "retryCount cleanup deletes unrelated reminders",
+            "The changed deleteMany retryCount condition removes reminders outside the SMS scope.",
+        );
+
+        assert!(should_merge_findings(&first, &duplicate));
+    }
+
     async fn run_test_review(
         files: Vec<(&'static str, &'static str)>,
         mode: TestModelMode,
+    ) -> PlannedReviewRunReport {
+        run_test_review_with_templates(files, mode, Vec::new()).await
+    }
+
+    async fn run_test_review_with_budget(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        budget: AgentBudget,
+    ) -> PlannedReviewRunReport {
+        run_test_review_with_budget_objective(files, mode, budget, "template").await
+    }
+
+    async fn run_test_review_with_quality_budget(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        budget: AgentBudget,
+    ) -> PlannedReviewRunReport {
+        run_test_review_with_budget_objective(
+            files,
+            mode,
+            budget,
+            "Review this production-materialized pull request for actionable correctness bugs.",
+        )
+        .await
+    }
+
+    async fn run_test_review_with_budget_objective(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        budget: AgentBudget,
+        objective: &str,
+    ) -> PlannedReviewRunReport {
+        let template = SessionScope {
+            id: SessionId("template".to_string()),
+            role: Role::Generalist,
+            objective: objective.to_string(),
+            instructions: Vec::new(),
+            snapshot_id: None,
+            model_profile_id: None,
+            capabilities: CapabilitySet::review_read_only(),
+            budget,
+        };
+        run_test_review_with_templates(files, mode, vec![template]).await
+    }
+
+    fn expanded_review_budget() -> AgentBudget {
+        AgentBudget {
+            max_turns: 6,
+            max_tool_calls: 16,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+        }
+    }
+
+    fn test_scope(id: &str) -> SessionScope {
+        SessionScope {
+            id: SessionId(id.to_string()),
+            role: Role::Generalist,
+            objective: "test".to_string(),
+            instructions: Vec::new(),
+            snapshot_id: None,
+            model_profile_id: None,
+            capabilities: CapabilitySet::review_read_only(),
+            budget: expanded_review_budget(),
+        }
+    }
+
+    fn test_finding(session_id: &str, path: &str, title: &str, claim: &str) -> FindingV1 {
+        FindingV1 {
+            id: stable_id(&[session_id, path, title, claim]),
+            title: title.to_string(),
+            claim: claim.to_string(),
+            severity: FindingSeverity::Low,
+            confidence: 0.72,
+            validation_status: ValidationStatus::Validated,
+            report_status: ReportStatus::Included,
+            publishability: FindingPublishability::Publishable,
+            evidence: Vec::new(),
+            file_refs: vec![EvidenceLocationV1::SinglePath {
+                path: path.to_string(),
+            }],
+            location_line_range: Some(LineRangeV1 {
+                start_line: 1,
+                end_line: 1,
+            }),
+            discovered_by: vec![session_id.to_string()],
+            challenged_by: Vec::new(),
+        }
+    }
+
+    async fn run_test_review_with_templates(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        session_templates: Vec<SessionScope>,
     ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
         let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
@@ -2233,13 +3552,22 @@ mod tests {
             limits,
             review_revision_id: "head".to_string(),
             events: RuntimeEventDispatcher::new(None, None),
-            session_templates: Vec::new(),
+            session_templates,
         };
 
         runtime.run_with_cancel(CancellationToken::new()).await
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {
+        build_owned_test_snapshot(
+            files
+                .into_iter()
+                .map(|(path, content)| (path.to_string(), content.to_string()))
+                .collect(),
+        )
+    }
+
+    fn build_owned_test_snapshot(files: Vec<(String, String)>) -> Arc<RepoSnapshot> {
         let temp = tempfile::tempdir().expect("tempdir");
         for (path, content) in &files {
             let path = temp.path().join(path);

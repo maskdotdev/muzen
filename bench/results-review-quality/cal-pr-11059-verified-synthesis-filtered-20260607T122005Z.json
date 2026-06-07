@@ -1,0 +1,193 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T12:21:11.545Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-1KHkkN/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-1KHkkN/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 11,
+    "completedSessions": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "needs_attention": 1,
+      "clean": 33,
+      "issue_found": 1,
+      "needs_review": 4
+    },
+    "findings": 1,
+    "modelCalls": 76,
+    "toolCounts": {
+      "findRelatedFiles": 1,
+      "findTestsForFile": 0,
+      "listChangedFiles": 2,
+      "listFiles": 0,
+      "listImports": 1,
+      "readBaseFile": 0,
+      "readDiff": 10,
+      "readFile": 0,
+      "readFileRange": 5,
+      "readHeadFile": 39,
+      "searchText": 11
+    },
+    "tokens": {
+      "inputTokens": 302980,
+      "outputTokens": 3439,
+      "totalTokens": 306419
+    },
+    "artifactStats": {
+      "artifactBytes": 295333,
+      "artifacts": 58,
+      "contentRefs": 58
+    },
+    "elapsedMs": 64266
+  },
+  "benchmark": {
+    "elapsedMs": 64686,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 11,
+    "importCount": 1,
+    "needsReviewCount": 4,
+    "cleanCount": 33,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`refreshOAuthTokens()` posts `calcomUserId` and `appSlug`, while `app-credential.ts` validates `userId` in the request body. When credential sharing is enabled, synced token refreshes will be rejected at schema parse time, preventing refreshed credentials from being stored/updated for all affected integrations.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4995bd8251ab1da398549fd204cc769ff3d4386b141d689db5ca70046875a7be",
+          "byteRange": {
+            "endByte": 1865,
+            "startByte": 0
+          },
+          "contentHash": "1fb3bfcd17d016f6bdca289840d89b2792b863429266a0fbd7d120b47c198eee",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_4995bd8251ab1da398549fd204cc769ff3d4386b141d689db5ca70046875a7be",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 15,
+            "startLine": 8
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        },
+        {
+          "artifactId": "art_976bd48a3d9ec48ce511eb901da64829d1ee137bf3064b31bc981cf548c083aa",
+          "byteRange": {
+            "endByte": 851,
+            "startByte": 0
+          },
+          "contentHash": "b4644518715a0ca469b8eea2a3ede0e525fbd340304a32a9f3222a84fa152f97",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_976bd48a3d9ec48ce511eb901da64829d1ee137bf3064b31bc981cf548c083aa",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 15,
+            "startLine": 8
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "9fde0e906897cc0f4f71793f647dd629faba3317"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+        }
+      ],
+      "id": "af8bed6ada9028ef7efea10ad187f438719980934f2361fe3822d774bbe980d9",
+      "locationLineRange": {
+        "endLine": 15,
+        "startLine": 8
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Credential sync webhook expects `userId`, but client sends `calcomUserId`",
+      "validationStatus": "validated"
+    }
+  ]
+}

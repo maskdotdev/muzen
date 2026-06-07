@@ -1,0 +1,180 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-07T12:18:38.116Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-QKg4HL/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-QKg4HL/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_with_findings",
+    "publishability": "publishable",
+    "sessions": 1,
+    "completedSessions": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "needs_review": 3,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 8,
+    "toolCounts": {
+      "findRelatedFiles": 0,
+      "findTestsForFile": 0,
+      "listChangedFiles": 1,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 1,
+      "readFile": 0,
+      "readFileRange": 4,
+      "readHeadFile": 0,
+      "searchText": 0
+    },
+    "tokens": {
+      "inputTokens": 31761,
+      "outputTokens": 489,
+      "totalTokens": 32250
+    },
+    "artifactStats": {
+      "artifactBytes": 31426,
+      "artifacts": 6,
+      "contentRefs": 6
+    },
+    "elapsedMs": 8400
+  },
+  "benchmark": {
+    "elapsedMs": 8593,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Working-hours availability checks the slot start as the slot end"
+      },
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 0,
+    "importCount": 0,
+    "needsReviewCount": 3,
+    "cleanCount": 0,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`checkIfIsAvailable` now returns `true` whenever `dateOverrideExist` is set, even if the slot is outside the override range, because the function first scans `dateOverrides` with organizer timezone adjustment and then short-circuits before the busy/working-hours checks. This can broaden availability for events with date overrides in a different timezone.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_f9d9c4e7f92def082a844417582826a4e539a939899c5c6871b3739c2ab8eeef",
+          "byteRange": {
+            "endByte": 9128,
+            "startByte": 0
+          },
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_f9d9c4e7f92def082a844417582826a4e539a939899c5c6871b3739c2ab8eeef",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 145,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        },
+        {
+          "artifactId": "art_fd759fe69f992fdc933f4b62798b583f2c6d3b31afe3f417e62c7fe1264a3cc7",
+          "byteRange": {
+            "endByte": 8587,
+            "startByte": 0
+          },
+          "contentHash": "6872d3a1dfa5ed7c9048127349eb0ce7755242f4e7f3d420379f4e34b74d1441",
+          "diffAnchor": null,
+          "evidenceId": "evidence-art_fd759fe69f992fdc933f4b62798b583f2c6d3b31afe3f417e62c7fe1264a3cc7",
+          "kind": "tool_summary",
+          "lineRange": {
+            "endLine": 145,
+            "startLine": 99
+          },
+          "location": {
+            "locationKind": "single_path",
+            "path": "packages/trpc/server/routers/viewer/slots.ts"
+          },
+          "producingToolCallId": "final-synthesis-candidate-evidence",
+          "redaction": {
+            "containsModelOutput": false,
+            "containsPromptContent": false,
+            "containsRepoContent": true,
+            "containsSecretMaterial": false,
+            "redactionPolicyId": "muzen-redaction-v1",
+            "redactionState": "none"
+          },
+          "revision": "review",
+          "revisionId": "ee38fd295fd294b9fc787eba482bde24bbfea69b"
+        }
+      ],
+      "fileRefs": [
+        {
+          "locationKind": "single_path",
+          "path": "packages/trpc/server/routers/viewer/slots.ts"
+        }
+      ],
+      "id": "ed5036d62d70d18469adefb2dbc2ffd10455d1eef0c2df54d0061c2b777cd75b",
+      "locationLineRange": {
+        "endLine": 145,
+        "startLine": 99
+      },
+      "publishability": "publishable",
+      "reportStatus": "included",
+      "severity": "low",
+      "title": "Date overrides can incorrectly mark out-of-override slots as available",
+      "validationStatus": "validated"
+    }
+  ]
+}
