@@ -7,8 +7,9 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
-    EventLevel, EventType, EvidenceLocationV1, FileReviewV1, FindingPublishability,
-    FindingSeverity, FindingV1, LineRangeV1, ReportStatus, Role, TokenUsage, ToolCounts, ToolName,
+    ArtifactKind, ByteRangeV1, EventLevel, EventType, EvidenceLocationV1, EvidenceRefV1,
+    EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
+    RedactionMetadataV1, RedactionState, ReportStatus, Role, TokenUsage, ToolCounts, ToolName,
     ValidationStatus,
 };
 use crate::events::EventRecord;
@@ -61,16 +62,16 @@ impl PlannedReviewRuntime {
         let mut tool_counts = ToolCounts::default();
         let mut tokens = TokenUsage::default();
         let mut terminal_diagnostics = Vec::new();
-        let mut findings = Vec::new();
+        let mut candidate_findings = Vec::new();
         let mut file_reviews = skipped_file_reviews(&review_plan);
 
-        for unit in unit_plan.units {
+        for unit in &unit_plan.units {
             if cancel.is_cancelled() {
-                terminal_diagnostics.push(unit_diagnostic(&unit, false, "cancelled"));
+                terminal_diagnostics.push(unit_diagnostic(unit, false, "cancelled"));
                 continue;
             }
             let report = self
-                .run_unit(&review_plan, unit, cancel.child_token())
+                .run_unit(&review_plan, unit.clone(), cancel.child_token())
                 .await;
             if report.completed {
                 completed_sessions += 1;
@@ -79,19 +80,65 @@ impl PlannedReviewRuntime {
             add_model_metrics(&mut model_metrics, &report.model_metrics);
             tool_counts.add(report.tool_counts);
             tokens.add(report.tokens);
-            findings.extend(report.findings);
+            candidate_findings.extend(report.candidate_findings);
             file_reviews.extend(report.file_reviews);
             terminal_diagnostics.push(report.terminal_diagnostic);
         }
+        let synthesis = synthesize_findings(
+            &review_plan,
+            &unit_plan.units,
+            self.snapshot.diff.content.as_str(),
+            candidate_findings,
+            &self.tools.artifacts,
+            &self.review_revision_id,
+        );
+        let findings = synthesis.findings;
+        for finding in &findings {
+            self.events.emit_runtime_with_context(
+                RuntimeEventContext {
+                    session_id: Some(SessionId("synthesis".to_string())),
+                    tool_call_id: Some(ToolCallId(format!("{}-synthesis", finding.id))),
+                    finding_id: Some(finding.id.clone()),
+                    ..RuntimeEventContext::default()
+                },
+                RuntimeEvent::FindingRecorded {
+                    finding_id: finding.id.clone(),
+                    session_id: SessionId("synthesis".to_string()),
+                    tool_call_id: ToolCallId(format!("{}-synthesis", finding.id)),
+                },
+            );
+        }
+        reconcile_file_reviews_with_findings(&mut file_reviews, &findings);
+        terminal_diagnostics.push(SessionTerminalDiagnostic {
+            session_id: "synthesis".to_string(),
+            completed: true,
+            terminal_tool: Some("structured_synthesis".to_string()),
+            terminal_summary: Some(format!(
+                "candidateFindings={} rescuedCandidates={} rejectedCandidates={} rejectionReasons={}",
+                synthesis.candidate_count,
+                synthesis.rescued_count,
+                synthesis.rejected_count,
+                format_rejection_reasons(&synthesis.rejection_reasons)
+            )),
+            saw_diff: true,
+            saw_file: false,
+            saw_search: false,
+            model_calls: 0,
+            tool_counts: ToolCounts::default(),
+        });
 
         let (artifacts, artifact_bytes) = self.tools.artifacts.stats();
         let counters = self.tools.snapshot_counters();
         let tool_metrics = self.tools.snapshot_tool_metrics();
         let provider_health = self.tools.snapshot_provider_health();
         let elapsed_ms = elapsed_ms(started);
+        let review_sessions = terminal_diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.session_id != "synthesis")
+            .count();
         let mut metrics = ConcurrentRunReport {
             runtime: "planned_units",
-            sessions: terminal_diagnostics.len(),
+            sessions: review_sessions,
             completed_sessions,
             model_calls,
             tool_calls: tool_counts.total(),
@@ -114,7 +161,7 @@ impl PlannedReviewRuntime {
             provider_health,
             snapshot_metrics: vec![SnapshotMetricsSnapshot {
                 snapshot_id: self.snapshot.snapshot_id.clone(),
-                sessions: terminal_diagnostics.len(),
+                sessions: review_sessions,
                 completed_sessions,
                 model_calls,
                 tool_calls: tool_counts.total(),
@@ -222,38 +269,15 @@ impl PlannedReviewRuntime {
                             .plan_model_completed_runtime_event(&scope, turn_id, 0),
                     );
                     let result = parse_unit_result(&content, &unit);
-                    let findings = validate_findings(
+                    let candidate_findings = collect_candidate_findings(
                         &scope,
                         &unit,
-                        file_evidence
-                            .diff_content()
-                            .unwrap_or(self.snapshot.diff.content.as_str()),
+                        review_plan,
                         result.findings,
+                        &file_evidence,
                     );
                     let file_reviews =
                         validate_file_reviews(&scope, &unit, result.file_verdicts, &file_evidence);
-                    for finding in &findings {
-                        self.events.emit_runtime_with_context(
-                            RuntimeEventContext {
-                                session_id: Some(scope.id.clone()),
-                                turn_id: Some(turn_id),
-                                tool_call_id: Some(ToolCallId(format!(
-                                    "{}-structured-finding",
-                                    scope.id.0
-                                ))),
-                                finding_id: Some(finding.id.clone()),
-                                ..RuntimeEventContext::default()
-                            },
-                            RuntimeEvent::FindingRecorded {
-                                finding_id: finding.id.clone(),
-                                session_id: scope.id.clone(),
-                                tool_call_id: ToolCallId(format!(
-                                    "{}-structured-finding",
-                                    scope.id.0
-                                )),
-                            },
-                        );
-                    }
                     self.events.emit_planned_runtime(
                         self.policy
                             .plan_session_finished_runtime_event(&scope, "done"),
@@ -264,7 +288,7 @@ impl PlannedReviewRuntime {
                         model_metrics,
                         tool_counts,
                         tokens,
-                        findings,
+                        candidate_findings,
                         file_reviews,
                         terminal_diagnostic: SessionTerminalDiagnostic {
                             session_id: scope.id.0,
@@ -351,7 +375,7 @@ impl PlannedReviewRuntime {
             model_metrics,
             tool_counts,
             tokens,
-            findings: Vec::new(),
+            candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
             terminal_diagnostic: unit_diagnostic(&unit, false, "partial"),
         }
@@ -388,6 +412,7 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
 #[derive(Debug, Default)]
 struct FileEvidenceTracker {
     by_path: BTreeMap<String, BTreeSet<String>>,
+    global_artifact_ids: BTreeSet<String>,
     unit_paths: Vec<String>,
     diff_content: Option<String>,
 }
@@ -404,6 +429,7 @@ impl FileEvidenceTracker {
                 .iter()
                 .map(|path| (path.clone(), BTreeSet::new()))
                 .collect(),
+            global_artifact_ids: BTreeSet::new(),
             unit_paths,
             diff_content: None,
         }
@@ -427,6 +453,7 @@ impl FileEvidenceTracker {
             };
             match result.tool_name.as_builtin() {
                 Some(ToolName::ReadDiff) => {
+                    self.global_artifact_ids.insert(artifact_id.clone());
                     if self.diff_content.is_none() {
                         self.diff_content = result
                             .artifact_id
@@ -442,6 +469,7 @@ impl FileEvidenceTracker {
                     }
                 }
                 Some(ToolName::SearchText) => {
+                    self.global_artifact_ids.insert(artifact_id.clone());
                     for path in &self.unit_paths {
                         self.by_path
                             .entry(path.clone())
@@ -456,9 +484,10 @@ impl FileEvidenceTracker {
                         .and_then(|data| data.get("path"))
                         .and_then(|path| path.as_str())
                     {
-                        if let Some(evidence) = self.by_path.get_mut(path) {
-                            evidence.insert(artifact_id);
-                        }
+                        self.by_path
+                            .entry(path.to_string())
+                            .or_default()
+                            .insert(artifact_id);
                     }
                 }
                 _ => {}
@@ -467,14 +496,24 @@ impl FileEvidenceTracker {
     }
 
     fn evidence_for(&self, path: &str) -> Vec<String> {
-        self.by_path
-            .get(path)
-            .map(|evidence| evidence.iter().cloned().collect())
-            .unwrap_or_default()
+        let mut evidence = self
+            .global_artifact_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if let Some(path_evidence) = self.by_path.get(path) {
+            evidence.extend(path_evidence.iter().cloned());
+        }
+        evidence.into_iter().collect()
     }
 
-    fn diff_content(&self) -> Option<&str> {
-        self.diff_content.as_deref()
+    fn has_path_evidence(&self, path: &str) -> bool {
+        !self
+            .by_path
+            .get(path)
+            .map(BTreeSet::is_empty)
+            .unwrap_or(true)
+            || !self.global_artifact_ids.is_empty()
     }
 }
 
@@ -490,7 +529,7 @@ struct PlannedReviewUnitReport {
     model_metrics: ModelMetricsSnapshot,
     tool_counts: ToolCounts,
     tokens: TokenUsage,
-    findings: Vec<FindingV1>,
+    candidate_findings: Vec<CandidateFinding>,
     file_reviews: Vec<FileReviewV1>,
     terminal_diagnostic: SessionTerminalDiagnostic,
 }
@@ -503,7 +542,7 @@ impl PlannedReviewUnitReport {
             model_metrics: ModelMetricsSnapshot::default(),
             tool_counts: ToolCounts::default(),
             tokens: TokenUsage::default(),
-            findings: Vec::new(),
+            candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
             terminal_diagnostic,
         }
@@ -544,6 +583,28 @@ struct StructuredFinding {
     end_line: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
+struct CandidateFinding {
+    source_unit_id: String,
+    source_session_id: String,
+    title: String,
+    claim: String,
+    path: String,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    evidence_artifact_ids: Vec<String>,
+    source_unit_assigned_path: bool,
+    rejection_reason: Option<String>,
+}
+
+struct SynthesisOutcome {
+    findings: Vec<FindingV1>,
+    candidate_count: usize,
+    rescued_count: usize,
+    rejected_count: usize,
+    rejection_reasons: BTreeMap<String, usize>,
+}
+
 fn planned_unit_transcript(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
@@ -576,11 +637,11 @@ fn planned_unit_transcript(
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are a focused code-review unit reviewer. Review only the assigned changed files. Use exploration tools to inspect the diff, changed file content, and directly related context before making claims. Return final output as strict JSON with keys summary, fileVerdicts, and findings. findings items require title, claim, path, startLine, and endLine. Do not call record_finding, record_file_review, or finish.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, and contracts with nearby helpers or callers. Report only issues directly supported by the gathered evidence.".to_string(),
+            content: "You are a focused code-review unit reviewer. Review the assigned changed files, and use exploration tools to inspect directly related context when needed. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file if the evidence was encountered during exploration; each finding requires title, claim, path, startLine, and endLine. Do not call record_finding, record_file_review, or finish.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, and contracts with nearby helpers or callers. Report only issues directly supported by the gathered evidence.".to_string(),
         },
         ConversationItem::User {
             content: format!(
-                "Review unit: {}\nAssigned changed files:\n{}\nPlanner reasons:\n{}\n\nReturn actionable bugs only. If no bug is supported, return findings: [] and clean fileVerdicts.",
+                "Review unit: {}\nAssigned changed files:\n{}\nPlanner reasons:\n{}\n\nReturn fileVerdicts only for the assigned changed files above. Return actionable candidate findings for any changed file only when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files.",
                 unit.id, unit_paths, plan_reasons
             ),
         },
@@ -687,84 +748,314 @@ fn validate_file_reviews(
         .collect()
 }
 
-fn validate_findings(
+fn collect_candidate_findings(
     scope: &SessionScope,
     unit: &PlannedReviewUnit,
-    diff: &str,
+    review_plan: &ReviewPlan,
     candidates: Vec<StructuredFinding>,
-) -> Vec<FindingV1> {
-    let changed_ranges = changed_line_ranges_by_path(diff);
-    let added_tokens = added_line_tokens_by_path(diff);
+    evidence_tracker: &FileEvidenceTracker,
+) -> Vec<CandidateFinding> {
+    let changed_paths = changed_paths(review_plan);
     candidates
         .into_iter()
-        .filter_map(|candidate| {
-            let path = RepoPath::parse(&candidate.path).ok()?;
-            if !unit.file_paths.iter().any(|unit_path| unit_path == &path) {
-                return None;
-            }
+        .map(|candidate| {
+            let parsed_path = RepoPath::parse(&candidate.path).ok();
+            let path = parsed_path
+                .as_ref()
+                .map(RepoPath::display)
+                .unwrap_or_else(|| candidate.path.trim().to_string());
             let title = candidate.title.trim();
             let claim = candidate.claim.trim();
-            if title.is_empty() || claim.is_empty() {
-                return None;
+            let mut rejection_reason = None;
+            if parsed_path.is_none() {
+                rejection_reason = Some("invalid_path".to_string());
+            } else if !changed_paths.contains(&path) {
+                rejection_reason = Some("unchanged_path".to_string());
+            } else if title.is_empty() || claim.is_empty() {
+                rejection_reason = Some("empty_title_or_claim".to_string());
+            } else if candidate.start_line.zip(candidate.end_line).is_none() {
+                rejection_reason = Some("missing_line_range".to_string());
+            } else if !evidence_tracker.has_path_evidence(&path) {
+                rejection_reason = Some("missing_artifact_evidence".to_string());
             }
-            let mut line_range =
-                candidate
-                    .start_line
-                    .zip(candidate.end_line)
-                    .map(|(start, end)| LineRangeV1 {
-                        start_line: start,
-                        end_line: end.max(start),
-                    })?;
-            if let Some(ranges) = changed_ranges.get(&path.display()) {
-                let finding_text = format!("{title} {claim}");
-                if let Some(tokens_by_line) = added_tokens.get(&path.display()) {
-                    if !tokens_by_line.iter().any(|(line, tokens)| {
-                        *line >= line_range.start_line
-                            && *line <= line_range.end_line
-                            && tokens
-                                .iter()
-                                .any(|token| contains_token(&finding_text, token))
-                    }) {
-                        let repaired_line = tokens_by_line
-                            .iter()
-                            .find(|(_, tokens)| {
-                                tokens
-                                    .iter()
-                                    .any(|token| contains_token(&finding_text, token))
-                            })
-                            .map(|(line, _)| *line)?;
-                        line_range = LineRangeV1 {
-                            start_line: repaired_line,
-                            end_line: repaired_line,
-                        };
-                    }
-                }
-                if !ranges.iter().any(|range| {
-                    ranges_overlap(line_range.start_line, line_range.end_line, range.0, range.1)
-                }) {
-                    return None;
-                }
-            }
-            let location = EvidenceLocationV1::SinglePath {
-                path: path.display(),
-            };
-            Some(FindingV1 {
-                id: stable_id(&[&scope.id.0, title, claim, &path.display()]),
+            CandidateFinding {
+                source_unit_id: unit.id.clone(),
+                source_session_id: scope.id.0.clone(),
                 title: title.to_string(),
                 claim: claim.to_string(),
-                severity: FindingSeverity::Low,
-                confidence: 0.72,
-                validation_status: ValidationStatus::Validated,
-                report_status: ReportStatus::Included,
-                publishability: FindingPublishability::Publishable,
-                evidence: Vec::new(),
-                file_refs: vec![location],
-                location_line_range: Some(line_range),
-                discovered_by: vec![scope.id.0.clone()],
-                challenged_by: Vec::new(),
+                path: path.clone(),
+                start_line: candidate.start_line,
+                end_line: candidate.end_line,
+                evidence_artifact_ids: evidence_tracker.evidence_for(&path),
+                source_unit_assigned_path: parsed_path
+                    .as_ref()
+                    .map(|path| unit.file_paths.iter().any(|unit_path| unit_path == path))
+                    .unwrap_or(false),
+                rejection_reason,
+            }
+        })
+        .collect()
+}
+
+fn synthesize_findings(
+    review_plan: &ReviewPlan,
+    _units: &[PlannedReviewUnit],
+    diff: &str,
+    candidates: Vec<CandidateFinding>,
+    artifacts: &ConcurrentArtifactStore,
+    revision_id: &str,
+) -> SynthesisOutcome {
+    let candidate_count = candidates.len();
+    let changed_paths = changed_paths(review_plan);
+    let changed_ranges = changed_line_ranges_by_path(diff);
+    let added_tokens = added_line_tokens_by_path(diff);
+    let mut rejected_count = 0usize;
+    let mut rescued_count = 0usize;
+    let mut rejection_reasons = BTreeMap::new();
+    let mut by_key: BTreeMap<String, FindingV1> = BTreeMap::new();
+    for candidate in candidates {
+        let source_unit_assigned_path = candidate.source_unit_assigned_path;
+        match validate_candidate_finding(
+            candidate,
+            &changed_paths,
+            &changed_ranges,
+            &added_tokens,
+            artifacts,
+            revision_id,
+        ) {
+            Ok(finding) => {
+                if !source_unit_assigned_path {
+                    rescued_count += 1;
+                }
+                by_key
+                    .entry(finding_key(&finding))
+                    .and_modify(|existing| merge_finding(existing, finding.clone()))
+                    .or_insert(finding);
+            }
+            Err(reason) => {
+                rejected_count += 1;
+                *rejection_reasons.entry(reason).or_insert(0) += 1;
+            }
+        }
+    }
+    SynthesisOutcome {
+        findings: by_key.into_values().collect(),
+        candidate_count,
+        rescued_count,
+        rejected_count,
+        rejection_reasons,
+    }
+}
+
+fn format_rejection_reasons(reasons: &BTreeMap<String, usize>) -> String {
+    if reasons.is_empty() {
+        return "none".to_string();
+    }
+    reasons
+        .iter()
+        .map(|(reason, count)| format!("{reason}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn validate_candidate_finding(
+    candidate: CandidateFinding,
+    changed_paths: &BTreeSet<String>,
+    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
+    added_tokens: &BTreeMap<String, Vec<(usize, Vec<String>)>>,
+    artifacts: &ConcurrentArtifactStore,
+    revision_id: &str,
+) -> Result<FindingV1, String> {
+    if let Some(reason) = candidate.rejection_reason {
+        return Err(reason);
+    }
+    if !changed_paths.contains(&candidate.path) {
+        return Err("unchanged_path".to_string());
+    }
+    let title = candidate.title.trim();
+    let claim = candidate.claim.trim();
+    if title.is_empty() || claim.is_empty() {
+        return Err("empty_title_or_claim".to_string());
+    }
+    let mut line_range = candidate
+        .start_line
+        .zip(candidate.end_line)
+        .map(|(start, end)| LineRangeV1 {
+            start_line: start,
+            end_line: end.max(start),
+        })
+        .ok_or_else(|| "missing_line_range".to_string())?;
+    let ranges = changed_ranges.get(&candidate.path);
+    if ranges.is_none() && !changed_ranges.is_empty() {
+        return Err("path_has_no_changed_lines".to_string());
+    }
+    let finding_text = format!("{title} {claim}");
+    if let Some(tokens_by_line) = added_tokens.get(&candidate.path) {
+        if !tokens_by_line.iter().any(|(line, tokens)| {
+            *line >= line_range.start_line
+                && *line <= line_range.end_line
+                && tokens
+                    .iter()
+                    .any(|token| contains_token(&finding_text, token))
+        }) {
+            if let Some(repaired_line) = tokens_by_line
+                .iter()
+                .find(|(_, tokens)| {
+                    tokens
+                        .iter()
+                        .any(|token| contains_token(&finding_text, token))
+                })
+                .map(|(line, _)| *line)
+            {
+                line_range = LineRangeV1 {
+                    start_line: repaired_line,
+                    end_line: repaired_line,
+                };
+            }
+        }
+    }
+    if let Some(ranges) = ranges {
+        if !ranges.iter().any(|range| {
+            ranges_overlap(line_range.start_line, line_range.end_line, range.0, range.1)
+        }) {
+            return Err("line_range_not_changed".to_string());
+        }
+    }
+    let evidence = evidence_refs_for_candidate(&candidate, artifacts, revision_id, line_range);
+    if evidence.is_empty() {
+        return Err("missing_artifact_evidence".to_string());
+    }
+    let location = EvidenceLocationV1::SinglePath {
+        path: candidate.path.clone(),
+    };
+    Ok(FindingV1 {
+        id: stable_id(&[&candidate.source_session_id, title, claim, &candidate.path]),
+        title: title.to_string(),
+        claim: claim.to_string(),
+        severity: FindingSeverity::Low,
+        confidence: 0.72,
+        validation_status: ValidationStatus::Validated,
+        report_status: ReportStatus::Included,
+        publishability: FindingPublishability::Publishable,
+        evidence,
+        file_refs: vec![location],
+        location_line_range: Some(line_range),
+        discovered_by: vec![candidate.source_session_id],
+        challenged_by: Vec::new(),
+    })
+}
+
+fn evidence_refs_for_candidate(
+    candidate: &CandidateFinding,
+    artifacts: &ConcurrentArtifactStore,
+    revision_id: &str,
+    line_range: LineRangeV1,
+) -> Vec<EvidenceRefV1> {
+    candidate
+        .evidence_artifact_ids
+        .iter()
+        .filter_map(|artifact_id| {
+            let artifact = artifacts.get(&ArtifactId(artifact_id.clone()))?;
+            Some(EvidenceRefV1 {
+                evidence_id: format!("evidence-{artifact_id}"),
+                artifact_id: artifact_id.clone(),
+                kind: ArtifactKind::ToolSummary,
+                revision: EvidenceRevision::Review,
+                revision_id: revision_id.to_string(),
+                location: EvidenceLocationV1::SinglePath {
+                    path: candidate.path.clone(),
+                },
+                line_range: Some(line_range),
+                byte_range: Some(ByteRangeV1 {
+                    start_byte: 0,
+                    end_byte: artifact.bytes,
+                }),
+                diff_anchor: None,
+                content_hash: artifact.content_hash,
+                redaction: RedactionMetadataV1 {
+                    redaction_state: RedactionState::None,
+                    redaction_policy_id: format!("muzen-redaction-v{}", REDACTION_POLICY_VERSION),
+                    contains_repo_content: true,
+                    contains_prompt_content: false,
+                    contains_model_output: false,
+                    contains_secret_material: false,
+                },
+                producing_tool_call_id: format!("{}-candidate-evidence", candidate.source_unit_id),
             })
         })
         .collect()
+}
+
+fn changed_paths(review_plan: &ReviewPlan) -> BTreeSet<String> {
+    review_plan
+        .files
+        .iter()
+        .map(|file| file.path.display())
+        .collect()
+}
+
+fn finding_key(finding: &FindingV1) -> String {
+    let path = finding
+        .file_refs
+        .first()
+        .map(|location| match location {
+            EvidenceLocationV1::SinglePath { path } => path.clone(),
+            EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+        })
+        .unwrap_or_default();
+    format!(
+        "{}:{}",
+        path,
+        normalize_finding_text(&format!("{} {}", finding.title, finding.claim))
+    )
+}
+
+fn normalize_finding_text(value: &str) -> String {
+    value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn merge_finding(existing: &mut FindingV1, duplicate: FindingV1) {
+    for evidence in duplicate.evidence {
+        if !existing
+            .evidence
+            .iter()
+            .any(|item| item.artifact_id == evidence.artifact_id)
+        {
+            existing.evidence.push(evidence);
+        }
+    }
+    for discovered_by in duplicate.discovered_by {
+        if !existing.discovered_by.contains(&discovered_by) {
+            existing.discovered_by.push(discovered_by);
+        }
+    }
+}
+
+fn reconcile_file_reviews_with_findings(file_reviews: &mut [FileReviewV1], findings: &[FindingV1]) {
+    for finding in findings {
+        let Some(EvidenceLocationV1::SinglePath { path }) = finding.file_refs.first() else {
+            continue;
+        };
+        if let Some(review) = file_reviews.iter_mut().find(|review| review.path == *path) {
+            review.verdict = "issue_found".to_string();
+            if !review.summary.contains(&finding.title) {
+                review.summary = format!("{} Finding: {}", review.summary, finding.title);
+            }
+            for evidence in &finding.evidence {
+                if !review.evidence_artifact_ids.contains(&evidence.artifact_id) {
+                    review
+                        .evidence_artifact_ids
+                        .push(evidence.artifact_id.clone());
+                }
+            }
+            review.evidence_count = review.evidence_artifact_ids.len();
+        }
+    }
 }
 
 fn changed_line_ranges_by_path(diff: &str) -> BTreeMap<String, Vec<(usize, usize)>> {
@@ -1009,35 +1300,108 @@ mod tests {
     use crate::runtime::model::StaticModelRouter;
     use crate::runtime::repo::RepoSnapshot;
 
-    struct StructuredFindingModel;
+    struct EvidenceBackedModel {
+        mode: TestModelMode,
+    }
+
+    enum TestModelMode {
+        AssignedFinding,
+        OutOfUnitFinding,
+        InvalidCandidates,
+    }
 
     #[async_trait]
-    impl crate::runtime::model::ConcurrentModelClient for StructuredFindingModel {
+    impl crate::runtime::model::ConcurrentModelClient for EvidenceBackedModel {
         async fn complete(
             &self,
-            _scope: &SessionScope,
+            scope: &SessionScope,
             _transcript: &[ConversationItem],
-            _turn_id: TurnId,
+            turn_id: TurnId,
             _cancel: CancellationToken,
         ) -> RuntimeResult<ModelTurn> {
-            Ok(ModelTurn::Text {
-                content: json!({
+            if turn_id.0 == 0 {
+                let mut calls = vec![ModelToolCall {
+                    call_id: ToolCallId(format!("{}-read-diff", scope.id.0)),
+                    index: 0,
+                    name: ToolId::from(ToolName::ReadDiff),
+                    raw_arguments: "{}".to_string(),
+                }];
+                if matches!(self.mode, TestModelMode::OutOfUnitFinding) && scope.id.0 == "unit-001"
+                {
+                    calls.push(ModelToolCall {
+                        call_id: ToolCallId(format!("{}-read-related", scope.id.0)),
+                        index: 1,
+                        name: ToolId::from(ToolName::ReadHeadFile),
+                        raw_arguments: r#"{"path":"apps/api/credential-token.ts"}"#.to_string(),
+                    });
+                }
+                return Ok(ModelTurn::ToolCalls {
+                    calls,
+                    usage: TokenUsage::default(),
+                });
+            }
+            let content = match self.mode {
+                TestModelMode::AssignedFinding => json!({
                     "summary": "found one issue",
                     "fileVerdicts": [{
                         "path": "src/auth.rs",
-                        "verdict": "issue_found",
-                        "summary": "token validation regressed",
+                        "verdict": "clean",
+                        "summary": "reviewed auth",
                         "relatedPaths": []
                     }],
                     "findings": [{
                         "title": "Token validation accepts empty token",
-                        "claim": "The changed auth path now accepts an empty token.",
+                        "claim": "The changed allow_empty_token branch now accepts an empty token.",
                         "path": "src/auth.rs",
                         "startLine": 1,
                         "endLine": 1
                     }]
-                })
-                .to_string(),
+                }),
+                TestModelMode::OutOfUnitFinding if scope.id.0 == "unit-001" => json!({
+                    "summary": "found cross-unit issue",
+                    "fileVerdicts": [
+                        {"path": "apps/api/auth-token.ts", "verdict": "clean"},
+                        {"path": "apps/api/credential-token.ts", "verdict": "issue_found"}
+                    ],
+                    "findings": [{
+                        "title": "External callback drops refresh token",
+                        "claim": "The changed refresh_token assignment can drop the refresh_token returned by the external callback.",
+                        "path": "apps/api/credential-token.ts",
+                        "startLine": 1,
+                        "endLine": 1
+                    }]
+                }),
+                TestModelMode::OutOfUnitFinding => json!({
+                    "summary": "clean local unit",
+                    "fileVerdicts": [{"path": "apps/api/credential-token.ts", "verdict": "clean"}],
+                    "findings": []
+                }),
+                TestModelMode::InvalidCandidates => json!({
+                    "summary": "invalid candidates are diagnostic only",
+                    "fileVerdicts": [
+                        {"path": "src/auth.rs", "verdict": "clean"},
+                        {"path": "src/other.rs", "verdict": "issue_found"}
+                    ],
+                    "findings": [
+                        {
+                            "title": "Unchanged path issue",
+                            "claim": "The changed missing_symbol branch is unsafe.",
+                            "path": "src/other.rs",
+                            "startLine": 1,
+                            "endLine": 1
+                        },
+                        {
+                            "title": "Invalid range issue",
+                            "claim": "The unrelated branch is unsafe.",
+                            "path": "src/auth.rs",
+                            "startLine": 99,
+                            "endLine": 99
+                        }
+                    ]
+                }),
+            };
+            Ok(ModelTurn::Text {
+                content: content.to_string(),
                 usage: TokenUsage {
                     input_tokens: 10,
                     output_tokens: 12,
@@ -1048,10 +1412,130 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn planned_runtime_reviews_units_and_records_structured_findings() {
+    async fn planned_runtime_publishes_artifact_backed_assigned_candidate() {
+        let report = run_test_review(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::AssignedFinding,
+        )
+        .await;
+
+        assert_eq!(report.metrics.runtime, "planned_units");
+        assert_eq!(report.metrics.sessions, 1);
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].title,
+            "Token validation accepts empty token"
+        );
+        assert!(!report.findings[0].evidence.is_empty());
+        let auth_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "src/auth.rs")
+            .expect("auth review");
+        assert_eq!(auth_review.verdict, "issue_found");
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_rescues_out_of_unit_candidate_and_keeps_verdict_scope_strict() {
+        let report = run_test_review(
+            vec![
+                (
+                    "apps/api/auth-token.ts",
+                    "export const auth_token = true;\n",
+                ),
+                (
+                    "apps/api/credential-token.ts",
+                    "export const refresh_token = '';\n",
+                ),
+            ],
+            TestModelMode::OutOfUnitFinding,
+        )
+        .await;
+        assert_eq!(report.metrics.sessions, 2);
+        assert_eq!(report.metrics.completed_sessions, 2);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].file_refs.len(), 1);
+        let EvidenceLocationV1::SinglePath { path } = &report.findings[0].file_refs[0] else {
+            panic!("single path finding");
+        };
+        assert_eq!(path, "apps/api/credential-token.ts");
+        let e_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "apps/api/credential-token.ts")
+            .expect("e review");
+        assert_eq!(e_review.session_id, "unit-002");
+        assert_eq!(e_review.verdict, "issue_found");
+        assert_eq!(
+            report
+                .file_reviews
+                .iter()
+                .filter(|review| review.path == "apps/api/credential-token.ts")
+                .count(),
+            1
+        );
+        assert!(report
+            .metrics
+            .terminal_diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.session_id == "synthesis"
+                    && diagnostic
+                        .terminal_summary
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("rescuedCandidates=1")
+            }));
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_rejects_invalid_candidates_and_ignores_out_of_unit_verdicts() {
+        let report = run_test_review(
+            vec![("src/auth.rs", "pub const missing_symbol: bool = true;\n")],
+            TestModelMode::InvalidCandidates,
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "src/auth.rs");
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+        assert!(report
+            .metrics
+            .terminal_diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.session_id == "synthesis"
+                    && diagnostic
+                        .terminal_summary
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("rejectedCandidates=2")
+            }));
+    }
+
+    async fn run_test_review(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+    ) -> PlannedReviewRunReport {
         let temp = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(temp.path().join("src")).expect("mkdir");
-        std::fs::write(temp.path().join("src/auth.rs"), "pub fn check() {}\n").expect("write");
+        for (path, content) in &files {
+            let path = temp.path().join(path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(path, content).expect("write");
+        }
+        let inline_diff = files
+            .iter()
+            .map(|(path, content)| {
+                format!(
+                    "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,0 +1,1 @@\n+{}",
+                    content.trim_end()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         let change = ChangeScopeV1 {
             kind: ChangeKind::LocalDiff,
             change_id: "change".to_string(),
@@ -1062,18 +1546,21 @@ mod tests {
             merge_base_revision_id: None,
             changed_files_manifest_ref: None,
             diff_manifest_ref: None,
-            inline_diff: None,
+            inline_diff: Some(inline_diff),
             snapshot_mode: SnapshotMode::WorktreeHead,
             rename_detection: RenameDetection::None,
-            changed_files: vec![ChangedFileEntryV1 {
-                status: ChangedFileStatus::Modified,
-                old_path: Some(PathBuf::from("src/auth.rs")),
-                new_path: Some(PathBuf::from("src/auth.rs")),
-                old_content_hash: None,
-                new_content_hash: None,
-                is_binary: false,
-                is_generated: false,
-            }],
+            changed_files: files
+                .iter()
+                .map(|(path, _)| ChangedFileEntryV1 {
+                    status: ChangedFileStatus::Modified,
+                    old_path: Some(PathBuf::from(path)),
+                    new_path: Some(PathBuf::from(path)),
+                    old_content_hash: None,
+                    new_content_hash: None,
+                    is_binary: false,
+                    is_generated: false,
+                })
+                .collect(),
         };
         let snapshot =
             RepoSnapshot::build(temp.path(), &PathPolicyV1::bench(64 * 1024, 20), &change)
@@ -1082,7 +1569,9 @@ mod tests {
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = PlannedReviewRuntime {
             snapshot,
-            model_router: Arc::new(StaticModelRouter::new(Arc::new(StructuredFindingModel))),
+            model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceBackedModel {
+                mode,
+            }))),
             tools,
             policy: Arc::new(ReviewerPolicy::new()),
             limits,
@@ -1091,16 +1580,6 @@ mod tests {
             session_templates: Vec::new(),
         };
 
-        let report = runtime.run_with_cancel(CancellationToken::new()).await;
-
-        assert_eq!(report.metrics.runtime, "planned_units");
-        assert_eq!(report.metrics.sessions, 1);
-        assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 1);
-        assert_eq!(report.findings.len(), 1);
-        assert_eq!(
-            report.findings[0].title,
-            "Token validation accepts empty token"
-        );
+        runtime.run_with_cancel(CancellationToken::new()).await
     }
 }
