@@ -374,6 +374,9 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("mode", "ContextSemanticMode"),
                 optional("provider", "ContextEmbeddingProviderKind"),
+                optional("hostedBaseUrl", "string"),
+                optional("hostedModel", "string"),
+                optional("hostedCredentialRef", "string"),
                 defaulted("allowRestrictedHostedInputs", "boolean", "false"),
                 required("maxEmbeddingInputs", "integer"),
             ],

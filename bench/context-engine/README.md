@@ -34,8 +34,11 @@ omissions, redaction correctness, prompt-injection trust checks, expected range
 coverage, and latency, then writes
 `bench/results-context-engine/context-engine-summary.json`.
 
-Case files may set `localSemantic: true` and `maxEmbeddingInputs` to exercise
-local semantic indexing. They may also set `expectedRanges` entries with `path`,
+Case files may set `localSemantic: true` or `hostedSemantic: true` and
+`maxEmbeddingInputs` to exercise semantic indexing. Hosted cases can also set
+`hostedEmbeddingBaseUrl`, `hostedEmbeddingModel`, and
+`hostedEmbeddingCredentialRef`; the deterministic default suite avoids live
+provider calls. Cases may also set `expectedRanges` entries with `path`,
 `startLine`, `endLine`, and optional `kind`; the run fails when no returned
 evidence item matches each expected range.
 
@@ -56,4 +59,11 @@ cargo run --bin muzen -- context query \
   --changed-file src/auth/token.rs \
   --kind related-tests \
   --path src/auth/token.rs
+
+cargo run --bin muzen -- context query \
+  --repo fixtures/context-engine/simple-auth \
+  --changed-file src/auth/token.rs \
+  --local-semantic \
+  --kind search-text \
+  --query "user id token"
 ```

@@ -53,6 +53,12 @@ pub struct ContextSemanticConfig {
     pub mode: ContextSemanticMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<ContextEmbeddingProviderKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosted_base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosted_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosted_credential_ref: Option<String>,
     #[serde(default)]
     pub allow_restricted_hosted_inputs: bool,
     pub max_embedding_inputs: usize,
@@ -63,6 +69,9 @@ impl Default for ContextSemanticConfig {
         Self {
             mode: ContextSemanticMode::NoVector,
             provider: None,
+            hosted_base_url: None,
+            hosted_model: None,
+            hosted_credential_ref: None,
             allow_restricted_hosted_inputs: false,
             max_embedding_inputs: 0,
         }

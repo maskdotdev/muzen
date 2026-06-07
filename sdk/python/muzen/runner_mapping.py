@@ -222,6 +222,12 @@ def _semantic_config_to_runner(config: Any) -> Dict[str, Any]:
     }
     if config.provider is not None:
         payload["provider"] = config.provider
+    if getattr(config, "hosted_base_url", None) is not None:
+        payload["hostedBaseUrl"] = config.hosted_base_url
+    if getattr(config, "hosted_model", None) is not None:
+        payload["hostedModel"] = config.hosted_model
+    if getattr(config, "hosted_credential_ref", None) is not None:
+        payload["hostedCredentialRef"] = config.hosted_credential_ref
     return payload
 
 

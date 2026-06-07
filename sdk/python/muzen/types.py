@@ -173,6 +173,9 @@ class ContextSemanticConfig:
     allow_restricted_hosted_inputs: bool
     max_embedding_inputs: int
     provider: Optional[ContextEmbeddingProviderKind] = None
+    hosted_base_url: Optional[str] = None
+    hosted_model: Optional[str] = None
+    hosted_credential_ref: Optional[str] = None
 
 
 @dataclass(frozen=True)
