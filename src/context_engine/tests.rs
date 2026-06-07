@@ -675,6 +675,96 @@ async fn feedback_learning_requires_approval_and_respects_expiry() {
 }
 
 #[tokio::test]
+async fn file_learning_store_persists_approved_learnings_across_engine_restarts() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let store_dir = tempfile::tempdir().unwrap();
+    let store_path = store_dir.path().join("context-learnings.json");
+
+    let engine = SnapshotContextEngine::with_learning_store_file(
+        ContextEngineConfig::snapshot_v0(),
+        &store_path,
+    )
+    .unwrap();
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let receipt = engine
+        .record_feedback(
+            ContextFeedback {
+                snapshot_id: snapshot.snapshot_id.clone(),
+                evidence_ids: Vec::new(),
+                feedback: "Remember generated auth wrappers are intentionally duplicated."
+                    .to_string(),
+                source: Some(ContextLearningSource::ManualRule),
+                scope: Some(ContextLearningScope::Repository),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let learning = receipt.proposed_learning.unwrap();
+    engine
+        .approve_learning(
+            ContextLearningApproval {
+                learning_id: learning.id,
+                approve: true,
+                expires_at_utc: None,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let restarted = SnapshotContextEngine::with_learning_store_file(
+        ContextEngineConfig::snapshot_v0(),
+        &store_path,
+    )
+    .unwrap();
+    restarted
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), restarted.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let history = restarted
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Correctness),
+                kind: ContextQueryKind::HistorySimilar,
+                arguments: serde_json::json!({"query": "generated auth wrappers"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        history
+            .data
+            .unwrap()
+            .get("learnings")
+            .and_then(serde_json::Value::as_array)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn cross_repo_contracts_report_capability_omission_without_host_evidence() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();

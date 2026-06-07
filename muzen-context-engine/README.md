@@ -29,8 +29,9 @@ Implemented on `feat/context-engine`:
   preserving trust labels so untrusted ticket text cannot override kernel
   evidence.
 - Feedback records can create inspectable proposed repository/workspace/org
-  learnings; in-memory approval/rejection and expiry are enforced before
-  `history_similar` retrieval returns a learning.
+  learnings; approval/rejection and expiry are enforced before
+  `history_similar` retrieval returns a learning, with in-memory and JSON-file
+  stores available for restart-safe local persistence.
 - HTTP, runner stdio, and TypeScript/Python SDK context adapters expose feedback
   recording and learning approval flows.
 - Cross-repository contract context has a provider-neutral query surface,
@@ -49,8 +50,8 @@ Still pending from the full plan:
 
 - Deeper parser coverage for re-exports, aliases, method receivers, nested
   modules/classes, and line ranges on symbol evidence.
-- Persistent feedback/learnings across process restarts and durable workspace
-  storage.
+- Host wiring for workspace-managed durable learning store paths and retention
+  policies.
 - Capability-scoped network/provider retrieval for cross-repository contracts.
 - Concrete local/hosted embedding provider implementations and benchmarked
   semantic ranking improvements.
