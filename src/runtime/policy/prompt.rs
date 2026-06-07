@@ -1,21 +1,14 @@
-#![allow(unused_imports)]
-
 use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
 
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventRecord;
+use crate::contracts::ToolName;
 use crate::runtime::contracts::{
-    ArtifactView, CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, RuntimeError,
-    RuntimeEvent, RuntimeEventContext, SessionId, SessionScope, SessionTerminalDiagnostic,
-    ToolCallId, ToolErrorCode, ToolId, ToolResultEnvelope, TurnId,
+    ConversationItem, ModelToolCall, SessionScope, ToolCallId, ToolId,
 };
 use crate::runtime::repo::RepoSnapshot;
-use crate::runtime::tools::ToolRegistry;
-use crate::util::redact_known_secrets;
 
-use super::*;
+use super::ReviewerPolicy;
 use crate::runtime::policy::evidence::{assigned_changed_files, scoped_diff_content};
 use crate::runtime::policy::risk::{
     bootstrap_search_query, diff_changed_line_ranges_for_path, diff_risk_hints,

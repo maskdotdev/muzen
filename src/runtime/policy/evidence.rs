@@ -1,21 +1,11 @@
-#![allow(unused_imports)]
-
 use std::collections::BTreeSet;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventRecord;
-use crate::runtime::contracts::{
-    ArtifactView, CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, RuntimeError,
-    RuntimeEvent, RuntimeEventContext, SessionId, SessionScope, SessionTerminalDiagnostic,
-    ToolCallId, ToolErrorCode, ToolId, ToolResultEnvelope, TurnId,
-};
-use crate::runtime::repo::RepoSnapshot;
-use crate::runtime::tools::ToolRegistry;
-use crate::util::redact_known_secrets;
+use crate::contracts::ToolName;
+use crate::runtime::contracts::{ModelToolCall, SessionScope, ToolErrorCode, ToolResultEnvelope};
 
-use super::*;
+use super::{ReviewerPolicy, ToolPolicyDenial};
 impl ReviewerPolicy {
     pub(crate) fn observe_evidence_result(
         &self,

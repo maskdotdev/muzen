@@ -1,21 +1,12 @@
-#![allow(unused_imports)]
-
-use std::collections::BTreeSet;
-
 use serde_json::{json, Value};
 
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventRecord;
+use crate::contracts::ToolName;
 use crate::runtime::contracts::{
-    ArtifactView, CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, RuntimeError,
-    RuntimeEvent, RuntimeEventContext, SessionId, SessionScope, SessionTerminalDiagnostic,
-    ToolCallId, ToolErrorCode, ToolId, ToolResultEnvelope, TurnId,
+    CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, ToolId, ToolResultEnvelope,
 };
-use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tools::ToolRegistry;
-use crate::util::redact_known_secrets;
 
-use super::*;
+use super::ReviewerPolicy;
 impl ReviewerPolicy {
     pub(crate) fn plan_assistant_text_transcript_item(&self, content: String) -> ConversationItem {
         ConversationItem::AssistantText { content }
