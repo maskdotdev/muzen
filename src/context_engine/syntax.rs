@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::ContextRange;
 use crate::runtime::contracts::RepoPath;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,6 +51,7 @@ impl ContextSymbolGraph {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedSymbols {
     pub definitions: Vec<String>,
+    pub definition_ranges: BTreeMap<String, ContextRange>,
     pub imports: Vec<String>,
 }
 
@@ -71,12 +73,16 @@ pub fn parse_symbols(path: &str, content: &str) -> ParsedSymbols {
     parsed.definitions = dedupe(parsed.definitions);
     parsed.imports = dedupe(parsed.imports);
     parsed
+        .definition_ranges
+        .retain(|definition, _| parsed.definitions.contains(definition));
+    parsed
 }
 
 fn parse_rust_symbols(content: &str) -> ParsedSymbols {
     let mut definitions = Vec::new();
+    let mut definition_ranges = BTreeMap::new();
     let mut imports = Vec::new();
-    for raw_line in content.lines() {
+    for (line_index, raw_line) in content.lines().enumerate() {
         let line = raw_line.trim();
         let tokens = lexical_tokens(line);
         for (index, token) in tokens.iter().enumerate() {
@@ -85,6 +91,7 @@ fn parse_rust_symbols(content: &str) -> ParsedSymbols {
                 "fn" | "struct" | "enum" | "trait" | "type" | "const" | "static" | "mod"
             ) {
                 if let Some(name) = tokens.get(index + 1).and_then(|token| symbol_name(token)) {
+                    definition_ranges.insert(name.clone(), line_range(line_index));
                     definitions.push(name);
                 }
             }
@@ -98,14 +105,16 @@ fn parse_rust_symbols(content: &str) -> ParsedSymbols {
     }
     ParsedSymbols {
         definitions,
+        definition_ranges,
         imports,
     }
 }
 
 fn parse_typescript_symbols(content: &str) -> ParsedSymbols {
     let mut definitions = Vec::new();
+    let mut definition_ranges = BTreeMap::new();
     let mut imports = Vec::new();
-    for raw_line in content.lines() {
+    for (line_index, raw_line) in content.lines().enumerate() {
         let line = raw_line.trim();
         let tokens = lexical_tokens(line);
         for (index, token) in tokens.iter().enumerate() {
@@ -114,6 +123,7 @@ fn parse_typescript_symbols(content: &str) -> ParsedSymbols {
                 "function" | "class" | "interface" | "type" | "enum" | "const" | "let" | "var"
             ) {
                 if let Some(name) = tokens.get(index + 1).and_then(|token| symbol_name(token)) {
+                    definition_ranges.insert(name.clone(), line_range(line_index));
                     definitions.push(name);
                 }
             }
@@ -122,24 +132,28 @@ fn parse_typescript_symbols(content: &str) -> ParsedSymbols {
             imports.extend(parse_typescript_imports(line));
         }
         if let Some(method) = parse_typescript_method_definition(line) {
+            definition_ranges.insert(method.clone(), line_range(line_index));
             definitions.push(method);
         }
     }
     ParsedSymbols {
         definitions,
+        definition_ranges,
         imports,
     }
 }
 
 fn parse_python_symbols(content: &str) -> ParsedSymbols {
     let mut definitions = Vec::new();
+    let mut definition_ranges = BTreeMap::new();
     let mut imports = Vec::new();
-    for raw_line in content.lines() {
+    for (line_index, raw_line) in content.lines().enumerate() {
         let line = raw_line.trim();
         let tokens = lexical_tokens(line);
         if let Some(first) = tokens.first() {
             if matches!(first.as_str(), "def" | "class") {
                 if let Some(name) = tokens.get(1).and_then(|token| symbol_name(token)) {
+                    definition_ranges.insert(name.clone(), line_range(line_index));
                     definitions.push(name);
                 }
             } else if first == "import" {
@@ -158,6 +172,7 @@ fn parse_python_symbols(content: &str) -> ParsedSymbols {
     }
     ParsedSymbols {
         definitions,
+        definition_ranges,
         imports,
     }
 }
@@ -239,6 +254,14 @@ fn is_typescript_method_modifier(token: &str) -> bool {
     )
 }
 
+fn line_range(line_index: usize) -> ContextRange {
+    let line = line_index.saturating_add(1).try_into().unwrap_or(u32::MAX);
+    ContextRange {
+        start_line: line,
+        end_line: line,
+    }
+}
+
 fn lexical_tokens(line: &str) -> Vec<String> {
     line.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
         .filter(|token| !token.is_empty())
@@ -294,6 +317,13 @@ mod tests {
             "use crate::auth::token::{authorize_request, Token};\npub struct Session {}\npub fn validate() {}\n",
         );
         assert_eq!(parsed.definitions, vec!["Session", "validate"]);
+        assert_eq!(
+            parsed.definition_ranges.get("validate"),
+            Some(&ContextRange {
+                start_line: 3,
+                end_line: 3,
+            })
+        );
         assert!(parsed.imports.contains(&"Token".to_string()));
         assert!(parsed.imports.contains(&"authorize_request".to_string()));
     }
@@ -315,6 +345,13 @@ mod tests {
             "import UserClient, { loadUser as fetchUser } from './api';\nexport { saveUser as persistUser } from './save';\nclass Store {\n  reloadUser(id: string) { return id; }\n}\n",
         );
         assert!(ts.definitions.contains(&"reloadUser".to_string()));
+        assert_eq!(
+            ts.definition_ranges.get("reloadUser"),
+            Some(&ContextRange {
+                start_line: 4,
+                end_line: 4,
+            })
+        );
         assert!(ts.imports.contains(&"UserClient".to_string()));
         assert!(ts.imports.contains(&"loadUser".to_string()));
         assert!(ts.imports.contains(&"fetchUser".to_string()));

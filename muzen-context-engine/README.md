@@ -53,15 +53,15 @@ Implemented on `feat/context-engine`:
   evidence unless explicitly allowed.
 - Parser-backed Rust, TypeScript/TSX, JavaScript/JSX, and Python definition and
   import extraction feeds a per-index symbol graph used by `related_symbols`,
-  including common re-export, alias, nested import, and method-definition forms.
+  including common re-export, alias, nested import, method-definition forms, and
+  line ranges on emitted symbol evidence.
 - A runnable context-engine evaluation harness with fixture-backed recall,
   precision, token efficiency, omission, latency, secret-redaction, and
   prompt-injection trust summaries.
 
 Still pending from the full plan:
 
-- Line ranges on symbol evidence and broader parser coverage for more deeply
-  nested module/class shapes.
+- Broader parser coverage for more deeply nested module/class shapes.
 - Hosted embedding provider implementation and benchmarked hosted semantic
   ranking improvements.
 - Broader replay/evaluation coverage for sufficiency calibration, cache hit

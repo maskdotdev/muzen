@@ -389,6 +389,25 @@ async fn snapshot_engine_queries_indexed_evidence() {
             .as_ref()
             .map(|summary| summary.contains("authorize_request"))
             .unwrap_or(false)));
+    let authorize_symbol = related_symbols
+        .evidence
+        .iter()
+        .find(|evidence| {
+            evidence.kind == ContextEvidenceKind::Symbol
+                && evidence
+                    .summary
+                    .as_ref()
+                    .map(|summary| summary.contains("authorize_request"))
+                    .unwrap_or(false)
+        })
+        .unwrap();
+    assert_eq!(
+        authorize_symbol.range,
+        Some(ContextRange {
+            start_line: 1,
+            end_line: 1,
+        })
+    );
     assert!(related_symbols.evidence.iter().any(|evidence| evidence
         .path
         .as_ref()
