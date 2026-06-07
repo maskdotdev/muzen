@@ -422,7 +422,15 @@ fn host_instruction_kind(kind: &str) -> ContextEvidenceKind {
 
 fn host_metadata_kind(key: &str) -> ContextEvidenceKind {
     let lower = key.to_ascii_lowercase();
-    if lower.contains("ticket")
+    if lower.contains("cross_repo")
+        || lower.contains("crossrepo")
+        || lower.contains("linked_repo")
+        || lower.contains("linkedrepo")
+        || lower.contains("contract")
+        || lower.contains("consumer")
+    {
+        ContextEvidenceKind::CrossRepoContract
+    } else if lower.contains("ticket")
         || lower.contains("issue")
         || lower.contains("acceptance")
         || lower.contains("requirement")

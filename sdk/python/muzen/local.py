@@ -153,11 +153,12 @@ class RunnerBackedContextWorkspace:
         *,
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
         return await self._runner.request(
             "context.index",
-            _context_index_params(source, changed_files, config),
+            _context_index_params(source, changed_files, host_metadata, config),
         )
 
     async def build_pack(
@@ -165,6 +166,7 @@ class RunnerBackedContextWorkspace:
         *,
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         max_tokens: Optional[int] = None,
         config: Optional[ContextEngineConfig] = None,
@@ -172,6 +174,7 @@ class RunnerBackedContextWorkspace:
         manifest = await self.index(
             source=source,
             changed_files=changed_files,
+            host_metadata=host_metadata,
             config=config,
         )
         return await self._runner.request(
@@ -192,6 +195,7 @@ class RunnerBackedContextWorkspace:
         kind: ContextQueryKind,
         arguments: Optional[Dict[str, Any]] = None,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         current_evidence: Optional[List[str]] = None,
         limits: Optional[ContextQueryLimits] = None,
@@ -200,6 +204,7 @@ class RunnerBackedContextWorkspace:
         manifest = await self.index(
             source=source,
             changed_files=changed_files,
+            host_metadata=host_metadata,
             config=config,
         )
         runner_limits = (
@@ -232,6 +237,7 @@ class RunnerBackedContextWorkspace:
         feedback: str,
         evidence_ids: Optional[List[str]] = None,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         learning_source: Optional[ContextLearningSource] = None,
         scope: Optional[ContextLearningScope] = None,
         config: Optional[ContextEngineConfig] = None,
@@ -239,6 +245,7 @@ class RunnerBackedContextWorkspace:
         manifest = await self.index(
             source=source,
             changed_files=changed_files,
+            host_metadata=host_metadata,
             config=config,
         )
         return await self._runner.request(
@@ -274,6 +281,7 @@ class RunnerBackedContextWorkspace:
 def _context_index_params(
     source_like: ReviewSourceLike,
     changed_files: Optional[List[str]],
+    host_metadata: Optional[Dict[str, Any]],
     config: Optional[ContextEngineConfig],
 ) -> Dict[str, Any]:
     source = parse_review_source(source_like)
@@ -291,6 +299,8 @@ def _context_index_params(
         "repo": repo,
         "changedFiles": changed_files if changed_files is not None else default_changed_files,
     }
+    if host_metadata is not None:
+        payload["hostMetadata"] = host_metadata
     if config is not None:
         payload["config"] = {
             "mode": config.mode,

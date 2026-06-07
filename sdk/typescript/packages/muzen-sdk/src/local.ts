@@ -352,6 +352,7 @@ class RunnerBackedContextWorkspace implements MuzenContextWorkspace {
 function contextIndexParams(options: ContextIndexOptions): {
   repo: string;
   changedFiles: string[];
+  hostMetadata?: Record<string, unknown>;
   config?: ContextEngineConfig;
 } {
   const source = parseReviewSource(options.source);
@@ -367,6 +368,7 @@ function contextIndexParams(options: ContextIndexOptions): {
       (source.type === "local"
         ? source.changedFiles ?? []
         : source.changedFiles ?? []),
+    hostMetadata: options.hostMetadata,
     config: options.config,
   };
 }

@@ -621,6 +621,98 @@ async fn feedback_learning_requires_approval_and_respects_expiry() {
 }
 
 #[tokio::test]
+async fn cross_repo_contracts_report_capability_omission_without_host_evidence() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Architecture),
+                kind: ContextQueryKind::CrossRepoContracts,
+                arguments: serde_json::json!({"query": "consumer"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.evidence.is_empty());
+    assert_eq!(
+        result.data.unwrap()["omissions"][0]["reason"],
+        serde_json::json!("requires_ungranted_capability")
+    );
+}
+
+#[tokio::test]
+async fn cross_repo_contracts_returns_host_provided_scoped_evidence() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.include_host_context = true;
+    let engine = SnapshotContextEngine::new(config);
+    let mut request = ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
+    request.host_metadata.insert(
+        "crossRepoContract:consumer-api".to_string(),
+        serde_json::json!({
+            "repository": "acme/mobile",
+            "contract": "auth token response must keep expires_at"
+        }),
+    );
+    engine
+        .index_snapshot(request, CancellationToken::new())
+        .await
+        .unwrap();
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Architecture),
+                kind: ContextQueryKind::CrossRepoContracts,
+                arguments: serde_json::json!({"query": "expires_at"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.evidence.len(), 1);
+    assert_eq!(
+        result.evidence[0].kind,
+        ContextEvidenceKind::CrossRepoContract
+    );
+    assert_eq!(result.evidence[0].source, ContextEvidenceSource::Host);
+    assert_eq!(result.evidence[0].scope, ContextScope::Run);
+    assert!(result.evidence[0].path.is_none());
+}
+
+#[tokio::test]
 async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("CONTEXT.md"), "# Context\n").unwrap();

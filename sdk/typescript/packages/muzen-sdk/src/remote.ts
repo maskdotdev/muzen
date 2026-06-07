@@ -345,6 +345,7 @@ function contextIndexBody(options: ContextIndexOptions): Record<string, unknown>
   return {
     source,
     changedFiles: options.changedFiles,
+    hostMetadata: options.hostMetadata,
     config: options.config,
   };
 }

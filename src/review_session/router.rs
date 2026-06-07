@@ -558,7 +558,8 @@ impl ReviewHttpRouter {
         let engine = SnapshotContextEngine::new(config);
         let index_engine = engine.clone();
         let index_snapshot = Arc::clone(&snapshot);
-        let request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
+        let mut request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
+        request.host_metadata = body.host_metadata;
         block_on_context(async move {
             index_engine
                 .index_snapshot(request, CancellationToken::new())
@@ -699,6 +700,8 @@ struct ContextIndexBody {
     source: ReviewSource,
     #[serde(default)]
     changed_files: Vec<String>,
+    #[serde(default)]
+    host_metadata: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
     config: Option<ContextEngineConfig>,
 }

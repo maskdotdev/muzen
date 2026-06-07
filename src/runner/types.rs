@@ -280,6 +280,8 @@ pub struct RunnerContextIndexParams {
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
+    pub host_metadata: BTreeMap<String, Value>,
+    #[serde(default)]
     pub config: Option<ContextEngineConfig>,
 }
 

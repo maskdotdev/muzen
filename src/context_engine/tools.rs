@@ -20,6 +20,7 @@ pub const CONTEXT_RELATED_TESTS_TOOL_ID: &str = "context.related_tests";
 pub const CONTEXT_RELATED_SYMBOLS_TOOL_ID: &str = "context.related_symbols";
 pub const CONTEXT_TICKET_REQUIREMENTS_TOOL_ID: &str = "context.ticket_requirements";
 pub const CONTEXT_HISTORY_SIMILAR_TOOL_ID: &str = "context.history_similar";
+pub const CONTEXT_CROSS_REPO_CONTRACTS_TOOL_ID: &str = "context.cross_repo_contracts";
 pub const CONTEXT_SUFFICIENCY_CHECK_TOOL_ID: &str = "context.sufficiency_check";
 
 pub fn context_tool_ids() -> RuntimeResult<Vec<ToolId>> {
@@ -31,6 +32,7 @@ pub fn context_tool_ids() -> RuntimeResult<Vec<ToolId>> {
         ToolId::parse(CONTEXT_RELATED_SYMBOLS_TOOL_ID)?,
         ToolId::parse(CONTEXT_TICKET_REQUIREMENTS_TOOL_ID)?,
         ToolId::parse(CONTEXT_HISTORY_SIMILAR_TOOL_ID)?,
+        ToolId::parse(CONTEXT_CROSS_REPO_CONTRACTS_TOOL_ID)?,
         ToolId::parse(CONTEXT_SUFFICIENCY_CHECK_TOOL_ID)?,
     ])
 }
@@ -179,6 +181,24 @@ pub fn register_context_tools(
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::HistorySimilar,
+        }),
+    )?;
+    registry.register_custom_with_effects(
+        ToolId::parse(CONTEXT_CROSS_REPO_CONTRACTS_TOOL_ID)?,
+        "Find host-provided cross-repository contract evidence or explain missing capability.",
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "maxResults": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+        }),
+        true,
+        context_tool_effects(),
+        Arc::new(ContextToolHandler {
+            engine: Arc::clone(&engine),
+            kind: ContextQueryKind::CrossRepoContracts,
         }),
     )?;
     registry.register_custom_with_effects(

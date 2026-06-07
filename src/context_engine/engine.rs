@@ -432,6 +432,55 @@ impl ContextEngine for SnapshotContextEngine {
                     omitted: 0,
                 })
             }
+            ContextQueryKind::CrossRepoContracts => {
+                let query = request
+                    .arguments
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let mut evidence = index
+                    .evidence
+                    .iter()
+                    .filter(|evidence| evidence.kind == ContextEvidenceKind::CrossRepoContract)
+                    .filter(|evidence| {
+                        query.is_empty()
+                            || evidence
+                                .summary
+                                .as_ref()
+                                .map(|summary| summary.to_ascii_lowercase().contains(&query))
+                                .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                evidence.sort_by(|left, right| {
+                    trust_rank(right.trust)
+                        .cmp(&trust_rank(left.trust))
+                        .then_with(|| left.id.0.cmp(&right.id.0))
+                });
+                let omitted = evidence.len().saturating_sub(limit);
+                evidence.truncate(limit);
+                let data = if evidence.is_empty() {
+                    Some(serde_json::json!({
+                        "omissions": [{
+                            "reason": "requires_ungranted_capability",
+                            "capability": "network_read",
+                            "message": "cross-repo contracts require host-provided evidence or an explicitly granted network/provider capability"
+                        }]
+                    }))
+                } else {
+                    Some(serde_json::json!({
+                        "omissions": []
+                    }))
+                };
+                Ok(ContextQueryResult {
+                    kind: request.kind,
+                    evidence,
+                    sufficiency: None,
+                    data,
+                    omitted,
+                })
+            }
             ContextQueryKind::ReadSpan => {
                 let path = string_arg(&request.arguments, "path")?;
                 let start_line = usize_arg(&request.arguments, "startLine")

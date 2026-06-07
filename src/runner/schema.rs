@@ -812,6 +812,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("repo", "string"),
                 defaulted("changedFiles", "string[]", "[]"),
+                defaulted("hostMetadata", "object<string,json>", "{}"),
                 optional("config", "ContextEngineConfig"),
             ],
         ),
@@ -1044,6 +1045,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 "related_symbols",
                 "ticket_requirements",
                 "history_similar",
+                "cross_repo_contracts",
                 "sufficiency_check",
             ],
         ),

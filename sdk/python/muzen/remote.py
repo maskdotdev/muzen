@@ -185,13 +185,14 @@ class RemoteContextWorkspace:
         *,
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
         return (
             await self._client._request_json(
                 "POST",
                 self._path("index"),
-                _context_index_body(source, changed_files, config),
+                _context_index_body(source, changed_files, host_metadata, config),
             )
         )["manifest"]
 
@@ -200,11 +201,12 @@ class RemoteContextWorkspace:
         *,
         source: ReviewSourceLike,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         max_tokens: Optional[int] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
-        payload = _context_index_body(source, changed_files, config)
+        payload = _context_index_body(source, changed_files, host_metadata, config)
         payload["purpose"] = purpose
         payload["maxTokens"] = max_tokens
         return (
@@ -218,12 +220,13 @@ class RemoteContextWorkspace:
         kind: ContextQueryKind,
         arguments: Optional[Dict[str, Any]] = None,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         purpose: Optional[ContextPackPurpose] = None,
         current_evidence: Optional[List[str]] = None,
         limits: Optional[ContextQueryLimits] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
-        payload = _context_index_body(source, changed_files, config)
+        payload = _context_index_body(source, changed_files, host_metadata, config)
         payload["purpose"] = purpose
         payload["kind"] = kind
         payload["arguments"] = arguments or {}
@@ -244,11 +247,12 @@ class RemoteContextWorkspace:
         feedback: str,
         evidence_ids: Optional[List[str]] = None,
         changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
         learning_source: Optional[ContextLearningSource] = None,
         scope: Optional[ContextLearningScope] = None,
         config: Optional[ContextEngineConfig] = None,
     ) -> Dict[str, Any]:
-        payload = _context_index_body(source, changed_files, config)
+        payload = _context_index_body(source, changed_files, host_metadata, config)
         payload["evidenceIds"] = evidence_ids or []
         payload["feedback"] = feedback
         payload["source"] = learning_source
@@ -494,6 +498,7 @@ def _model_to_remote(model: Any) -> Any:
 def _context_index_body(
     source_like: ReviewSourceLike,
     changed_files: Optional[List[str]],
+    host_metadata: Optional[Dict[str, Any]],
     config: Optional[ContextEngineConfig],
 ) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
@@ -501,6 +506,8 @@ def _context_index_body(
     }
     if changed_files is not None:
         payload["changedFiles"] = changed_files
+    if host_metadata is not None:
+        payload["hostMetadata"] = host_metadata
     if config is not None:
         payload["config"] = {
             "mode": config.mode,

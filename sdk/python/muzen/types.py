@@ -135,6 +135,7 @@ ContextQueryKind = Literal[
     "related_symbols",
     "ticket_requirements",
     "history_similar",
+    "cross_repo_contracts",
     "sufficiency_check",
 ]
 ContextLearningSource = Literal[

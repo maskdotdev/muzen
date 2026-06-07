@@ -33,6 +33,9 @@ Implemented on `feat/context-engine`:
   `history_similar` retrieval returns a learning.
 - HTTP, runner stdio, and TypeScript/Python SDK context adapters expose feedback
   recording and learning approval flows.
+- Cross-repository contract context has a provider-neutral query surface,
+  host-provided evidence indexing, and explicit capability omission reporting
+  when no cross-repo evidence or network/provider grant is available.
 - Fixture and benchmark scaffolding for context-engine evaluation.
 
 Still pending from the full plan:
@@ -40,7 +43,7 @@ Still pending from the full plan:
 - Parser-backed symbol/import/export graphs for Rust, TypeScript/TSX, and Python.
 - Persistent feedback/learnings across process restarts and durable workspace
   storage.
-- Cross-repository contract context and capability-scoped network retrieval.
+- Capability-scoped network/provider retrieval for cross-repository contracts.
 - Optional embedding providers/vector indexes and semantic ranking.
 - Full replay/evaluation suite with precision, recall, latency, redaction, and
   prompt-injection metrics.
