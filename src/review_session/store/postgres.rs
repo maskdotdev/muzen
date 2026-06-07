@@ -17,6 +17,8 @@ use super::{
     ReviewWorkerLease, RunningCounts,
 };
 
+const REVIEW_SESSION_SCHEMA_VERSION: i32 = 2;
+
 pub struct PostgresReviewSessionStore {
     client: Mutex<Client>,
 }
@@ -43,9 +45,25 @@ impl PostgresReviewSessionStore {
 
     pub fn migrate(&self) -> Result<(), ReviewSessionError> {
         let mut client = self.lock_client()?;
-        client
-            .batch_execute(REVIEW_SESSION_SCHEMA_SQL)
+        let mut transaction = client.transaction().map_err(postgres_store_error)?;
+        transaction
+            .batch_execute(REVIEW_SESSION_SCHEMA_BOOTSTRAP_SQL)
             .map_err(postgres_store_error)?;
+        let version = current_review_schema_version(&mut transaction)?;
+        if version != Some(REVIEW_SESSION_SCHEMA_VERSION) {
+            transaction
+                .batch_execute(REVIEW_SESSION_SCHEMA_RESET_SQL)
+                .map_err(postgres_store_error)?;
+            transaction
+                .execute(
+                    "INSERT INTO muzen_schema_versions (name, version)
+                     VALUES ('review_sessions', $1)
+                     ON CONFLICT (name) DO UPDATE SET version = EXCLUDED.version",
+                    &[&REVIEW_SESSION_SCHEMA_VERSION],
+                )
+                .map_err(postgres_store_error)?;
+        }
+        transaction.commit().map_err(postgres_store_error)?;
         Ok(())
     }
 
@@ -59,17 +77,15 @@ impl PostgresReviewSessionStore {
 impl ReviewSessionStore for PostgresReviewSessionStore {
     fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
         let mut client = self.lock_client()?;
-        upsert_postgres_record(&mut *client, &record)
+        let mut transaction = client.transaction().map_err(postgres_store_error)?;
+        upsert_postgres_record(&mut transaction, &record)?;
+        transaction.commit().map_err(postgres_store_error)?;
+        Ok(())
     }
 
     fn get(&self, id: &ReviewSessionId) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
         let mut client = self.lock_client()?;
-        let sql =
-            format!("SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE id = $1");
-        let row = client
-            .query_opt(&sql, &[&id.as_str()])
-            .map_err(postgres_store_error)?;
-        row.map(|row| postgres_row_to_record(&row)).transpose()
+        postgres_record(&mut *client, id, false)
     }
 
     fn get_by_dedupe_key(
@@ -77,13 +93,16 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         dedupe_key: &str,
     ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
         let mut client = self.lock_client()?;
-        let sql = format!(
-            "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE dedupe_key = $1"
-        );
         let row = client
-            .query_opt(&sql, &[&dedupe_key])
+            .query_opt(
+                &format!(
+                    "SELECT {REVIEW_SESSION_BASE_COLUMNS} FROM muzen_review_sessions WHERE dedupe_key = $1"
+                ),
+                &[&dedupe_key],
+            )
             .map_err(postgres_store_error)?;
-        row.map(|row| postgres_row_to_record(&row)).transpose()
+        row.map(|row| postgres_joined_row_to_record(&mut *client, &row))
+            .transpose()
     }
 
     fn append_events(
@@ -106,20 +125,9 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<Vec<ReviewEvent>, ReviewSessionError> {
-        let Some(record) = self.get(id)? else {
-            return Err(ReviewSessionError::Store(format!(
-                "unknown review session {id}"
-            )));
-        };
-        let start = after
-            .and_then(|cursor| {
-                record
-                    .events
-                    .iter()
-                    .position(|event| event.cursor == cursor)
-            })
-            .map_or(0, |index| index + 1);
-        Ok(record.events[start..].to_vec())
+        let mut client = self.lock_client()?;
+        ensure_postgres_review_exists(&mut *client, id)?;
+        postgres_events_after(&mut *client, id, after)
     }
 
     fn append_logs(
@@ -154,15 +162,9 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
-        let Some(record) = self.get(id)? else {
-            return Err(ReviewSessionError::Store(format!(
-                "unknown review session {id}"
-            )));
-        };
-        let start = after
-            .and_then(|cursor| record.logs.iter().position(|log| log.cursor == cursor))
-            .map_or(0, |index| index + 1);
-        Ok(record.logs[start..].to_vec())
+        let mut client = self.lock_client()?;
+        ensure_postgres_review_exists(&mut *client, id)?;
+        postgres_logs_after(&mut *client, id, after)
     }
 
     fn write_result(
@@ -257,7 +259,8 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         let running_rows = transaction
             .query(
                 &format!(
-                    "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions \
+                    "SELECT {REVIEW_SESSION_JOINED_COLUMNS} FROM muzen_review_sessions s \
+                     JOIN muzen_review_session_execution x ON x.review_id = s.id \
                      WHERE status = 'running' \
                        AND COALESCE((lease->>'expiresAtUnixSeconds')::bigint, 0) > $1 \
                      FOR UPDATE"
@@ -267,14 +270,15 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
             .map_err(postgres_store_error)?;
         let mut running = RunningCounts::default();
         for row in running_rows {
-            running.add_record(&postgres_row_to_record(&row)?);
+            running.add_record(&postgres_joined_row_to_record(&mut transaction, &row)?);
         }
 
         let max_sessions = usize_to_i64(options.max_sessions, "max_sessions")?;
         let candidate_rows = transaction
             .query(
                 &format!(
-                    "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions \
+                    "SELECT {REVIEW_SESSION_JOINED_COLUMNS} FROM muzen_review_sessions s \
+                     JOIN muzen_review_session_execution x ON x.review_id = s.id \
                      WHERE status IN ('created', 'queued', 'running') \
                        AND run_after_unix_seconds <= $1 \
                        AND (status <> 'running' \
@@ -293,7 +297,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
             if claims.len() >= options.max_sessions {
                 break;
             }
-            let mut record = postgres_row_to_record(&row)?;
+            let mut record = postgres_joined_row_to_record(&mut transaction, &row)?;
             if !is_claimable(&record, now)
                 || claim_limit_reached(&record, &running, options.concurrency)
             {
@@ -411,9 +415,23 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
     }
 }
 
-const REVIEW_SESSION_COLUMNS: &str = "id, workspace_id, user_id, status, source, options, result, events, logs, redacted_artifacts, raw_artifacts, config_snapshot, attempt, run_after_unix_seconds, lease, cancellation, last_error, dedupe_key, created_at_utc, updated_at_utc";
+const REVIEW_SESSION_BASE_COLUMNS: &str = "id, workspace_id, user_id, status, source, options, config_snapshot, dedupe_key, created_at_utc, updated_at_utc";
+const REVIEW_SESSION_JOINED_COLUMNS: &str = "s.id, s.workspace_id, s.user_id, s.status, s.source, s.options, s.config_snapshot, s.dedupe_key, s.created_at_utc, s.updated_at_utc, x.result, x.attempt, x.run_after_unix_seconds, x.lease, x.cancellation, x.last_error";
 
-const REVIEW_SESSION_SCHEMA_SQL: &str = r#"
+const REVIEW_SESSION_SCHEMA_BOOTSTRAP_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS muzen_schema_versions (
+    name TEXT PRIMARY KEY,
+    version INTEGER NOT NULL
+);
+"#;
+
+const REVIEW_SESSION_SCHEMA_RESET_SQL: &str = r#"
+DROP TABLE IF EXISTS muzen_review_session_artifacts;
+DROP TABLE IF EXISTS muzen_review_session_logs;
+DROP TABLE IF EXISTS muzen_review_session_events;
+DROP TABLE IF EXISTS muzen_review_session_execution;
+DROP TABLE IF EXISTS muzen_review_sessions;
+
 CREATE TABLE IF NOT EXISTS muzen_review_sessions (
     id TEXT PRIMARY KEY,
     workspace_id TEXT,
@@ -421,41 +439,97 @@ CREATE TABLE IF NOT EXISTS muzen_review_sessions (
     status TEXT NOT NULL,
     source JSONB NOT NULL,
     options JSONB NOT NULL,
-    result JSONB,
-    events JSONB NOT NULL DEFAULT '[]'::jsonb,
-    logs JSONB NOT NULL DEFAULT '[]'::jsonb,
-    redacted_artifacts JSONB NOT NULL DEFAULT '[]'::jsonb,
-    raw_artifacts JSONB NOT NULL DEFAULT '[]'::jsonb,
     config_snapshot JSONB,
-    attempt INTEGER NOT NULL DEFAULT 0,
-    run_after_unix_seconds BIGINT NOT NULL DEFAULT 0,
-    lease JSONB,
-    cancellation JSONB,
-    last_error TEXT,
     dedupe_key TEXT UNIQUE,
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS muzen_review_session_execution (
+    review_id TEXT PRIMARY KEY REFERENCES muzen_review_sessions(id) ON DELETE CASCADE,
+    result JSONB,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    run_after_unix_seconds BIGINT NOT NULL DEFAULT 0,
+    lease JSONB,
+    cancellation JSONB,
+    last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS muzen_review_session_events (
+    review_id TEXT NOT NULL REFERENCES muzen_review_sessions(id) ON DELETE CASCADE,
+    cursor INTEGER NOT NULL,
+    event JSONB NOT NULL,
+    PRIMARY KEY (review_id, cursor)
+);
+
+CREATE TABLE IF NOT EXISTS muzen_review_session_logs (
+    review_id TEXT NOT NULL REFERENCES muzen_review_sessions(id) ON DELETE CASCADE,
+    cursor INTEGER NOT NULL,
+    log JSONB NOT NULL,
+    PRIMARY KEY (review_id, cursor)
+);
+
+CREATE TABLE IF NOT EXISTS muzen_review_session_artifacts (
+    review_id TEXT NOT NULL REFERENCES muzen_review_sessions(id) ON DELETE CASCADE,
+    artifact_id TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    artifact JSONB NOT NULL,
+    ordinal INTEGER NOT NULL,
+    PRIMARY KEY (review_id, visibility, artifact_id)
+);
+
 CREATE INDEX IF NOT EXISTS muzen_review_sessions_ready_idx
-    ON muzen_review_sessions (status, run_after_unix_seconds, created_at_utc, id);
+    ON muzen_review_sessions (status, created_at_utc, id);
+
+CREATE INDEX IF NOT EXISTS muzen_review_session_execution_ready_idx
+    ON muzen_review_session_execution (run_after_unix_seconds, review_id);
 
 CREATE INDEX IF NOT EXISTS muzen_review_sessions_workspace_idx
     ON muzen_review_sessions (workspace_id, status);
+
+CREATE INDEX IF NOT EXISTS muzen_review_session_events_review_idx
+    ON muzen_review_session_events (review_id, cursor);
+
+CREATE INDEX IF NOT EXISTS muzen_review_session_logs_review_idx
+    ON muzen_review_session_logs (review_id, cursor);
 "#;
+
+fn current_review_schema_version(
+    client: &mut impl GenericClient,
+) -> Result<Option<i32>, ReviewSessionError> {
+    client
+        .query_opt(
+            "SELECT version FROM muzen_schema_versions WHERE name = 'review_sessions'",
+            &[],
+        )
+        .map_err(postgres_store_error)
+        .map(|row| row.map(|row| row.get("version")))
+}
 
 fn postgres_record_for_update(
     client: &mut impl GenericClient,
     id: &ReviewSessionId,
 ) -> Result<ReviewSessionRecord, ReviewSessionError> {
-    let sql = format!(
-        "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE id = $1 FOR UPDATE"
-    );
-    client
-        .query_opt(&sql, &[&id.as_str()])
-        .map_err(postgres_store_error)?
+    postgres_record(client, id, true)?
         .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))
-        .and_then(|row| postgres_row_to_record(&row))
+}
+
+fn postgres_record(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    for_update: bool,
+) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
+    let lock_clause = if for_update { " FOR UPDATE" } else { "" };
+    let sql = format!(
+        "SELECT {REVIEW_SESSION_JOINED_COLUMNS} FROM muzen_review_sessions s \
+         JOIN muzen_review_session_execution x ON x.review_id = s.id \
+         WHERE s.id = $1{lock_clause}"
+    );
+    let row = client
+        .query_opt(&sql, &[&id.as_str()])
+        .map_err(postgres_store_error)?;
+    row.map(|row| postgres_joined_row_to_record(client, &row))
+        .transpose()
 }
 
 fn upsert_postgres_record(
@@ -467,10 +541,6 @@ fn upsert_postgres_record(
     let source = serialize_json(&record.source, "source")?;
     let options = serialize_json(&record.options, "options")?;
     let result = serialize_optional_json(&record.result, "result")?;
-    let events = serialize_json(&record.events, "events")?;
-    let logs = serialize_json(&record.logs, "logs")?;
-    let redacted_artifacts = serialize_json(&record.redacted_artifacts, "redacted_artifacts")?;
-    let raw_artifacts = serialize_json(&record.raw_artifacts, "raw_artifacts")?;
     let config_snapshot = serialize_optional_json(&record.config_snapshot, "config_snapshot")?;
     let attempt = u32_to_i32(record.attempt, "attempt")?;
     let run_after = u64_to_i64(record.run_after_unix_seconds, "run_after_unix_seconds")?;
@@ -479,13 +549,10 @@ fn upsert_postgres_record(
     client
         .execute(
             "INSERT INTO muzen_review_sessions (
-                id, workspace_id, user_id, status, source, options, result, events, logs,
-                redacted_artifacts, raw_artifacts, config_snapshot, attempt,
-                run_after_unix_seconds, lease, cancellation, last_error, dedupe_key,
-                created_at_utc, updated_at_utc
+                id, workspace_id, user_id, status, source, options, config_snapshot,
+                dedupe_key, created_at_utc, updated_at_utc
              ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
              )
              ON CONFLICT (id) DO UPDATE SET
                 workspace_id = EXCLUDED.workspace_id,
@@ -493,17 +560,7 @@ fn upsert_postgres_record(
                 status = EXCLUDED.status,
                 source = EXCLUDED.source,
                 options = EXCLUDED.options,
-                result = EXCLUDED.result,
-                events = EXCLUDED.events,
-                logs = EXCLUDED.logs,
-                redacted_artifacts = EXCLUDED.redacted_artifacts,
-                raw_artifacts = EXCLUDED.raw_artifacts,
                 config_snapshot = EXCLUDED.config_snapshot,
-                attempt = EXCLUDED.attempt,
-                run_after_unix_seconds = EXCLUDED.run_after_unix_seconds,
-                lease = EXCLUDED.lease,
-                cancellation = EXCLUDED.cancellation,
-                last_error = EXCLUDED.last_error,
                 dedupe_key = EXCLUDED.dedupe_key,
                 updated_at_utc = EXCLUDED.updated_at_utc",
             &[
@@ -513,43 +570,64 @@ fn upsert_postgres_record(
                 &status,
                 &source,
                 &options,
-                &result,
-                &events,
-                &logs,
-                &redacted_artifacts,
-                &raw_artifacts,
                 &config_snapshot,
-                &attempt,
-                &run_after,
-                &lease,
-                &cancellation,
-                &record.last_error,
                 &record.dedupe_key,
                 &record.created_at_utc,
                 &record.updated_at_utc,
             ],
         )
         .map_err(postgres_store_error)?;
+    client
+        .execute(
+            "INSERT INTO muzen_review_session_execution (
+                review_id, result, attempt, run_after_unix_seconds, lease, cancellation, last_error
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (review_id) DO UPDATE SET
+                result = EXCLUDED.result,
+                attempt = EXCLUDED.attempt,
+                run_after_unix_seconds = EXCLUDED.run_after_unix_seconds,
+                lease = EXCLUDED.lease,
+                cancellation = EXCLUDED.cancellation,
+                last_error = EXCLUDED.last_error",
+            &[
+                &id,
+                &result,
+                &attempt,
+                &run_after,
+                &lease,
+                &cancellation,
+                &record.last_error,
+            ],
+        )
+        .map_err(postgres_store_error)?;
+    replace_postgres_events(client, &record.id, &record.events)?;
+    replace_postgres_logs(client, &record.id, &record.logs)?;
+    replace_postgres_artifacts(client, &record.id, "redacted", &record.redacted_artifacts)?;
+    replace_postgres_artifacts(client, &record.id, "raw", &record.raw_artifacts)?;
     Ok(())
 }
 
-fn postgres_row_to_record(row: &Row) -> Result<ReviewSessionRecord, ReviewSessionError> {
+fn postgres_joined_row_to_record(
+    client: &mut impl GenericClient,
+    row: &Row,
+) -> Result<ReviewSessionRecord, ReviewSessionError> {
     let id: String = row.get("id");
+    let review_id = ReviewSessionId::new(id)?;
     let status: String = row.get("status");
     let attempt: i32 = row.get("attempt");
     let run_after: i64 = row.get("run_after_unix_seconds");
     Ok(ReviewSessionRecord {
-        id: ReviewSessionId::new(id)?,
+        events: postgres_events_after(client, &review_id, None)?,
+        logs: postgres_logs_after(client, &review_id, None)?,
+        redacted_artifacts: postgres_artifacts(client, &review_id, "redacted")?,
+        raw_artifacts: postgres_artifacts(client, &review_id, "raw")?,
+        id: review_id,
         workspace_id: row.get("workspace_id"),
         user_id: row.get("user_id"),
         status: deserialize_status(&status)?,
         source: deserialize_json(row.get("source"), "source")?,
         options: deserialize_json(row.get("options"), "options")?,
         result: deserialize_optional_json(row.get("result"), "result")?,
-        events: deserialize_json(row.get("events"), "events")?,
-        logs: deserialize_json(row.get("logs"), "logs")?,
-        redacted_artifacts: deserialize_json(row.get("redacted_artifacts"), "redacted_artifacts")?,
-        raw_artifacts: deserialize_json(row.get("raw_artifacts"), "raw_artifacts")?,
         config_snapshot: deserialize_optional_json(row.get("config_snapshot"), "config_snapshot")?,
         attempt: i32_to_u32(attempt, "attempt")?,
         run_after_unix_seconds: i64_to_u64(run_after, "run_after_unix_seconds")?,
@@ -560,6 +638,177 @@ fn postgres_row_to_record(row: &Row) -> Result<ReviewSessionRecord, ReviewSessio
         created_at_utc: row.get("created_at_utc"),
         updated_at_utc: row.get("updated_at_utc"),
     })
+}
+
+fn ensure_postgres_review_exists(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+) -> Result<(), ReviewSessionError> {
+    let exists = client
+        .query_opt(
+            "SELECT id FROM muzen_review_sessions WHERE id = $1",
+            &[&id.as_str()],
+        )
+        .map_err(postgres_store_error)?
+        .is_some();
+    if exists {
+        Ok(())
+    } else {
+        Err(ReviewSessionError::Store(format!(
+            "unknown review session {id}"
+        )))
+    }
+}
+
+fn replace_postgres_events(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    events: &[ReviewEvent],
+) -> Result<(), ReviewSessionError> {
+    client
+        .execute(
+            "DELETE FROM muzen_review_session_events WHERE review_id = $1",
+            &[&id.as_str()],
+        )
+        .map_err(postgres_store_error)?;
+    for (index, event) in events.iter().enumerate() {
+        let cursor = usize_to_i64(index + 1, "event cursor")?;
+        let payload = serialize_json(event, "event")?;
+        client
+            .execute(
+                "INSERT INTO muzen_review_session_events (review_id, cursor, event)
+                 VALUES ($1, $2, $3)",
+                &[&id.as_str(), &cursor, &payload],
+            )
+            .map_err(postgres_store_error)?;
+    }
+    Ok(())
+}
+
+fn postgres_events_after(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    after: Option<&str>,
+) -> Result<Vec<ReviewEvent>, ReviewSessionError> {
+    let after_cursor = cursor_after(after)?;
+    let rows = client
+        .query(
+            "SELECT event FROM muzen_review_session_events
+             WHERE review_id = $1 AND cursor > $2
+             ORDER BY cursor ASC",
+            &[&id.as_str(), &after_cursor],
+        )
+        .map_err(postgres_store_error)?;
+    rows.into_iter()
+        .map(|row| deserialize_json(row.get("event"), "event"))
+        .collect()
+}
+
+fn replace_postgres_logs(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    logs: &[ReviewLogEntry],
+) -> Result<(), ReviewSessionError> {
+    client
+        .execute(
+            "DELETE FROM muzen_review_session_logs WHERE review_id = $1",
+            &[&id.as_str()],
+        )
+        .map_err(postgres_store_error)?;
+    for (index, log) in logs.iter().enumerate() {
+        let cursor = usize_to_i64(index + 1, "log cursor")?;
+        let payload = serialize_json(log, "log")?;
+        client
+            .execute(
+                "INSERT INTO muzen_review_session_logs (review_id, cursor, log)
+                 VALUES ($1, $2, $3)",
+                &[&id.as_str(), &cursor, &payload],
+            )
+            .map_err(postgres_store_error)?;
+    }
+    Ok(())
+}
+
+fn postgres_logs_after(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    after: Option<&str>,
+) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
+    let after_cursor = cursor_after(after)?;
+    let rows = client
+        .query(
+            "SELECT log FROM muzen_review_session_logs
+             WHERE review_id = $1 AND cursor > $2
+             ORDER BY cursor ASC",
+            &[&id.as_str(), &after_cursor],
+        )
+        .map_err(postgres_store_error)?;
+    rows.into_iter()
+        .map(|row| deserialize_json(row.get("log"), "log"))
+        .collect()
+}
+
+fn replace_postgres_artifacts(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    visibility: &str,
+    artifacts: &[ReviewArtifact],
+) -> Result<(), ReviewSessionError> {
+    client
+        .execute(
+            "DELETE FROM muzen_review_session_artifacts
+             WHERE review_id = $1 AND visibility = $2",
+            &[&id.as_str(), &visibility],
+        )
+        .map_err(postgres_store_error)?;
+    for (index, artifact) in artifacts.iter().enumerate() {
+        let ordinal = usize_to_i64(index, "artifact ordinal")?;
+        let payload = serialize_json(artifact, "artifact")?;
+        client
+            .execute(
+                "INSERT INTO muzen_review_session_artifacts
+                    (review_id, artifact_id, visibility, artifact, ordinal)
+                 VALUES ($1, $2, $3, $4, $5)",
+                &[
+                    &id.as_str(),
+                    &artifact.artifact_id,
+                    &visibility,
+                    &payload,
+                    &ordinal,
+                ],
+            )
+            .map_err(postgres_store_error)?;
+    }
+    Ok(())
+}
+
+fn postgres_artifacts(
+    client: &mut impl GenericClient,
+    id: &ReviewSessionId,
+    visibility: &str,
+) -> Result<Vec<ReviewArtifact>, ReviewSessionError> {
+    let rows = client
+        .query(
+            "SELECT artifact FROM muzen_review_session_artifacts
+             WHERE review_id = $1 AND visibility = $2
+             ORDER BY ordinal ASC",
+            &[&id.as_str(), &visibility],
+        )
+        .map_err(postgres_store_error)?;
+    rows.into_iter()
+        .map(|row| deserialize_json(row.get("artifact"), "artifact"))
+        .collect()
+}
+
+fn cursor_after(after: Option<&str>) -> Result<i64, ReviewSessionError> {
+    after
+        .map(|cursor| {
+            cursor.parse::<i64>().map_err(|_| {
+                ReviewSessionError::Store(format!("invalid review event/log cursor {cursor}"))
+            })
+        })
+        .transpose()
+        .map(|cursor| cursor.unwrap_or(0))
 }
 
 fn serialize_status(status: ReviewStatus) -> Result<String, ReviewSessionError> {
