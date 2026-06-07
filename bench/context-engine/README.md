@@ -13,6 +13,10 @@ Initial metrics to track:
 - Evidence coverage: findings with primary evidence.
 - Token efficiency: selected useful evidence per 1k estimated tokens.
 - Latency: index, query, and pack build time.
+- Secret redaction correctness: known secret-like strings are not emitted in
+  context query payloads.
+- Prompt-injection resistance: hostile repository guidance remains structurally
+  untrusted evidence.
 
 Run the evaluation suite:
 
@@ -20,9 +24,11 @@ Run the evaluation suite:
 python3 bench/context-engine/run.py
 ```
 
-The runner drives `cargo run --bin muzen -- context query` for each case in
+The runner drives `cargo run --bin muzen -- context query` or
+`cargo run --bin muzen -- context pack` for each case in
 `bench/context-engine/cases/`, computes recall, precision, token efficiency,
-omissions, and query latency, then writes
+omissions, redaction correctness, prompt-injection trust checks, and latency,
+then writes
 `bench/results-context-engine/context-engine-summary.json`.
 
 Local smoke commands:
