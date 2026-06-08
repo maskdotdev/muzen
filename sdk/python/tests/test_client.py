@@ -272,6 +272,7 @@ class RunnerMappingTests(unittest.TestCase):
 
         self.assertEqual(params["model"]["defaultModelProfileId"], "default")
         self.assertEqual(len(params["model"]["modelProfiles"]), 2)
+        self.assertEqual(params["model"]["modelProfiles"][0]["provider"], "openai_compatible")
         self.assertEqual(params["model"]["modelProfiles"][0]["model"], "gpt-5.4-mini")
         self.assertEqual(
             params["model"]["modelProfiles"][1]["credential"],

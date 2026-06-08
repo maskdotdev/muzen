@@ -89,6 +89,7 @@ export interface ReviewOptions {
   tools?: ReviewTool[];
   sessions?: ReviewAgentSession[];
   limits?: ReviewLimits;
+  qualityMode?: "standard" | "production";
 }
 
 export interface ReviewSourceProvider {

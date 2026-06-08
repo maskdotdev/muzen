@@ -329,6 +329,7 @@ impl PlannedReviewRuntime {
                 &scope,
                 review_plan,
                 &unit,
+                unit_risk,
                 &mut transcript,
                 &mut evidence,
                 &mut tool_counts,
@@ -797,6 +798,7 @@ async fn bootstrap_unit_evidence(
     scope: &SessionScope,
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
     transcript: &mut Vec<ConversationItem>,
     evidence: &mut SessionEvidence,
     tool_counts: &mut ToolCounts,
@@ -809,6 +811,7 @@ async fn bootstrap_unit_evidence(
     let plan = deterministic_bootstrap_calls(
         review_plan,
         unit,
+        unit_risk,
         runtime.snapshot.diff.content.as_str(),
         runtime.limits.max_file_bytes_read,
         scope
@@ -878,12 +881,16 @@ struct BootstrapPlan {
 fn deterministic_bootstrap_calls(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
     diff: &str,
     max_file_bytes_read: usize,
     remaining_tool_budget: usize,
 ) -> BootstrapPlan {
+    const MAX_BOOTSTRAP_TOOL_CALLS_PER_TURN: usize = 4;
     const RESERVED_MODEL_TOOL_CALLS: usize = 4;
-    let bootstrap_budget = remaining_tool_budget.saturating_sub(RESERVED_MODEL_TOOL_CALLS);
+    let bootstrap_budget = remaining_tool_budget
+        .saturating_sub(RESERVED_MODEL_TOOL_CALLS)
+        .min(MAX_BOOTSTRAP_TOOL_CALLS_PER_TURN);
     if bootstrap_budget == 0 {
         return BootstrapPlan {
             calls: Vec::new(),
@@ -951,6 +958,18 @@ fn deterministic_bootstrap_calls(
             )
         };
         calls.push(bootstrap_call(calls.len(), tool, raw_arguments));
+    }
+    if unit_risk.high_risk {
+        for query in &unit_risk.suggested_queries {
+            if calls.len() >= bootstrap_budget {
+                break;
+            }
+            calls.push(bootstrap_call(
+                calls.len(),
+                ToolName::SearchText,
+                json!({ "query": query }).to_string(),
+            ));
+        }
     }
     BootstrapPlan {
         calls,
@@ -3908,6 +3927,7 @@ mod tests {
         let calls = deterministic_bootstrap_calls(
             &review_plan,
             unit_plan.units.first().expect("unit"),
+            &NO_CONTRACT_RISK,
             snapshot.diff.content.as_str(),
             1,
             8,
@@ -3932,6 +3952,7 @@ mod tests {
         let plan = deterministic_bootstrap_calls(
             &review_plan,
             unit_plan.units.first().expect("unit"),
+            &NO_CONTRACT_RISK,
             snapshot.diff.content.as_str(),
             64 * 1024,
             6,
@@ -3940,6 +3961,31 @@ mod tests {
         assert_eq!(plan.calls.len(), 2);
         assert_eq!(plan.calls[0].name, ToolId::from(ToolName::ReadDiff));
         assert_eq!(plan.skipped_paths.len(), 2);
+    }
+
+    #[test]
+    fn deterministic_bootstrap_adds_contract_seed_searches_for_high_risk_units() {
+        let snapshot = build_test_snapshot(vec![(
+            "apps/api/callback.ts",
+            "export function callback() { return { credential_token: true }; }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let risk_plan = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let unit = unit_plan.units.first().expect("unit");
+        let plan = deterministic_bootstrap_calls(
+            &review_plan,
+            unit,
+            risk_plan.unit_risk(unit),
+            snapshot.diff.content.as_str(),
+            64 * 1024,
+            8,
+        );
+
+        assert!(plan
+            .calls
+            .iter()
+            .any(|call| call.name == ToolId::from(ToolName::SearchText)));
     }
 
     #[test]
@@ -4047,7 +4093,14 @@ mod tests {
         mode: TestModelMode,
         budget: AgentBudget,
     ) -> PlannedReviewRunReport {
-        run_test_review_with_budget_objective(files, mode, budget, "template").await
+        run_test_review_with_budget_objective(
+            files,
+            mode,
+            budget,
+            "template",
+            QualityPassMode::Auto,
+        )
+        .await
     }
 
     async fn run_test_review_with_quality_budget(
@@ -4059,7 +4112,8 @@ mod tests {
             files,
             mode,
             budget,
-            "Review this production-materialized pull request for actionable correctness bugs.",
+            "Review this pull request for actionable correctness bugs.",
+            QualityPassMode::Enabled,
         )
         .await
     }
@@ -4069,6 +4123,7 @@ mod tests {
         mode: TestModelMode,
         budget: AgentBudget,
         objective: &str,
+        quality_mode: QualityPassMode,
     ) -> PlannedReviewRunReport {
         let template = SessionScope {
             id: SessionId("template".to_string()),
@@ -4080,7 +4135,7 @@ mod tests {
             capabilities: CapabilitySet::review_read_only(),
             budget,
         };
-        run_test_review_with_templates(files, mode, vec![template]).await
+        run_test_review_with_templates_and_quality(files, mode, vec![template], quality_mode).await
     }
 
     fn expanded_review_budget() -> AgentBudget {
@@ -4133,8 +4188,25 @@ mod tests {
         mode: TestModelMode,
         session_templates: Vec<SessionScope>,
     ) -> PlannedReviewRunReport {
+        run_test_review_with_templates_and_quality(
+            files,
+            mode,
+            session_templates,
+            QualityPassMode::Auto,
+        )
+        .await
+    }
+
+    async fn run_test_review_with_templates_and_quality(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        session_templates: Vec<SessionScope>,
+        quality_mode: QualityPassMode,
+    ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
-        let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
+        let mut limits = RuntimeLimits::standard(2, 64 * 1024, 20);
+        limits.quality_pass_mode = quality_mode;
+        let limits = Arc::new(limits);
         let active_sessions = session_semaphore(&limits);
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = Arc::new(PlannedReviewRuntime {

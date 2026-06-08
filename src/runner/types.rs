@@ -67,6 +67,15 @@ pub struct RunStartParams {
     pub mode: Option<String>,
     #[serde(default)]
     pub context_engine: Option<ContextEngineConfig>,
+    #[serde(default)]
+    pub quality_mode: Option<RunQualityMode>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunQualityMode {
+    Standard,
+    Production,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -601,6 +610,10 @@ pub struct RunnerFileReview {
 pub struct RunnerRunSummary {
     pub sessions: usize,
     pub completed_sessions: usize,
+    #[serde(default)]
+    pub review_units: usize,
+    #[serde(default)]
+    pub completed_review_units: usize,
     pub model_calls: usize,
     pub tool_calls: usize,
     pub findings: usize,

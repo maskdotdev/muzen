@@ -1,29 +1,34 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 
 const SCHEMA_VERSION = "muzen.review-quality-benchmark.v1";
 const JOB_SCHEMA_VERSION = "heimdaal.review-run.v1";
 const DEFAULT_MODEL = process.env.MODEL || "gpt-4o-mini";
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const repo = path.resolve(args.repo || ".");
-  const runnerPath = path.resolve(args.runnerPath || "target/release/muzen");
+  const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
   const outputPath = args.output ? path.resolve(args.output) : null;
   const baseRef = required(args.baseRef, "--base-ref is required");
   const goldenPath = args.golden ? path.resolve(args.golden) : null;
   const changedFiles = gitChangedFiles(repo, baseRef);
+  const changedFilePaths = changedFiles
+    .map((file) => file.newPath ?? file.oldPath)
+    .filter(Boolean);
   const inlineDiff = git(repo, ["diff", "--find-renames", "--find-copies", `${baseRef}...HEAD`]);
   const runId = args.runId || `review-quality-${timestamp()}`;
-  const job = buildReviewJob({
+  const runStart = buildRunnerStart({
     runId,
     repo,
     baseRef,
     changedFiles,
+    changedFilePaths,
     inlineDiff,
     model: args.model || DEFAULT_MODEL,
     sessions: numberArg(args.sessions, 1),
@@ -34,59 +39,61 @@ function main() {
   });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-"));
-  const jobPath = path.join(tempDir, "job.json");
-  const eventLogPath = path.join(tempDir, "events.jsonl");
-  fs.writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
+  const requestPath = path.join(tempDir, "run-start.json");
+  const framesPath = path.join(tempDir, "frames.jsonl");
+  fs.writeFileSync(requestPath, `${JSON.stringify(runStart, null, 2)}\n`);
 
   const startedAt = Date.now();
-  const run = spawnSync(runnerPath, ["run", "--job", jobPath], {
-    cwd: repo,
-    encoding: "utf8",
-    env: process.env,
-    maxBuffer: 1024 * 1024 * 256,
-  });
+  const run = await runRunnerReview(runnerPath, runStart);
   const elapsedMs = Date.now() - startedAt;
-  fs.writeFileSync(eventLogPath, run.stdout || "");
+  fs.writeFileSync(framesPath, `${run.frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
 
-  const finalResult = parseFinalResult(run.stdout || "");
+  const finalResult = run.result;
   const verdictCounts = fileReviewVerdictCounts(finalResult?.fileReviews || []);
-  const plannedReview = parsePlannedReview(run.stdout || "");
-  const completionDiagnostics = parseCompletionSummaries(run.stdout || "");
+  const diagnostics = eventDiagnostics(run.frames);
   const golden = goldenPath ? readJson(goldenPath) : { issues: [] };
   const scoring = scoreFindings(finalResult?.findings || [], golden.issues || []);
   const report = {
     schemaVersion: SCHEMA_VERSION,
     generatedAtUtc: new Date().toISOString(),
     mode: "production-review-run",
-    reviewValid: run.status === 0 && Boolean(finalResult),
-    exitCode: run.status,
-    error: run.status === 0 ? null : trim(run.stderr || run.stdout || "review command failed"),
+    reviewValid: run.ok && Boolean(finalResult),
+    exitCode: run.exitCode,
+    error: run.ok ? null : trim(run.error || run.stderr || "review command failed"),
     inputs: {
       repo,
       baseRef,
       runnerPath,
       model: args.model || DEFAULT_MODEL,
-      changedFileCount: changedFiles.length,
+      changedFileCount: changedFilePaths.length,
       goldenIssueCount: golden.issues?.length || 0,
     },
     artifacts: {
-      job: jobPath,
-      events: eventLogPath,
+      request: requestPath,
+      frames: framesPath,
     },
     review: finalResult
       ? {
-          outcome: finalResult.outcome,
-          publishability: finalResult.publishability,
-          sessions: finalResult.sessions,
-          completedSessions: finalResult.completedSessions,
+          status: finalResult.status,
+          sessions: finalResult.summary?.sessions,
+          completedSessions: finalResult.summary?.completedSessions,
+          reviewUnits: finalResult.summary?.reviewUnits,
+          completedReviewUnits: finalResult.summary?.completedReviewUnits,
           fileReviews: finalResult.fileReviews?.length || 0,
           fileReviewVerdicts: verdictCounts,
           findings: finalResult.findings?.length || 0,
-          modelCalls: finalResult.modelCalls,
-          toolCounts: finalResult.toolCounts,
-          tokens: finalResult.tokens,
-          artifactStats: finalResult.artifactStats,
-          elapsedMs: finalResult.elapsedMs,
+          modelCalls: finalResult.summary?.modelCalls,
+          toolCalls: finalResult.summary?.toolCalls,
+          tokens: {
+            inputTokens: finalResult.summary?.inputTokens,
+            outputTokens: finalResult.summary?.outputTokens,
+            totalTokens: finalResult.summary?.totalTokens,
+          },
+          artifactStats: {
+            artifacts: finalResult.summary?.artifacts,
+            artifactBytes: finalResult.summary?.artifactBytes,
+          },
+          elapsedMs: finalResult.summary?.elapsedMs,
         }
       : null,
     benchmark: {
@@ -95,15 +102,15 @@ function main() {
       hits: scoring.hits,
       misses: scoring.misses,
       falsePositiveCount: scoring.falsePositiveCount,
-      candidateCount: terminalDiagnosticNumber(run.stdout || "", "candidateFindings"),
-      rescuedCandidateCount: terminalDiagnosticNumber(run.stdout || "", "rescuedCandidates"),
-      rejectedCandidateCount: terminalDiagnosticNumber(run.stdout || "", "rejectedCandidates"),
-      contractRiskUnits: plannedReview?.contractRiskUnits ?? 0,
-      contractSeedCount: plannedReview?.contractSeedCount ?? 0,
-      requiredEvidenceFailures: completionDiagnostics.requiredEvidenceFailures,
-      contractRiskCompletionCount: completionDiagnostics.contractRiskCompletionCount,
-      searchCount: finalResult?.toolCounts?.searchText ?? 0,
-      importCount: finalResult?.toolCounts?.listImports ?? 0,
+      candidateCount: diagnostics.candidateFindings,
+      rescuedCandidateCount: diagnostics.rescuedCandidates,
+      rejectedCandidateCount: diagnostics.rejectedCandidates,
+      contractRiskUnits: diagnostics.contractRiskUnits,
+      contractSeedCount: diagnostics.contractSeedCount,
+      requiredEvidenceFailures: diagnostics.requiredEvidenceFailures,
+      contractRiskCompletionCount: diagnostics.contractRiskCompletionCount,
+      searchCount: diagnostics.searchCount,
+      importCount: diagnostics.importCount,
       needsReviewCount: verdictCounts.needs_review ?? 0,
       cleanCount: verdictCounts.clean ?? 0,
       skippedCount: verdictCounts.skipped ?? 0,
@@ -128,44 +135,123 @@ function fileReviewVerdictCounts(fileReviews) {
   return counts;
 }
 
-function parsePlannedReview(stdout) {
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
+async function runRunnerReview(runnerPath, runStart) {
+  const child = spawn(runnerPath, ["stdio"], {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const stderr = [];
+  child.stderr.on("data", (chunk) => stderr.push(chunk.toString("utf8")));
+  const frames = [];
+  const pending = new Map();
+  let nextId = 1;
+  const readline = createInterface({ input: child.stdout });
+  readline.on("line", (line) => {
+    if (!line.trim()) return;
+    const frame = JSON.parse(line);
+    frames.push(frame);
+    if (frame.id !== undefined && pending.has(String(frame.id))) {
+      const { resolve, reject } = pending.get(String(frame.id));
+      pending.delete(String(frame.id));
+      if (frame.error) {
+        reject(new Error(`${frame.error.message}: ${JSON.stringify(frame.error.data ?? {})}`));
+      } else {
+        resolve(frame.result);
+      }
     }
-    if (event.payload?.plannedReview) return event.payload.plannedReview;
+  });
+  const request = (method, params) => {
+    const id = nextId++;
+    const promise = new Promise((resolve, reject) => {
+      pending.set(String(id), { resolve, reject });
+    });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    return promise;
+  };
+  try {
+    await request("runner.handshake", {
+      protocolVersion: "muzen.runner.v1",
+      clientName: "review-quality-benchmark",
+    });
+    const result = await request("run.start", runStart);
+    child.stdin.end();
+    return {
+      ok: true,
+      exitCode: 0,
+      result,
+      frames,
+      stderr: stderr.join(""),
+    };
+  } catch (error) {
+    child.stdin.end();
+    return {
+      ok: false,
+      exitCode: 1,
+      result: null,
+      frames,
+      stderr: stderr.join(""),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    setTimeout(() => child.kill(), 500).unref();
   }
-  return null;
 }
 
-function parseCompletionSummaries(stdout) {
+function eventDiagnostics(frames) {
   let requiredEvidenceFailures = 0;
   let contractRiskCompletionCount = 0;
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
+  let candidateFindings = 0;
+  let rescuedCandidates = 0;
+  let rejectedCandidates = 0;
+  let contractRiskUnits = 0;
+  let contractSeedCount = 0;
+  let searchCount = 0;
+  let importCount = 0;
+  for (const frame of frames) {
+    const event = frame.params?.event;
+    if (!event) continue;
+    if (event.artifactCreated?.toolName === "search_text" || event.artifactCreated?.toolId === "search_text") {
+      searchCount += 1;
     }
-    const summary = String(event.payload?.diagnostic?.completionSummary ?? event.payload?.completionSummary ?? "");
+    if (event.artifactCreated?.toolName === "list_imports" || event.artifactCreated?.toolId === "list_imports") {
+      importCount += 1;
+    }
+    const summary = String(
+      event.sessionFinished?.completionSummary ??
+        event.modelFailed?.message ??
+        frame.params?.completionSummary ??
+        "",
+    );
     if (summary.includes("contractRisk=true")) contractRiskCompletionCount += 1;
     const match = summary.match(/missingEvidence=(\d+)/);
     if (match) requiredEvidenceFailures += Number(match[1]);
+    const candidateMatch = summary.match(/candidateFindings=(\d+)/);
+    if (candidateMatch) candidateFindings += Number(candidateMatch[1]);
+    const rescuedMatch = summary.match(/rescuedCandidates=(\d+)/);
+    if (rescuedMatch) rescuedCandidates += Number(rescuedMatch[1]);
+    const rejectedMatch = summary.match(/rejectedCandidates=(\d+)/);
+    if (rejectedMatch) rejectedCandidates += Number(rejectedMatch[1]);
   }
-  return { requiredEvidenceFailures, contractRiskCompletionCount };
+  return {
+    requiredEvidenceFailures,
+    contractRiskCompletionCount,
+    candidateFindings,
+    rescuedCandidates,
+    rejectedCandidates,
+    contractRiskUnits,
+    contractSeedCount,
+    searchCount,
+    importCount,
+  };
 }
 
-function buildReviewJob({
+function buildRunnerStart({
   runId,
   repo,
   baseRef,
   changedFiles,
+  changedFilePaths,
   inlineDiff,
   model,
   sessions,
@@ -176,59 +262,43 @@ function buildReviewJob({
 }) {
   const modelProfileId = "production-review-oai";
   return {
-    schemaVersion: JOB_SCHEMA_VERSION,
+    protocolVersion: "muzen.runner.v1",
     runId,
-    projectId: "muzen-review-quality",
-    attempt: 1,
-    idempotencyKey: `${runId}-1`,
-    deadlineUtc: null,
-    repo: {
-      provider: "local",
-      repoId: path.basename(repo),
-      repoRoot: repo,
-      worktreeRoot: repo,
-      defaultCwd: ".",
-      materializationId: `${runId}-materialization`,
-      materializedAtUtc: new Date().toISOString(),
-      materializationDigest: null,
-    },
+    repo,
+    changedFiles: changedFilePaths,
     change: {
       kind: "pull_request",
-      changeId: runId,
-      sourceRef: "HEAD",
-      targetRef: baseRef,
-      baseRevisionId: git(repo, ["rev-parse", baseRef]).trim(),
-      headRevisionId: git(repo, ["rev-parse", "HEAD"]).trim(),
-      mergeBaseRevisionId: git(repo, ["merge-base", baseRef, "HEAD"]).trim(),
-      changedFilesManifestRef: null,
-      diffManifestRef: null,
-      inlineDiff,
-      snapshotMode: "worktree_head",
-      renameDetection: "none",
-      changedFiles,
+      baseRevision: git(repo, ["rev-parse", baseRef]).trim(),
+      headRevision: git(repo, ["rev-parse", "HEAD"]).trim(),
+      changedFiles: changedFiles.map((file) => ({
+        path: file.newPath ?? file.oldPath,
+        status: file.status,
+      })),
+      diff: inlineDiff,
+      reviewTarget: `github-pr:${path.basename(repo)}`,
     },
-    modelProfiles: [
-      {
-        id: modelProfileId,
-        providerKind: "openai_compatible",
-        apiProtocol: "chat_completions",
-        providerProfileId: "env-openai-compatible",
-        credentialRef: "env:OPENAI_API_KEY",
-        model,
-        maxInputTokens: 32000,
-        maxOutputTokens,
-        toolCallingMode: "auto",
-        temperature: 0,
-        topP: null,
-      },
-    ],
-    defaultModelProfileId: modelProfileId,
-    personas: Array.from({ length: sessions }, (_, index) => ({
+    model: {
+      callback: false,
+      defaultModelProfileId: modelProfileId,
+      modelProfiles: [
+        {
+          id: modelProfileId,
+          provider: "openai_compatible",
+          apiProtocol: "responses",
+          credential: { env: "OPENAI_API_KEY" },
+          model,
+          maxInputTokens: 32000,
+          maxOutputTokens,
+          temperature: 0,
+        },
+      ],
+    },
+    qualityMode: "production",
+    sessions: Array.from({ length: sessions }, (_, index) => ({
       id: `production-review-${index}`,
       role: roleForIndex(index),
       objective:
-        "Review this production-materialized pull request for actionable correctness bugs introduced by the change. Gather concrete evidence with the read-only review tools and publish only evidence-backed findings.",
-      cwd: ".",
+        "Review this pull request for actionable correctness bugs introduced by the change. Gather concrete evidence with the read-only review tools and publish only evidence-backed findings.",
       modelProfileId,
       allowedTools: reviewReadOnlyTools(),
       budget: {
@@ -238,48 +308,10 @@ function buildReviewJob({
         maxOutputTokens,
       },
     })),
-    pathPolicy: {
-      allowedRoots: ["."],
-      deniedGlobs: [".git", "node_modules", "target", ".venv", "dist", "build", ".next"],
-      allowedGlobs: null,
-      allowDotGit: false,
-      followSymlinks: false,
-      maxFileBytes: 200 * 1024,
-      maxDiffBytes: 2 * 1024 * 1024,
-      maxSearchResults: 120,
-      maxDirectoryEntries: 5000,
-    },
-    scratchPolicy: {
-      scratchRoot: null,
-      outputRoot: null,
-      maxScratchBytes: 0,
-      cleanupOnFinish: true,
-    },
-    modelVisibility: {
-      maxPromptArtifactBytes: 1200,
-      allowFullFileContentInPrompts: false,
-      denyGlobs: [".git"],
-      redactSecretLikeContent: true,
-    },
-    outputRedaction: {
-      policyId: "review-quality-redaction-v1",
-      redactRepoSecrets: true,
-      persistFullFileContents: false,
-    },
-    budgets: {
+    limits: {
       maxActiveSessions: Math.max(1, Math.min(maxActive, sessions)),
-      maxWallTimeMs: 600000,
-      maxModelCalls: sessions * maxTurns + 2,
-      maxToolCalls: sessions * maxToolCalls,
-      maxPromptTokens: 2000000,
-      maxOutputTokens: 2000000,
-      maxArtifactBytes: 64 * 1024 * 1024,
-      maxScratchBytes: 0,
-      rssTargetMb: null,
-      rssLimitMb: null,
-    },
-    telemetry: {
-      emitDebugEvents: false,
+      maxFileBytes: 200 * 1024,
+      maxSearchMatches: 120,
     },
   };
 }
@@ -373,10 +405,11 @@ function scoreFindings(findings, issues) {
 function issueMatchesFinding(issue, finding) {
   const findingPath = findingPathOf(finding);
   if (issue.path && findingPath !== issue.path) return false;
-  if (issue.startLine && issue.endLine && finding.locationLineRange) {
+  const range = findingLineRangeOf(finding);
+  if (issue.startLine && issue.endLine && range) {
     const overlaps =
-      finding.locationLineRange.startLine <= issue.endLine &&
-      finding.locationLineRange.endLine >= issue.startLine;
+      range.startLine <= issue.endLine &&
+      range.endLine >= issue.startLine;
     if (!overlaps && issue.requireLineOverlap !== false) return false;
   }
   const text = `${finding.title || ""}\n${finding.claim || ""}`.toLowerCase();
@@ -385,12 +418,24 @@ function issueMatchesFinding(issue, finding) {
 }
 
 function findingPathOf(finding) {
+  if (finding.location?.path) return finding.location.path;
   const firstRef = finding.fileRefs?.[0];
   if (firstRef?.locationKind === "single_path") return firstRef.path;
   if (firstRef?.locationKind === "rename") return firstRef.newPath;
   const firstEvidence = finding.evidence?.[0]?.location;
   if (firstEvidence?.locationKind === "single_path") return firstEvidence.path;
   if (firstEvidence?.locationKind === "rename") return firstEvidence.newPath;
+  return null;
+}
+
+function findingLineRangeOf(finding) {
+  if (finding.location?.startLine || finding.location?.endLine) {
+    return {
+      startLine: finding.location.startLine ?? finding.location.endLine,
+      endLine: finding.location.endLine ?? finding.location.startLine,
+    };
+  }
+  if (finding.locationLineRange) return finding.locationLineRange;
   return null;
 }
 
@@ -466,4 +511,7 @@ function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
 
-main();
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack : String(error));
+  process.exitCode = 1;
+});

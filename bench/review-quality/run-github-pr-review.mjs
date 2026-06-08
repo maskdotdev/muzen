@@ -10,7 +10,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const repoSlug = required(args.repoSlug, "--repo-slug is required, e.g. calcom/cal.com");
   const prNumber = required(args.pr, "--pr is required");
-  const runnerPath = args.runnerPath || "target/release/muzen";
+  const runnerPath = args.runnerPath || "target/release/muzen-runner";
   const golden = args.golden || `bench/review-quality/goldens/cal-pr-${prNumber}.json`;
   const worktreeRoot = path.resolve(args.worktreeRoot || DEFAULT_WORKTREE_ROOT);
   const worktree = path.join(worktreeRoot, safeName(`${repoSlug}-pr-${prNumber}`));

@@ -351,8 +351,10 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("heartbeat", "RunHeartbeatConfigParams"),
                 optional("mode", "string"),
                 optional("contextEngine", "ContextEngineConfig"),
+                optional("qualityMode", "RunQualityMode"),
             ],
         ),
+        enum_definition("RunQualityMode", vec!["standard", "production"]),
         object(
             "ContextEngineConfig",
             vec![
@@ -708,6 +710,8 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("sessions", "integer"),
                 required("completedSessions", "integer"),
+                defaulted("reviewUnits", "integer", "sessions"),
+                defaulted("completedReviewUnits", "integer", "completedSessions"),
                 required("modelCalls", "integer"),
                 required("toolCalls", "integer"),
                 required("findings", "integer"),
