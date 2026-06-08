@@ -530,7 +530,6 @@ class ReviewOptions:
     sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
     context_engine: Optional[ContextEngineConfig] = None
-    quality_mode: Optional[Literal["standard", "production"]] = None
 
 
 @dataclass(frozen=True)

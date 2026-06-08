@@ -351,10 +351,8 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("heartbeat", "RunHeartbeatConfigParams"),
                 optional("mode", "string"),
                 optional("contextEngine", "ContextEngineConfig"),
-                optional("qualityMode", "RunQualityMode"),
             ],
         ),
-        enum_definition("RunQualityMode", vec!["standard", "production"]),
         object(
             "ContextEngineConfig",
             vec![
