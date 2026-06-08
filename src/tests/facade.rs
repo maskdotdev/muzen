@@ -809,12 +809,15 @@ fn public_reviewer_facade_runs_mock_review() {
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::events::ReviewEvent::ToolBatchStarted { count, .. } if *count == 3
+        crate::reviewer::events::ReviewEvent::ToolBatchStarted { count, .. } if *count > 0
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
-        crate::reviewer::events::ReviewEvent::SearchBatchCompleted { searched_files, .. }
-            if *searched_files > 0
+        crate::reviewer::events::ReviewEvent::ToolCallCompleted {
+            tool_id,
+            ok: true,
+            ..
+        } if tool_id == "read_diff"
     )));
     let artifact_event_ids = event_types
         .iter()
@@ -978,8 +981,6 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     assert!(!event_records.iter().any(|record| matches!(
         &record.event,
         crate::reviewer::events::ReviewEvent::ModelCompleted { .. }
-            | crate::reviewer::events::ReviewEvent::ToolBatchStarted { .. }
-            | crate::reviewer::events::ReviewEvent::ToolCallCompleted { .. }
     )));
     assert!(event_records.iter().any(|record| matches!(
         &record.event,

@@ -73,7 +73,6 @@ export function toRunnerStartParams(
     })),
     heartbeat: mapReviewHeartbeat(options),
     contextEngine: options.contextEngine,
-    qualityMode: options.qualityMode,
   };
   if (source.type === "local") {
     params.repo = source.repo;

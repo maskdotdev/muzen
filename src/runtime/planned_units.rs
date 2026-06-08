@@ -147,7 +147,8 @@ impl PlannedReviewRuntime {
         if should_run_review_quality_enhancements(
             self.limits.quality_pass_mode,
             &self.session_templates,
-        ) && !cancel.is_cancelled()
+        ) && self.should_run_final_synthesis()
+            && !cancel.is_cancelled()
         {
             let synthesis_report = self
                 .run_final_synthesis_pass(
@@ -282,6 +283,13 @@ impl PlannedReviewRuntime {
             findings,
             file_reviews,
         }
+    }
+
+    fn should_run_final_synthesis(&self) -> bool {
+        self.session_templates
+            .first()
+            .map(can_bootstrap_review)
+            .unwrap_or(true)
     }
 
     async fn run_unit(
@@ -805,7 +813,7 @@ async fn bootstrap_unit_evidence(
     file_evidence: &mut FileEvidenceTracker,
     cancel: CancellationToken,
 ) {
-    if cancel.is_cancelled() || scope.budget.max_tool_calls == 0 {
+    if cancel.is_cancelled() || scope.budget.max_tool_calls == 0 || !can_bootstrap_review(scope) {
         return;
     }
     let plan = deterministic_bootstrap_calls(
@@ -871,6 +879,25 @@ async fn bootstrap_unit_evidence(
     transcript.push(ConversationItem::User {
         content: format!("Deterministic bootstrap evidence has been loaded for this review unit.{skipped} Use it to review the assigned files, request only focused follow-up exploration when needed, or return the final review unit result as JSON with keys summary, fileVerdicts, and findings."),
     });
+}
+
+fn can_bootstrap_review(scope: &SessionScope) -> bool {
+    let grants = &scope.capabilities.tool_grants;
+    let review_tools = ToolName::review_read_only_tools()
+        .iter()
+        .map(|tool| ToolId::from(*tool))
+        .collect::<BTreeSet<_>>();
+    if grants.keys().any(|tool_id| !review_tools.contains(tool_id)) {
+        return false;
+    }
+    grants.contains_key(&ToolId::from(ToolName::ReadDiff))
+        && [
+            ToolName::ReadFile,
+            ToolName::ReadFileRange,
+            ToolName::ReadHeadFile,
+        ]
+        .into_iter()
+        .any(|tool| grants.contains_key(&ToolId::from(tool)))
 }
 
 struct BootstrapPlan {
@@ -3573,7 +3600,7 @@ mod tests {
         assert_eq!(report.metrics.runtime, "planned_units");
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.metrics.model_calls, 3);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -3823,12 +3850,18 @@ mod tests {
 
     #[tokio::test]
     async fn high_risk_clean_requires_contract_evidence() {
-        let report = run_test_review(
+        let report = run_test_review_with_budget(
             vec![(
                 "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithoutContractEvidence,
+            AgentBudget {
+                max_turns: 2,
+                max_tool_calls: 0,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+            },
         )
         .await;
 
@@ -3893,7 +3926,7 @@ mod tests {
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 5);
+        assert_eq!(report.metrics.model_calls, 6);
         assert_eq!(report.file_reviews[0].verdict, "clean");
     }
 
@@ -3912,7 +3945,7 @@ mod tests {
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 1);
+        assert_eq!(report.metrics.model_calls, 2);
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
     }
 
@@ -4135,7 +4168,7 @@ mod tests {
             capabilities: CapabilitySet::review_read_only(),
             budget,
         };
-        run_test_review_with_templates_and_quality(files, mode, vec![template], quality_mode).await
+        run_test_review_with_templates(files, mode, vec![template]).await
     }
 
     fn expanded_review_budget() -> AgentBudget {

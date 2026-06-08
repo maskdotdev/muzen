@@ -55,7 +55,6 @@ def _to_runner_start_params(
         "model": model_plan["runnerModel"],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
         "contextEngine": _context_engine_to_runner(options.context_engine),
-        "qualityMode": options.quality_mode,
     }
     if source.type == "local":
         payload["repo"] = source.repo

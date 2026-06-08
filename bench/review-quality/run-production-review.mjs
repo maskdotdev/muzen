@@ -293,7 +293,6 @@ function buildRunnerStart({
         },
       ],
     },
-    qualityMode: "production",
     sessions: Array.from({ length: sessions }, (_, index) => ({
       id: `production-review-${index}`,
       role: roleForIndex(index),

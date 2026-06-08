@@ -67,15 +67,6 @@ pub struct RunStartParams {
     pub mode: Option<String>,
     #[serde(default)]
     pub context_engine: Option<ContextEngineConfig>,
-    #[serde(default)]
-    pub quality_mode: Option<RunQualityMode>,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunQualityMode {
-    Standard,
-    Production,
 }
 
 #[derive(Debug, Clone, Deserialize)]
