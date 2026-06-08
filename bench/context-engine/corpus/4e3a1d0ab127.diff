@@ -1,0 +1,383 @@
+diff --git a/apps/web/src/features/review/server/review-argus-agent.test.ts b/apps/web/src/features/review/server/review-argus-agent.test.ts
+index 89da89a7..20b7ed95 100644
+--- a/apps/web/src/features/review/server/review-argus-agent.test.ts
++++ b/apps/web/src/features/review/server/review-argus-agent.test.ts
+@@ -298,6 +298,7 @@ describe("review-argus-agent", () => {
+     expect(runReviewWorkflow).toHaveBeenCalledTimes(1)
+     expect(runReviewWorkflow).toHaveBeenCalledWith(
+       expect.objectContaining({
++        issueContext,
+         maxExploreActions: 4,
+         projectRoot: "/tmp/argus-workspace",
+       }),
+diff --git a/apps/web/src/features/review/server/review-argus-agent.ts b/apps/web/src/features/review/server/review-argus-agent.ts
+index 74cbf0a3..4cf56dd0 100644
+--- a/apps/web/src/features/review/server/review-argus-agent.ts
++++ b/apps/web/src/features/review/server/review-argus-agent.ts
+@@ -985,6 +985,7 @@ export const runArgusAgentReview = async (
+           ),
+           maxExploreActions: ARGUS_MAX_EXPLORE_ACTIONS,
+           reviewPolicy,
++          issueContext,
+           onEvent: (event) => {
+             eventLines.push(JSON.stringify(event))
+             updateMetricsFromEvent(metrics, event)
+diff --git a/packages/argus-agent/src/index.ts b/packages/argus-agent/src/index.ts
+index 7732bf8d..c481f442 100644
+--- a/packages/argus-agent/src/index.ts
++++ b/packages/argus-agent/src/index.ts
+@@ -48,6 +48,10 @@ export type {
+   ReviewFinding,
+   ReviewFormat,
+   ReviewInput,
++  ReviewIssueContext,
++  ReviewIssueLookupFailure,
++  ReviewLinkedIssue,
++  ReviewLinkedIssueState,
+   ReviewPromptResult,
+   ReviewResult,
+   ReviewSeverity,
+diff --git a/packages/argus-agent/src/review/prompt.test.ts b/packages/argus-agent/src/review/prompt.test.ts
+index f1f0307c..dd03f92d 100644
+--- a/packages/argus-agent/src/review/prompt.test.ts
++++ b/packages/argus-agent/src/review/prompt.test.ts
+@@ -56,4 +56,58 @@ describe('buildReviewPrompt', () => {
+     expect(prompt.prompt).toContain('Notes: Tool: read_file; Evidence is truncated; File has 450 lines')
+     expect(prompt.prompt).toContain('Notes: Tool: list_files; 2 entries')
+   })
++
++  test('includes linked issue requirements as acceptance criteria', () => {
++    const prompt = buildReviewPrompt({
++      context: {
++        diffs: [
++          {
++            oldPath: 'src/example.ts',
++            newPath: 'src/example.ts',
++            diff: 'diff --git a/src/example.ts b/src/example.ts\n@@ -1,1 +1,1 @@\n-old\n+new\n',
++            newFile: false,
++            deletedFile: false,
++            renamedFile: false,
++          },
++        ],
++        items: [],
++        metadata: {
++          truncated: false,
++          confidence: 0.72,
++          sources: ['filesystem'],
++          warnings: [],
++        },
++      },
++      issueContext: {
++        issues: [
++          {
++            provider: 'jira',
++            ref: 'PROJ-42',
++            title: 'Add optional section filtering for release notes',
++            descriptionRaw:
++              'Acceptance criteria:\n- Support a sections filter parameter\n- CLI exposes a --sections flag\n- Output includes only requested sections',
++            state: {
++              raw: 'Todo',
++              normalized: 'todo',
++            },
++            labels: ['story'],
++            assigneeNames: ['Alex'],
++            priority: 'Medium',
++            issueType: 'Story',
++            webUrl: 'https://jira.example.com/browse/PROJ-42',
++          },
++        ],
++        failures: [],
++        refsParsed: 1,
++        lookupsSucceeded: 1,
++        lookupsFailed: 0,
++      },
++    })
++
++    expect(prompt.prompt).toContain('# Linked Issue Requirements')
++    expect(prompt.prompt).toContain('Treat linked issues as product requirements and acceptance criteria')
++    expect(prompt.prompt).toContain('[jira] PROJ-42 - Add optional section filtering for release notes')
++    expect(prompt.prompt).toContain('Support a sections filter parameter')
++    expect(prompt.prompt).toContain('CLI exposes a --sections flag')
++  })
+ })
+diff --git a/packages/argus-agent/src/review/prompt.ts b/packages/argus-agent/src/review/prompt.ts
+index 291e42e0..d5a62b0b 100644
+--- a/packages/argus-agent/src/review/prompt.ts
++++ b/packages/argus-agent/src/review/prompt.ts
+@@ -1,5 +1,10 @@
+ import type { ContextItem, ContextPack } from '../context/types'
+-import type { ReviewInput, ReviewPromptResult } from './types'
++import type {
++  ReviewInput,
++  ReviewIssueContext,
++  ReviewLinkedIssue,
++  ReviewPromptResult,
++} from './types'
+ 
+ const SYSTEM_PROMPT = [
+   'You are a senior engineer performing a code review.',
+@@ -98,8 +103,83 @@ const formatDiffSection = (pack: ContextPack): string =>
+ const formatContextSection = (pack: ContextPack): string =>
+   pack.items.map((item) => formatContextItem(item)).join('\n\n')
+ 
++const formatIssue = (issue: ReviewLinkedIssue): string => {
++  const lines = [
++    `- [${issue.provider}] ${issue.ref} - ${issue.title}`,
++    `  State: ${issue.state.raw} (${issue.state.normalized})`,
++  ]
++
++  if (issue.issueType) {
++    lines.push(`  Type: ${issue.issueType}`)
++  }
++  if (issue.priority) {
++    lines.push(`  Priority: ${issue.priority}`)
++  }
++  if (issue.labels.length > 0) {
++    lines.push(`  Labels: ${issue.labels.join(', ')}`)
++  }
++  if (issue.assigneeNames.length > 0) {
++    lines.push(`  Assignees: ${issue.assigneeNames.join(', ')}`)
++  }
++  if (issue.reporterName) {
++    lines.push(`  Reporter: ${issue.reporterName}`)
++  }
++  if (issue.descriptionRaw.trim()) {
++    lines.push(`  Acceptance Criteria / Description:\n${issue.descriptionRaw.trim()}`)
++  }
++
++  return lines.join('\n')
++}
++
++const formatIssueContextSection = (issueContext: ReviewIssueContext): string[] => {
++  const lines = [
++    '# Linked Issue Requirements',
++    'Treat linked issues as product requirements and acceptance criteria when evaluating whether the merge request is complete and correct.',
++    'Raise findings when the changed code appears inconsistent with, incomplete for, or likely to violate those requirements.',
++    'Do not invent requirements beyond the linked issue details and the diff.',
++    '',
++    `Issue refs parsed: ${issueContext.refsParsed}`,
++    `Issue lookups succeeded: ${issueContext.lookupsSucceeded}`,
++    `Issue lookups failed: ${issueContext.lookupsFailed}`,
++  ]
++
++  if (issueContext.error) {
++    lines.push(`Issue context error: ${issueContext.error}`)
++  }
++
++  if (issueContext.issues.length > 0) {
++    lines.push('')
++    lines.push('Resolved linked issues:')
++    for (const issue of issueContext.issues) {
++      lines.push(formatIssue(issue))
++    }
++  }
++
++  if (issueContext.failures.length > 0) {
++    lines.push('')
++    lines.push('Unresolved issue references:')
++    for (const failure of issueContext.failures) {
++      lines.push(
++        `- [${failure.provider}] ${failure.ref} - ${failure.reason}: ${failure.message}`,
++      )
++    }
++  }
++
++  return lines
++}
++
++const hasMeaningfulIssueContext = (issueContext: ReviewIssueContext | null | undefined) =>
++  Boolean(
++    issueContext &&
++      (issueContext.refsParsed > 0 ||
++        issueContext.issues.length > 0 ||
++        issueContext.failures.length > 0 ||
++        issueContext.error),
++  )
++
+ export const buildReviewPrompt = (input: ReviewInput): ReviewPromptResult => {
+   const parts: string[] = []
++  const issueContext = input.issueContext ?? null
+ 
+   parts.push('# Review Policy')
+   parts.push(input.reviewPolicy?.trim() || DEFAULT_REVIEW_POLICY)
+@@ -117,6 +197,11 @@ export const buildReviewPrompt = (input: ReviewInput): ReviewPromptResult => {
+   }
+   parts.push('')
+ 
++  if (hasMeaningfulIssueContext(issueContext) && issueContext) {
++    parts.push(...formatIssueContextSection(issueContext))
++    parts.push('')
++  }
++
+   parts.push('# Diff')
+   parts.push(formatDiffSection(input.context))
+   parts.push('')
+diff --git a/packages/argus-agent/src/review/types.ts b/packages/argus-agent/src/review/types.ts
+index 1e629c29..532b48ca 100644
+--- a/packages/argus-agent/src/review/types.ts
++++ b/packages/argus-agent/src/review/types.ts
+@@ -4,6 +4,48 @@ import type { ReviewModelClient } from './model-client'
+ export type ReviewSeverity = 'critical' | 'major' | 'minor' | 'info'
+ export type ReviewFormat = 'markdown' | 'structured'
+ 
++export interface ReviewLinkedIssueState {
++  raw: string
++  normalized:
++    | 'todo'
++    | 'in_progress'
++    | 'blocked'
++    | 'done'
++    | 'cancelled'
++    | 'unknown'
++}
++
++export interface ReviewLinkedIssue {
++  provider: 'jira' | 'gitlab'
++  ref: string
++  title: string
++  descriptionRaw: string
++  state: ReviewLinkedIssueState
++  labels: string[]
++  assigneeNames: string[]
++  reporterName?: string
++  priority?: string
++  issueType?: string
++  webUrl: string
++}
++
++export interface ReviewIssueLookupFailure {
++  provider: 'jira' | 'gitlab'
++  ref: string
++  reason: string
++  message: string
++  status?: number
++}
++
++export interface ReviewIssueContext {
++  issues: ReviewLinkedIssue[]
++  failures: ReviewIssueLookupFailure[]
++  error?: string
++  refsParsed: number
++  lookupsSucceeded: number
++  lookupsFailed: number
++}
++
+ export interface ReviewFinding {
+   severity: ReviewSeverity
+   title: string
+@@ -31,6 +73,7 @@ export interface ReviewInput {
+   reviewPolicy?: string
+   format?: ReviewFormat
+   minContextConfidence?: number
++  issueContext?: ReviewIssueContext | null
+ }
+ 
+ export interface ExecuteReviewOptions {
+diff --git a/packages/argus-agent/src/review/workflow.test.ts b/packages/argus-agent/src/review/workflow.test.ts
+index 9c321f1c..6d6b2878 100644
+--- a/packages/argus-agent/src/review/workflow.test.ts
++++ b/packages/argus-agent/src/review/workflow.test.ts
+@@ -72,6 +72,66 @@ describe('runReviewWorkflow', () => {
+     expect(events).toContain('assistant_output_chunk')
+     expect(events).toContain('assistant_output_completed')
+   })
++
++  test('passes linked issue acceptance criteria into the review prompt', async () => {
++    const projectRoot = await createTempProject()
++    let capturedPrompt = ''
++    const client: ReviewModelClient = {
++      generateObject: async <T>(request: { prompt: string }) => {
++        capturedPrompt = request.prompt
++        return { object: { summary: '', findings: [] } as T }
++      },
++      generateText: async () => ({ text: 'unused' }),
++      streamText: async () => ({
++        textStream: (async function* () {
++          yield 'unused'
++        })(),
++      }),
++    }
++
++    const result = await runReviewWorkflow({
++      diffText,
++      projectRoot,
++      cwd: projectRoot,
++      emit: 'result',
++      format: 'structured',
++      model: 'gpt-5-mini',
++      apiKey: 'test-key',
++      stream: false,
++      useArgusContext: false,
++      bootstrapIndex: false,
++      useAgentContext: false,
++      maxExploreFiles: 1,
++      maxExploreActions: 1,
++      issueContext: {
++        issues: [
++          {
++            provider: 'jira',
++            ref: 'PROJ-42',
++            title: 'Add optional section filtering for release notes',
++            descriptionRaw: 'Acceptance criteria: CLI exposes a --sections flag.',
++            state: {
++              raw: 'Todo',
++              normalized: 'todo',
++            },
++            labels: ['story'],
++            assigneeNames: ['Alex'],
++            webUrl: 'https://jira.example.com/browse/PROJ-42',
++          },
++        ],
++        failures: [],
++        refsParsed: 1,
++        lookupsSucceeded: 1,
++        lookupsFailed: 0,
++      },
++      client,
++    })
++
++    expect(result.kind).toBe('structured')
++    expect(capturedPrompt).toContain('# Linked Issue Requirements')
++    expect(capturedPrompt).toContain('Add optional section filtering for release notes')
++    expect(capturedPrompt).toContain('CLI exposes a --sections flag.')
++  })
+ })
+ 
+ describe('runReviewWorkflowStream', () => {
+diff --git a/packages/argus-agent/src/review/workflow.ts b/packages/argus-agent/src/review/workflow.ts
+index e40a1d27..035988c5 100644
+--- a/packages/argus-agent/src/review/workflow.ts
++++ b/packages/argus-agent/src/review/workflow.ts
+@@ -21,7 +21,7 @@ import { createArgusRuntime, type ArgusRuntime } from '../runtime/argus-runtime'
+ import { createOpenAiCompatibleReviewClient } from './ai-sdk-openai'
+ import type { ReviewModelClient } from './model-client'
+ import { executeReview, prepareReview, streamReviewMarkdown } from './engine'
+-import type { ReviewResult } from './types'
++import type { ReviewIssueContext, ReviewResult } from './types'
+ import { buildReviewPrompt } from './prompt'
+ import type { DiffFile } from '../context/types'
+ import { parseUnifiedDiff } from '../cli/commands/review-diff'
+@@ -34,6 +34,7 @@ export interface ReviewWorkflowOptions {
+   cwd?: string
+   projectRoot: string
+   reviewPolicy?: string
++  issueContext?: ReviewIssueContext | null
+   emit: ReviewWorkflowEmitMode
+   format: ReviewWorkflowOutputFormat
+   model: string
+@@ -528,6 +529,7 @@ export const runReviewWorkflow = async (
+         {
+           context: reviewContext,
+           format: 'markdown',
++          ...(options.issueContext ? { issueContext: options.issueContext } : {}),
+           ...(options.reviewPolicy?.trim()
+             ? { reviewPolicy: options.reviewPolicy.trim() }
+             : {}),
+@@ -618,6 +620,7 @@ export const runReviewWorkflow = async (
+         {
+           context: reviewContext,
+           format: options.format,
++          ...(options.issueContext ? { issueContext: options.issueContext } : {}),
+           ...(options.reviewPolicy?.trim()
+             ? { reviewPolicy: options.reviewPolicy.trim() }
+             : {}),

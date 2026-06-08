@@ -68,6 +68,9 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
         merged.snapshot_metrics.extend(summary.snapshot_metrics);
         merge_model_metrics(&mut merged.model_metrics, summary.model_metrics);
         merged
+            .quality_diagnostics
+            .add(summary.quality_diagnostics);
+        merged
             .completion_diagnostics
             .extend(summary.completion_diagnostics);
     }
@@ -201,6 +204,7 @@ pub struct ReviewRunSummary {
     pub snapshot_count: usize,
     pub benchmark_valid: bool,
     pub benchmark_failure_count: usize,
+    pub quality_diagnostics: metrics::ReviewQualityDiagnostics,
 }
 
 impl ReviewRunSummary {
@@ -228,6 +232,7 @@ impl ReviewRunSummary {
             snapshot_count: metrics.snapshot_metrics.len(),
             benchmark_valid: metrics.benchmark_valid,
             benchmark_failure_count: metrics.benchmark_failures.len(),
+            quality_diagnostics: metrics.quality_diagnostics.clone(),
         }
     }
 }
@@ -426,6 +431,7 @@ pub struct FindingView {
     pub validation_status: String,
     pub evidence: Vec<EvidenceView>,
     pub location: Option<FindingLocationView>,
+    pub related_paths: Vec<String>,
     pub discovered_by: Vec<String>,
     pub validated_by: Vec<String>,
     pub challenged_by: Vec<String>,
@@ -465,11 +471,24 @@ impl FindingView {
             validation_status: validation_status_name(finding.validation_status).to_string(),
             evidence,
             location: finding_location_view(finding),
+            related_paths: finding_related_paths(finding),
             discovered_by: finding.discovered_by.clone(),
             validated_by,
             challenged_by: finding.challenged_by.clone(),
         }
     }
+}
+
+fn finding_related_paths(finding: &FindingV1) -> Vec<String> {
+    finding
+        .file_refs
+        .iter()
+        .skip(1)
+        .map(|location| match location {
+            crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
+            crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+        })
+        .collect()
 }
 
 fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {

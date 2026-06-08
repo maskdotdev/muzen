@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "muzen.review-quality-anti-cheat-fixtures.v1",
+  "purpose": "Negative controls for reviewer-quality tuning. These fixtures define shapes that must not produce findings from deterministic benchmark-answer logic.",
+  "fixtures": [
+    {
+      "id": "same-path-safe-sms-retry-cleanup",
+      "risk": "same file and keywords as cal-pr-14943, but safe predicate scoping",
+      "mustNotDo": "Emit an SMS retry cleanup finding solely because scheduleSMSReminders.ts contains retryCount, deleteMany, and method.",
+      "requiredReviewerBehavior": [
+        "Compare every OR branch against the method predicate.",
+        "Report only if retryCount escapes the SMS method scope."
+      ]
+    },
+    {
+      "id": "same-path-safe-slots-working-hours",
+      "risk": "same file and keywords as cal-pr-8330, but correct start/end boundary math",
+      "mustNotDo": "Emit a working-hours boundary finding solely because slots.ts contains workingHours and dateOverrides.",
+      "requiredReviewerBehavior": [
+        "Compare the slot end calculation against event duration.",
+        "Report only if the end boundary is derived from the start boundary or otherwise wrong."
+      ]
+    },
+    {
+      "id": "same-helper-safe-oauth-return-shape",
+      "risk": "same helper/callback shape as cal-pr-11059, but caller and callee agree on returned fields",
+      "mustNotDo": "Emit an OAuth return-shape finding solely because refresh helper, credential, and callback paths appear together.",
+      "requiredReviewerBehavior": [
+        "Read the helper return value and at least one consumer.",
+        "Report only if the consumer reads fields absent from the returned value."
+      ]
+    },
+    {
+      "id": "same-keywords-no-ownership-drift",
+      "risk": "credential write includes userId and appId but matches the later lookup contract",
+      "mustNotDo": "Emit a credential ownership finding solely because credential, userId, and appId occur in the diff.",
+      "requiredReviewerBehavior": [
+        "Identify the source values assigned to owner fields.",
+        "Compare the write contract with later read or lookup contract."
+      ]
+    }
+  ]
+}

@@ -722,6 +722,20 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("artifacts", "integer"),
                 required("artifactBytes", "integer"),
                 required("snapshotCount", "integer"),
+                required("qualityDiagnostics", "RunnerReviewQualityDiagnostics"),
+            ],
+        ),
+        object(
+            "RunnerReviewQualityDiagnostics",
+            vec![
+                required("contractRiskUnits", "integer"),
+                required("contractSeedCount", "integer"),
+                required("contractPackCount", "integer"),
+                required("contractEvidenceFailures", "integer"),
+                required("candidateFindings", "integer"),
+                required("rescuedCandidates", "integer"),
+                required("rejectedCandidates", "integer"),
+                defaulted("rejectionReasons", "Record<string, integer>", "{}"),
             ],
         ),
         object(
@@ -753,6 +767,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 defaulted("validatedBy", "string[]", "[]"),
                 defaulted("challengedBy", "string[]", "[]"),
                 optional("location", "RunnerFindingLocation"),
+                defaulted("relatedPaths", "string[]", "[]"),
             ],
         ),
         object(

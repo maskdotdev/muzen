@@ -1,0 +1,1067 @@
+diff --git a/README.md b/README.md
+index 0663372a..36572cb0 100644
+--- a/README.md
++++ b/README.md
+@@ -109,6 +109,10 @@ Run worker:
+   bun run worker:indexer
+   ```
+ 
++Periodic reconcile scheduling defaults:
++- `INDEXER_RECONCILE_INTERVAL_MS=300000` (5 min)
++- `INDEXER_RECONCILE_INTEGRATION_LIMIT=500`
++
+ ### App observability
+ 
+ The app uses a single logging entrypoint in `src/lib/utils/logger.ts`.
+diff --git a/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.test.ts b/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.test.ts
+new file mode 100644
+index 00000000..41f59857
+--- /dev/null
++++ b/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.test.ts
+@@ -0,0 +1,193 @@
++import { describe, expect, mock, test } from "bun:test"
++
++type LoggerContext = Record<string, unknown>
++
++type ApiLogHandlerArgs = {
++  logger: {
++    set: (context: LoggerContext) => void
++  }
++  requestId: string
++}
++
++type ApiLogHandlerResult = {
++  response: Response
++  status: number
++  outcome?: string
++}
++
++type RunWithApiRequestLogArgs = {
++  request: Request
++  path: string
++  event: string
++  context: Record<string, unknown>
++  handler: (args: ApiLogHandlerArgs) => Promise<ApiLogHandlerResult>
++}
++
++const loadRouteModule = async () => {
++  const loggerContext: LoggerContext = {}
++  const runWithApiRequestLog = mock(async ({ handler }: RunWithApiRequestLogArgs) => {
++    const logger = {
++      set: (context: LoggerContext) => {
++        Object.assign(loggerContext, context)
++      },
++    }
++    const result = await handler({ logger, requestId: "req_1" })
++    return result.response
++  })
++
++  const getSessionUserId = mock(async () => "user-1")
++  const getUserIntegration = mock(async () => ({
++    id: "integration-1",
++    status: "active" as const,
++  }))
++
++  let selectCall = 0
++  const db = {
++    select: () => {
++      selectCall += 1
++
++      if (selectCall === 1) {
++        return {
++          from: () => ({
++            where: () => ({
++              orderBy: () => ({
++                limit: () =>
++                  Promise.resolve([
++                    {
++                      id: "branch-state-1",
++                      branch: "main",
++                      configHash: "default",
++                      lastReadySha: "sha-old",
++                      lastReadyRunId: "run-1",
++                      servingUpdatedAt: new Date("2026-02-14T09:55:00.000Z"),
++                      updatedAt: new Date("2026-02-14T10:05:00.000Z"),
++                      createdAt: new Date("2026-02-14T09:50:00.000Z"),
++                    },
++                  ]),
++              }),
++            }),
++          }),
++        }
++      }
++
++      if (selectCall === 2) {
++        return {
++          from: () => ({
++            where: () => ({
++              orderBy: () => ({
++                limit: () =>
++                  Promise.resolve([
++                    {
++                      id: "reconcile-1",
++                      status: "succeeded",
++                      attempts: 1,
++                      lastError: null,
++                      result: {
++                        checked: 2,
++                        enqueued: 1,
++                        branchChecks: [
++                          {
++                            branch: "main",
++                            configHash: "default",
++                            lastReadySha: "sha-old",
++                            headSha: "sha-new",
++                            enqueued: true,
++                          },
++                        ],
++                      },
++                      createdAt: new Date("2026-02-14T10:02:00.000Z"),
++                      updatedAt: new Date("2026-02-14T10:03:00.000Z"),
++                      startedAt: new Date("2026-02-14T10:02:10.000Z"),
++                      finishedAt: new Date("2026-02-14T10:02:20.000Z"),
++                    },
++                  ]),
++              }),
++            }),
++          }),
++        }
++      }
++
++      return {
++        from: () => ({
++          where: () => ({
++            orderBy: () =>
++              Promise.resolve([
++                {
++                  id: "run-1",
++                  branchStateId: "branch-state-1",
++                  headSha: "sha-new",
++                  baseSha: "sha-old",
++                  mode: "delta",
++                  status: "ready",
++                  stats: null,
++                  error: null,
++                  createdAt: new Date("2026-02-14T10:01:00.000Z"),
++                  updatedAt: new Date("2026-02-14T10:01:20.000Z"),
++                },
++              ]),
++          }),
++        }),
++      }
++    },
++  }
++
++  mock.module("@/lib/db", () => ({ db }))
++  mock.module("@/lib/session", () => ({ getSessionUserId }))
++  mock.module("@/lib/gitlab/service", () => ({ getUserIntegration }))
++  mock.module("@/lib/utils/logger", () => ({ runWithApiRequestLog }))
++
++  const routeModule = await import(`./route?cacheBust=${Math.random().toString(36).slice(2)}`)
++
++  return {
++    GET: routeModule.GET as (
++      request: Request,
++      context: { params: Promise<{ integrationId: string }> },
++    ) => Promise<Response>,
++    loggerContext,
++  }
++}
++
++describe("gitlab index branches route", () => {
++  test("returns branches with last run and reconcile branch visibility", async () => {
++    const { GET, loggerContext } = await loadRouteModule()
++
++    const response = await GET(
++      new Request("http://localhost/api/gitlab/integrations/integration-1/index/branches"),
++      {
++        params: Promise.resolve({ integrationId: "integration-1" }),
++      },
++    )
++
++    const body = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(body.reconcile).toEqual({
++      id: "reconcile-1",
++      status: "succeeded",
++      attempts: 1,
++      lastError: null,
++      checked: 2,
++      enqueued: 1,
++      branchChecksCount: 1,
++      createdAt: "2026-02-14T10:02:00.000Z",
++      updatedAt: "2026-02-14T10:03:00.000Z",
++      startedAt: "2026-02-14T10:02:10.000Z",
++      finishedAt: "2026-02-14T10:02:20.000Z",
++    })
++    expect(body.data).toHaveLength(1)
++    expect(body.data[0].lastRun?.id).toBe("run-1")
++    expect(body.data[0].reconcile).toEqual({
++      jobId: "reconcile-1",
++      status: "succeeded",
++      checkedAt: "2026-02-14T10:02:20.000Z",
++      wasChecked: true,
++      wasEnqueued: true,
++      headSha: "sha-new",
++      lastReadySha: "sha-old",
++    })
++    expect(loggerContext).toMatchObject({
++      count: 1,
++      latestReconcileStatus: "succeeded",
++    })
++  })
++})
+diff --git a/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.ts b/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.ts
+index 898c3203..f7819e17 100644
+--- a/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.ts
++++ b/src/app/api/gitlab/integrations/[integrationId]/index/branches/route.ts
+@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
+ import { z } from "zod"
+ 
+ import { db } from "@/lib/db"
+-import { indexBranchStates, indexRuns } from "@/lib/db/schema"
++import { indexBranchStates, indexJobs, indexRuns } from "@/lib/db/schema"
+ import { getUserIntegration } from "@/lib/gitlab/service"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+@@ -13,6 +13,54 @@ const querySchema = z.object({
+   configHash: z.string().trim().min(1).optional(),
+ })
+ 
++const asRecord = (value: unknown): Record<string, unknown> | null => {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return null
++  }
++  return value as Record<string, unknown>
++}
++
++const asNumber = (value: unknown) => {
++  if (typeof value !== "number" || !Number.isFinite(value)) {
++    return null
++  }
++  return value
++}
++
++const buildBranchConfigKey = (branch: string, configHash: string) =>
++  `${branch}\u0000${configHash}`
++
++const parseReconcileBranchChecks = (value: unknown) => {
++  if (!Array.isArray(value)) {
++    return []
++  }
++
++  return value.flatMap((entry) => {
++    const row = asRecord(entry)
++    if (!row) {
++      return []
++    }
++
++    if (typeof row.branch !== "string" || typeof row.configHash !== "string") {
++      return []
++    }
++
++    if (typeof row.headSha !== "string" || typeof row.enqueued !== "boolean") {
++      return []
++    }
++
++    return [
++      {
++        branch: row.branch,
++        configHash: row.configHash,
++        lastReadySha: typeof row.lastReadySha === "string" ? row.lastReadySha : null,
++        headSha: row.headSha,
++        enqueued: row.enqueued,
++      },
++    ]
++  })
++}
++
+ export async function GET(
+   request: Request,
+   context: { params: Promise<{ integrationId: string }> },
+@@ -63,28 +111,80 @@ export async function GET(
+           : []),
+       )
+ 
+-      const states = await db
+-        .select({
+-          id: indexBranchStates.id,
+-          branch: indexBranchStates.branch,
+-          configHash: indexBranchStates.configHash,
+-          lastReadySha: indexBranchStates.lastReadySha,
+-          lastReadyRunId: indexBranchStates.lastReadyRunId,
+-          servingUpdatedAt: indexBranchStates.servingUpdatedAt,
+-          updatedAt: indexBranchStates.updatedAt,
+-          createdAt: indexBranchStates.createdAt,
+-        })
+-        .from(indexBranchStates)
+-        .where(where)
+-        .orderBy(desc(indexBranchStates.updatedAt))
+-        .limit(200)
++      const [states, [latestReconcileRow]] = await Promise.all([
++        db
++          .select({
++            id: indexBranchStates.id,
++            branch: indexBranchStates.branch,
++            configHash: indexBranchStates.configHash,
++            lastReadySha: indexBranchStates.lastReadySha,
++            lastReadyRunId: indexBranchStates.lastReadyRunId,
++            servingUpdatedAt: indexBranchStates.servingUpdatedAt,
++            updatedAt: indexBranchStates.updatedAt,
++            createdAt: indexBranchStates.createdAt,
++          })
++          .from(indexBranchStates)
++          .where(where)
++          .orderBy(desc(indexBranchStates.updatedAt))
++          .limit(200),
++        db
++          .select({
++            id: indexJobs.id,
++            status: indexJobs.status,
++            attempts: indexJobs.attempts,
++            lastError: indexJobs.lastError,
++            result: indexJobs.result,
++            createdAt: indexJobs.createdAt,
++            updatedAt: indexJobs.updatedAt,
++            startedAt: indexJobs.startedAt,
++            finishedAt: indexJobs.finishedAt,
++          })
++          .from(indexJobs)
++          .where(
++            and(
++              eq(indexJobs.integrationId, integration.id),
++              eq(indexJobs.jobType, "reconcile"),
++            ),
++          )
++          .orderBy(desc(indexJobs.updatedAt))
++          .limit(1),
++      ])
++      const reconcileResult = asRecord(latestReconcileRow?.result)
++      const reconcileBranchChecks = parseReconcileBranchChecks(reconcileResult?.branchChecks)
++      const latestReconcile = latestReconcileRow
++        ? {
++            id: latestReconcileRow.id,
++            status: latestReconcileRow.status,
++            attempts: latestReconcileRow.attempts,
++            lastError: latestReconcileRow.lastError,
++            checked: asNumber(reconcileResult?.checked),
++            enqueued: asNumber(reconcileResult?.enqueued),
++            branchChecksCount: reconcileBranchChecks.length,
++            createdAt: latestReconcileRow.createdAt,
++            updatedAt: latestReconcileRow.updatedAt,
++            startedAt: latestReconcileRow.startedAt,
++            finishedAt: latestReconcileRow.finishedAt,
++          }
++        : null
++      const reconcileChecksByBranch = new Map(
++        reconcileBranchChecks.map((check) => [
++          buildBranchConfigKey(check.branch, check.configHash),
++          check,
++        ]),
++      )
+ 
+       if (states.length === 0) {
+-        logger.set({ count: 0 })
++        logger.set({
++          count: 0,
++          latestReconcileStatus: latestReconcile?.status ?? null,
++        })
+         return {
+           status: 200,
+           outcome: "success",
+-          response: NextResponse.json({ data: [] }),
++          response: NextResponse.json({
++            data: [],
++            reconcile: latestReconcile,
++          }),
+         }
+       }
+ 
+@@ -114,6 +214,7 @@ export async function GET(
+ 
+       logger.set({
+         count: states.length,
++        latestReconcileStatus: latestReconcile?.status ?? null,
+       })
+       return {
+         status: 200,
+@@ -122,7 +223,24 @@ export async function GET(
+           data: states.map((state) => ({
+             ...state,
+             lastRun: latestByBranchState.get(state.id) ?? null,
++            reconcile: latestReconcile
++              ? (() => {
++                  const check = reconcileChecksByBranch.get(
++                    buildBranchConfigKey(state.branch, state.configHash),
++                  )
++                  return {
++                    jobId: latestReconcile.id,
++                    status: latestReconcile.status,
++                    checkedAt: latestReconcile.finishedAt ?? latestReconcile.updatedAt,
++                    wasChecked: check !== undefined,
++                    wasEnqueued: check?.enqueued ?? false,
++                    headSha: check?.headSha ?? null,
++                    lastReadySha: check?.lastReadySha ?? null,
++                  }
++                })()
++              : null,
+           })),
++          reconcile: latestReconcile,
+         }),
+       }
+     },
+diff --git a/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts b/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts
+new file mode 100644
+index 00000000..c20d4161
+--- /dev/null
++++ b/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts
+@@ -0,0 +1,178 @@
++import { describe, expect, mock, test } from "bun:test"
++
++type LoggerContext = Record<string, unknown>
++
++type ApiLogHandlerArgs = {
++  logger: {
++    set: (context: LoggerContext) => void
++  }
++  requestId: string
++}
++
++type ApiLogHandlerResult = {
++  response: Response
++  status: number
++  outcome?: string
++}
++
++type RunWithApiRequestLogArgs = {
++  request: Request
++  path: string
++  event: string
++  context: Record<string, unknown>
++  handler: (args: ApiLogHandlerArgs) => Promise<ApiLogHandlerResult>
++}
++
++const loadRouteModule = async () => {
++  const loggerContext: LoggerContext = {}
++  const runWithApiRequestLog = mock(async ({ handler }: RunWithApiRequestLogArgs) => {
++    const logger = {
++      set: (context: LoggerContext) => {
++        Object.assign(loggerContext, context)
++      },
++    }
++    const result = await handler({ logger, requestId: "req_1" })
++    return result.response
++  })
++
++  const getSessionUserId = mock(async () => "user-1")
++  const getUserIntegration = mock(async () => ({
++    id: "integration-1",
++    status: "active" as const,
++  }))
++
++  let selectCall = 0
++  const db = {
++    select: () => {
++      selectCall += 1
++
++      if (selectCall === 1) {
++        return {
++          from: () => ({
++            innerJoin: () => ({
++              where: () => Promise.resolve([{ total: 1 }]),
++            }),
++          }),
++        }
++      }
++
++      if (selectCall === 2) {
++        return {
++          from: () => ({
++            innerJoin: () => ({
++              where: () => ({
++                orderBy: () => ({
++                  limit: () => ({
++                    offset: () =>
++                      Promise.resolve([
++                        {
++                          id: "run-1",
++                          branchStateId: "branch-state-1",
++                          branch: "main",
++                          configHash: "default",
++                          headSha: "head-sha-1",
++                          baseSha: "base-sha-1",
++                          mode: "delta",
++                          status: "ready",
++                          stats: null,
++                          error: null,
++                          artifactsPrefix: "artifacts/run-1",
++                          createdAt: new Date("2026-02-14T10:00:00.000Z"),
++                          updatedAt: new Date("2026-02-14T10:01:00.000Z"),
++                        },
++                      ]),
++                  }),
++                }),
++              }),
++            }),
++          }),
++        }
++      }
++
++      return {
++        from: () => ({
++          where: () => ({
++            orderBy: () => ({
++              limit: () =>
++                Promise.resolve([
++                  {
++                    id: "reconcile-1",
++                    status: "succeeded",
++                    attempts: 1,
++                    lastError: null,
++                    result: {
++                      checked: 4,
++                      enqueued: 1,
++                      branchChecks: [{ branch: "main", configHash: "default" }],
++                    },
++                    createdAt: new Date("2026-02-14T10:02:00.000Z"),
++                    updatedAt: new Date("2026-02-14T10:03:00.000Z"),
++                    startedAt: new Date("2026-02-14T10:02:10.000Z"),
++                    finishedAt: new Date("2026-02-14T10:02:20.000Z"),
++                  },
++                ]),
++            }),
++          }),
++        }),
++      }
++    },
++  }
++
++  mock.module("@/lib/db", () => ({ db }))
++  mock.module("@/lib/session", () => ({ getSessionUserId }))
++  mock.module("@/lib/gitlab/service", () => ({ getUserIntegration }))
++  mock.module("@/lib/utils/logger", () => ({ runWithApiRequestLog }))
++
++  const routeModule = await import(`./route?cacheBust=${Math.random().toString(36).slice(2)}`)
++
++  return {
++    GET: routeModule.GET as (
++      request: Request,
++      context: { params: Promise<{ integrationId: string }> },
++    ) => Promise<Response>,
++    loggerContext,
++  }
++}
++
++describe("gitlab index runs route", () => {
++  test("returns runs pagination and latest reconcile metadata", async () => {
++    const { GET, loggerContext } = await loadRouteModule()
++
++    const response = await GET(
++      new Request(
++        "http://localhost/api/gitlab/integrations/integration-1/index/runs?page=1&limit=20",
++      ),
++      {
++        params: Promise.resolve({ integrationId: "integration-1" }),
++      },
++    )
++
++    const body = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(body.pagination).toEqual({
++      page: 1,
++      limit: 20,
++      total: 1,
++      totalPages: 1,
++    })
++    expect(body.reconcile).toEqual({
++      id: "reconcile-1",
++      status: "succeeded",
++      attempts: 1,
++      lastError: null,
++      checked: 4,
++      enqueued: 1,
++      branchChecksCount: 1,
++      createdAt: "2026-02-14T10:02:00.000Z",
++      updatedAt: "2026-02-14T10:03:00.000Z",
++      startedAt: "2026-02-14T10:02:10.000Z",
++      finishedAt: "2026-02-14T10:02:20.000Z",
++    })
++    expect(loggerContext).toMatchObject({
++      count: 1,
++      total: 1,
++      latestReconcileStatus: "succeeded",
++    })
++  })
++})
+diff --git a/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts b/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
+index b2c600d3..1fcb175c 100644
+--- a/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
++++ b/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
+@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
+ import { z } from "zod"
+ 
+ import { db } from "@/lib/db"
+-import { indexBranchStates, indexRuns } from "@/lib/db/schema"
++import { indexBranchStates, indexJobs, indexRuns } from "@/lib/db/schema"
+ import { getUserIntegration } from "@/lib/gitlab/service"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+@@ -18,6 +18,20 @@ const querySchema = z.object({
+   limit: z.coerce.number().int().positive().max(100).default(20),
+ })
+ 
++const asRecord = (value: unknown): Record<string, unknown> | null => {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return null
++  }
++  return value as Record<string, unknown>
++}
++
++const asNumber = (value: unknown) => {
++  if (typeof value !== "number" || !Number.isFinite(value)) {
++    return null
++  }
++  return value
++}
++
+ export async function GET(
+   request: Request,
+   context: { params: Promise<{ integrationId: string }> },
+@@ -75,7 +89,7 @@ export async function GET(
+         ...(parsed.data.status ? [eq(indexRuns.status, parsed.data.status)] : []),
+       )
+ 
+-      const [[{ total }], runs] = await Promise.all([
++      const [[{ total }], runs, [latestReconcileRow]] = await Promise.all([
+         db
+           .select({ total: count() })
+           .from(indexRuns)
+@@ -103,13 +117,54 @@ export async function GET(
+           .orderBy(desc(indexRuns.createdAt))
+           .limit(limit)
+           .offset(offset),
++        db
++          .select({
++            id: indexJobs.id,
++            status: indexJobs.status,
++            attempts: indexJobs.attempts,
++            lastError: indexJobs.lastError,
++            result: indexJobs.result,
++            createdAt: indexJobs.createdAt,
++            updatedAt: indexJobs.updatedAt,
++            startedAt: indexJobs.startedAt,
++            finishedAt: indexJobs.finishedAt,
++          })
++          .from(indexJobs)
++          .where(
++            and(
++              eq(indexJobs.integrationId, integration.id),
++              eq(indexJobs.jobType, "reconcile"),
++            ),
++          )
++          .orderBy(desc(indexJobs.updatedAt))
++          .limit(1),
+       ])
+       const totalCount = Number(total)
++      const reconcileResult = asRecord(latestReconcileRow?.result)
++      const branchChecks = Array.isArray(reconcileResult?.branchChecks)
++        ? reconcileResult.branchChecks
++        : []
++      const latestReconcile = latestReconcileRow
++        ? {
++            id: latestReconcileRow.id,
++            status: latestReconcileRow.status,
++            attempts: latestReconcileRow.attempts,
++            lastError: latestReconcileRow.lastError,
++            checked: asNumber(reconcileResult?.checked),
++            enqueued: asNumber(reconcileResult?.enqueued),
++            branchChecksCount: branchChecks.length,
++            createdAt: latestReconcileRow.createdAt,
++            updatedAt: latestReconcileRow.updatedAt,
++            startedAt: latestReconcileRow.startedAt,
++            finishedAt: latestReconcileRow.finishedAt,
++          }
++        : null
+       logger.set({
+         count: runs.length,
+         total: totalCount,
+         page,
+         limit,
++        latestReconcileStatus: latestReconcile?.status ?? null,
+       })
+ 
+       return {
+@@ -123,6 +178,7 @@ export async function GET(
+             total: totalCount,
+             totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+           },
++          reconcile: latestReconcile,
+         }),
+       }
+     },
+diff --git a/src/lib/indexing/job-queue.ts b/src/lib/indexing/job-queue.ts
+index 988eadd2..8f4a6a2d 100644
+--- a/src/lib/indexing/job-queue.ts
++++ b/src/lib/indexing/job-queue.ts
+@@ -1,7 +1,7 @@
+ import { and, eq, sql } from 'drizzle-orm'
+ 
+ import { db } from '@/lib/db'
+-import { indexJobs } from '@/lib/db/schema'
++import { gitlabIntegrations, indexBranchStates, indexJobs } from '@/lib/db/schema'
+ import { DEFAULT_INDEX_CONFIG_HASH } from '@/lib/indexing/constants'
+ 
+ type ClaimedIndexJob = {
+@@ -34,6 +34,18 @@ const parsePositiveInt = (value: string | undefined, fallback: number) => {
+ const resolveIndexJobMaxAttempts = () =>
+   parsePositiveInt(process.env.INDEXER_JOB_MAX_ATTEMPTS, INDEX_JOB_MAX_ATTEMPTS)
+ 
++const INDEXER_RECONCILE_INTERVAL_MS = 5 * 60_000
++const INDEXER_RECONCILE_INTEGRATION_LIMIT = 500
++
++const resolveReconcileIntervalMs = () =>
++  parsePositiveInt(process.env.INDEXER_RECONCILE_INTERVAL_MS, INDEXER_RECONCILE_INTERVAL_MS)
++
++const resolveReconcileIntegrationLimit = () =>
++  parsePositiveInt(
++    process.env.INDEXER_RECONCILE_INTEGRATION_LIMIT,
++    INDEXER_RECONCILE_INTEGRATION_LIMIT,
++  )
++
+ const getRetryDelayMs = (attempt: number) => {
+   const exponent = Math.max(0, attempt - 1)
+   const baseDelayMs = 30_000
+@@ -176,6 +188,94 @@ export const enqueueReconcileJob = async (args: { integrationId: string }) => {
+   return row
+ }
+ 
++export const enqueueDueReconcileJobs = async () => {
++  const now = new Date()
++  const dueBefore = new Date(now.getTime() - resolveReconcileIntervalMs())
++  const integrationLimit = resolveReconcileIntegrationLimit()
++  const query = sql<{ id: string }>`
++    with candidate_integrations as (
++      select distinct ${indexBranchStates.integrationId} as integration_id
++      from ${indexBranchStates}
++      inner join ${gitlabIntegrations}
++        on ${gitlabIntegrations.id} = ${indexBranchStates.integrationId}
++      where ${gitlabIntegrations.status} = 'active'
++    ),
++    due_integrations as (
++      select candidate_integrations.integration_id
++      from candidate_integrations
++      left join ${indexJobs}
++        on ${indexJobs.integrationId} = candidate_integrations.integration_id
++        and ${indexJobs.jobType} = 'reconcile'
++      where
++        ${indexJobs.id} is null
++        or (
++          ${indexJobs.status} in ('succeeded', 'failed', 'dead')
++          and coalesce(${indexJobs.finishedAt}, ${indexJobs.updatedAt}, ${indexJobs.createdAt}) <= ${dueBefore}
++        )
++      order by
++        coalesce(
++          ${indexJobs.finishedAt},
++          ${indexJobs.updatedAt},
++          ${indexJobs.createdAt},
++          'epoch'::timestamptz
++        ) asc,
++        candidate_integrations.integration_id asc
++      limit ${integrationLimit}
++    ),
++    upserted as (
++      insert into ${indexJobs} (
++        ${indexJobs.integrationId},
++        ${indexJobs.jobType},
++        ${indexJobs.debounceKey},
++        ${indexJobs.status},
++        ${indexJobs.attempts},
++        ${indexJobs.nextAttemptAt},
++        ${indexJobs.startedAt},
++        ${indexJobs.finishedAt},
++        ${indexJobs.lastError},
++        ${indexJobs.result},
++        ${indexJobs.createdAt},
++        ${indexJobs.updatedAt}
++      )
++      select
++        due_integrations.integration_id,
++        'reconcile',
++        concat('reconcile:', due_integrations.integration_id),
++        'pending',
++        0,
++        ${now},
++        null,
++        null,
++        null,
++        null,
++        ${now},
++        ${now}
++      from due_integrations
++      on conflict (${indexJobs.debounceKey}) do update
++      set
++        ${indexJobs.integrationId} = excluded.integration_id,
++        ${indexJobs.jobType} = 'reconcile',
++        ${indexJobs.status} = 'pending',
++        ${indexJobs.attempts} = 0,
++        ${indexJobs.nextAttemptAt} = ${now},
++        ${indexJobs.startedAt} = null,
++        ${indexJobs.finishedAt} = null,
++        ${indexJobs.lastError} = null,
++        ${indexJobs.result} = null,
++        ${indexJobs.updatedAt} = ${now}
++      where
++        ${indexJobs.jobType} = 'reconcile'
++        and ${indexJobs.status} in ('succeeded', 'failed', 'dead')
++        and coalesce(${indexJobs.finishedAt}, ${indexJobs.updatedAt}, ${indexJobs.createdAt}) <= ${dueBefore}
++      returning ${indexJobs.id} as id
++    )
++    select id from upserted
++  `
++
++  const result = await db.execute(query)
++  return result.rows.length
++}
++
+ export const claimDueIndexJobs = async (batchSize: number): Promise<ClaimedIndexJob[]> => {
+   const query = sql<ClaimedIndexJob>`
+     with due_jobs as (
+diff --git a/src/lib/indexing/processors/reconcile.ts b/src/lib/indexing/processors/reconcile.ts
+index 98ee5fad..1975d66e 100644
+--- a/src/lib/indexing/processors/reconcile.ts
++++ b/src/lib/indexing/processors/reconcile.ts
+@@ -35,6 +35,13 @@ export const processReconcileJob = async (job: ReconcileJob) => {
+ 
+   let checked = 0
+   let enqueued = 0
++  const branchChecks: Array<{
++    branch: string
++    configHash: string
++    lastReadySha: string | null
++    headSha: string
++    enqueued: boolean
++  }> = []
+ 
+   for (const branchState of branches) {
+     const headSha = await source.resolveHeadSha({
+@@ -43,21 +50,30 @@ export const processReconcileJob = async (job: ReconcileJob) => {
+     })
+ 
+     checked += 1
+-    if (branchState.lastReadySha === headSha) {
+-      continue
++    const isStale = branchState.lastReadySha !== headSha
++
++    if (isStale) {
++      await enqueuePlanJob({
++        integrationId: job.integrationId,
++        branch: branchState.branch,
++        configHash: branchState.configHash,
++        hintedHeadSha: headSha,
++      })
++      enqueued += 1
+     }
+ 
+-    await enqueuePlanJob({
+-      integrationId: job.integrationId,
++    branchChecks.push({
+       branch: branchState.branch,
+       configHash: branchState.configHash,
+-      hintedHeadSha: headSha,
++      lastReadySha: branchState.lastReadySha,
++      headSha,
++      enqueued: isStale,
+     })
+-    enqueued += 1
+   }
+ 
+   return {
+     checked,
+     enqueued,
++    branchChecks,
+   }
+ }
+diff --git a/src/lib/indexing/runner.ts b/src/lib/indexing/runner.ts
+index 9f3769b3..394cb1f0 100644
+--- a/src/lib/indexing/runner.ts
++++ b/src/lib/indexing/runner.ts
+@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
+ import { indexRuns } from '@/lib/db/schema'
+ import {
+   claimDueIndexJobs,
++  enqueueDueReconcileJobs,
+   isForcedPlanDebounceKey,
+   markIndexJobFailed,
+   markIndexJobSucceeded,
+@@ -24,6 +25,7 @@ export type IndexingWorkerBatchSummary = {
+   jobsDead: number
+   planJobs: number
+   reconcileJobs: number
++  reconcileScheduled: number
+   claimed: number
+   ready: number
+   failed: number
+@@ -81,6 +83,7 @@ export const runIndexingWorkerBatch = async (
+     jobsDead: 0,
+     planJobs: 0,
+     reconcileJobs: 0,
++    reconcileScheduled: 0,
+     claimed: 0,
+     ready: 0,
+     failed: 0,
+@@ -90,6 +93,23 @@ export const runIndexingWorkerBatch = async (
+   let batchStatus = 200
+ 
+   try {
++    try {
++      summary.reconcileScheduled = await enqueueDueReconcileJobs()
++      batchLog.set({
++        reconcileScheduled: summary.reconcileScheduled,
++      })
++    } catch (error) {
++      const errorToLog =
++        error instanceof Error
++          ? error
++          : new Error('Unexpected reconcile scheduler processing error.')
++      logScopedError(batchLog, errorToLog, {
++        code: 'INDEXER_RECONCILE_SCHEDULE_FAILED',
++        why: 'Failed to enqueue due reconcile jobs.',
++        fix: 'Inspect reconcile scheduler query and index_jobs/index_branch_states health.',
++      })
++    }
++
+     const claimedJobs = await claimDueIndexJobs(normalizedBatchSize)
+     summary.jobsClaimed = claimedJobs.length
+     batchLog.set({
+diff --git a/src/lib/indexing/tests/processors/reconcile.test.ts b/src/lib/indexing/tests/processors/reconcile.test.ts
+new file mode 100644
+index 00000000..313f03aa
+--- /dev/null
++++ b/src/lib/indexing/tests/processors/reconcile.test.ts
+@@ -0,0 +1,124 @@
++import { describe, expect, mock, test } from "bun:test"
++
++import { indexBranchStates } from "@/lib/db/schema"
++import type { GitLabSource } from "@/lib/indexing/contracts"
++
++const loadModule = async (args: {
++  branches: Array<{
++    branch: string
++    configHash: string
++    lastReadySha: string | null
++  }>
++  headByBranch: Record<string, string>
++}) => {
++  const db = {
++    select: () => ({
++      from: (table: unknown) => {
++        if (table !== indexBranchStates) {
++          throw new Error("Unexpected table in reconcile test.")
++        }
++
++        return {
++          where: () => ({
++            limit: () => Promise.resolve(args.branches),
++          }),
++        }
++      },
++    }),
++  }
++
++  const resolveHeadSha = mock(
++    async ({ branch }: { integrationId: string; branch: string }) => args.headByBranch[branch],
++  )
++  const source: GitLabSource = {
++    resolveHeadSha,
++    compare: async () => ({ valid: true, incomplete: false, changes: [] }),
++    fetchFile: async () => ({ path: "x.ts", content: Buffer.from("x") }),
++    downloadArchive: async () => ({ archivePath: "/tmp/archive.tar.gz" }),
++  }
++
++  const enqueuePlanJob = mock(async () => ({ id: "plan-job-1" }))
++
++  mock.module("@/lib/db", () => ({ db }))
++  mock.module("@/lib/indexing/sources/gitlab-source", () => ({
++    createGitLabSource: () => source,
++  }))
++  mock.module("@/lib/indexing/job-queue", () => ({ enqueuePlanJob }))
++
++  const mod = await import(`@/lib/indexing/processors/reconcile.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++
++  return {
++    processReconcileJob: mod.processReconcileJob as (args: {
++      integrationId: string
++    }) => Promise<{
++      checked: number
++      enqueued: number
++      branchChecks: Array<{
++        branch: string
++        configHash: string
++        lastReadySha: string | null
++        headSha: string
++        enqueued: boolean
++      }>
++    }>,
++    resolveHeadSha,
++    enqueuePlanJob,
++  }
++}
++
++describe("processReconcileJob", () => {
++  test("records checked branch metadata and enqueues stale branches", async () => {
++    const { processReconcileJob, resolveHeadSha, enqueuePlanJob } = await loadModule({
++      branches: [
++        {
++          branch: "main",
++          configHash: "default",
++          lastReadySha: "sha-main-1",
++        },
++        {
++          branch: "release",
++          configHash: "default",
++          lastReadySha: "sha-release-1",
++        },
++      ],
++      headByBranch: {
++        main: "sha-main-1",
++        release: "sha-release-2",
++      },
++    })
++
++    const result = await processReconcileJob({
++      integrationId: "integration-1",
++    })
++
++    expect(resolveHeadSha).toHaveBeenCalledTimes(2)
++    expect(enqueuePlanJob).toHaveBeenCalledTimes(1)
++    expect(enqueuePlanJob).toHaveBeenCalledWith({
++      integrationId: "integration-1",
++      branch: "release",
++      configHash: "default",
++      hintedHeadSha: "sha-release-2",
++    })
++
++    expect(result).toEqual({
++      checked: 2,
++      enqueued: 1,
++      branchChecks: [
++        {
++          branch: "main",
++          configHash: "default",
++          lastReadySha: "sha-main-1",
++          headSha: "sha-main-1",
++          enqueued: false,
++        },
++        {
++          branch: "release",
++          configHash: "default",
++          lastReadySha: "sha-release-1",
++          headSha: "sha-release-2",
++          enqueued: true,
++        },
++      ],
++    })
++  })
++})

@@ -1,0 +1,31 @@
+diff --git a/apps/web/src/app/(app)/analytics/_lib/page-data.ts b/apps/web/src/app/(app)/analytics/_lib/page-data.ts
+index dae17b8f..20176c4b 100644
+--- a/apps/web/src/app/(app)/analytics/_lib/page-data.ts
++++ b/apps/web/src/app/(app)/analytics/_lib/page-data.ts
+@@ -1,7 +1,7 @@
+ import { and, count, eq, gte, inArray, or, sql } from "drizzle-orm"
+ 
+-import type { AnalyticsOverview } from "@/lib/analytics/overview"
+-import { buildAnalyticsOverview } from "@/lib/analytics/overview"
++import type { AnalyticsOverview } from "@/features/analytics/server/overview-data"
++import { buildAnalyticsOverview } from "@/features/analytics/server/overview-data"
+ import {
+   loadAnalyticsIntegrationScope,
+   type AnalyticsIntegrationScope,
+diff --git a/apps/web/src/lib/analytics/overview.ts b/apps/web/src/features/analytics/server/overview-data.ts
+similarity index 100%
+rename from apps/web/src/lib/analytics/overview.ts
+rename to apps/web/src/features/analytics/server/overview-data.ts
+diff --git a/apps/web/src/features/analytics/server/overview.ts b/apps/web/src/features/analytics/server/overview.ts
+index c976f7a0..ed380d40 100644
+--- a/apps/web/src/features/analytics/server/overview.ts
++++ b/apps/web/src/features/analytics/server/overview.ts
+@@ -1,7 +1,7 @@
+ import { NextResponse } from "next/server"
+ import { z } from "zod"
+ 
+-import { buildAnalyticsOverview } from "@/lib/analytics/overview"
++import { buildAnalyticsOverview } from "@/features/analytics/server/overview-data"
+ 
+ type OverviewLogger = {
+   set: (context: Record<string, unknown>) => void

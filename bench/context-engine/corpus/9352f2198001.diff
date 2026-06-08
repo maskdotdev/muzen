@@ -1,0 +1,588 @@
+diff --git a/src/components/nav-main.tsx b/src/components/nav-main.tsx
+index 49c5cba5..9adff1d5 100644
+--- a/src/components/nav-main.tsx
++++ b/src/components/nav-main.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { type Icon } from "@tabler/icons-react"
+ import { ChevronRight, HomeIcon } from "lucide-react"
++import Link from "next/link"
+ import { cn } from "@/lib/utils"
+ 
+ import {
+@@ -38,9 +39,11 @@ export function NavMain({
+ }) {
+   return (
+     <SidebarGroup>
+-      <SidebarMenuButton tooltip={'Home'}>
+-        <HomeIcon />
+-        <span>Home</span>
++      <SidebarMenuButton asChild tooltip="Home">
++        <Link href="/">
++          <HomeIcon />
++          <span>Home</span>
++        </Link>
+       </SidebarMenuButton>
+       <SidebarGroupLabel>Code Intelligence</SidebarGroupLabel>
+       <SidebarMenu>
+diff --git a/src/components/onboarding/onboarding-flow.tsx b/src/components/onboarding/onboarding-flow.tsx
+index 184fced5..9527f4d5 100644
+--- a/src/components/onboarding/onboarding-flow.tsx
++++ b/src/components/onboarding/onboarding-flow.tsx
+@@ -17,9 +17,36 @@ import {
+   WebhookSetupFeedback,
+ } from "@/components/onboarding/onboarding-types"
+ 
+-const INSTANCE_PRESETS = ["https://gitlab.com", "https://gitlab.example.com", "custom"]
++type GitLabInstancePreset = {
++  key: string
++  name: string
++  defaultUrl: string
++  isCustom?: boolean
++}
++
++const INSTANCE_PRESETS: readonly GitLabInstancePreset[] = [
++  {
++    key: "https://gitlab.com",
++    name: "GitLab.com",
++    defaultUrl: "https://gitlab.com",
++  },
++  {
++    key: "https://gitlab.example.com",
++    name: "GitLab Example",
++    defaultUrl: "https://gitlab.example.com",
++  },
++  {
++    key: "custom",
++    name: "Custom URL",
++    defaultUrl: "https://",
++    isCustom: true,
++  },
++] as const
+ const ONBOARDING_STORAGE_KEY = "argus-onboarding-selections-v2"
++const ONBOARDING_TOKEN_TEST_CACHE_KEY = "argus-onboarding-token-test-cache-v1"
+ const RECENT_PROJECTS_LIMIT = 10
++const AUTOTEST_TOKEN_DEBOUNCE_MS = 500
++const TOKEN_TEST_CACHE_TTL_MS = 10 * 60_000
+ const MERGE_REQUESTS_PRELOAD_PROJECTS_LIMIT = 5
+ const MERGE_REQUESTS_PRELOAD_LIMIT = 3
+ const MERGE_REQUESTS_FULL_LIMIT = 100
+@@ -35,14 +62,36 @@ const routeStepPosition: Record<OnboardingRouteStep, number> = {
+   mrs: 3,
+ }
+ 
++const getInstanceByKey = (instance: string) =>
++  INSTANCE_PRESETS.find((item) => item.key === instance) ?? INSTANCE_PRESETS[0]
++
++const isInstanceKey = (instance: string): instance is GitLabInstancePreset["key"] =>
++  INSTANCE_PRESETS.some((item) => item.key === instance)
++
+ const resolveGitLabInstance = (instance: string, customValue: string) => {
+-  const value = (instance === "custom" ? customValue : instance).trim()
++  const selectedInstance = getInstanceByKey(instance)
++  const value =
++    (selectedInstance.isCustom ? customValue : selectedInstance.defaultUrl).trim()
+   if (!value) {
+     throw new Error("Please select or enter a GitLab instance.")
+   }
+   return value.replace(/\/+$/, "")
+ }
+ 
++const buildEmptyInstanceTokens = () => {
++  const values: Record<string, string> = {}
++  for (const instance of INSTANCE_PRESETS) {
++    values[instance.key] = ""
++  }
++  return values
++}
++
++const isStringRecord = (value: unknown): value is Record<string, string> =>
++  Boolean(value) &&
++  typeof value === "object" &&
++  !Array.isArray(value) &&
++  Object.values(value).every((item) => typeof item === "string")
++
+ const readPersistedState = (): Partial<OnboardingSessionState> => {
+   const raw = window.sessionStorage.getItem(ONBOARDING_STORAGE_KEY)
+   if (!raw) {
+@@ -81,6 +130,72 @@ const getErrorMessage = (value: unknown) => {
+   }
+   return "Something went wrong."
+ }
++type TokenTestResultCache = Map<
++  string,
++  { checkedAt: number; feedback: TokenTestFeedback }
++>
++
++const loadTokenTestCache = () => {
++  const raw = window.sessionStorage.getItem(ONBOARDING_TOKEN_TEST_CACHE_KEY)
++  if (!raw) {
++    return new Map<string, { checkedAt: number; feedback: TokenTestFeedback }>()
++  }
++
++  try {
++    const parsed = JSON.parse(raw) as Record<
++      string,
++      { checkedAt: number; feedback: TokenTestFeedback } | undefined
++    >
++    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
++      return new Map()
++    }
++
++    const entries = Object.entries(parsed).filter(([, item]) => {
++      if (!item || typeof item !== "object") {
++        return false
++      }
++      if (typeof item.checkedAt !== "number" || !Number.isFinite(item.checkedAt)) {
++        return false
++      }
++      if (!item.feedback || typeof item.feedback !== "object") {
++        return false
++      }
++      if (
++        item.feedback.kind !== "success" &&
++        item.feedback.kind !== "error"
++      ) {
++        return false
++      }
++      if (typeof item.feedback.message !== "string") {
++        return false
++      }
++      return true
++    })
++
++    return new Map(entries)
++  } catch {
++    return new Map()
++  }
++}
++
++const pruneTokenTestCache = (cache: TokenTestResultCache, now: number) => {
++  for (const [signature, entry] of cache) {
++    if (now - entry.checkedAt >= TOKEN_TEST_CACHE_TTL_MS) {
++      cache.delete(signature)
++    }
++  }
++}
++
++const persistTokenTestCache = (cache: TokenTestResultCache) => {
++  try {
++    const now = Date.now()
++    pruneTokenTestCache(cache, now)
++    const payload = Object.fromEntries(cache.entries())
++    window.sessionStorage.setItem(ONBOARDING_TOKEN_TEST_CACHE_KEY, JSON.stringify(payload))
++  } catch {
++    // best-effort
++  }
++}
+ 
+ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }) {
+   const router = useRouter()
+@@ -96,11 +211,18 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+   const mergeRequestSelectionHandlerRef = useRef<((mrId: string) => void) | null>(null)
+   const previousProjectsCacheKeyRef = useRef<string | null>(null)
+   const integrationConnectInFlightRef = useRef(new Set<string>())
++  const tokenTestSignatureRef = useRef<string | null>(null)
++  const tokenTestRunRef = useRef(0)
++  const tokenAutoTestTimeoutRef = useRef<number | null>(null)
++  const tokenTestResultCacheRef = useRef<TokenTestResultCache>(new Map())
+ 
+   const [isHydrated, setIsHydrated] = useState(false)
+ 
+-  const [gitlabInstance, setGitlabInstance] = useState(INSTANCE_PRESETS[0])
++  const [gitlabInstance, setGitlabInstance] = useState(INSTANCE_PRESETS[0].key)
+   const [customInstance, setCustomInstance] = useState("https://")
++  const [instanceTokens, setInstanceTokens] = useState<Record<string, string>>(
++    buildEmptyInstanceTokens,
++  )
+   const [token, setToken] = useState("")
+   const [projects, setProjects] = useState<Project[]>([])
+   const [projectsError, setProjectsError] = useState("")
+@@ -123,9 +245,9 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+   const canLoadProjects = useMemo(
+     () =>
+       token.trim().length > 0 &&
+-      (gitlabInstance === "custom"
++      (getInstanceByKey(gitlabInstance).isCustom
+         ? customInstance.trim().length > 0
+-        : gitlabInstance.trim().length > 0),
++        : getInstanceByKey(gitlabInstance).defaultUrl.trim().length > 0),
+     [token, gitlabInstance, customInstance],
+   )
+   const normalizedProjectSearchQuery = useMemo(
+@@ -416,7 +538,8 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     }
+   }
+ 
+-  const testToken = async () => {
++  const testToken = async (signature: string) => {
++    const runId = ++tokenTestRunRef.current
+     setTokenTestBusy(true)
+     setProjectsError("")
+     setMergeRequestsError("")
+@@ -424,22 +547,96 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+ 
+     try {
+       const data = await fetchProjects()
++      if (tokenTestSignatureRef.current !== signature || runId !== tokenTestRunRef.current) {
++        return
++      }
+       applyLoadedProjects(data)
+       const countLabel = data.length === 1 ? "1 project" : `${data.length} projects`
+-      setTokenTestFeedback({
++      const feedback = {
+         kind: "success",
+         message: `Token is valid. Found ${countLabel}.`,
+-      })
++      }
++      tokenTestResultCacheRef.current.set(signature, { checkedAt: Date.now(), feedback })
++      persistTokenTestCache(tokenTestResultCacheRef.current)
++      setTokenTestFeedback(feedback)
+     } catch (error) {
+-      setTokenTestFeedback({
++      if (tokenTestSignatureRef.current !== signature || runId !== tokenTestRunRef.current) {
++        return
++      }
++      const feedback = {
+         kind: "error",
+         message: getErrorMessage(error),
+-      })
++      }
++      tokenTestResultCacheRef.current.set(signature, { checkedAt: Date.now(), feedback })
++      persistTokenTestCache(tokenTestResultCacheRef.current)
++      setTokenTestFeedback(feedback)
+     } finally {
+-      setTokenTestBusy(false)
++      if (runId === tokenTestRunRef.current) {
++        setTokenTestBusy(false)
++      }
+     }
+   }
+ 
++  useEffect(() => {
++    if (!isHydrated || routeStep !== "tokens" || !canLoadProjects || actionBusy) {
++      tokenTestRunRef.current += 1
++      setTokenTestBusy(false)
++      if (!canLoadProjects) {
++        tokenTestSignatureRef.current = null
++      }
++      if (tokenAutoTestTimeoutRef.current !== null) {
++        window.clearTimeout(tokenAutoTestTimeoutRef.current)
++        tokenAutoTestTimeoutRef.current = null
++      }
++      return
++    }
++
++    const signature = `${resolvedGitLabInstance}::${tokenCacheHash}`
++    const cached = tokenTestResultCacheRef.current.get(signature)
++    const now = Date.now()
++
++    if (cached && now - cached.checkedAt < TOKEN_TEST_CACHE_TTL_MS) {
++      setTokenTestFeedback(cached.feedback)
++      tokenTestSignatureRef.current = signature
++      return
++    }
++    if (cached) {
++      tokenTestResultCacheRef.current.delete(signature)
++      persistTokenTestCache(tokenTestResultCacheRef.current)
++      if (tokenTestSignatureRef.current === signature) {
++        tokenTestSignatureRef.current = null
++      }
++    }
++
++    if (tokenTestSignatureRef.current === signature) {
++      return
++    }
++
++    if (tokenAutoTestTimeoutRef.current !== null) {
++      window.clearTimeout(tokenAutoTestTimeoutRef.current)
++    }
++
++    tokenAutoTestTimeoutRef.current = window.setTimeout(() => {
++      tokenTestSignatureRef.current = signature
++      void testToken(signature)
++    }, AUTOTEST_TOKEN_DEBOUNCE_MS)
++
++    return () => {
++      if (tokenAutoTestTimeoutRef.current !== null) {
++        window.clearTimeout(tokenAutoTestTimeoutRef.current)
++        tokenAutoTestTimeoutRef.current = null
++      }
++    }
++  }, [
++    actionBusy,
++    canLoadProjects,
++    isHydrated,
++    resolvedGitLabInstance,
++    routeStep,
++    tokenCacheHash,
++    testToken,
++  ])
++
+   const loadMergeRequests = async (
+     projectId: string,
+     options?: {
+@@ -492,6 +689,25 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     }
+   }
+ 
++  const handleInstanceChange = (instanceKey: string) => {
++    if (!isInstanceKey(instanceKey)) {
++      return
++    }
++
++    setGitlabInstance(instanceKey)
++    setToken(instanceTokens[instanceKey] ?? "")
++    setTokenTestFeedback(null)
++    setWebhookSetupFeedback(null)
++  }
++
++  const handleTokenChange = (nextToken: string) => {
++    setToken(nextToken)
++    setInstanceTokens((current) => ({
++      ...current,
++      [gitlabInstance]: nextToken,
++    }))
++  }
++
+   const handleProjectSelection = async (projectId: string) => {
+     const selectedProjectData = projects.find((project) => project.id === projectId)
+     if (selectedProjectData) {
+@@ -559,15 +775,26 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     }
+ 
+     const persisted = readPersistedState()
+-    if (isNonEmptyString(persisted.gitlabInstance)) {
+-      setGitlabInstance(persisted.gitlabInstance)
++    const persistedGitlabInstance = isInstanceKey(persisted.gitlabInstance)
++      ? persisted.gitlabInstance
++      : INSTANCE_PRESETS[0].key
++    const nextInstanceTokens = {
++      ...buildEmptyInstanceTokens(),
++      ...((persisted.instanceTokens && isStringRecord(persisted.instanceTokens))
++        ? persisted.instanceTokens
++        : {}),
+     }
++
++    setGitlabInstance(persistedGitlabInstance)
+     if (isNonEmptyString(persisted.customInstance)) {
+       setCustomInstance(persisted.customInstance)
+     }
+-    if (isNonEmptyString(persisted.token)) {
+-      setToken(persisted.token)
++    if (isNonEmptyString(persisted.token) && isInstanceKey(persisted.gitlabInstance)) {
++      nextInstanceTokens[persisted.gitlabInstance] = persisted.token
+     }
++
++    setInstanceTokens(nextInstanceTokens)
++    setToken(nextInstanceTokens[persistedGitlabInstance] ?? "")
+     if (Array.isArray(persisted.projects)) {
+       const persistedProjects = persisted.projects as Project[]
+       setProjects(persistedProjects)
+@@ -593,6 +820,11 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+         message: persisted.webhookSetupFeedback.message,
+       })
+     }
++
++    const loadedTokenTestCache = loadTokenTestCache()
++    pruneTokenTestCache(loadedTokenTestCache, Date.now())
++    tokenTestResultCacheRef.current = loadedTokenTestCache
++    persistTokenTestCache(loadedTokenTestCache)
+     setIsHydrated(true)
+   }, [])
+ 
+@@ -604,6 +836,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     const persistedState = {
+       gitlabInstance,
+       customInstance,
++      instanceTokens,
+       token,
+       projects: projects.slice(0, RECENT_PROJECTS_LIMIT),
+       selectedProjectId,
+@@ -637,6 +870,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     isHydrated,
+     gitlabInstance,
+     customInstance,
++    instanceTokens,
+     token,
+     projects,
+     selectedProjectId,
+@@ -801,7 +1035,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     return (
+       <OnboardingTokenStep
+         currentStep={currentStep}
+-        instancePresets={INSTANCE_PRESETS}
++        instances={INSTANCE_PRESETS}
+         gitlabInstance={gitlabInstance}
+         customInstance={customInstance}
+         token={token}
+@@ -810,11 +1044,10 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+         canLoadProjects={canLoadProjects}
+         actionBusy={actionBusy}
+         tokenTestBusy={tokenTestBusy}
+-        onGitlabInstanceChange={setGitlabInstance}
++        onGitlabInstanceChange={handleInstanceChange}
+         onCustomInstanceChange={setCustomInstance}
+-        onTokenChange={setToken}
++        onTokenChange={handleTokenChange}
+         onSubmit={handleTokenSubmit}
+-        onTestToken={testToken}
+         onPrefetchContinue={preloadProjectsForContinue}
+       />
+     )
+diff --git a/src/components/onboarding/onboarding-token-step.tsx b/src/components/onboarding/onboarding-token-step.tsx
+index af7a6cb1..25c3cea9 100644
+--- a/src/components/onboarding/onboarding-token-step.tsx
++++ b/src/components/onboarding/onboarding-token-step.tsx
+@@ -7,14 +7,21 @@ import { Button } from "@/components/ui/button"
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+ 
+ import { OnboardingFlowHeader } from "@/components/onboarding/onboarding-flow-header"
+ import { TokenTestFeedback } from "@/components/onboarding/onboarding-types"
++import { cn } from "@/lib/utils"
++
++type GitlabInstance = {
++  key: string
++  name: string
++  defaultUrl: string
++  isCustom?: boolean
++}
+ 
+ interface OnboardingTokenStepProps {
+   currentStep: number
+-  instancePresets: readonly string[]
++  instances: readonly GitlabInstance[]
+   gitlabInstance: string
+   customInstance: string
+   token: string
+@@ -27,13 +34,12 @@ interface OnboardingTokenStepProps {
+   onCustomInstanceChange: (instance: string) => void
+   onTokenChange: (token: string) => void
+   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> | void
+-  onTestToken: () => void
+   onPrefetchContinue: () => void
+ }
+ 
+ export function OnboardingTokenStep({
+   currentStep,
+-  instancePresets,
++  instances,
+   gitlabInstance,
+   customInstance,
+   token,
+@@ -46,9 +52,12 @@ export function OnboardingTokenStep({
+   onCustomInstanceChange,
+   onTokenChange,
+   onSubmit,
+-  onTestToken,
+   onPrefetchContinue,
+ }: OnboardingTokenStepProps) {
++  const selectedInstance =
++    instances.find((instance) => instance.key === gitlabInstance) ?? instances[0]
++  const isCustomInstance = selectedInstance?.isCustom ?? selectedInstance?.key === "custom"
++
+   return (
+     <div className="space-y-4">
+       <OnboardingFlowHeader
+@@ -68,27 +77,37 @@ export function OnboardingTokenStep({
+           </CardDescription>
+         </CardHeader>
+         <CardContent>
+-          <form onSubmit={onSubmit} className="grid gap-3">
+-            <div className="grid gap-1">
+-              <Label htmlFor="gitlab-instance">Instance</Label>
+-              <Select value={gitlabInstance} onValueChange={onGitlabInstanceChange}>
+-                <SelectTrigger className="w-full">
+-                  <SelectValue placeholder="Select GitLab instance" />
+-                </SelectTrigger>
+-                <SelectContent>
+-                  {instancePresets.map((instance) => (
+-                    <SelectItem key={instance} value={instance}>
+-                      {instance === "custom" ? "Custom URL" : instance}
+-                    </SelectItem>
+-                  ))}
+-                </SelectContent>
+-              </Select>
+-              {gitlabInstance === "custom" ? (
+-                <Input
+-                  value={customInstance}
+-                  onChange={(event) => onCustomInstanceChange(event.target.value)}
+-                  placeholder="https://gitlab.example.com"
+-                />
++          <form onSubmit={onSubmit} className="grid gap-4">
++            <div className="grid gap-2">
++              <Label>GitLab instance</Label>
++              <div className="grid gap-3 sm:grid-cols-3">
++                {instances.map((instance) => (
++                  <button
++                    key={instance.key}
++                    type="button"
++                    onClick={() => onGitlabInstanceChange(instance.key)}
++                    className={cn(
++                      "rounded-lg border p-3 text-left transition",
++                      instance.key === gitlabInstance
++                        ? "border-primary bg-primary/10 ring-1 ring-primary"
++                        : "border-border hover:border-primary/60",
++                    )}
++                  >
++                    <p className="font-medium leading-none">{instance.name}</p>
++                    <p className="text-xs text-muted-foreground">{instance.defaultUrl}</p>
++                  </button>
++                ))}
++              </div>
++              {isCustomInstance ? (
++                <div className="grid gap-1">
++                  <Label htmlFor="gitlab-custom-instance">Custom URL</Label>
++                  <Input
++                    id="gitlab-custom-instance"
++                    value={customInstance}
++                    onChange={(event) => onCustomInstanceChange(event.target.value)}
++                    placeholder="https://gitlab.example.com"
++                  />
++                </div>
+               ) : null}
+             </div>
+             <div className="grid gap-1">
+@@ -114,14 +133,6 @@ export function OnboardingTokenStep({
+             ) : null}
+             {projectsError ? <p className="text-xs text-destructive">{projectsError}</p> : null}
+             <div className="flex flex-col gap-2 sm:flex-row">
+-              <Button
+-                type="button"
+-                variant="outline"
+-                onClick={() => void onTestToken()}
+-                disabled={actionBusy || tokenTestBusy || !canLoadProjects}
+-              >
+-                {tokenTestBusy ? "Testing token..." : "Test token"}
+-              </Button>
+               <Button
+                 type="submit"
+                 onMouseEnter={onPrefetchContinue}
+@@ -129,7 +140,11 @@ export function OnboardingTokenStep({
+                 onTouchStart={onPrefetchContinue}
+                 disabled={actionBusy || tokenTestBusy || !canLoadProjects}
+               >
+-                {actionBusy ? "Loading projects..." : "Continue to projects"}
++                {actionBusy
++                  ? "Loading projects..."
++                  : tokenTestBusy
++                    ? "Testing token..."
++                    : "Continue to projects"}
+               </Button>
+             </div>
+           </form>
+diff --git a/src/components/onboarding/onboarding-types.ts b/src/components/onboarding/onboarding-types.ts
+index a1e9fc0a..6ee42532 100644
+--- a/src/components/onboarding/onboarding-types.ts
++++ b/src/components/onboarding/onboarding-types.ts
+@@ -25,6 +25,7 @@ export type OnboardingSessionState = {
+   gitlabInstance: string
+   customInstance: string
+   token: string
++  instanceTokens?: Record<string, string>
+   projects: Project[]
+   selectedProjectId: string
+   mergeRequests: MergeRequest[]

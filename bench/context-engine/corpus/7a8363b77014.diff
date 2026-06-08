@@ -1,0 +1,408 @@
+diff --git a/apps/web/src/app/api/ai/test/route.ts b/apps/web/src/app/api/ai/test/route.ts
+index b43b3719..de4a6f32 100644
+--- a/apps/web/src/app/api/ai/test/route.ts
++++ b/apps/web/src/app/api/ai/test/route.ts
+@@ -8,6 +8,7 @@ import {
+ } from "@/lib/observability/metrics"
+ import { requireJsonBody } from "@/lib/http/request-json"
+ import { parseJsonResponse } from "@/lib/http/response-json"
++import { isPrivateOrLocalHost } from "@/lib/http/private-host"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+ 
+@@ -48,52 +49,6 @@ const getEnvApiUrl = () =>
+ 
+ const normalizeApiUrl = (value: string) => value.trim().replace(/\/+$/, "")
+ 
+-const isPrivateOrLocalHost = (hostname: string) => {
+-  const normalized = hostname.trim().toLowerCase()
+-  if (!normalized) {
+-    return true
+-  }
+-
+-  if (
+-    normalized === "localhost" ||
+-    normalized.endsWith(".localhost") ||
+-    normalized === "0.0.0.0" ||
+-    normalized === "::1" ||
+-    normalized.endsWith(".local") ||
+-    normalized.endsWith(".internal")
+-  ) {
+-    return true
+-  }
+-
+-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
+-    const octets = normalized.split(".").map((part) => Number.parseInt(part, 10))
+-    if (octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+-      return true
+-    }
+-
+-    const [a, b] = octets
+-    if (
+-      a === 10 ||
+-      a === 127 ||
+-      (a === 169 && b === 254) ||
+-      (a === 172 && b >= 16 && b <= 31) ||
+-      (a === 192 && b === 168) ||
+-      (a === 100 && b >= 64 && b <= 127)
+-    ) {
+-      return true
+-    }
+-  }
+-
+-  if (
+-    normalized.includes(":") &&
+-    (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:"))
+-  ) {
+-    return true
+-  }
+-
+-  return false
+-}
+-
+ const resolveApiUrl = (rawApiUrl: string) => {
+   let parsed: URL
+   try {
+diff --git a/apps/web/src/app/api/command-palette/chat/route.ts b/apps/web/src/app/api/command-palette/chat/route.ts
+index 37492d5c..9577ba33 100644
+--- a/apps/web/src/app/api/command-palette/chat/route.ts
++++ b/apps/web/src/app/api/command-palette/chat/route.ts
+@@ -8,6 +8,7 @@ import {
+ } from "@/lib/observability/metrics"
+ import { requireJsonBody } from "@/lib/http/request-json"
+ import { parseJsonResponse } from "@/lib/http/response-json"
++import { isPrivateOrLocalHost } from "@/lib/http/private-host"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+ 
+@@ -66,52 +67,6 @@ const pickFirstNonEmpty = (...values: Array<string | undefined>) => {
+ 
+ const normalizeApiUrl = (value: string) => value.trim().replace(/\/+$/, "")
+ 
+-const isPrivateOrLocalHost = (hostname: string) => {
+-  const normalized = hostname.trim().toLowerCase()
+-  if (!normalized) {
+-    return true
+-  }
+-
+-  if (
+-    normalized === "localhost" ||
+-    normalized.endsWith(".localhost") ||
+-    normalized === "0.0.0.0" ||
+-    normalized === "::1" ||
+-    normalized.endsWith(".local") ||
+-    normalized.endsWith(".internal")
+-  ) {
+-    return true
+-  }
+-
+-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
+-    const octets = normalized.split(".").map((part) => Number.parseInt(part, 10))
+-    if (octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+-      return true
+-    }
+-
+-    const [a, b] = octets
+-    if (
+-      a === 10 ||
+-      a === 127 ||
+-      (a === 169 && b === 254) ||
+-      (a === 172 && b >= 16 && b <= 31) ||
+-      (a === 192 && b === 168) ||
+-      (a === 100 && b >= 64 && b <= 127)
+-    ) {
+-      return true
+-    }
+-  }
+-
+-  if (
+-    normalized.includes(":") &&
+-    (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:"))
+-  ) {
+-    return true
+-  }
+-
+-  return false
+-}
+-
+ const resolveApiUrl = (rawApiUrl: string) => {
+   let parsed: URL
+   try {
+diff --git a/apps/web/src/app/api/review/description/request-input.ts b/apps/web/src/app/api/review/description/request-input.ts
+index b29fe0ee..caf1b346 100644
+--- a/apps/web/src/app/api/review/description/request-input.ts
++++ b/apps/web/src/app/api/review/description/request-input.ts
+@@ -2,6 +2,7 @@ import {
+   DEFAULT_AI_API_URL,
+   DEFAULT_AI_MODEL,
+ } from "./constants"
++import { isPrivateOrLocalHost } from "@/lib/http/private-host"
+ import {
+   type DescriptionScope,
+   type ResolvedDescriptionRequest,
+@@ -22,52 +23,6 @@ const pickFirstNonEmpty = (...values: Array<string | undefined>) => {
+ 
+ export const normalizeApiUrl = (value: string) => value.trim().replace(/\/+$/, "")
+ 
+-const isPrivateOrLocalHost = (hostname: string) => {
+-  const normalized = hostname.trim().toLowerCase()
+-  if (!normalized) {
+-    return true
+-  }
+-
+-  if (
+-    normalized === "localhost" ||
+-    normalized.endsWith(".localhost") ||
+-    normalized === "0.0.0.0" ||
+-    normalized === "::1" ||
+-    normalized.endsWith(".local") ||
+-    normalized.endsWith(".internal")
+-  ) {
+-    return true
+-  }
+-
+-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
+-    const octets = normalized.split(".").map((part) => Number.parseInt(part, 10))
+-    if (octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+-      return true
+-    }
+-
+-    const [a, b] = octets
+-    if (
+-      a === 10 ||
+-      a === 127 ||
+-      (a === 169 && b === 254) ||
+-      (a === 172 && b >= 16 && b <= 31) ||
+-      (a === 192 && b === 168) ||
+-      (a === 100 && b >= 64 && b <= 127)
+-    ) {
+-      return true
+-    }
+-  }
+-
+-  if (
+-    normalized.includes(":") &&
+-    (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:"))
+-  ) {
+-    return true
+-  }
+-
+-  return false
+-}
+-
+ const getEnvApiUrl = () =>
+   pickFirstNonEmpty(
+     process.env.AI_API_URL,
+diff --git a/apps/web/src/app/api/review/diff/request-input.ts b/apps/web/src/app/api/review/diff/request-input.ts
+index 5804a653..32f40224 100644
+--- a/apps/web/src/app/api/review/diff/request-input.ts
++++ b/apps/web/src/app/api/review/diff/request-input.ts
+@@ -1,3 +1,5 @@
++import { isPrivateOrLocalHost } from "@/lib/http/private-host"
++
+ const DEFAULT_AI_API_URL = "https://api.openai.com/v1"
+ const DEFAULT_AI_MODEL = "gpt-4o-mini"
+ 
+@@ -27,52 +29,6 @@ const isNonEmptyString = (value: unknown): value is string =>
+ 
+ const normalizeApiUrl = (value: string) => value.trim().replace(/\/+$/, "")
+ 
+-const isPrivateOrLocalHost = (hostname: string) => {
+-  const normalized = hostname.trim().toLowerCase()
+-  if (!normalized) {
+-    return true
+-  }
+-
+-  if (
+-    normalized === "localhost" ||
+-    normalized.endsWith(".localhost") ||
+-    normalized === "0.0.0.0" ||
+-    normalized === "::1" ||
+-    normalized.endsWith(".local") ||
+-    normalized.endsWith(".internal")
+-  ) {
+-    return true
+-  }
+-
+-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
+-    const octets = normalized.split(".").map((part) => Number.parseInt(part, 10))
+-    if (octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+-      return true
+-    }
+-
+-    const [a, b] = octets
+-    if (
+-      a === 10 ||
+-      a === 127 ||
+-      (a === 169 && b === 254) ||
+-      (a === 172 && b >= 16 && b <= 31) ||
+-      (a === 192 && b === 168) ||
+-      (a === 100 && b >= 64 && b <= 127)
+-    ) {
+-      return true
+-    }
+-  }
+-
+-  if (
+-    normalized.includes(":") &&
+-    (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:"))
+-  ) {
+-    return true
+-  }
+-
+-  return false
+-}
+-
+ const resolveApiUrl = (raw: string) => {
+   let parsed: URL
+   try {
+diff --git a/apps/web/src/lib/http/private-host.ts b/apps/web/src/lib/http/private-host.ts
+new file mode 100644
+index 00000000..8d2b5fcb
+--- /dev/null
++++ b/apps/web/src/lib/http/private-host.ts
+@@ -0,0 +1,144 @@
++import { isIP } from "node:net"
++
++const IPV4_PARTS = 4
++const IPV4_MAPPED_PREFIX = "::ffff:"
++const IPV6_LINK_LOCAL_MIN = 0xfe80
++const IPV6_LINK_LOCAL_MAX = 0xfebf
++const IPV6_UNIQUE_LOCAL_MIN = 0xfc00
++const IPV6_UNIQUE_LOCAL_MAX = 0xfdff
++
++const normalizeHostname = (hostname: string) => {
++  const normalized = hostname.trim().toLowerCase()
++  if (normalized.startsWith("[") && normalized.endsWith("]")) {
++    return normalized.slice(1, -1)
++  }
++  return normalized
++}
++
++const parseIpv4Octets = (address: string): number[] | null => {
++  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) {
++    return null
++  }
++
++  const octets = address.split(".").map((part) => Number.parseInt(part, 10))
++  if (
++    octets.length !== IPV4_PARTS ||
++    octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)
++  ) {
++    return null
++  }
++
++  return octets
++}
++
++const isPrivateIpv4 = (address: string) => {
++  const octets = parseIpv4Octets(address)
++  if (!octets) {
++    return true
++  }
++
++  const [a, b] = octets
++  return (
++    a === 0 ||
++    a === 10 ||
++    a === 127 ||
++    (a === 169 && b === 254) ||
++    (a === 172 && b >= 16 && b <= 31) ||
++    (a === 192 && b === 168) ||
++    (a === 100 && b >= 64 && b <= 127)
++  )
++}
++
++const parseMappedIpv4FromIpv6 = (address: string): string | null => {
++  if (!address.startsWith(IPV4_MAPPED_PREFIX)) {
++    return null
++  }
++
++  const suffix = address.slice(IPV4_MAPPED_PREFIX.length)
++  const dotted = parseIpv4Octets(suffix)
++  if (dotted) {
++    return suffix
++  }
++
++  const hextets = suffix.split(":")
++  if (
++    hextets.length !== 2 ||
++    hextets.some((part) => part.length === 0 || part.length > 4 || !/^[0-9a-f]+$/.test(part))
++  ) {
++    return null
++  }
++
++  const high = Number.parseInt(hextets[0], 16)
++  const low = Number.parseInt(hextets[1], 16)
++  if (!Number.isFinite(high) || !Number.isFinite(low)) {
++    return null
++  }
++
++  const first = Math.floor(high / 256)
++  const second = high % 256
++  const third = Math.floor(low / 256)
++  const fourth = low % 256
++  return `${first}.${second}.${third}.${fourth}`
++}
++
++const isPrivateIpv6 = (address: string) => {
++  if (address === "::" || address === "::1" || address === "0:0:0:0:0:0:0:1") {
++    return true
++  }
++
++  const mappedIpv4 = parseMappedIpv4FromIpv6(address)
++  if (mappedIpv4) {
++    return isPrivateIpv4(mappedIpv4)
++  }
++
++  const firstHextet = address.split(":", 1)[0]
++  if (!firstHextet) {
++    return false
++  }
++
++  const first = Number.parseInt(firstHextet, 16)
++  if (!Number.isFinite(first)) {
++    return true
++  }
++
++  if (first >= IPV6_LINK_LOCAL_MIN && first <= IPV6_LINK_LOCAL_MAX) {
++    return true
++  }
++
++  if (first >= IPV6_UNIQUE_LOCAL_MIN && first <= IPV6_UNIQUE_LOCAL_MAX) {
++    return true
++  }
++
++  return false
++}
++
++export const isPrivateOrLocalHost = (hostname: string) => {
++  const normalized = normalizeHostname(hostname)
++  if (!normalized) {
++    return true
++  }
++
++  if (
++    normalized === "localhost" ||
++    normalized.endsWith(".localhost") ||
++    normalized.endsWith(".local") ||
++    normalized.endsWith(".internal")
++  ) {
++    return true
++  }
++
++  const ipVersion = isIP(normalized)
++  if (ipVersion === 4) {
++    return isPrivateIpv4(normalized)
++  }
++  if (ipVersion === 6) {
++    return isPrivateIpv6(normalized)
++  }
++
++  // Fail closed for dotted-quad lookalikes that are not valid IPv4 addresses.
++  if (parseIpv4Octets(normalized) === null && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
++    return true
++  }
++
++  return false
++}

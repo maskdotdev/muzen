@@ -1,0 +1,23 @@
+diff --git a/apps/web/src/features/review/components/diff/file-tree.tsx b/apps/web/src/features/review/components/diff/file-tree.tsx
+index d5f05ef9..cded01fa 100644
+--- a/apps/web/src/features/review/components/diff/file-tree.tsx
++++ b/apps/web/src/features/review/components/diff/file-tree.tsx
+@@ -41,7 +41,6 @@ const TREE_STYLE = {
+ } as CSSProperties
+ 
+ const TREE_STATUS_ONLY_GIT_CSS = `
+-  [data-item-git-status] > [data-item-section='icon'] > :where(:not([data-icon-name='file-tree-icon-chevron'])),
+   [data-item-git-status] > [data-item-section='content'] {
+     color: var(--trees-fg);
+   }
+@@ -142,8 +141,8 @@ export function MergeRequestDiffFileTree({
+     flattenEmptyDirectories: true,
+     gitStatus,
+     icons: {
+-      colored: false,
+-      set: "standard",
++      colored: true,
++      set: "complete",
+     },
+     initialExpansion: "open",
+     onSelectionChange: handleSelectionChange,

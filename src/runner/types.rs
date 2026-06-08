@@ -618,6 +618,21 @@ pub struct RunnerRunSummary {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
+    pub quality_diagnostics: RunnerReviewQualityDiagnostics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerReviewQualityDiagnostics {
+    pub contract_risk_units: usize,
+    pub contract_seed_count: usize,
+    pub contract_pack_count: usize,
+    pub contract_evidence_failures: usize,
+    pub candidate_findings: usize,
+    pub rescued_candidates: usize,
+    pub rejected_candidates: usize,
+    #[serde(default)]
+    pub rejection_reasons: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -644,6 +659,8 @@ pub struct RunnerFinding {
     pub challenged_by: Vec<String>,
     #[serde(default)]
     pub location: Option<RunnerFindingLocation>,
+    #[serde(default)]
+    pub related_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,0 +1,555 @@
+diff --git a/apps/web/src/components/merge-request-diff/build-merge-request-diff-panel-props.ts b/apps/web/src/components/merge-request-diff/build-merge-request-diff-panel-props.ts
+index 8dcce1d0..626d0633 100644
+--- a/apps/web/src/components/merge-request-diff/build-merge-request-diff-panel-props.ts
++++ b/apps/web/src/components/merge-request-diff/build-merge-request-diff-panel-props.ts
+@@ -12,7 +12,11 @@ import type {
+ } from "./merge-request-diff-viewer.utils"
+ 
+ export type BuildMergeRequestDiffPanelPropsOptions = {
++  instanceUrl: string
++  token: string
+   integrationId?: string
++  projectId: string
++  mergeRequestIid: string
+   filteredFiles: FileDiffMetadata[]
+   totals: { additions: number; deletions: number }
+   reviewFindingsCount: number
+@@ -95,7 +99,11 @@ export type BuildMergeRequestDiffPanelPropsOptions = {
+ }
+ 
+ export function buildMergeRequestDiffPanelProps({
++  instanceUrl,
++  token,
+   integrationId,
++  projectId,
++  mergeRequestIid,
+   filteredFiles,
+   totals,
+   reviewFindingsCount,
+@@ -161,7 +169,11 @@ export function buildMergeRequestDiffPanelProps({
+   mergeRequestBranchInfo,
+ }: BuildMergeRequestDiffPanelPropsOptions): MergeRequestDiffPanelProps {
+   return {
++    instanceUrl,
++    token,
+     integrationId,
++    projectId,
++    mergeRequestIid,
+     filteredFileCount: filteredFiles.length,
+     totals,
+     reviewFindingsCount,
+diff --git a/apps/web/src/components/merge-request-diff/hooks/use-merge-request-diff-viewer-controller.ts b/apps/web/src/components/merge-request-diff/hooks/use-merge-request-diff-viewer-controller.ts
+index 2f36bc0f..ade550c3 100644
+--- a/apps/web/src/components/merge-request-diff/hooks/use-merge-request-diff-viewer-controller.ts
++++ b/apps/web/src/components/merge-request-diff/hooks/use-merge-request-diff-viewer-controller.ts
+@@ -104,7 +104,11 @@ export function useMergeRequestDiffViewerController({
+   }, [pathname, router])
+ 
+   return buildMergeRequestDiffPanelProps({
++    instanceUrl,
++    token,
+     integrationId,
++    projectId,
++    mergeRequestIid,
+     filteredFiles: model.derived.filteredFiles,
+     totals: model.derived.totals,
+     reviewFindingsCount: model.ai.reviewFindings.length,
+diff --git a/apps/web/src/components/merge-request-diff/merge-request-diff-panel.tsx b/apps/web/src/components/merge-request-diff/merge-request-diff-panel.tsx
+index 8a3e3a86..074b9b3a 100644
+--- a/apps/web/src/components/merge-request-diff/merge-request-diff-panel.tsx
++++ b/apps/web/src/components/merge-request-diff/merge-request-diff-panel.tsx
+@@ -4,9 +4,10 @@ import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs";
+ import { FileDiff, WorkerPoolContextProvider } from "@pierre/diffs/react";
+ import { Sparkles } from "lucide-react";
+ import { useRouter } from "next/navigation";
+-import { useCallback, useMemo, useRef, useState } from "react";
++import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+ 
+ import { Button } from "@/components/ui/button";
++import { Textarea } from "@/components/ui/textarea";
+ import type { ReviewPersona } from "@/lib/review/persona";
+ import {
+ 	AlertDialog,
+@@ -37,7 +38,11 @@ import { renderMergeRequestReviewAnnotation } from "./merge-request-inline-comme
+ import { MergeRequestReviewProcess } from "./merge-request-review-process";
+ 
+ export type MergeRequestDiffPanelProps = {
++	instanceUrl: string;
++	token: string;
+ 	integrationId?: string;
++	projectId: string;
++	mergeRequestIid: string;
+ 	filteredFileCount: number;
+ 	totals: { additions: number; deletions: number };
+ 	reviewFindingsCount: number;
+@@ -156,8 +161,33 @@ type ReviewCommentNavigationTarget = {
+ 	fileKey: string;
+ };
+ 
+-const EMPTY_REVIEW_ANNOTATIONS: DiffLineAnnotation<ReviewAnnotationMetadata>[] =
+-	[];
++type SelectedLineRange = {
++	start: number;
++	side?: "additions" | "deletions";
++	end: number;
++	endSide?: "additions" | "deletions";
++};
++
++type ManualCommentSelection = {
++	file: FileDiffMetadata;
++	fileKey: string;
++	range: SelectedLineRange;
++};
++
++type ManualDraftAnnotationMetadata = {
++	kind: "manual-draft";
++	filePath: string;
++	rangeStart: number;
++	rangeEnd: number;
++};
++
++type InlineAnnotationMetadata =
++	| ReviewAnnotationMetadata
++	| ManualDraftAnnotationMetadata;
++
++type InlineDiffAnnotation = DiffLineAnnotation<InlineAnnotationMetadata>;
++
++const EMPTY_INLINE_ANNOTATIONS: InlineDiffAnnotation[] = [];
+ 
+ const escapeAttributeValueForSelector = (value: string) =>
+ 	value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+@@ -183,8 +213,36 @@ const normalizeFileCandidatePaths = (file: FileDiffMetadata) => {
+ 	return normalizedPaths;
+ };
+ 
++const toLineRange = (range: SelectedLineRange) => {
++	return {
++		start: Math.min(range.start, range.end),
++		end: Math.max(range.start, range.end),
++	};
++};
++
++const getBasename = (filePath: string) => {
++	const parts = filePath.split("/");
++	return parts[parts.length - 1] || filePath;
++};
++
++const isManualDraftAnnotation = (
++	annotation: InlineDiffAnnotation,
++): annotation is DiffLineAnnotation<ManualDraftAnnotationMetadata> => {
++	const metadata = annotation.metadata;
++	return (
++		metadata !== undefined &&
++		typeof metadata === "object" &&
++		"kind" in metadata &&
++		metadata.kind === "manual-draft"
++	);
++};
++
+ export function MergeRequestDiffPanel({
++	instanceUrl,
++	token,
+ 	integrationId,
++	projectId,
++	mergeRequestIid,
+ 	filteredFileCount,
+ 	totals,
+ 	reviewFindingsCount,
+@@ -298,6 +356,13 @@ export function MergeRequestDiffPanel({
+ 	const [activeCommentKey, setActiveCommentKey] = useState<string | null>(
+ 		null,
+ 	);
++	const [manualCommentSelection, setManualCommentSelection] =
++		useState<ManualCommentSelection | null>(null);
++	const [manualCommentBody, setManualCommentBody] = useState("");
++	const [manualCommentError, setManualCommentError] = useState("");
++	const [manualCommentSuccess, setManualCommentSuccess] = useState("");
++	const [isSubmittingManualComment, setIsSubmittingManualComment] =
++		useState(false);
+ 	const handleAnnotationLayoutChange = useCallback(() => {
+ 		if (typeof window === "undefined") {
+ 			return;
+@@ -333,19 +398,248 @@ export function MergeRequestDiffPanel({
+ 		},
+ 		[integrationId, mergeRequestBranchInfo?.sourceBranch],
+ 	);
++	const manualCommentLineRange = useMemo(() => {
++		if (!manualCommentSelection) {
++			return null;
++		}
++		return toLineRange(manualCommentSelection.range);
++	}, [manualCommentSelection]);
++	const manualDraftAnnotationsByFileKey = useMemo<
++		Record<string, InlineDiffAnnotation[]>
++	>(() => {
++		if (!manualCommentSelection || !manualCommentLineRange) {
++			return {};
++		}
++
++		const selectedSide = manualCommentSelection.range.side ?? "additions";
++		const filePath =
++			selectedSide === "deletions"
++				? manualCommentSelection.file.prevName ?? manualCommentSelection.file.name
++				: manualCommentSelection.file.name ?? manualCommentSelection.file.prevName;
++		if (!filePath) {
++			return {};
++		}
++
++		return {
++			[manualCommentSelection.fileKey]: [
++				{
++					side: selectedSide,
++					lineNumber: manualCommentLineRange.end,
++					metadata: {
++						kind: "manual-draft",
++						filePath,
++						rangeStart: manualCommentLineRange.start,
++						rangeEnd: manualCommentLineRange.end,
++					},
++				},
++			],
++		};
++	}, [manualCommentLineRange, manualCommentSelection]);
++	const handleSubmitManualComment = useCallback(async () => {
++		if (!manualCommentSelection || !manualCommentLineRange) {
++			setManualCommentError("Select at least one line before posting.");
++			return;
++		}
++
++		const commentBody = manualCommentBody.trim();
++		if (!commentBody) {
++			setManualCommentError("Comment body is required.");
++			return;
++		}
++
++		const selectedSide = manualCommentSelection.range.side ?? "additions";
++		const endSide = manualCommentSelection.range.endSide;
++		if (endSide && endSide !== selectedSide) {
++			setManualCommentError(
++				"Selection crosses additions and deletions. Select one side only.",
++			);
++			return;
++		}
++
++		const normalizedFilePath = normalizePatchPath(manualCommentSelection.file.name);
++		const normalizedPrevPath = manualCommentSelection.file.prevName
++			? normalizePatchPath(manualCommentSelection.file.prevName)
++			: null;
++		const oldPath = normalizedPrevPath ?? normalizedFilePath;
++		const newPath = normalizedFilePath || normalizedPrevPath;
++		const commentFilePath =
++			selectedSide === "deletions"
++				? oldPath || newPath
++				: newPath || oldPath;
++
++		if (!commentFilePath) {
++			setManualCommentError("Unable to resolve comment file path.");
++			return;
++		}
++
++		setIsSubmittingManualComment(true);
++		setManualCommentError("");
++		setManualCommentSuccess("");
++
++		try {
++			let postedCount = 0;
++			for (
++				let line = manualCommentLineRange.start;
++				line <= manualCommentLineRange.end;
++				line += 1
++			) {
++				const response = await fetch("/api/gitlab", {
++					method: "POST",
++					headers: {
++						"Content-Type": "application/json",
++					},
++					body: JSON.stringify({
++						action: "create-merge-request-discussion",
++						instanceUrl,
++						token,
++						integrationId,
++						projectId,
++						mergeRequestIid,
++						commentBody,
++						commentLine: line,
++						commentSide: selectedSide,
++						commentFilePath,
++						commentOldPath: oldPath,
++						commentNewPath: newPath,
++					}),
++				});
++
++				if (!response.ok) {
++					let detail = `Failed to post comment at line ${line}.`;
++					try {
++						const payload = (await response.json()) as {
++							error?: unknown;
++						};
++						if (typeof payload?.error === "string" && payload.error.trim()) {
++							detail = payload.error;
++						}
++					} catch {
++						// best effort
++					}
++					throw new Error(detail);
++				}
++
++				postedCount += 1;
++			}
++
++			setManualCommentSuccess(
++				postedCount === 1
++					? "Comment posted to GitLab."
++					: `Posted ${postedCount} comments to GitLab (one per selected line).`,
++			);
++			setManualCommentBody("");
++		} catch (error) {
++			setManualCommentError(
++				error instanceof Error && error.message.trim()
++					? error.message
++					: "Unable to post comment to GitLab.",
++			);
++		} finally {
++			setIsSubmittingManualComment(false);
++		}
++	}, [
++		instanceUrl,
++		integrationId,
++		manualCommentBody,
++		manualCommentLineRange,
++		manualCommentSelection,
++		mergeRequestIid,
++		projectId,
++		token,
++	]);
+ 	const renderReviewAnnotation = useCallback(
+-		(annotation: DiffLineAnnotation<ReviewAnnotationMetadata>) =>
+-			renderMergeRequestReviewAnnotation(annotation, {
+-				onSubmitFeedback: onSubmitReviewCommentFeedback,
+-				onPostToGitLab: onPostReviewCommentToGitLab,
+-				onRemoveFromGitLab: onRemoveReviewCommentFromGitLab,
+-				onQueueImpactBranchIndexing,
+-				onAnnotationLayoutChange: handleAnnotationLayoutChange,
+-				buildImpactGraphHref,
+-			}),
++		(annotation: InlineDiffAnnotation): ReactNode => {
++			if (isManualDraftAnnotation(annotation)) {
++				const metadata = annotation.metadata;
++				const lineCount = metadata.rangeEnd - metadata.rangeStart + 1;
++				const fileName = getBasename(metadata.filePath);
++				return (
++					<div className="mx-2 my-1 overflow-hidden rounded-md border border-border/70 bg-card/95 shadow-sm">
++						<div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5">
++							<div
++								className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
++								title={`${metadata.filePath}:${metadata.rangeStart}-${metadata.rangeEnd}`}
++							>
++								{`Comment ${fileName}:${metadata.rangeStart}-${metadata.rangeEnd}`}
++							</div>
++							<Button
++								type="button"
++								size="sm"
++								variant="ghost"
++								className="h-6 shrink-0 px-2 text-[11px]"
++								onClick={() => {
++									setManualCommentSelection(null);
++									setManualCommentError("");
++									setManualCommentSuccess("");
++								}}
++							>
++								Clear selection
++							</Button>
++						</div>
++						<div className="space-y-2 px-3 py-2.5">
++							<Textarea
++								value={manualCommentBody}
++								onChange={(event) => setManualCommentBody(event.target.value)}
++								placeholder="Leave a review comment..."
++								className="min-h-[72px] resize-y bg-background/70 text-sm"
++								disabled={isSubmittingManualComment}
++							/>
++							<div className="flex flex-wrap items-center gap-2">
++								<Button
++									type="button"
++									size="sm"
++									variant="outline"
++									className="h-7 px-2.5 text-xs"
++									onClick={() => void handleSubmitManualComment()}
++									disabled={isSubmittingManualComment}
++									>
++										{isSubmittingManualComment
++											? "Posting..."
++											: lineCount === 1
++												? "Post comment"
++												: `Post to ${lineCount} lines`}
++									</Button>
++								{manualCommentError ? (
++									<span className="text-[11px] text-destructive">
++										{manualCommentError}
++									</span>
++								) : null}
++								{!manualCommentError && manualCommentSuccess ? (
++									<span className="text-[11px] text-emerald-700 dark:text-emerald-400">
++										{manualCommentSuccess}
++									</span>
++								) : null}
++							</div>
++								{lineCount > 1 ? (
++									<p className="text-[10px] text-muted-foreground">
++										Uses the same text and posts one GitLab note per selected line.
++									</p>
++								) : null}
++						</div>
++					</div>
++				);
++			}
++
++			return renderMergeRequestReviewAnnotation(
++				annotation as DiffLineAnnotation<ReviewAnnotationMetadata>,
++				{
++					onSubmitFeedback: onSubmitReviewCommentFeedback,
++					onPostToGitLab: onPostReviewCommentToGitLab,
++					onRemoveFromGitLab: onRemoveReviewCommentFromGitLab,
++					onQueueImpactBranchIndexing,
++					onAnnotationLayoutChange: handleAnnotationLayoutChange,
++					buildImpactGraphHref,
++				},
++			);
++		},
+ 		[
+ 			buildImpactGraphHref,
+ 			handleAnnotationLayoutChange,
++			handleSubmitManualComment,
++			isSubmittingManualComment,
++			manualCommentBody,
++			manualCommentError,
++			manualCommentSuccess,
+ 			onQueueImpactBranchIndexing,
+ 			onPostReviewCommentToGitLab,
+ 			onRemoveReviewCommentFromGitLab,
+@@ -495,12 +789,19 @@ export function MergeRequestDiffPanel({
+ 	const visibleFileEntries = useMemo(() => {
+ 		return visibleFiles.map((file) => {
+ 			const fileKey = getFileKey(file);
++			const reviewLineAnnotations =
++				(reviewAnnotationsByFileKey[fileKey] as InlineDiffAnnotation[] | undefined) ??
++				EMPTY_INLINE_ANNOTATIONS;
++			const draftLineAnnotations =
++				manualDraftAnnotationsByFileKey[fileKey] ?? EMPTY_INLINE_ANNOTATIONS;
+ 			return {
+ 				file,
+ 				fileKey,
+ 				isCollapsed: collapsedFileKeys.has(fileKey),
+ 				lineAnnotations:
+-					reviewAnnotationsByFileKey[fileKey] ?? EMPTY_REVIEW_ANNOTATIONS,
++					draftLineAnnotations.length > 0
++						? [...reviewLineAnnotations, ...draftLineAnnotations]
++						: reviewLineAnnotations,
+ 				reviewCoverage: reviewCoverageByFileKey[fileKey],
+ 				reviewStatus: reviewStatusByFileKey[fileKey] ?? "pending",
+ 			};
+@@ -508,6 +809,7 @@ export function MergeRequestDiffPanel({
+ 	}, [
+ 		collapsedFileKeys,
+ 		getFileKey,
++		manualDraftAnnotationsByFileKey,
+ 		reviewAnnotationsByFileKey,
+ 		reviewCoverageByFileKey,
+ 		reviewStatusByFileKey,
+@@ -632,7 +934,6 @@ export function MergeRequestDiffPanel({
+ 							isSubmittingReviewFeedback={isSubmittingReviewFeedback}
+ 							onSubmitReviewFeedback={onSubmitReviewFeedback}
+ 						/>
+-
+ 					{isDiffBusy ? (
+ 						<div className="rounded-lg border border-dashed border-border/50 px-4 py-10 text-center text-sm text-muted-foreground/70">
+ 							Preparing initial diff files…
+@@ -669,17 +970,52 @@ export function MergeRequestDiffPanel({
+ 												/>
+ 												{!entry.isCollapsed ? (
+ 													<div className="overflow-hidden rounded-b-lg border border-t-0 border-border">
+-														<FileDiff
++														<FileDiff<InlineAnnotationMetadata>
+ 															fileDiff={entry.file}
+-															options={diffOptions}
+-															lineAnnotations={entry.lineAnnotations}
++															options={{
++																...diffOptions,
++																enableLineSelection: true,
++																onLineSelected: (range) => {
++																	if (!range) {
++																		setManualCommentSelection((current) => {
++																			if (current?.fileKey !== entry.fileKey) {
++																				return current;
++																			}
++																			return null;
++																		});
++																		setManualCommentError("");
++																		setManualCommentSuccess("");
++																		return;
++																	}
++																	setManualCommentSelection({
++																		file: entry.file,
++																		fileKey: entry.fileKey,
++																		range: {
++																			start: range.start,
++																			end: range.end,
++																			side: range.side,
++																			endSide: range.endSide,
++																		},
++																	});
++																	setManualCommentError("");
++																	setManualCommentSuccess("");
++																},
++															}}
++															selectedLines={
++																manualCommentSelection?.fileKey === entry.fileKey
++																	? manualCommentSelection.range
++																	: null
++															}
++															lineAnnotations={
++																entry.lineAnnotations as InlineDiffAnnotation[]
++															}
+ 															renderAnnotation={renderReviewAnnotation}
+-														/>
+-													</div>
+-											) : null}
+-										</div>
+-									);
+-								})}
++															/>
++														</div>
++												) : null}
++											</div>
++										);
++									})}
+ 							</div>
+ 						</WorkerPoolContextProvider>
+ 					) : null}
+diff --git a/apps/web/src/components/merge-request-diff/tests/build-merge-request-diff-panel-props.test.ts b/apps/web/src/components/merge-request-diff/tests/build-merge-request-diff-panel-props.test.ts
+index 33ac8349..9d93637d 100644
+--- a/apps/web/src/components/merge-request-diff/tests/build-merge-request-diff-panel-props.test.ts
++++ b/apps/web/src/components/merge-request-diff/tests/build-merge-request-diff-panel-props.test.ts
+@@ -48,7 +48,11 @@ describe("build-merge-request-diff-panel-props", () => {
+     let forcedPromptReview = false
+ 
+     const options: BuildMergeRequestDiffPanelPropsOptions = {
++      instanceUrl: "https://gitlab.com",
++      token: "token-123",
+       filteredFiles: files,
++      projectId: "123",
++      mergeRequestIid: "42",
+       totals: { additions: 3, deletions: 1 },
+       reviewFindingsCount: 2,
+       suppressedReviewFindingsCount: 1,
+@@ -191,6 +195,10 @@ describe("build-merge-request-diff-panel-props", () => {
+     const result = buildMergeRequestDiffPanelProps(options)
+ 
+     expect(result.filteredFileCount).toBe(1)
++    expect(result.instanceUrl).toBe("https://gitlab.com")
++    expect(result.token).toBe("token-123")
++    expect(result.projectId).toBe("123")
++    expect(result.mergeRequestIid).toBe("42")
+     expect(result.hasPatch).toBe(true)
+     expect(result.remainingFileCount).toBe(7)
+     expect(result.reviewSeverityCounts.high).toBe(1)

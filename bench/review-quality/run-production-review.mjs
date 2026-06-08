@@ -51,6 +51,7 @@ async function main() {
   const finalResult = run.result;
   const verdictCounts = fileReviewVerdictCounts(finalResult?.fileReviews || []);
   const diagnostics = eventDiagnostics(run.frames);
+  const qualityDiagnostics = finalResult?.summary?.qualityDiagnostics || {};
   const golden = goldenPath ? readJson(goldenPath) : { issues: [] };
   const scoring = scoreFindings(finalResult?.findings || [], golden.issues || []);
   const report = {
@@ -102,12 +103,17 @@ async function main() {
       hits: scoring.hits,
       misses: scoring.misses,
       falsePositiveCount: scoring.falsePositiveCount,
-      candidateCount: diagnostics.candidateFindings,
-      rescuedCandidateCount: diagnostics.rescuedCandidates,
-      rejectedCandidateCount: diagnostics.rejectedCandidates,
-      contractRiskUnits: diagnostics.contractRiskUnits,
-      contractSeedCount: diagnostics.contractSeedCount,
-      requiredEvidenceFailures: diagnostics.requiredEvidenceFailures,
+      candidateCount: qualityDiagnostics.candidateFindings ?? diagnostics.candidateFindings,
+      rescuedCandidateCount: qualityDiagnostics.rescuedCandidates ?? diagnostics.rescuedCandidates,
+      rejectedCandidateCount: qualityDiagnostics.rejectedCandidates ?? diagnostics.rejectedCandidates,
+      contractRiskUnits: qualityDiagnostics.contractRiskUnits ?? diagnostics.contractRiskUnits,
+      contractSeedCount: qualityDiagnostics.contractSeedCount ?? diagnostics.contractSeedCount,
+      contractPackCount: qualityDiagnostics.contractPackCount ?? 0,
+      contractEvidenceFailures:
+        qualityDiagnostics.contractEvidenceFailures ?? diagnostics.requiredEvidenceFailures,
+      requiredEvidenceFailures:
+        qualityDiagnostics.contractEvidenceFailures ?? diagnostics.requiredEvidenceFailures,
+      rejectionReasons: qualityDiagnostics.rejectionReasons ?? {},
       contractRiskCompletionCount: diagnostics.contractRiskCompletionCount,
       searchCount: diagnostics.searchCount,
       importCount: diagnostics.importCount,
@@ -382,10 +388,7 @@ function scoreFindings(findings, issues) {
   const hits = [];
   const misses = [];
   for (const issue of issues) {
-    const match = findings.findIndex((finding, index) => {
-      if (matchedFindingIndexes.has(index)) return false;
-      return issueMatchesFinding(issue, finding);
-    });
+    const match = findMatchingFindingIndex(findings, issue, matchedFindingIndexes);
     if (match >= 0) {
       matchedFindingIndexes.add(match);
       hits.push({ issueId: issue.id, findingId: findings[match].id, title: findings[match].title });
@@ -401,9 +404,19 @@ function scoreFindings(findings, issues) {
   };
 }
 
+function findMatchingFindingIndex(findings, issue, matchedFindingIndexes) {
+  for (let index = 0; index < findings.length; index += 1) {
+    const finding = findings[index];
+    const paths = findingPathsOf(finding);
+    if (matchedFindingIndexes.has(index) && paths.length <= 1) continue;
+    if (issueMatchesFinding(issue, finding)) return index;
+  }
+  return -1;
+}
+
 function issueMatchesFinding(issue, finding) {
-  const findingPath = findingPathOf(finding);
-  if (issue.path && findingPath !== issue.path) return false;
+  const findingPaths = findingPathsOf(finding);
+  if (issue.path && !findingPaths.includes(issue.path)) return false;
   const range = findingLineRangeOf(finding);
   if (issue.startLine && issue.endLine && range) {
     const overlaps =
@@ -414,6 +427,16 @@ function issueMatchesFinding(issue, finding) {
   const text = `${finding.title || ""}\n${finding.claim || ""}`.toLowerCase();
   const keywords = issue.keywords || [];
   return keywords.every((keyword) => text.includes(String(keyword).toLowerCase()));
+}
+
+function findingPathsOf(finding) {
+  const paths = [];
+  const primary = findingPathOf(finding);
+  if (primary) paths.push(primary);
+  for (const relatedPath of finding.relatedPaths || []) {
+    if (relatedPath && !paths.includes(relatedPath)) paths.push(relatedPath);
+  }
+  return paths;
 }
 
 function findingPathOf(finding) {

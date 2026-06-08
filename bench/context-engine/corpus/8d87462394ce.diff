@@ -1,0 +1,1827 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d00aec3..f1a3494 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -200,6 +200,15 @@ dependencies = [
+  "generic-array",
+ ]
+ 
++[[package]]
++name = "block-buffer"
++version = "0.12.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
++dependencies = [
++ "hybrid-array",
++]
++
+ [[package]]
+ name = "bstr"
+ version = "1.12.1"
+@@ -216,6 +225,12 @@ version = "3.20.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+ 
++[[package]]
++name = "byteorder"
++version = "1.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
++
+ [[package]]
+ name = "bytes"
+ version = "1.11.1"
+@@ -274,6 +289,17 @@ version = "0.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+ 
++[[package]]
++name = "chacha20"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.0",
++ "rand_core 0.10.1",
++]
++
+ [[package]]
+ name = "clap"
+ version = "4.6.1"
+@@ -314,6 +340,12 @@ version = "1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+ 
++[[package]]
++name = "cmov"
++version = "0.5.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
++
+ [[package]]
+ name = "colorchoice"
+ version = "1.0.5"
+@@ -329,6 +361,12 @@ dependencies = [
+  "crossbeam-utils",
+ ]
+ 
++[[package]]
++name = "const-oid"
++version = "0.10.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
++
+ [[package]]
+ name = "constant_time_eq"
+ version = "0.4.2"
+@@ -397,6 +435,24 @@ dependencies = [
+  "typenum",
+ ]
+ 
++[[package]]
++name = "crypto-common"
++version = "0.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
++dependencies = [
++ "hybrid-array",
++]
++
++[[package]]
++name = "ctutils"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
++dependencies = [
++ "cmov",
++]
++
+ [[package]]
+ name = "dashmap"
+ version = "6.2.1"
+@@ -417,11 +473,23 @@ version = "0.10.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+ dependencies = [
+- "block-buffer",
+- "crypto-common",
++ "block-buffer 0.10.4",
++ "crypto-common 0.1.7",
+  "subtle",
+ ]
+ 
++[[package]]
++name = "digest"
++version = "0.11.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
++dependencies = [
++ "block-buffer 0.12.0",
++ "const-oid",
++ "crypto-common 0.2.2",
++ "ctutils",
++]
++
+ [[package]]
+ name = "displaydoc"
+ version = "0.2.6"
+@@ -476,6 +544,12 @@ dependencies = [
+  "pin-project-lite",
+ ]
+ 
++[[package]]
++name = "fallible-iterator"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
++
+ [[package]]
+ name = "fastrand"
+ version = "2.4.1"
+@@ -621,7 +695,7 @@ dependencies = [
+  "cfg-if",
+  "js-sys",
+  "libc",
+- "wasi",
++ "wasi 0.11.1+wasi-snapshot-preview1",
+  "wasm-bindgen",
+ ]
+ 
+@@ -648,6 +722,7 @@ dependencies = [
+  "cfg-if",
+  "libc",
+  "r-efi 6.0.0",
++ "rand_core 0.10.1",
+  "wasip2",
+  "wasip3",
+ ]
+@@ -704,7 +779,16 @@ version = "0.12.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+ dependencies = [
+- "digest",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "hmac"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
++dependencies = [
++ "digest 0.11.3",
+ ]
+ 
+ [[package]]
+@@ -752,6 +836,15 @@ version = "1.0.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+ 
++[[package]]
++name = "hybrid-array"
++version = "0.4.12"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9155a582abd142abc056962c29e3ce5ff2ad5469f4246b537ed42c5deba857da"
++dependencies = [
++ "typenum",
++]
++
+ [[package]]
+ name = "hyper"
+ version = "1.10.1"
+@@ -1007,6 +1100,15 @@ version = "0.2.186"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+ 
++[[package]]
++name = "libredox"
++version = "0.1.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "linux-raw-sys"
+ version = "0.12.1"
+@@ -1052,6 +1154,16 @@ version = "0.3.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
+ 
++[[package]]
++name = "md-5"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
++dependencies = [
++ "cfg-if",
++ "digest 0.11.3",
++]
++
+ [[package]]
+ name = "memchr"
+ version = "2.8.1"
+@@ -1071,7 +1183,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda"
+ dependencies = [
+  "libc",
+- "wasi",
++ "wasi 0.11.1+wasi-snapshot-preview1",
+  "windows-sys 0.61.2",
+ ]
+ 
+@@ -1107,19 +1219,20 @@ dependencies = [
+  "clap",
+  "dashmap",
+  "futures",
+- "hmac",
++ "hmac 0.12.1",
+  "ignore",
+  "libc",
+  "memchr",
+  "moka",
+  "num_cpus",
+  "parking_lot",
++ "postgres",
+  "rayon",
+  "regex",
+  "reqwest",
+  "serde",
+  "serde_json",
+- "sha2",
++ "sha2 0.10.9",
+  "tempfile",
+  "thiserror",
+  "tokio",
+@@ -1137,6 +1250,24 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "objc2-core-foundation"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
++dependencies = [
++ "bitflags",
++]
++
++[[package]]
++name = "objc2-system-configuration"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7216bd11cbda54ccabcab84d523dc93b858ec75ecfb3a7d89513fa22464da396"
++dependencies = [
++ "objc2-core-foundation",
++]
++
+ [[package]]
+ name = "once_cell"
+ version = "1.21.4"
+@@ -1184,6 +1315,25 @@ version = "2.3.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+ 
++[[package]]
++name = "phf"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
++dependencies = [
++ "phf_shared",
++ "serde",
++]
++
++[[package]]
++name = "phf_shared"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
++dependencies = [
++ "siphasher",
++]
++
+ [[package]]
+ name = "pin-project-lite"
+ version = "0.2.17"
+@@ -1196,6 +1346,51 @@ version = "1.13.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
+ 
++[[package]]
++name = "postgres"
++version = "0.19.13"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "aacf632d0554ff75f58183694f41dc8999c8a3a43a386994d0ec2d034f1dfbe1"
++dependencies = [
++ "bytes",
++ "fallible-iterator",
++ "futures-util",
++ "log",
++ "tokio",
++ "tokio-postgres",
++]
++
++[[package]]
++name = "postgres-protocol"
++version = "0.6.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "56201207dac53e2f38e848e31b4b91616a6bb6e0c7205b77718994a7f49e70fc"
++dependencies = [
++ "base64",
++ "byteorder",
++ "bytes",
++ "fallible-iterator",
++ "hmac 0.13.0",
++ "md-5",
++ "memchr",
++ "rand 0.10.1",
++ "sha2 0.11.0",
++ "stringprep",
++]
++
++[[package]]
++name = "postgres-types"
++version = "0.2.13"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8dc729a129e682e8d24170cd30ae1aa01b336b096cbb56df6d534ffec133d186"
++dependencies = [
++ "bytes",
++ "fallible-iterator",
++ "postgres-protocol",
++ "serde_core",
++ "serde_json",
++]
++
+ [[package]]
+ name = "potential_utf"
+ version = "0.1.5"
+@@ -1262,7 +1457,7 @@ dependencies = [
+  "bytes",
+  "getrandom 0.3.4",
+  "lru-slab",
+- "rand",
++ "rand 0.9.4",
+  "ring",
+  "rustc-hash",
+  "rustls",
+@@ -1316,7 +1511,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
+ dependencies = [
+  "rand_chacha",
+- "rand_core",
++ "rand_core 0.9.5",
++]
++
++[[package]]
++name = "rand"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
++dependencies = [
++ "chacha20",
++ "getrandom 0.4.2",
++ "rand_core 0.10.1",
+ ]
+ 
+ [[package]]
+@@ -1326,7 +1532,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+ dependencies = [
+  "ppv-lite86",
+- "rand_core",
++ "rand_core 0.9.5",
+ ]
+ 
+ [[package]]
+@@ -1338,6 +1544,12 @@ dependencies = [
+  "getrandom 0.3.4",
+ ]
+ 
++[[package]]
++name = "rand_core"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
++
+ [[package]]
+ name = "rayon"
+ version = "1.12.0"
+@@ -1621,7 +1833,18 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+ dependencies = [
+  "cfg-if",
+  "cpufeatures 0.2.17",
+- "digest",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "sha2"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.0",
++ "digest 0.11.3",
+ ]
+ 
+ [[package]]
+@@ -1630,6 +1853,12 @@ version = "2.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+ 
++[[package]]
++name = "siphasher"
++version = "1.0.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
++
+ [[package]]
+ name = "slab"
+ version = "0.4.12"
+@@ -1658,6 +1887,17 @@ version = "1.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+ 
++[[package]]
++name = "stringprep"
++version = "0.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b4df3d392d81bd458a8a621b8bffbd2302a12ffe288a9d931670948749463b1"
++dependencies = [
++ "unicode-bidi",
++ "unicode-normalization",
++ "unicode-properties",
++]
++
+ [[package]]
+ name = "strsim"
+ version = "0.11.1"
+@@ -1791,6 +2031,32 @@ dependencies = [
+  "syn",
+ ]
+ 
++[[package]]
++name = "tokio-postgres"
++version = "0.7.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4dd8df5ef180f6364759a6f00f7aadda4fbbac86cdee37480826a6ff9f3574ce"
++dependencies = [
++ "async-trait",
++ "byteorder",
++ "bytes",
++ "fallible-iterator",
++ "futures-channel",
++ "futures-util",
++ "log",
++ "parking_lot",
++ "percent-encoding",
++ "phf",
++ "pin-project-lite",
++ "postgres-protocol",
++ "postgres-types",
++ "rand 0.10.1",
++ "socket2",
++ "tokio",
++ "tokio-util",
++ "whoami",
++]
++
+ [[package]]
+ name = "tokio-rustls"
+ version = "0.26.4"
+@@ -1892,12 +2158,33 @@ version = "1.20.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+ 
++[[package]]
++name = "unicode-bidi"
++version = "0.3.18"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
++
+ [[package]]
+ name = "unicode-ident"
+ version = "1.0.24"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+ 
++[[package]]
++name = "unicode-normalization"
++version = "0.1.25"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
++dependencies = [
++ "tinyvec",
++]
++
++[[package]]
++name = "unicode-properties"
++version = "0.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
++
+ [[package]]
+ name = "unicode-xid"
+ version = "0.2.6"
+@@ -1976,6 +2263,15 @@ version = "0.11.1+wasi-snapshot-preview1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+ 
++[[package]]
++name = "wasi"
++version = "0.14.7+wasi-0.2.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "883478de20367e224c0090af9cf5f9fa85bed63a95c1abf3afc5c083ebc06e8c"
++dependencies = [
++ "wasip2",
++]
++
+ [[package]]
+ name = "wasip2"
+ version = "1.0.3+wasi-0.2.9"
+@@ -1994,6 +2290,15 @@ dependencies = [
+  "wit-bindgen 0.51.0",
+ ]
+ 
++[[package]]
++name = "wasite"
++version = "1.0.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "66fe902b4a6b8028a753d5424909b764ccf79b7a209eac9bf97e59cda9f71a42"
++dependencies = [
++ "wasi 0.14.7+wasi-0.2.4",
++]
++
+ [[package]]
+ name = "wasm-bindgen"
+ version = "0.2.122"
+@@ -2112,6 +2417,19 @@ dependencies = [
+  "rustls-pki-types",
+ ]
+ 
++[[package]]
++name = "whoami"
++version = "2.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "998767ef88740d1f5b0682a9c53c24431453923962269c2db68ee43788c5a40d"
++dependencies = [
++ "libc",
++ "libredox",
++ "objc2-system-configuration",
++ "wasite",
++ "web-sys",
++]
++
+ [[package]]
+ name = "winapi-util"
+ version = "0.1.11"
+diff --git a/Cargo.toml b/Cargo.toml
+index 849d592..20e076c 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -21,6 +21,7 @@ memchr = "2.7.6"
+ moka = { version = "0.12.11", features = ["future"] }
+ num_cpus = "1.17.0"
+ parking_lot = "0.12.5"
++postgres = { version = "0.19", features = ["with-serde_json-1"] }
+ rayon = "1.11.0"
+ regex = "1.12.2"
+ reqwest = { version = "0.12.26", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+diff --git a/Readme.md b/Readme.md
+index b6de9c9..0775a99 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -85,6 +85,8 @@ Implemented now:
+ - Rust core review-session contracts, local execution, durable records,
+   cancellation, worker claims, leases, retries, concurrency limits, and queued
+   worker execution.
++- Rust Postgres-backed review-session and workspace-profile stores, including
++  transactional worker claims with `FOR UPDATE SKIP LOCKED`.
+ - Rust workspace model/provider profiles and effective config snapshots with
+   secret references instead of raw credentials.
+ - Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
+@@ -110,7 +112,6 @@ Implemented now:
+ 
+ Still in progress:
+ 
+-- Production database persistence for durable sessions and workspace profiles.
+ - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
+ 
+ ## Local Preview
+@@ -157,6 +158,21 @@ Runnable examples:
+ - `examples/python/basic_review.py`
+ - `examples/python/notebook-review/notebook_review.ipynb`
+ 
++## Rust Service
++
++Run the RFC 0001 HTTP service:
++
++```sh
++DATABASE_URL=postgres://...
++GITHUB_WEBHOOK_SECRET=...
++GITLAB_WEBHOOK_TOKEN=...
++cargo run --bin muzen-service -- --bind 127.0.0.1:7341
++```
++
++When `DATABASE_URL` is set, `muzen-service` uses Postgres-backed durable review
++session and workspace profile stores. Without it, the service uses in-memory
++stores for local preview.
++
+ ## Remote Client Preview
+ 
+ ```ts
+diff --git a/docs/rfcs/0001-durable-happy-path-decision.md b/docs/rfcs/0001-durable-happy-path-decision.md
+index a9b1a84..936c0f5 100644
+--- a/docs/rfcs/0001-durable-happy-path-decision.md
++++ b/docs/rfcs/0001-durable-happy-path-decision.md
+@@ -12,9 +12,9 @@ handle, and lets workers own execution, leases, retries, cancellation, event
+ persistence, and final results.
+ 
+ The local `createMuzen()` runner preview remains an inline compatibility bridge
+-for local repository smoke tests until the embedded Rust host/router and
+-production store are available. This exception is scoped to the preview runner
+-path and must not shape the production API vocabulary.
++for local repository smoke tests until provider source materialization and the
++durable SDK service-boundary switch are complete. This exception is scoped to
++the preview runner path and must not shape the production API vocabulary.
+ 
+ ## API Contract
+ 
+@@ -38,11 +38,13 @@ Embedded `createMuzen()` should switch its default happy path from inline runner
+ execution to queued durable execution when all of these are true:
+ 
+ 1. A Rust host/router boundary exists for review creation, webhook handling,
+-   event replay, SSE streaming, worker control, and artifacts.
++   event replay, SSE streaming, worker control, and artifacts. Implemented by
++   `ReviewHttpRouter`, `muzen-service`, and the runner worker/webhook protocol.
+ 2. A production `ReviewSessionStore` implementation exists with transactional
+    claiming and lease semantics equivalent to the in-memory store contract.
++   Implemented by `PostgresReviewSessionStore`.
+ 3. Workspace profile persistence exists for model/provider records and
+-   secret-reference snapshots.
++   secret-reference snapshots. Implemented by `PostgresWorkspaceProfileStore`.
+ 4. Provider source materialization exists for GitHub and GitLab pull/merge
+    requests.
+ 5. SDK `review.wait()`, `events()`, `eventsResponse()`, `cancel()`,
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index b1ed80a..8c19f38 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -53,6 +53,8 @@ pressure, and commit-sized milestones.
+   leaking runner internals into SDK contracts.
+ - [x] Rust core exposes workspace-owned model and provider profile records with
+   secret-reference-only config snapshots.
++- [x] Rust core exposes Postgres-backed review-session and workspace-profile
++  stores for `DATABASE_URL` service deployments.
+ - [x] SDK-first `@muzen/sdk` package exists.
+ - [x] `createMuzen()` works end to end against `muzen-runner`.
+ - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
+@@ -239,6 +241,8 @@ Exit criteria:
+   switch from inline preview execution to queued durable execution.
+ - [x] Expose TypeScript `muzen.workers.runOnce()` and `muzen.workers.start()`
+   over Rust-owned worker execution.
++- [x] Implement a Postgres-backed `ReviewSessionStore` with JSONB records and
++  transactional `FOR UPDATE SKIP LOCKED` worker claims.
+ 
+ Exit criteria:
+ 
+@@ -251,6 +255,7 @@ Exit criteria:
+ - [x] Define workspace profile records.
+ - [x] Implement model profile set/get/list.
+ - [x] Implement provider profile set/get/list.
++- [x] Implement Postgres-backed persistent workspace profile storage.
+ - [x] Capture effective config snapshots when scheduling workspace reviews.
+ - [x] Store only secret references and non-secret routing metadata in review
+   session records.
+@@ -335,6 +340,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | 69e5e44 | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | e16b582 | Rust runner `worker.runOnce` protocol and TypeScript `muzen.workers` facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | 3ec971d | Rust Axum HTTP service adapter and `muzen-service` binary | `cargo fmt --check`; `cargo build --bin muzen-service`; `cargo test service --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
++| 2026-06-05 | pending | Postgres-backed durable review-session and workspace-profile stores | `cargo fmt --check`; `cargo test service --lib`; `cargo build --bin muzen-service`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ 
+ ## Resolved Decisions And Remaining Production Work
+ 
+@@ -345,9 +351,8 @@ Record every milestone with the commands that were run.
+   a placeholder.
+ - Local inline-worker behavior is decided in
+   `docs/rfcs/0001-durable-happy-path-decision.md`: production/remote paths are
+-  durable-first; local inline execution remains preview-only until the embedded
+-  Rust host/router, production store, profile persistence, provider
+-  materialization, and durable SDK handles are all available.
++  durable-first; local inline execution remains preview-only until provider
++  materialization and the durable SDK service-boundary switch are complete.
+ - Provider sources currently parse into stable Rust descriptors but return an
+   explicit unsupported error when converted to the local runner start params;
+   provider materialization belongs in the durable source-resolution phase.
+@@ -355,16 +360,14 @@ Record every milestone with the commands that were run.
+   worker execution loop. The default `review(...)` happy path still executes
+   local reviews synchronously for preview compatibility; production service
+   paths should use durable queued scheduling.
+-- The store boundary has an in-memory implementation for local execution,
+-  tests, durable cancellation, worker claims, leases, retries, and workspace
+-  claim limits. A production database implementation with transactional
+-  `SKIP LOCKED`-style claiming remains open.
+-- Workspace model/provider profiles have Rust core APIs and in-memory storage.
+-  Persistent profile storage and SDK workspace wrappers remain open.
++- The store boundary has in-memory and Postgres implementations. The Postgres
++  review-session store persists JSONB records, events, results, artifacts, logs,
++  leases, cancellations, retry state, and dedupe keys, and uses transactional
++  `FOR UPDATE SKIP LOCKED` worker claims. The Postgres workspace-profile store
++  persists model/provider profiles for service deployments.
+ - Host scheduling configuration now defines lease defaults, retry defaults,
+   fairness strategy, and global/workspace/user/model/provider concurrency
+-  limits. Production persistence still needs to enforce the same contract
+-  transactionally.
++  limits. The Postgres store enforces worker claiming transactionally.
+ - Durable records, events, results, and review-session logs have redaction
+   coverage around profile secret references and raw secret values. The
+   in-memory store redacts configured secret values and sensitive metadata keys
+@@ -393,13 +396,16 @@ Record every milestone with the commands that were run.
+   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
+   review, event, artifact, webhook, and workspace profile routes. The
+-  `muzen-service` binary binds that router through an Axum HTTP adapter.
+-  Production service deployment still needs database-backed stores.
++  `muzen-service` binary binds that router through an Axum HTTP adapter and uses
++  Postgres-backed stores when `DATABASE_URL` is set.
+ - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
+   and the Python remote SDK.
+-- Production worker deployment still depends on a database-backed durable store
+-  and concrete service/host wiring, but the high-level TypeScript
+-  `muzen.workers.start()` API is now present over Rust worker execution.
++- Production worker deployment can use the Postgres-backed durable store through
++  `muzen-service`; provider materialization remains the main blocker for local
++  provider-source execution.
++- The current verification compiles and exercises the Postgres store wiring
++  through Rust tests and service builds. A live Postgres integration run should
++  be part of deployment CI where `DATABASE_URL` is available.
+ 
+ ## Notes For Reviewers
+ 
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+index 6bd2fe2..60da405 100644
+--- a/docs/rfcs/0001-remote-http-api-contract.md
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -21,8 +21,9 @@ the production session/profile stores.
+ 
+ The repository also ships an Axum adapter and `muzen-service` binary. The
+ service binds the core router to a real HTTP listener and resolves webhook
+-secrets from environment variables. It currently uses the in-memory Rust stores;
+-production deployments still need database-backed session and profile stores.
++secrets from environment variables. When `DATABASE_URL` is set, it uses
++Postgres-backed session and workspace profile stores; otherwise it uses
++in-memory stores for local preview.
+ 
+ ## Create Review
+ 
+diff --git a/docs/rfcs/0001-runner-protocol-mapping.md b/docs/rfcs/0001-runner-protocol-mapping.md
+index 95df787..7842b08 100644
+--- a/docs/rfcs/0001-runner-protocol-mapping.md
++++ b/docs/rfcs/0001-runner-protocol-mapping.md
+@@ -72,8 +72,8 @@ change must update the fixture and the SDK mapping intentionally.
+ 
+ ## Review Session Store Mapping
+ 
+-The Rust `review_session` module now includes a `ReviewSessionStore` boundary
+-and `InMemoryReviewSessionStore` implementation.
++The Rust `review_session` module now includes a `ReviewSessionStore` boundary,
++`InMemoryReviewSessionStore`, and `PostgresReviewSessionStore`.
+ 
+ The store owns:
+ 
+@@ -83,8 +83,9 @@ The store owns:
+ - redacted/raw artifact references,
+ - dedupe lookup keys.
+ 
+-This is the contract a durable database-backed store should implement next.
+-The in-memory store is not a production durability substitute.
++The Postgres implementation stores durable session records as JSONB and uses
++transactional `FOR UPDATE SKIP LOCKED` worker claims. The in-memory store
++remains a local preview/test implementation.
+ 
+ ## Known Gaps
+ 
+@@ -94,7 +95,5 @@ The in-memory store is not a production durability substitute.
+ - Active cancellation, leases, retry policy, and backoff require worker-owned
+   durable sessions.
+ - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
+-  now exist around the core remote HTTP contract; production deployments still
+-  need database-backed stores.
+-- Workspace-owned BYOK profile APIs need production persistent profile records
+-  and secret references.
++  now exist around the core remote HTTP contract. `muzen-service` uses Postgres
++  stores when `DATABASE_URL` is set.
+diff --git a/sdk/typescript/packages/muzen-sdk/README.md b/sdk/typescript/packages/muzen-sdk/README.md
+index b554724..744bbc3 100644
+--- a/sdk/typescript/packages/muzen-sdk/README.md
++++ b/sdk/typescript/packages/muzen-sdk/README.md
+@@ -84,9 +84,10 @@ completed:
+   GitLab;
+ - local worker execution is exposed through `muzen.workers.runOnce()` and
+   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
+-- production database persistence, provider materialization for local provider
+-  sources, and production store wiring for the Rust service remain future
+-  production work.
++- `muzen-service` can use Postgres-backed durable review-session and workspace
++  profile stores when `DATABASE_URL` is set;
++- provider materialization for local provider sources remains future production
++  work.
+ 
+ See the repository root README and
+ `docs/rfcs/0001-implementation-progress.md` for the full RFC implementation
+diff --git a/src/bin/muzen-service.rs b/src/bin/muzen-service.rs
+index c7012ea..874a10e 100644
+--- a/src/bin/muzen-service.rs
++++ b/src/bin/muzen-service.rs
+@@ -3,8 +3,12 @@ use std::net::SocketAddr;
+ 
+ use anyhow::Result;
+ use clap::Parser;
+-use muzen::review_session::ReviewHttpRouterOptions;
++use muzen::review_session::{
++    Muzen, PostgresReviewSessionStore, PostgresWorkspaceProfileStore, ReviewHttpRouter,
++    ReviewHttpRouterOptions,
++};
+ use muzen::service::{serve, MuzenHttpService};
++use std::sync::Arc;
+ 
+ #[derive(Debug, Parser)]
+ #[command(name = "muzen-service")]
+@@ -21,6 +25,10 @@ struct ServiceCli {
+     /// Environment variable containing the GitLab webhook token.
+     #[arg(long, default_value = "GITLAB_WEBHOOK_TOKEN")]
+     gitlab_webhook_token_env: String,
++
++    /// Environment variable containing the Postgres database URL.
++    #[arg(long, default_value = "DATABASE_URL")]
++    database_url_env: String,
+ }
+ 
+ #[tokio::main]
+@@ -37,9 +45,18 @@ async fn main() {
+ 
+ async fn run() -> Result<()> {
+     let cli = ServiceCli::parse();
+-    let service = MuzenHttpService::in_memory(ReviewHttpRouterOptions {
++    let router_options = ReviewHttpRouterOptions {
+         github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
+         gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
+-    });
++    };
++    let service = if let Ok(database_url) = env::var(cli.database_url_env) {
++        let muzen = Muzen::with_stores(
++            Arc::new(PostgresReviewSessionStore::connect(&database_url)?),
++            Arc::new(PostgresWorkspaceProfileStore::connect(&database_url)?),
++        );
++        MuzenHttpService::new(ReviewHttpRouter::with_options(muzen, router_options))
++    } else {
++        MuzenHttpService::in_memory(router_options)
++    };
+     serve(cli.bind, service).await
+ }
+diff --git a/src/review_session.rs b/src/review_session.rs
+index 9e632ee..3613978 100644
+--- a/src/review_session.rs
++++ b/src/review_session.rs
+@@ -35,15 +35,16 @@ pub use http::{
+ };
+ pub use profiles::{
+     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
+-    ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
++    PostgresWorkspaceProfileStore, ProviderProfile, ProviderProfileInput, SourceProviderKind,
++    WorkspaceProfileStore,
+ };
+ pub use router::{
+     ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
+ };
+ pub use store::{
+-    InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
+-    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
+-    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
++    InMemoryReviewSessionStore, PostgresReviewSessionStore, ReviewAttemptFailure,
++    ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy,
++    ReviewLogStream, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
+     ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+ };
+ pub use webhooks::{
+diff --git a/src/review_session/profiles.rs b/src/review_session/profiles.rs
+index 097564e..59d9dee 100644
+--- a/src/review_session/profiles.rs
++++ b/src/review_session/profiles.rs
+@@ -1,6 +1,7 @@
+ use std::collections::BTreeMap;
+ use std::sync::Mutex;
+ 
++use postgres::{Client, NoTls};
+ use serde::{Deserialize, Serialize};
+ 
+ use super::{ProfileVersionRef, ReviewSessionError};
+@@ -292,6 +293,269 @@ impl InMemoryWorkspaceProfileStore {
+     }
+ }
+ 
++pub struct PostgresWorkspaceProfileStore {
++    client: Mutex<Client>,
++}
++
++impl std::fmt::Debug for PostgresWorkspaceProfileStore {
++    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        formatter
++            .debug_struct("PostgresWorkspaceProfileStore")
++            .finish_non_exhaustive()
++    }
++}
++
++impl PostgresWorkspaceProfileStore {
++    pub fn connect(database_url: &str) -> Result<Self, ReviewSessionError> {
++        let client = Client::connect(database_url, NoTls).map_err(postgres_profile_error)?;
++        let store = Self {
++            client: Mutex::new(client),
++        };
++        store.migrate()?;
++        Ok(store)
++    }
++
++    pub fn migrate(&self) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .batch_execute(WORKSPACE_PROFILE_SCHEMA_SQL)
++            .map_err(postgres_profile_error)?;
++        Ok(())
++    }
++
++    fn lock_client(&self) -> Result<std::sync::MutexGuard<'_, Client>, ReviewSessionError> {
++        self.client
++            .lock()
++            .map_err(|_| ReviewSessionError::Profile("postgres profile store poisoned".to_string()))
++    }
++}
++
++impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
++    fn set_model_profile(
++        &self,
++        workspace_id: &str,
++        name: String,
++        input: ModelProfileInput,
++    ) -> Result<ModelProfile, ReviewSessionError> {
++        validate_profile_key(workspace_id, &name)?;
++        if input.model.trim().is_empty() {
++            return Err(ReviewSessionError::Profile(
++                "model profile model cannot be empty".to_string(),
++            ));
++        }
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_profile_error)?;
++        let current = transaction
++            .query_opt(
++                "SELECT version FROM muzen_workspace_model_profiles \
++                 WHERE workspace_id = $1 AND name = $2 \
++                 FOR UPDATE",
++                &[&workspace_id, &name],
++            )
++            .map_err(postgres_profile_error)?;
++        let version = next_version(
++            current
++                .as_ref()
++                .map(|row| row.get::<_, String>("version"))
++                .as_deref(),
++        );
++        let profile = ModelProfile {
++            workspace_id: workspace_id.to_string(),
++            name,
++            version,
++            provider: input.provider,
++            model: input.model,
++            secret_ref: input.secret_ref,
++            base_url: input.base_url,
++            routing: input.routing,
++            updated_at_utc: crate::util::timestamp_utc(),
++        };
++        let profile_json = serde_json::to_value(&profile).map_err(|error| {
++            ReviewSessionError::Profile(format!("model profile JSON error: {error}"))
++        })?;
++        transaction
++            .execute(
++                "INSERT INTO muzen_workspace_model_profiles \
++                    (workspace_id, name, version, profile, updated_at_utc) \
++                 VALUES ($1, $2, $3, $4, $5) \
++                 ON CONFLICT (workspace_id, name) DO UPDATE SET \
++                    version = EXCLUDED.version, \
++                    profile = EXCLUDED.profile, \
++                    updated_at_utc = EXCLUDED.updated_at_utc",
++                &[
++                    &profile.workspace_id,
++                    &profile.name,
++                    &profile.version,
++                    &profile_json,
++                    &profile.updated_at_utc,
++                ],
++            )
++            .map_err(postgres_profile_error)?;
++        transaction.commit().map_err(postgres_profile_error)?;
++        Ok(profile)
++    }
++
++    fn get_model_profile(
++        &self,
++        workspace_id: &str,
++        name: &str,
++    ) -> Result<Option<ModelProfile>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .query_opt(
++                "SELECT profile FROM muzen_workspace_model_profiles \
++                 WHERE workspace_id = $1 AND name = $2",
++                &[&workspace_id, &name],
++            )
++            .map_err(postgres_profile_error)?
++            .map(|row| deserialize_profile(row.get("profile"), "model"))
++            .transpose()
++    }
++
++    fn list_model_profiles(
++        &self,
++        workspace_id: &str,
++    ) -> Result<Vec<ModelProfile>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .query(
++                "SELECT profile FROM muzen_workspace_model_profiles \
++                 WHERE workspace_id = $1 \
++                 ORDER BY name ASC",
++                &[&workspace_id],
++            )
++            .map_err(postgres_profile_error)?
++            .into_iter()
++            .map(|row| deserialize_profile(row.get("profile"), "model"))
++            .collect()
++    }
++
++    fn set_provider_profile(
++        &self,
++        workspace_id: &str,
++        name: String,
++        input: ProviderProfileInput,
++    ) -> Result<ProviderProfile, ReviewSessionError> {
++        validate_profile_key(workspace_id, &name)?;
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_profile_error)?;
++        let current = transaction
++            .query_opt(
++                "SELECT version FROM muzen_workspace_provider_profiles \
++                 WHERE workspace_id = $1 AND name = $2 \
++                 FOR UPDATE",
++                &[&workspace_id, &name],
++            )
++            .map_err(postgres_profile_error)?;
++        let version = next_version(
++            current
++                .as_ref()
++                .map(|row| row.get::<_, String>("version"))
++                .as_deref(),
++        );
++        let profile = ProviderProfile {
++            workspace_id: workspace_id.to_string(),
++            name,
++            version,
++            provider: input.provider,
++            secret_ref: input.secret_ref,
++            base_url: input.base_url,
++            routing: input.routing,
++            updated_at_utc: crate::util::timestamp_utc(),
++        };
++        let profile_json = serde_json::to_value(&profile).map_err(|error| {
++            ReviewSessionError::Profile(format!("provider profile JSON error: {error}"))
++        })?;
++        transaction
++            .execute(
++                "INSERT INTO muzen_workspace_provider_profiles \
++                    (workspace_id, name, version, profile, updated_at_utc) \
++                 VALUES ($1, $2, $3, $4, $5) \
++                 ON CONFLICT (workspace_id, name) DO UPDATE SET \
++                    version = EXCLUDED.version, \
++                    profile = EXCLUDED.profile, \
++                    updated_at_utc = EXCLUDED.updated_at_utc",
++                &[
++                    &profile.workspace_id,
++                    &profile.name,
++                    &profile.version,
++                    &profile_json,
++                    &profile.updated_at_utc,
++                ],
++            )
++            .map_err(postgres_profile_error)?;
++        transaction.commit().map_err(postgres_profile_error)?;
++        Ok(profile)
++    }
++
++    fn get_provider_profile(
++        &self,
++        workspace_id: &str,
++        name: &str,
++    ) -> Result<Option<ProviderProfile>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .query_opt(
++                "SELECT profile FROM muzen_workspace_provider_profiles \
++                 WHERE workspace_id = $1 AND name = $2",
++                &[&workspace_id, &name],
++            )
++            .map_err(postgres_profile_error)?
++            .map(|row| deserialize_profile(row.get("profile"), "provider"))
++            .transpose()
++    }
++
++    fn list_provider_profiles(
++        &self,
++        workspace_id: &str,
++    ) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .query(
++                "SELECT profile FROM muzen_workspace_provider_profiles \
++                 WHERE workspace_id = $1 \
++                 ORDER BY name ASC",
++                &[&workspace_id],
++            )
++            .map_err(postgres_profile_error)?
++            .into_iter()
++            .map(|row| deserialize_profile(row.get("profile"), "provider"))
++            .collect()
++    }
++}
++
++const WORKSPACE_PROFILE_SCHEMA_SQL: &str = r#"
++CREATE TABLE IF NOT EXISTS muzen_workspace_model_profiles (
++    workspace_id TEXT NOT NULL,
++    name TEXT NOT NULL,
++    version TEXT NOT NULL,
++    profile JSONB NOT NULL,
++    updated_at_utc TEXT NOT NULL,
++    PRIMARY KEY (workspace_id, name)
++);
++
++CREATE TABLE IF NOT EXISTS muzen_workspace_provider_profiles (
++    workspace_id TEXT NOT NULL,
++    name TEXT NOT NULL,
++    version TEXT NOT NULL,
++    profile JSONB NOT NULL,
++    updated_at_utc TEXT NOT NULL,
++    PRIMARY KEY (workspace_id, name)
++);
++"#;
++
++fn deserialize_profile<T: for<'de> Deserialize<'de>>(
++    value: serde_json::Value,
++    kind: &str,
++) -> Result<T, ReviewSessionError> {
++    serde_json::from_value(value)
++        .map_err(|error| ReviewSessionError::Profile(format!("{kind} profile JSON error: {error}")))
++}
++
++fn postgres_profile_error(error: postgres::Error) -> ReviewSessionError {
++    ReviewSessionError::Profile(format!("postgres profile store error: {error}"))
++}
++
+ fn validate_profile_key(workspace_id: &str, name: &str) -> Result<(), ReviewSessionError> {
+     if workspace_id.trim().is_empty() {
+         return Err(ReviewSessionError::Profile(
+diff --git a/src/review_session/store.rs b/src/review_session/store.rs
+index 087bb42..216ce64 100644
+--- a/src/review_session/store.rs
++++ b/src/review_session/store.rs
+@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
+ use std::sync::Mutex;
+ use std::time::{Duration, SystemTime, UNIX_EPOCH};
+ 
++use postgres::{Client, GenericClient, NoTls, Row};
++use serde::de::DeserializeOwned;
+ use serde::{Deserialize, Serialize};
+ use serde_json::{json, Map, Value};
+ 
+@@ -709,6 +711,621 @@ impl InMemoryReviewSessionStore {
+     }
+ }
+ 
++pub struct PostgresReviewSessionStore {
++    client: Mutex<Client>,
++}
++
++impl std::fmt::Debug for PostgresReviewSessionStore {
++    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        formatter
++            .debug_struct("PostgresReviewSessionStore")
++            .finish_non_exhaustive()
++    }
++}
++
++impl PostgresReviewSessionStore {
++    pub fn connect(database_url: &str) -> Result<Self, ReviewSessionError> {
++        let client = Client::connect(database_url, NoTls).map_err(|error| {
++            ReviewSessionError::Store(format!("postgres connect failed: {error}"))
++        })?;
++        let store = Self {
++            client: Mutex::new(client),
++        };
++        store.migrate()?;
++        Ok(store)
++    }
++
++    pub fn migrate(&self) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        client
++            .batch_execute(REVIEW_SESSION_SCHEMA_SQL)
++            .map_err(postgres_store_error)?;
++        Ok(())
++    }
++
++    fn lock_client(&self) -> Result<std::sync::MutexGuard<'_, Client>, ReviewSessionError> {
++        self.client
++            .lock()
++            .map_err(|_| ReviewSessionError::Store("postgres review store poisoned".to_string()))
++    }
++}
++
++impl ReviewSessionStore for PostgresReviewSessionStore {
++    fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        upsert_postgres_record(&mut *client, &record)
++    }
++
++    fn get(&self, id: &ReviewSessionId) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let sql =
++            format!("SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE id = $1");
++        let row = client
++            .query_opt(&sql, &[&id.as_str()])
++            .map_err(postgres_store_error)?;
++        row.map(|row| postgres_row_to_record(&row)).transpose()
++    }
++
++    fn get_by_dedupe_key(
++        &self,
++        dedupe_key: &str,
++    ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let sql = format!(
++            "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE dedupe_key = $1"
++        );
++        let row = client
++            .query_opt(&sql, &[&dedupe_key])
++            .map_err(postgres_store_error)?;
++        row.map(|row| postgres_row_to_record(&row)).transpose()
++    }
++
++    fn append_events(
++        &self,
++        id: &ReviewSessionId,
++        events: Vec<ReviewEvent>,
++    ) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        record.events.extend(events);
++        record.updated_at_utc = crate::util::timestamp_utc();
++        upsert_postgres_record(&mut transaction, &record)?;
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(())
++    }
++
++    fn events_after(
++        &self,
++        id: &ReviewSessionId,
++        after: Option<&str>,
++    ) -> Result<Vec<ReviewEvent>, ReviewSessionError> {
++        let Some(record) = self.get(id)? else {
++            return Err(ReviewSessionError::Store(format!(
++                "unknown review session {id}"
++            )));
++        };
++        let start = after
++            .and_then(|cursor| {
++                record
++                    .events
++                    .iter()
++                    .position(|event| event.cursor == cursor)
++            })
++            .map_or(0, |index| index + 1);
++        Ok(record.events[start..].to_vec())
++    }
++
++    fn append_logs(
++        &self,
++        id: &ReviewSessionId,
++        logs: Vec<ReviewLogEntry>,
++        redaction: ReviewLogRedactionPolicy,
++    ) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        let start = record.logs.len();
++        let review_id = record.id.clone();
++        record
++            .logs
++            .extend(logs.into_iter().enumerate().map(|(index, mut log)| {
++                log.cursor = (start + index + 1).to_string();
++                log.review_id = review_id.clone();
++                if log.timestamp_utc.trim().is_empty() {
++                    log.timestamp_utc = crate::util::timestamp_utc();
++                }
++                redaction.redact_entry(log)
++            }));
++        record.updated_at_utc = crate::util::timestamp_utc();
++        upsert_postgres_record(&mut transaction, &record)?;
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(())
++    }
++
++    fn logs_after(
++        &self,
++        id: &ReviewSessionId,
++        after: Option<&str>,
++    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
++        let Some(record) = self.get(id)? else {
++            return Err(ReviewSessionError::Store(format!(
++                "unknown review session {id}"
++            )));
++        };
++        let start = after
++            .and_then(|cursor| record.logs.iter().position(|log| log.cursor == cursor))
++            .map_or(0, |index| index + 1);
++        Ok(record.logs[start..].to_vec())
++    }
++
++    fn write_result(
++        &self,
++        id: &ReviewSessionId,
++        status: ReviewStatus,
++        result: ReviewResult,
++    ) -> Result<(), ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        record.status = status;
++        record.result = Some(result);
++        record.lease = None;
++        record.updated_at_utc = crate::util::timestamp_utc();
++        upsert_postgres_record(&mut transaction, &record)?;
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(())
++    }
++
++    fn write_execution_result(
++        &self,
++        id: &ReviewSessionId,
++        status: ReviewStatus,
++        result: ReviewResult,
++        events: Vec<ReviewEvent>,
++        redacted_artifacts: Vec<ReviewArtifact>,
++        raw_artifacts: Vec<ReviewArtifact>,
++    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        let rebased_events = rebase_events(&record, events);
++        record.status = status;
++        record.result = Some(result);
++        record.events.extend(rebased_events);
++        record.redacted_artifacts = redacted_artifacts;
++        record.raw_artifacts = raw_artifacts;
++        record.lease = None;
++        record.updated_at_utc = crate::util::timestamp_utc();
++        upsert_postgres_record(&mut transaction, &record)?;
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(record)
++    }
++
++    fn request_cancellation(
++        &self,
++        id: &ReviewSessionId,
++        options: ReviewCancelOptions,
++    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        if !record.status.is_terminal() {
++            let now = crate::util::timestamp_utc();
++            record.status = ReviewStatus::Cancelled;
++            record.lease = None;
++            record.cancellation = Some(ReviewCancellationRecord {
++                reason: options.reason.clone(),
++                cancelled_at_utc: now.clone(),
++            });
++            append_record_event(
++                &mut record,
++                ReviewEventType::SessionCancelled,
++                json!({ "reason": options.reason }),
++                now.clone(),
++            );
++            record.updated_at_utc = now;
++            upsert_postgres_record(&mut transaction, &record)?;
++        }
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(record)
++    }
++
++    fn claim_ready(
++        &self,
++        options: ReviewWorkerClaimOptions,
++    ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError> {
++        validate_worker_id(&options.worker_id)?;
++        if options.max_sessions == 0 {
++            return Ok(Vec::new());
++        }
++
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let now = options.now_unix_seconds();
++        let now_i64 = u64_to_i64(now, "now_unix_seconds")?;
++        let running_rows = transaction
++            .query(
++                &format!(
++                    "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions \
++                     WHERE status = 'running' \
++                       AND COALESCE((lease->>'expiresAtUnixSeconds')::bigint, 0) > $1 \
++                     FOR UPDATE"
++                ),
++                &[&now_i64],
++            )
++            .map_err(postgres_store_error)?;
++        let mut running = RunningCounts::default();
++        for row in running_rows {
++            running.add_record(&postgres_row_to_record(&row)?);
++        }
++
++        let max_sessions = usize_to_i64(options.max_sessions, "max_sessions")?;
++        let candidate_rows = transaction
++            .query(
++                &format!(
++                    "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions \
++                     WHERE status IN ('created', 'queued', 'running') \
++                       AND run_after_unix_seconds <= $1 \
++                       AND (status <> 'running' \
++                            OR COALESCE((lease->>'expiresAtUnixSeconds')::bigint, 0) <= $1) \
++                     ORDER BY run_after_unix_seconds ASC, created_at_utc ASC, id ASC \
++                     FOR UPDATE SKIP LOCKED \
++                     LIMIT $2"
++                ),
++                &[&now_i64, &max_sessions],
++            )
++            .map_err(postgres_store_error)?;
++
++        let lease_seconds = options.lease_seconds.max(1);
++        let mut claims = Vec::new();
++        for row in candidate_rows {
++            if claims.len() >= options.max_sessions {
++                break;
++            }
++            let mut record = postgres_row_to_record(&row)?;
++            if !is_claimable(&record, now)
++                || claim_limit_reached(&record, &running, options.concurrency)
++            {
++                continue;
++            }
++            record.status = ReviewStatus::Running;
++            record.attempt = record.attempt.saturating_add(1).max(1);
++            let lease = worker_lease(&options.worker_id, record.attempt, now, lease_seconds);
++            record.lease = Some(lease.clone());
++            record.updated_at_utc = lease.acquired_at_utc.clone();
++            let attempt = record.attempt;
++            append_record_event(
++                &mut record,
++                ReviewEventType::SessionClaimed,
++                json!({ "attempt": attempt }),
++                lease.acquired_at_utc.clone(),
++            );
++            upsert_postgres_record(&mut transaction, &record)?;
++            running.add_record(&record);
++            claims.push(ReviewWorkerClaim {
++                review_id: record.id,
++                worker_id: options.worker_id.clone(),
++                attempt: record.attempt,
++                lease,
++            });
++        }
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(claims)
++    }
++
++    fn extend_lease(
++        &self,
++        id: &ReviewSessionId,
++        options: ReviewLeaseExtension,
++    ) -> Result<ReviewWorkerLease, ReviewSessionError> {
++        validate_worker_id(&options.worker_id)?;
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        let Some(existing) = &record.lease else {
++            return Err(ReviewSessionError::Store(format!(
++                "review session {id} does not have an active lease"
++            )));
++        };
++        if existing.worker_id != options.worker_id {
++            return Err(ReviewSessionError::Store(format!(
++                "review session {id} is leased by another worker"
++            )));
++        }
++        if record.status != ReviewStatus::Running {
++            return Err(ReviewSessionError::Store(format!(
++                "review session {id} is not running"
++            )));
++        }
++        let now = options.now_unix_seconds();
++        let lease = worker_lease(
++            &options.worker_id,
++            existing.attempt,
++            now,
++            options.lease_seconds.max(1),
++        );
++        record.lease = Some(lease.clone());
++        record.updated_at_utc = lease.acquired_at_utc.clone();
++        upsert_postgres_record(&mut transaction, &record)?;
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(lease)
++    }
++
++    fn record_attempt_failure(
++        &self,
++        id: &ReviewSessionId,
++        failure: ReviewAttemptFailure,
++    ) -> Result<ReviewSessionRecord, ReviewSessionError> {
++        let mut client = self.lock_client()?;
++        let mut transaction = client.transaction().map_err(postgres_store_error)?;
++        let mut record = postgres_record_for_update(&mut transaction, id)?;
++        if !record.status.is_terminal() {
++            let now = failure.now_unix_seconds();
++            let now_utc = timestamp_from_unix_seconds(now);
++            let max_attempts = failure.retry_policy.max_attempts.max(1);
++            record.lease = None;
++            record.last_error = Some(failure.error.clone());
++            if record.attempt >= max_attempts {
++                record.status = ReviewStatus::Failed;
++                let attempt = record.attempt;
++                let error = failure.error.clone();
++                append_record_event(
++                    &mut record,
++                    ReviewEventType::SessionFailed,
++                    json!({ "attempt": attempt, "error": error }),
++                    now_utc.clone(),
++                );
++            } else {
++                let backoff_seconds = retry_backoff_seconds(failure.retry_policy, record.attempt);
++                record.status = ReviewStatus::Queued;
++                record.run_after_unix_seconds = now.saturating_add(backoff_seconds);
++                let attempt = record.attempt;
++                let run_after_utc = timestamp_from_unix_seconds(record.run_after_unix_seconds);
++                append_record_event(
++                    &mut record,
++                    ReviewEventType::SessionQueued,
++                    json!({
++                        "retry": true,
++                        "attempt": attempt,
++                        "runAfterUtc": run_after_utc
++                    }),
++                    now_utc.clone(),
++                );
++            }
++            record.updated_at_utc = now_utc;
++            upsert_postgres_record(&mut transaction, &record)?;
++        }
++        transaction.commit().map_err(postgres_store_error)?;
++        Ok(record)
++    }
++}
++
++const REVIEW_SESSION_COLUMNS: &str = "id, workspace_id, user_id, status, source, options, result, events, logs, redacted_artifacts, raw_artifacts, config_snapshot, attempt, run_after_unix_seconds, lease, cancellation, last_error, dedupe_key, created_at_utc, updated_at_utc";
++
++const REVIEW_SESSION_SCHEMA_SQL: &str = r#"
++CREATE TABLE IF NOT EXISTS muzen_review_sessions (
++    id TEXT PRIMARY KEY,
++    workspace_id TEXT,
++    user_id TEXT,
++    status TEXT NOT NULL,
++    source JSONB NOT NULL,
++    options JSONB NOT NULL,
++    result JSONB,
++    events JSONB NOT NULL DEFAULT '[]'::jsonb,
++    logs JSONB NOT NULL DEFAULT '[]'::jsonb,
++    redacted_artifacts JSONB NOT NULL DEFAULT '[]'::jsonb,
++    raw_artifacts JSONB NOT NULL DEFAULT '[]'::jsonb,
++    config_snapshot JSONB,
++    attempt INTEGER NOT NULL DEFAULT 0,
++    run_after_unix_seconds BIGINT NOT NULL DEFAULT 0,
++    lease JSONB,
++    cancellation JSONB,
++    last_error TEXT,
++    dedupe_key TEXT UNIQUE,
++    created_at_utc TEXT NOT NULL,
++    updated_at_utc TEXT NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS muzen_review_sessions_ready_idx
++    ON muzen_review_sessions (status, run_after_unix_seconds, created_at_utc, id);
++
++CREATE INDEX IF NOT EXISTS muzen_review_sessions_workspace_idx
++    ON muzen_review_sessions (workspace_id, status);
++"#;
++
++fn postgres_record_for_update(
++    client: &mut impl GenericClient,
++    id: &ReviewSessionId,
++) -> Result<ReviewSessionRecord, ReviewSessionError> {
++    let sql = format!(
++        "SELECT {REVIEW_SESSION_COLUMNS} FROM muzen_review_sessions WHERE id = $1 FOR UPDATE"
++    );
++    client
++        .query_opt(&sql, &[&id.as_str()])
++        .map_err(postgres_store_error)?
++        .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))
++        .and_then(|row| postgres_row_to_record(&row))
++}
++
++fn upsert_postgres_record(
++    client: &mut impl GenericClient,
++    record: &ReviewSessionRecord,
++) -> Result<(), ReviewSessionError> {
++    let id = record.id.as_str().to_string();
++    let status = serialize_status(record.status)?;
++    let source = serialize_json(&record.source, "source")?;
++    let options = serialize_json(&record.options, "options")?;
++    let result = serialize_optional_json(&record.result, "result")?;
++    let events = serialize_json(&record.events, "events")?;
++    let logs = serialize_json(&record.logs, "logs")?;
++    let redacted_artifacts = serialize_json(&record.redacted_artifacts, "redacted_artifacts")?;
++    let raw_artifacts = serialize_json(&record.raw_artifacts, "raw_artifacts")?;
++    let config_snapshot = serialize_optional_json(&record.config_snapshot, "config_snapshot")?;
++    let attempt = u32_to_i32(record.attempt, "attempt")?;
++    let run_after = u64_to_i64(record.run_after_unix_seconds, "run_after_unix_seconds")?;
++    let lease = serialize_optional_json(&record.lease, "lease")?;
++    let cancellation = serialize_optional_json(&record.cancellation, "cancellation")?;
++    client
++        .execute(
++            "INSERT INTO muzen_review_sessions (
++                id, workspace_id, user_id, status, source, options, result, events, logs,
++                redacted_artifacts, raw_artifacts, config_snapshot, attempt,
++                run_after_unix_seconds, lease, cancellation, last_error, dedupe_key,
++                created_at_utc, updated_at_utc
++             ) VALUES (
++                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
++                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
++             )
++             ON CONFLICT (id) DO UPDATE SET
++                workspace_id = EXCLUDED.workspace_id,
++                user_id = EXCLUDED.user_id,
++                status = EXCLUDED.status,
++                source = EXCLUDED.source,
++                options = EXCLUDED.options,
++                result = EXCLUDED.result,
++                events = EXCLUDED.events,
++                logs = EXCLUDED.logs,
++                redacted_artifacts = EXCLUDED.redacted_artifacts,
++                raw_artifacts = EXCLUDED.raw_artifacts,
++                config_snapshot = EXCLUDED.config_snapshot,
++                attempt = EXCLUDED.attempt,
++                run_after_unix_seconds = EXCLUDED.run_after_unix_seconds,
++                lease = EXCLUDED.lease,
++                cancellation = EXCLUDED.cancellation,
++                last_error = EXCLUDED.last_error,
++                dedupe_key = EXCLUDED.dedupe_key,
++                updated_at_utc = EXCLUDED.updated_at_utc",
++            &[
++                &id,
++                &record.workspace_id,
++                &record.user_id,
++                &status,
++                &source,
++                &options,
++                &result,
++                &events,
++                &logs,
++                &redacted_artifacts,
++                &raw_artifacts,
++                &config_snapshot,
++                &attempt,
++                &run_after,
++                &lease,
++                &cancellation,
++                &record.last_error,
++                &record.dedupe_key,
++                &record.created_at_utc,
++                &record.updated_at_utc,
++            ],
++        )
++        .map_err(postgres_store_error)?;
++    Ok(())
++}
++
++fn postgres_row_to_record(row: &Row) -> Result<ReviewSessionRecord, ReviewSessionError> {
++    let id: String = row.get("id");
++    let status: String = row.get("status");
++    let attempt: i32 = row.get("attempt");
++    let run_after: i64 = row.get("run_after_unix_seconds");
++    Ok(ReviewSessionRecord {
++        id: ReviewSessionId::new(id)?,
++        workspace_id: row.get("workspace_id"),
++        user_id: row.get("user_id"),
++        status: deserialize_status(&status)?,
++        source: deserialize_json(row.get("source"), "source")?,
++        options: deserialize_json(row.get("options"), "options")?,
++        result: deserialize_optional_json(row.get("result"), "result")?,
++        events: deserialize_json(row.get("events"), "events")?,
++        logs: deserialize_json(row.get("logs"), "logs")?,
++        redacted_artifacts: deserialize_json(row.get("redacted_artifacts"), "redacted_artifacts")?,
++        raw_artifacts: deserialize_json(row.get("raw_artifacts"), "raw_artifacts")?,
++        config_snapshot: deserialize_optional_json(row.get("config_snapshot"), "config_snapshot")?,
++        attempt: i32_to_u32(attempt, "attempt")?,
++        run_after_unix_seconds: i64_to_u64(run_after, "run_after_unix_seconds")?,
++        lease: deserialize_optional_json(row.get("lease"), "lease")?,
++        cancellation: deserialize_optional_json(row.get("cancellation"), "cancellation")?,
++        last_error: row.get("last_error"),
++        dedupe_key: row.get("dedupe_key"),
++        created_at_utc: row.get("created_at_utc"),
++        updated_at_utc: row.get("updated_at_utc"),
++    })
++}
++
++fn serialize_status(status: ReviewStatus) -> Result<String, ReviewSessionError> {
++    match serde_json::to_value(status).map_err(json_store_error("status"))? {
++        Value::String(status) => Ok(status),
++        _ => Err(ReviewSessionError::Store(
++            "failed to serialize review status as string".to_string(),
++        )),
++    }
++}
++
++fn deserialize_status(status: &str) -> Result<ReviewStatus, ReviewSessionError> {
++    serde_json::from_value(Value::String(status.to_string())).map_err(json_store_error("status"))
++}
++
++fn serialize_json<T: Serialize>(
++    value: &T,
++    label: &'static str,
++) -> Result<Value, ReviewSessionError> {
++    serde_json::to_value(value).map_err(json_store_error(label))
++}
++
++fn serialize_optional_json<T: Serialize>(
++    value: &Option<T>,
++    label: &'static str,
++) -> Result<Option<Value>, ReviewSessionError> {
++    value
++        .as_ref()
++        .map(|value| serialize_json(value, label))
++        .transpose()
++}
++
++fn deserialize_json<T: DeserializeOwned>(
++    value: Value,
++    label: &'static str,
++) -> Result<T, ReviewSessionError> {
++    serde_json::from_value(value).map_err(json_store_error(label))
++}
++
++fn deserialize_optional_json<T: DeserializeOwned>(
++    value: Option<Value>,
++    label: &'static str,
++) -> Result<Option<T>, ReviewSessionError> {
++    value
++        .map(|value| deserialize_json(value, label))
++        .transpose()
++}
++
++fn json_store_error(label: &'static str) -> impl FnOnce(serde_json::Error) -> ReviewSessionError {
++    move |error| ReviewSessionError::Store(format!("postgres {label} JSON error: {error}"))
++}
++
++fn postgres_store_error(error: postgres::Error) -> ReviewSessionError {
++    ReviewSessionError::Store(format!("postgres review store error: {error}"))
++}
++
++fn u32_to_i32(value: u32, label: &str) -> Result<i32, ReviewSessionError> {
++    i32::try_from(value).map_err(|_| ReviewSessionError::Store(format!("{label} exceeds i32")))
++}
++
++fn i32_to_u32(value: i32, label: &str) -> Result<u32, ReviewSessionError> {
++    u32::try_from(value).map_err(|_| ReviewSessionError::Store(format!("{label} is negative")))
++}
++
++fn u64_to_i64(value: u64, label: &str) -> Result<i64, ReviewSessionError> {
++    i64::try_from(value).map_err(|_| ReviewSessionError::Store(format!("{label} exceeds i64")))
++}
++
++fn i64_to_u64(value: i64, label: &str) -> Result<u64, ReviewSessionError> {
++    u64::try_from(value).map_err(|_| ReviewSessionError::Store(format!("{label} is negative")))
++}
++
++fn usize_to_i64(value: usize, label: &str) -> Result<i64, ReviewSessionError> {
++    i64::try_from(value).map_err(|_| ReviewSessionError::Store(format!("{label} exceeds i64")))
++}
++
+ impl StoreState {
+     fn running_counts(&self, now_unix_seconds: u64) -> RunningCounts {
+         let mut running = RunningCounts::default();

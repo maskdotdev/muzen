@@ -1,0 +1,1085 @@
+diff --git a/Readme.md b/Readme.md
+index 4831f76..d069171 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -89,6 +89,8 @@ Implemented now:
+   secret references instead of raw credentials.
+ - Rust GitHub/GitLab webhook verification, source mapping, queued scheduling,
+   delivery JSON, and framework-agnostic HTTP/SSE response helpers.
++- Rust framework-neutral remote HTTP router for review creation, events,
++  results, artifacts, workspace profiles, and provider webhooks.
+ - TypeScript SDK local preview over `muzen-runner`.
+ - TypeScript local webhook request facade:
+   `createMuzen(...).webhooks.github.response(request)`.
+@@ -106,7 +108,7 @@ Still in progress:
+ - Production database persistence for durable sessions and workspace profiles.
+ - GitHub/GitLab provider materialization for local `createMuzen().review(...)`.
+ - The high-level TypeScript worker facade: `muzen.workers.start()`.
+-- A bound Rust web server/router around the core HTTP/SSE response primitives.
++- A concrete Rust HTTP listener/framework adapter around the core router.
+ 
+ ## Local Preview
+ 
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index 73f55c9..c3aa6da 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -61,6 +61,8 @@ pressure, and commit-sized milestones.
+ - [x] Webhook helpers exist.
+ - [x] Rust core exposes framework-agnostic HTTP/SSE response helpers for review
+   events and webhook deliveries.
++- [x] Rust core exposes a framework-neutral remote HTTP router for the
++  documented review, event, artifact, webhook, and workspace profile routes.
+ - [x] Developer docs and examples run against the implementation.
+ 
+ ## Phase 1: Progress Control And Contract Alignment
+@@ -270,6 +272,13 @@ Exit criteria:
+ - [x] Add SSE event response support.
+   - [x] Define SSE route contract and TypeScript remote `eventsResponse`.
+   - [x] Implement service-side SSE route response helper in Rust.
++- [x] Implement a Rust remote HTTP router over the core review-session
++  contract.
++  - [x] Route review creation, lookup, result, cancellation, event replay, SSE,
++    and artifact read/export requests.
++  - [x] Route workspace review scheduling and model/provider profile APIs.
++  - [x] Route GitHub/GitLab webhooks through Rust-owned verification and source
++    mapping.
+ 
+ Exit criteria:
+ 
+@@ -310,6 +319,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
+ | 2026-06-05 | fe46e8c | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | c8279de | TypeScript package README aligned to the intended production SDK flow | Documentation-only commit |
++| 2026-06-05 | pending | Rust framework-neutral remote HTTP router for RFC 0001 routes | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ 
+ ## Resolved Decisions And Remaining Production Work
+ 
+@@ -362,8 +372,9 @@ Record every milestone with the commands that were run.
+   `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
+   resume, wait for, cancel, replay events for, stream events for, and read/export
+   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
+-  Rust core now exposes replay and SSE event responses; a bound web server/router
+-  remains open.
++  Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
++  review, event, artifact, webhook, and workspace profile routes. A concrete
++  Rust HTTP listener/framework adapter remains open.
+ - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
+   and the Python remote SDK.
+ - The high-level `muzen.workers.start()` SDK facade remains future production
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+index c4a9354..9474a08 100644
+--- a/docs/rfcs/0001-remote-http-api-contract.md
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -10,6 +10,15 @@ friendly SDK surface.
+ Clients may send `Authorization: Bearer <token>`. The host decides how tokens
+ map to users, workspaces, and allowed profile access.
+ 
++## Rust Router Binding
++
++Rust core exposes a framework-neutral `ReviewHttpRouter` that accepts a
++`ReviewHttpRequest` and returns a `ReviewHttpResponse`. The router covers the
++contract routes below without depending on Axum, Actix, Hyper, or another
++framework. Concrete hosts are responsible for adapting framework request and
++response types, authenticating callers, resolving webhook secrets, and choosing
++the production session/profile stores.
++
+ ## Create Review
+ 
+ `POST /v1/reviews`
+diff --git a/docs/rfcs/0001-runner-protocol-mapping.md b/docs/rfcs/0001-runner-protocol-mapping.md
+index 2e2b3a1..59ae795 100644
+--- a/docs/rfcs/0001-runner-protocol-mapping.md
++++ b/docs/rfcs/0001-runner-protocol-mapping.md
+@@ -92,7 +92,7 @@ The in-memory store is not a production durability substitute.
+   resolution can capture provider head revisions.
+ - Active cancellation, leases, retry policy, and backoff require worker-owned
+   durable sessions.
+-- A bound Rust HTTP server/router is still needed around the core remote HTTP
+-  contract.
++- A framework-neutral Rust HTTP router now exists around the core remote HTTP
++  contract; a concrete listener/framework adapter remains future host work.
+ - Workspace-owned BYOK profile APIs need production persistent profile records
+   and secret references.
+diff --git a/sdk/typescript/packages/muzen-sdk/README.md b/sdk/typescript/packages/muzen-sdk/README.md
+index 48e6876..7caa37d 100644
+--- a/sdk/typescript/packages/muzen-sdk/README.md
++++ b/sdk/typescript/packages/muzen-sdk/README.md
+@@ -83,7 +83,7 @@ completed:
+ - local and remote webhook response facades are implemented for GitHub and
+   GitLab;
+ - production database persistence, provider materialization for local provider
+-  sources, a bound Rust web server/router, and the high-level
++  sources, a concrete Rust HTTP listener/framework adapter, and the high-level
+   `muzen.workers.start()` facade remain future production work.
+ 
+ See the repository root README and
+diff --git a/src/review_session.rs b/src/review_session.rs
+index 94b1f2f..59df256 100644
+--- a/src/review_session.rs
++++ b/src/review_session.rs
+@@ -22,6 +22,7 @@ use crate::util::timestamp_utc;
+ mod config;
+ mod http;
+ mod profiles;
++mod router;
+ mod store;
+ mod webhooks;
+ mod worker;
+@@ -29,12 +30,16 @@ mod worker;
+ pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
+ pub use http::{
+     ReviewHttpResponse, ReviewSseFrame, ReviewSseStream, CONTENT_TYPE_EVENT_STREAM,
+-    CONTENT_TYPE_JSON, HTTP_STATUS_ACCEPTED, HTTP_STATUS_OK,
++    CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT, HTTP_STATUS_ACCEPTED, HTTP_STATUS_BAD_REQUEST,
++    HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
+ };
+ pub use profiles::{
+     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
+     ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
+ };
++pub use router::{
++    ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
++};
+ pub use store::{
+     InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
+     ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
+@@ -261,6 +266,7 @@ impl From<&Path> for ReviewSourceLike {
+     }
+ }
+ 
++#[derive(Clone)]
+ pub struct Muzen {
+     next_review_id: Arc<AtomicU64>,
+     store: Arc<dyn ReviewSessionStore>,
+@@ -317,6 +323,31 @@ impl Muzen {
+         self.create_review_session(CreateReviewSessionInput::with_options(source, options)?)
+     }
+ 
++    pub fn schedule_review(
++        &self,
++        source: impl Into<ReviewSourceLike>,
++    ) -> Result<ReviewSession, ReviewSessionError> {
++        self.schedule_review_with_options(source, ReviewOptions::default())
++    }
++
++    pub fn schedule_review_with_options(
++        &self,
++        source: impl Into<ReviewSourceLike>,
++        options: ReviewOptions,
++    ) -> Result<ReviewSession, ReviewSessionError> {
++        let source = source.into().resolve()?;
++        let input = CreateReviewSessionInput { source, options };
++        let dedupe_key = input.options.dedupe_key(&input.source);
++        if let Some(dedupe_key) = &dedupe_key {
++            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
++                return Ok(ReviewSession::from_record(record));
++            }
++        }
++        let review = ReviewSession::queued(self.next_review_id(), input);
++        self.store.insert(review.to_record(dedupe_key, None))?;
++        Ok(review)
++    }
++
+     pub fn create_review_session(
+         &self,
+         input: CreateReviewSessionInput,
+@@ -2698,6 +2729,188 @@ mod tests {
+         assert!(response.body.ends_with("\n\n"));
+     }
+ 
++    #[test]
++    fn review_http_router_schedules_root_review_and_replays_events() {
++        let muzen = Muzen::new();
++        let router = ReviewHttpRouter::new(muzen.clone());
++        let create_request = ReviewHttpRequest::new("POST", "/v1/reviews")
++            .json(&json!({
++                "source": {
++                    "type": "local",
++                    "repo": ".",
++                    "changedFiles": ["Cargo.toml"]
++                },
++                "options": {
++                    "dedupe": "source"
++                }
++            }))
++            .unwrap();
++
++        let create_response = router.handle(create_request);
++        let create_body: Value = serde_json::from_str(&create_response.body).unwrap();
++        let get_response = router.handle(ReviewHttpRequest::new("GET", "/v1/reviews/review-1"));
++        let get_body: Value = serde_json::from_str(&get_response.body).unwrap();
++        let events_response = router.handle(ReviewHttpRequest::new(
++            "GET",
++            "/v1/reviews/review-1/events?after=1",
++        ));
++        let events_body: Value = serde_json::from_str(&events_response.body).unwrap();
++
++        assert_eq!(create_response.status_code, HTTP_STATUS_ACCEPTED);
++        assert_eq!(
++            create_response.header("Content-Type"),
++            Some(CONTENT_TYPE_JSON)
++        );
++        assert_eq!(create_body["review"]["id"], json!("review-1"));
++        assert_eq!(create_body["review"]["status"], json!("queued"));
++        assert_eq!(create_body["review"]["source"]["type"], json!("local"));
++        assert_eq!(get_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(get_body["review"]["id"], json!("review-1"));
++        assert_eq!(events_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(events_body["events"].as_array().unwrap().len(), 0);
++
++        let record = muzen
++            .store
++            .get(&ReviewSessionId::new("review-1").unwrap())
++            .unwrap()
++            .unwrap();
++        assert_eq!(record.status, ReviewStatus::Queued);
++        assert!(record.result.is_none());
++    }
++
++    #[test]
++    fn review_http_router_serves_results_and_artifacts_from_store() {
++        let repo = tempfile::tempdir().unwrap();
++        std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
++        let muzen = Muzen::new();
++        let review = muzen
++            .review(ReviewSource::local_with_changed_files(
++                repo.path(),
++                ["README.md"],
++            ))
++            .unwrap();
++        let router = ReviewHttpRouter::new(muzen);
++
++        let result_response = router.handle(ReviewHttpRequest::new(
++            "GET",
++            format!("/v1/reviews/{}/result", review.id()).as_str(),
++        ));
++        let export_response = router.handle(ReviewHttpRequest::new(
++            "POST",
++            format!("/v1/reviews/{}/artifacts/export", review.id()).as_str(),
++        ));
++        let result_body: Value = serde_json::from_str(&result_response.body).unwrap();
++        let export_body: Value = serde_json::from_str(&export_response.body).unwrap();
++        let artifact_id = export_body["artifacts"][0]["artifactId"]
++            .as_str()
++            .unwrap()
++            .to_string();
++        let artifact_response = router.handle(ReviewHttpRequest::new(
++            "GET",
++            format!(
++                "/v1/reviews/{}/artifacts/{}?view=redacted",
++                review.id(),
++                artifact_id
++            )
++            .as_str(),
++        ));
++        let artifact_body: Value = serde_json::from_str(&artifact_response.body).unwrap();
++
++        assert_eq!(result_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(result_body["result"]["status"], json!("completed"));
++        assert_eq!(export_response.status_code, HTTP_STATUS_OK);
++        assert!(export_body["artifactCount"].as_u64().unwrap() > 0);
++        assert_eq!(artifact_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(artifact_body["artifact"]["artifactId"], json!(artifact_id));
++    }
++
++    #[test]
++    fn review_http_router_handles_workspace_profile_routes() {
++        let router = ReviewHttpRouter::new(Muzen::new());
++        let put_model = ReviewHttpRequest::new("PUT", "/v1/workspaces/acme/models/default")
++            .json(&ModelProfileInput {
++                provider: ModelProviderKind::OpenaiCompatible,
++                model: "gpt-5".to_string(),
++                secret_ref: Some("vault://workspaces/acme/models/default".to_string()),
++                base_url: Some("https://models.example.test".to_string()),
++                routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
++            })
++            .unwrap();
++        let put_provider = ReviewHttpRequest::new("PUT", "/v1/workspaces/acme/providers/github")
++            .json(&ProviderProfileInput {
++                provider: SourceProviderKind::Github,
++                secret_ref: Some("vault://workspaces/acme/providers/github".to_string()),
++                base_url: Some("https://api.github.com".to_string()),
++                routing: BTreeMap::new(),
++            })
++            .unwrap();
++
++        let model_response = router.handle(put_model);
++        let provider_response = router.handle(put_provider);
++        let models_response =
++            router.handle(ReviewHttpRequest::new("GET", "/v1/workspaces/acme/models"));
++        let provider_body: Value = serde_json::from_str(&provider_response.body).unwrap();
++        let models_body: Value = serde_json::from_str(&models_response.body).unwrap();
++        let missing_response = router.handle(ReviewHttpRequest::new(
++            "GET",
++            "/v1/workspaces/acme/models/missing",
++        ));
++
++        assert_eq!(model_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(provider_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(
++            provider_body["profile"]["secretRef"],
++            json!("vault://workspaces/acme/providers/github")
++        );
++        assert_eq!(models_response.status_code, HTTP_STATUS_OK);
++        assert_eq!(models_body["profiles"].as_array().unwrap().len(), 1);
++        assert_eq!(missing_response.status_code, HTTP_STATUS_NO_CONTENT);
++        assert!(missing_response.body.is_empty());
++    }
++
++    #[test]
++    fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
++        let muzen = Muzen::new();
++        let router = ReviewHttpRouter::with_options(
++            muzen.clone(),
++            ReviewHttpRouterOptions {
++                github_webhook_secret: Some("secret".to_string()),
++                gitlab_webhook_secret: None,
++            },
++        );
++        let body = json!({
++            "action": "opened",
++            "repository": {
++                "full_name": "maskdotdev/heimdaal"
++            },
++            "pull_request": {
++                "number": 123
++            }
++        })
++        .to_string();
++        let signature = github_webhook_signature("secret", body.as_bytes()).unwrap();
++        let request = ReviewHttpRequest::new("POST", "/v1/workspaces/acme/webhooks/github")
++            .header("X-GitHub-Event", "pull_request")
++            .header("X-GitHub-Delivery", "delivery-1")
++            .header("X-Hub-Signature-256", signature)
++            .body(body.into_bytes());
++
++        let response = router.handle(request);
++        let response_body: Value = serde_json::from_str(&response.body).unwrap();
++        let record = muzen
++            .store
++            .get(&ReviewSessionId::new("review-1").unwrap())
++            .unwrap()
++            .unwrap();
++
++        assert_eq!(response.status_code, HTTP_STATUS_ACCEPTED);
++        assert_eq!(response_body["type"], json!("review_created"));
++        assert_eq!(response_body["deliveryId"], json!("delivery-1"));
++        assert_eq!(record.workspace_id.as_deref(), Some("acme"));
++        assert_eq!(record.status, ReviewStatus::Queued);
++        assert_eq!(record.options.metadata["webhook.provider"], json!("github"));
++    }
++
+     #[test]
+     fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
+         let store = Arc::new(InMemoryReviewSessionStore::default());
+diff --git a/src/review_session/http.rs b/src/review_session/http.rs
+index 6c2738c..96897d9 100644
+--- a/src/review_session/http.rs
++++ b/src/review_session/http.rs
+@@ -8,8 +8,13 @@ use super::{
+ 
+ pub const HTTP_STATUS_OK: u16 = 200;
+ pub const HTTP_STATUS_ACCEPTED: u16 = 202;
++pub const HTTP_STATUS_NO_CONTENT: u16 = 204;
++pub const HTTP_STATUS_BAD_REQUEST: u16 = 400;
++pub const HTTP_STATUS_NOT_FOUND: u16 = 404;
++pub const HTTP_STATUS_METHOD_NOT_ALLOWED: u16 = 405;
+ pub const CONTENT_TYPE_JSON: &str = "application/json";
+ pub const CONTENT_TYPE_EVENT_STREAM: &str = "text/event-stream";
++pub const CONTENT_TYPE_TEXT: &str = "text/plain; charset=utf-8";
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+@@ -27,6 +32,14 @@ impl ReviewHttpResponse {
+         Ok(Self::with_body(status_code, CONTENT_TYPE_JSON, body))
+     }
+ 
++    pub fn empty(status_code: u16) -> Self {
++        Self {
++            status_code,
++            headers: BTreeMap::new(),
++            body: String::new(),
++        }
++    }
++
+     pub fn event_stream(stream: &ReviewSseStream) -> Self {
+         let mut response =
+             Self::with_body(HTTP_STATUS_OK, CONTENT_TYPE_EVENT_STREAM, stream.encode());
+@@ -46,7 +59,7 @@ impl ReviewHttpResponse {
+         self.headers.get(name).map(String::as_str)
+     }
+ 
+-    fn with_body(status_code: u16, content_type: &str, body: String) -> Self {
++    pub fn with_body(status_code: u16, content_type: &str, body: String) -> Self {
+         let mut headers = BTreeMap::new();
+         headers.insert("Content-Type".to_string(), content_type.to_string());
+         Self {
+diff --git a/src/review_session/router.rs b/src/review_session/router.rs
+new file mode 100644
+index 0000000..84aa420
+--- /dev/null
++++ b/src/review_session/router.rs
+@@ -0,0 +1,662 @@
++use std::collections::BTreeMap;
++
++use super::{
++    ModelProfile, ModelProfileInput, Muzen, ProviderProfile, ProviderProfileInput, ReviewArtifact,
++    ReviewArtifactReadOptions, ReviewArtifactView, ReviewCancelOptions, ReviewHttpResponse,
++    ReviewOptions, ReviewSessionError, ReviewSessionId, ReviewSessionSnapshot, ReviewSource,
++    WebhookHeaders, WebhookReviewOptions, CONTENT_TYPE_TEXT, HTTP_STATUS_ACCEPTED,
++    HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND,
++    HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
++};
++use serde::{de::DeserializeOwned, Deserialize, Serialize};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ReviewHttpRequest {
++    pub method: String,
++    pub path: String,
++    pub query: BTreeMap<String, String>,
++    pub headers: BTreeMap<String, String>,
++    pub body: Vec<u8>,
++}
++
++impl ReviewHttpRequest {
++    pub fn new(method: impl Into<String>, target: impl AsRef<str>) -> Self {
++        let target = target.as_ref();
++        let (path, query) = target.split_once('?').unwrap_or((target, ""));
++        Self {
++            method: method.into().to_ascii_uppercase(),
++            path: if path.is_empty() {
++                "/".to_string()
++            } else {
++                path.to_string()
++            },
++            query: parse_query_lossy(query),
++            headers: BTreeMap::new(),
++            body: Vec::new(),
++        }
++    }
++
++    pub fn header(mut self, name: impl AsRef<str>, value: impl Into<String>) -> Self {
++        self.headers
++            .insert(normalize_header_name(name.as_ref()), value.into());
++        self
++    }
++
++    pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
++        self.query.insert(name.into(), value.into());
++        self
++    }
++
++    pub fn body(mut self, body: impl Into<Vec<u8>>) -> Self {
++        self.body = body.into();
++        self
++    }
++
++    pub fn json<T: Serialize>(self, body: &T) -> Result<Self, ReviewSessionError> {
++        let body = serde_json::to_vec(body).map_err(|error| {
++            ReviewSessionError::Http(format!("failed to serialize JSON request: {error}"))
++        })?;
++        Ok(self.header("Content-Type", "application/json").body(body))
++    }
++
++    pub fn query(&self, name: &str) -> Option<&str> {
++        self.query.get(name).map(String::as_str)
++    }
++
++    pub fn header_value(&self, name: &str) -> Option<&str> {
++        self.headers
++            .get(&normalize_header_name(name))
++            .map(String::as_str)
++    }
++}
++
++#[derive(Debug, Default, Clone, PartialEq, Eq)]
++pub struct ReviewHttpRouterOptions {
++    pub github_webhook_secret: Option<String>,
++    pub gitlab_webhook_secret: Option<String>,
++}
++
++#[derive(Debug, Clone)]
++pub struct ReviewHttpRouter {
++    muzen: Muzen,
++    options: ReviewHttpRouterOptions,
++}
++
++impl ReviewHttpRouter {
++    pub fn new(muzen: Muzen) -> Self {
++        Self::with_options(muzen, ReviewHttpRouterOptions::default())
++    }
++
++    pub fn with_options(muzen: Muzen, options: ReviewHttpRouterOptions) -> Self {
++        Self { muzen, options }
++    }
++
++    pub fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
++        match self.try_handle(&request) {
++            Ok(response) => response,
++            Err(error) => error.into_response(),
++        }
++    }
++
++    pub fn try_handle(
++        &self,
++        request: &ReviewHttpRequest,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        let segments = path_segments(&request.path)?;
++        let segment_refs = segments.iter().map(String::as_str).collect::<Vec<_>>();
++        match segment_refs.as_slice() {
++            ["v1", "reviews"] => self.handle_reviews_collection(request),
++            ["v1", "reviews", review_id] => self.handle_review(request, review_id),
++            ["v1", "reviews", review_id, "result"] => self.handle_review_result(request, review_id),
++            ["v1", "reviews", review_id, "cancel"] => self.handle_cancel(request, review_id),
++            ["v1", "reviews", review_id, "events"] => self.handle_review_events(request, review_id),
++            ["v1", "reviews", review_id, "events", "stream"] => {
++                self.handle_review_event_stream(request, review_id)
++            }
++            ["v1", "reviews", review_id, "artifacts", "export"] => {
++                self.handle_artifact_export(request, review_id)
++            }
++            ["v1", "reviews", review_id, "artifacts", artifact_id] => {
++                self.handle_artifact_read(request, review_id, artifact_id)
++            }
++            ["v1", "workspaces", workspace_id, "reviews"] => {
++                self.handle_workspace_reviews_collection(request, workspace_id)
++            }
++            ["v1", "webhooks", provider] => self.handle_webhook(request, None, provider),
++            ["v1", "workspaces", workspace_id, "webhooks", provider] => {
++                self.handle_webhook(request, Some(workspace_id), provider)
++            }
++            ["v1", "workspaces", workspace_id, "models"] => {
++                self.handle_model_profiles_collection(request, workspace_id)
++            }
++            ["v1", "workspaces", workspace_id, "models", name] => {
++                self.handle_model_profile(request, workspace_id, name)
++            }
++            ["v1", "workspaces", workspace_id, "providers"] => {
++                self.handle_provider_profiles_collection(request, workspace_id)
++            }
++            ["v1", "workspaces", workspace_id, "providers", name] => {
++                self.handle_provider_profile(request, workspace_id, name)
++            }
++            _ => Err(ReviewHttpRouteError::NotFound(format!(
++                "no Muzen route matches {} {}",
++                request.method, request.path
++            ))),
++        }
++    }
++
++    fn handle_reviews_collection(
++        &self,
++        request: &ReviewHttpRequest,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "POST")?;
++        let body: CreateReviewBody = json_body(request)?;
++        let review = self
++            .muzen
++            .schedule_review_with_options(body.source, body.options)?;
++        response_json(
++            HTTP_STATUS_ACCEPTED,
++            &ReviewResponse {
++                review: review.refresh(),
++            },
++        )
++    }
++
++    fn handle_workspace_reviews_collection(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "POST")?;
++        let body: CreateReviewBody = json_body(request)?;
++        let review = self
++            .muzen
++            .workspace(workspace_id)
++            .schedule_review_with_options(body.source, body.options)?;
++        response_json(
++            HTTP_STATUS_ACCEPTED,
++            &ReviewResponse {
++                review: review.refresh(),
++            },
++        )
++    }
++
++    fn handle_review(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        response_json(
++            HTTP_STATUS_OK,
++            &ReviewResponse {
++                review: self.review_snapshot(review_id)?,
++            },
++        )
++    }
++
++    fn handle_review_result(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let id = ReviewSessionId::new(review_id)?;
++        let record = self.review_record(&id)?;
++        let Some(result) = record.result else {
++            return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
++        };
++        response_json(HTTP_STATUS_OK, &ReviewResultResponse { result })
++    }
++
++    fn handle_cancel(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "POST")?;
++        let options = optional_json_body::<ReviewCancelOptions>(request)?;
++        let id = ReviewSessionId::new(review_id)?;
++        let record = self.muzen.store.request_cancellation(&id, options)?;
++        response_json(
++            HTTP_STATUS_OK,
++            &ReviewResponse {
++                review: super::ReviewSession::from_record(record).refresh(),
++            },
++        )
++    }
++
++    fn handle_review_events(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let id = ReviewSessionId::new(review_id)?;
++        Ok(self
++            .muzen
++            .review_events_response(&id, request.query("after"))?)
++    }
++
++    fn handle_review_event_stream(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let id = ReviewSessionId::new(review_id)?;
++        Ok(self
++            .muzen
++            .review_events_sse_response(&id, request.query("after"))?)
++    }
++
++    fn handle_artifact_read(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++        artifact_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let id = ReviewSessionId::new(review_id)?;
++        let review = super::ReviewSession::from_record(self.review_record(&id)?);
++        let artifact = review.read_artifact(
++            artifact_id,
++            ReviewArtifactReadOptions {
++                view: artifact_view(request)?,
++            },
++        )?;
++        response_json(HTTP_STATUS_OK, &ReviewArtifactResponse { artifact })
++    }
++
++    fn handle_artifact_export(
++        &self,
++        request: &ReviewHttpRequest,
++        review_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "POST")?;
++        let id = ReviewSessionId::new(review_id)?;
++        let review = super::ReviewSession::from_record(self.review_record(&id)?);
++        let export = review.export_artifacts(optional_json_body(request)?)?;
++        response_json(HTTP_STATUS_OK, &export)
++    }
++
++    fn handle_webhook(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: Option<&str>,
++        provider: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "POST")?;
++        let headers = WebhookHeaders::from_iter(
++            request
++                .headers
++                .iter()
++                .map(|(name, value)| (name.clone(), value.clone())),
++        );
++        let workspace = self.muzen.workspace(workspace_id.unwrap_or("default"));
++        let delivery = match provider {
++            "github" => workspace.handle_github_webhook(
++                &headers,
++                &request.body,
++                self.options.github_webhook_secret.as_deref(),
++                WebhookReviewOptions::new(ReviewOptions::default()),
++            )?,
++            "gitlab" => workspace.handle_gitlab_webhook(
++                &headers,
++                &request.body,
++                self.options.gitlab_webhook_secret.as_deref(),
++                WebhookReviewOptions::new(ReviewOptions::default()),
++            )?,
++            _ => {
++                return Err(ReviewHttpRouteError::NotFound(format!(
++                    "unsupported webhook provider `{provider}`"
++                )))
++            }
++        };
++        Ok(delivery.http_response()?)
++    }
++
++    fn handle_model_profiles_collection(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let profiles = self.muzen.workspace(workspace_id).list_model_profiles()?;
++        response_json(HTTP_STATUS_OK, &ModelProfilesResponse { profiles })
++    }
++
++    fn handle_model_profile(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: &str,
++        name: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        let workspace = self.muzen.workspace(workspace_id);
++        match request.method.as_str() {
++            "PUT" => {
++                let profile =
++                    workspace.set_model_profile(name, json_body::<ModelProfileInput>(request)?)?;
++                response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
++            }
++            "GET" => {
++                let Some(profile) = workspace.get_model_profile(name)? else {
++                    return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
++                };
++                response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
++            }
++            _ => Err(ReviewHttpRouteError::MethodNotAllowed(format!(
++                "{} is not allowed for workspace model profiles",
++                request.method
++            ))),
++        }
++    }
++
++    fn handle_provider_profiles_collection(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        require_method(request, "GET")?;
++        let profiles = self
++            .muzen
++            .workspace(workspace_id)
++            .list_provider_profiles()?;
++        response_json(HTTP_STATUS_OK, &ProviderProfilesResponse { profiles })
++    }
++
++    fn handle_provider_profile(
++        &self,
++        request: &ReviewHttpRequest,
++        workspace_id: &str,
++        name: &str,
++    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++        let workspace = self.muzen.workspace(workspace_id);
++        match request.method.as_str() {
++            "PUT" => {
++                let profile = workspace
++                    .set_provider_profile(name, json_body::<ProviderProfileInput>(request)?)?;
++                response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
++            }
++            "GET" => {
++                let Some(profile) = workspace.get_provider_profile(name)? else {
++                    return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
++                };
++                response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
++            }
++            _ => Err(ReviewHttpRouteError::MethodNotAllowed(format!(
++                "{} is not allowed for workspace provider profiles",
++                request.method
++            ))),
++        }
++    }
++
++    fn review_snapshot(
++        &self,
++        review_id: &str,
++    ) -> Result<ReviewSessionSnapshot, ReviewHttpRouteError> {
++        let id = ReviewSessionId::new(review_id)?;
++        Ok(super::ReviewSession::from_record(self.review_record(&id)?).refresh())
++    }
++
++    fn review_record(
++        &self,
++        id: &ReviewSessionId,
++    ) -> Result<super::ReviewSessionRecord, ReviewHttpRouteError> {
++        self.muzen
++            .store
++            .get(id)?
++            .ok_or_else(|| ReviewHttpRouteError::NotFound(format!("unknown review session `{id}`")))
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum ReviewHttpRouteError {
++    BadRequest(String),
++    NotFound(String),
++    MethodNotAllowed(String),
++    Core(ReviewSessionError),
++}
++
++impl ReviewHttpRouteError {
++    fn into_response(self) -> ReviewHttpResponse {
++        let (status_code, message) = match self {
++            Self::BadRequest(message) => (HTTP_STATUS_BAD_REQUEST, message),
++            Self::NotFound(message) => (HTTP_STATUS_NOT_FOUND, message),
++            Self::MethodNotAllowed(message) => (HTTP_STATUS_METHOD_NOT_ALLOWED, message),
++            Self::Core(error) => route_error_status(&error),
++        };
++        if status_code == HTTP_STATUS_NO_CONTENT {
++            return ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT);
++        }
++        response_json(
++            status_code,
++            &ErrorResponse {
++                error: ErrorBody { message },
++            },
++        )
++        .unwrap_or_else(|error| {
++            ReviewHttpResponse::with_body(
++                HTTP_STATUS_BAD_REQUEST,
++                CONTENT_TYPE_TEXT,
++                format!("{error:?}"),
++            )
++        })
++    }
++}
++
++impl From<ReviewSessionError> for ReviewHttpRouteError {
++    fn from(error: ReviewSessionError) -> Self {
++        match &error {
++            ReviewSessionError::InvalidSource { .. }
++            | ReviewSessionError::EmptyReviewSessionId
++            | ReviewSessionError::Webhook(_)
++            | ReviewSessionError::Profile(_)
++            | ReviewSessionError::ArtifactLimitExceeded { .. } => {
++                Self::BadRequest(error.to_string())
++            }
++            ReviewSessionError::UnknownArtifactId { .. } => Self::NotFound(error.to_string()),
++            ReviewSessionError::Store(message) if message.contains("unknown review session") => {
++                Self::NotFound(error.to_string())
++            }
++            _ => Self::Core(error),
++        }
++    }
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++struct CreateReviewBody {
++    source: ReviewSource,
++    #[serde(default)]
++    options: ReviewOptions,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ReviewResponse {
++    review: ReviewSessionSnapshot,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ReviewResultResponse {
++    result: super::ReviewResult,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ReviewArtifactResponse {
++    artifact: ReviewArtifact,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ModelProfileResponse {
++    profile: ModelProfile,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ModelProfilesResponse {
++    profiles: Vec<ModelProfile>,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ProviderProfileResponse {
++    profile: ProviderProfile,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ProviderProfilesResponse {
++    profiles: Vec<ProviderProfile>,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ErrorResponse {
++    error: ErrorBody,
++}
++
++#[derive(Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ErrorBody {
++    message: String,
++}
++
++fn require_method(request: &ReviewHttpRequest, method: &str) -> Result<(), ReviewHttpRouteError> {
++    if request.method == method {
++        Ok(())
++    } else {
++        Err(ReviewHttpRouteError::MethodNotAllowed(format!(
++            "{} is not allowed for {}",
++            request.method, request.path
++        )))
++    }
++}
++
++fn json_body<T: DeserializeOwned>(request: &ReviewHttpRequest) -> Result<T, ReviewHttpRouteError> {
++    if request.body.is_empty() {
++        return Err(ReviewHttpRouteError::BadRequest(
++            "request body must contain JSON".to_string(),
++        ));
++    }
++    serde_json::from_slice(&request.body)
++        .map_err(|error| ReviewHttpRouteError::BadRequest(format!("invalid JSON body: {error}")))
++}
++
++fn optional_json_body<T>(request: &ReviewHttpRequest) -> Result<T, ReviewHttpRouteError>
++where
++    T: DeserializeOwned + Default,
++{
++    if request.body.is_empty() {
++        return Ok(T::default());
++    }
++    json_body(request)
++}
++
++fn response_json<T: Serialize>(
++    status_code: u16,
++    body: &T,
++) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
++    Ok(ReviewHttpResponse::json(status_code, body)?)
++}
++
++fn artifact_view(request: &ReviewHttpRequest) -> Result<ReviewArtifactView, ReviewHttpRouteError> {
++    match request.query("view").unwrap_or("redacted") {
++        "redacted" => Ok(ReviewArtifactView::Redacted),
++        "raw" => Ok(ReviewArtifactView::Raw),
++        value => Err(ReviewHttpRouteError::BadRequest(format!(
++            "unsupported artifact view `{value}`"
++        ))),
++    }
++}
++
++fn route_error_status(error: &ReviewSessionError) -> (u16, String) {
++    match error {
++        ReviewSessionError::ResultUnavailable { .. } => (HTTP_STATUS_NO_CONTENT, error.to_string()),
++        ReviewSessionError::Store(message) if message.contains("unknown review session") => {
++            (HTTP_STATUS_NOT_FOUND, error.to_string())
++        }
++        _ => (HTTP_STATUS_BAD_REQUEST, error.to_string()),
++    }
++}
++
++fn path_segments(path: &str) -> Result<Vec<String>, ReviewHttpRouteError> {
++    let path = path.split_once('?').map_or(path, |(path, _)| path);
++    path.split('/')
++        .filter(|segment| !segment.is_empty())
++        .map(|segment| percent_decode(segment, false))
++        .collect()
++}
++
++fn parse_query_lossy(query: &str) -> BTreeMap<String, String> {
++    let mut result = BTreeMap::new();
++    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
++        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
++        result.insert(
++            percent_decode_lossy(key, true),
++            percent_decode_lossy(value, true),
++        );
++    }
++    result
++}
++
++fn percent_decode(input: &str, plus_as_space: bool) -> Result<String, ReviewHttpRouteError> {
++    let mut output = Vec::with_capacity(input.len());
++    let bytes = input.as_bytes();
++    let mut index = 0;
++    while index < bytes.len() {
++        match bytes[index] {
++            b'+' if plus_as_space => {
++                output.push(b' ');
++                index += 1;
++            }
++            b'%' => {
++                if index + 2 >= bytes.len() {
++                    return Err(ReviewHttpRouteError::BadRequest(
++                        "invalid percent-encoded path segment".to_string(),
++                    ));
++                }
++                let high = hex_value(bytes[index + 1]).ok_or_else(|| {
++                    ReviewHttpRouteError::BadRequest(
++                        "invalid percent-encoded path segment".to_string(),
++                    )
++                })?;
++                let low = hex_value(bytes[index + 2]).ok_or_else(|| {
++                    ReviewHttpRouteError::BadRequest(
++                        "invalid percent-encoded path segment".to_string(),
++                    )
++                })?;
++                output.push((high << 4) | low);
++                index += 3;
++            }
++            byte => {
++                output.push(byte);
++                index += 1;
++            }
++        }
++    }
++    String::from_utf8(output).map_err(|_| {
++        ReviewHttpRouteError::BadRequest("path segment is not valid UTF-8".to_string())
++    })
++}
++
++fn percent_decode_lossy(input: &str, plus_as_space: bool) -> String {
++    percent_decode(input, plus_as_space).unwrap_or_else(|_| input.to_string())
++}
++
++fn hex_value(byte: u8) -> Option<u8> {
++    match byte {
++        b'0'..=b'9' => Some(byte - b'0'),
++        b'a'..=b'f' => Some(byte - b'a' + 10),
++        b'A'..=b'F' => Some(byte - b'A' + 10),
++        _ => None,
++    }
++}
++
++fn normalize_header_name(name: &str) -> String {
++    name.to_ascii_lowercase()
++}
