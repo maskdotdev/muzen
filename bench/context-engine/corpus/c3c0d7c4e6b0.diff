@@ -1,0 +1,132 @@
+diff --git a/apps/mcp/src/server.test.ts b/apps/mcp/src/server.test.ts
+index 58a8c4c7..e2c12bc9 100644
+--- a/apps/mcp/src/server.test.ts
++++ b/apps/mcp/src/server.test.ts
+@@ -243,4 +243,54 @@ describe("review mcp server", () => {
+     })
+     expect(String((fixQueue.json?.result as { content?: Array<{ text?: string }> })?.content?.[0]?.text ?? "")).toContain("\"commentKey\": \"src/a.ts:additions:10:missing null guard\"")
+   })
++
++  test("rejects malformed tool arguments before calling review loaders", async () => {
++    const mod = await import(`./server?cacheBust=${Math.random().toString(36).slice(2)}`)
++    const server = mod.createReviewMcpServer({
++      host: "127.0.0.1",
++      port: 0,
++      authenticateApiKey: async () => ({ id: "key-1", userId: "user-1", name: "Local agent" }),
++      getLatestReviewReadModel: async () => {
++        throw new Error("should not be called")
++      },
++      getReviewReadModelById: async () => {
++        throw new Error("should not be called")
++      },
++      getReviewFixQueue: async () => {
++        throw new Error("should not be called")
++      },
++    })
++    activeServer = await server.start()
++    const startedServer = activeServer
++    if (!startedServer) {
++      throw new Error("expected MCP server to start")
++    }
++
++    const invalid = await postRpc({
++      url: startedServer.url,
++      authorization: "Bearer argus_mcp_test_key",
++      payload: {
++        jsonrpc: "2.0",
++        id: 9,
++        method: "tools/call",
++        params: {
++          name: "review_get_review",
++          arguments: {
++            reviewId: "",
++            extra: true,
++          },
++        },
++      },
++    })
++
++    expect(invalid.response.status).toBe(200)
++    expect(invalid.json).toEqual({
++      jsonrpc: "2.0",
++      id: 9,
++      error: {
++        code: -32000,
++        message: "invalid params for review_get_review",
++      },
++    })
++  })
+ })
+diff --git a/apps/mcp/src/server.ts b/apps/mcp/src/server.ts
+index 22b28ba2..6de9f5ce 100644
+--- a/apps/mcp/src/server.ts
++++ b/apps/mcp/src/server.ts
+@@ -1,4 +1,5 @@
+ import http from "node:http"
++import { z } from "zod"
+ 
+ import {
+   authenticateMcpApiKey,
+@@ -141,11 +142,27 @@ const buildToolDefs = () => [
+   },
+ ]
+ 
+-const normalizeScopeArgs = (args: Record<string, unknown>): ReviewReadScope => ({
+-  instanceUrl: String(args.instanceUrl ?? "").trim(),
+-  projectId: String(args.projectId ?? "").trim(),
+-  mergeRequestIid: String(args.mergeRequestIid ?? "").trim(),
+-})
++const reviewScopeArgsSchema = z.object({
++  instanceUrl: z.string().trim().min(1),
++  projectId: z.string().trim().min(1),
++  mergeRequestIid: z.string().trim().min(1),
++}).strict()
++
++const reviewByIdArgsSchema = z.object({
++  reviewId: z.string().trim().min(1),
++}).strict()
++
++const parseToolArgs = <T>(
++  toolName: string,
++  schema: z.ZodType<T>,
++  args: Record<string, unknown>,
++) => {
++  const parsed = schema.safeParse(args)
++  if (!parsed.success) {
++    throw new Error(`invalid params for ${toolName}`)
++  }
++  return parsed.data
++}
+ 
+ const buildToolContent = (payload: unknown) => ({
+   content: [
+@@ -174,23 +191,26 @@ export function createMcpServer(options: CreateMcpServerOptions = {}) {
+     auth: AuthenticatedKey,
+   ) => {
+     if (name === "review_get_latest") {
++      const scope = parseToolArgs(name, reviewScopeArgsSchema, args)
+       return buildToolContent(await loadLatestReview({
+         userId: auth.userId,
+-        scope: normalizeScopeArgs(args),
++        scope,
+       }))
+     }
+ 
+     if (name === "review_get_review") {
++      const parsed = parseToolArgs(name, reviewByIdArgsSchema, args)
+       return buildToolContent(await loadReviewById({
+         userId: auth.userId,
+-        reviewId: String(args.reviewId ?? "").trim(),
++        reviewId: parsed.reviewId,
+       }))
+     }
+ 
+     if (name === "review_get_fix_queue") {
++      const scope = parseToolArgs(name, reviewScopeArgsSchema, args)
+       return buildToolContent(await loadFixQueue({
+         userId: auth.userId,
+-        scope: normalizeScopeArgs(args),
++        scope,
+       }))
+     }
+ 

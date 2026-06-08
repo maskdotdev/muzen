@@ -1,0 +1,93 @@
+diff --git a/drizzle/0004_bold_lockjaw.sql b/drizzle/0004_bold_lockjaw.sql
+new file mode 100644
+index 00000000..0959a954
+--- /dev/null
++++ b/drizzle/0004_bold_lockjaw.sql
+@@ -0,0 +1,2 @@
++CREATE INDEX IF NOT EXISTS "index_vectors_embedding_hnsw_idx" ON "index_vectors" USING hnsw ("embedding" vector_cosine_ops) WITH (m = 16, ef_construction = 64);--> statement-breakpoint
++DROP INDEX IF EXISTS "index_vectors_embedding_ivfflat_idx";
+diff --git a/drizzle/meta/_journal.json b/drizzle/meta/_journal.json
+index ca1ff645..2da9b983 100644
+--- a/drizzle/meta/_journal.json
++++ b/drizzle/meta/_journal.json
+@@ -29,6 +29,13 @@
+       "when": 1771077871738,
+       "tag": "0003_dry_meteorite",
+       "breakpoints": true
++    },
++    {
++      "idx": 4,
++      "version": "7",
++      "when": 1771123718956,
++      "tag": "0004_bold_lockjaw",
++      "breakpoints": true
+     }
+   ]
+-}
+\ No newline at end of file
++}
+diff --git a/src/lib/indexing/stores/vector-store.pg.ts b/src/lib/indexing/stores/vector-store.pg.ts
+index afaa6fd0..176bca39 100644
+--- a/src/lib/indexing/stores/vector-store.pg.ts
++++ b/src/lib/indexing/stores/vector-store.pg.ts
+@@ -31,6 +31,9 @@ const parseCandidate = (row: Record<string, unknown>): VectorQueryCandidate => (
+   content: typeof row.content === 'string' ? row.content : '',
+ })
+ 
++const computeHnswEfSearch = (effectiveLimit: number) =>
++  Math.max(40, Math.min(1_000, effectiveLimit * 4))
++
+ export class PostgresVectorStore implements VectorStore {
+   async upsertChunks(args: {
+     branchStateId: string
+@@ -96,26 +99,31 @@ export class PostgresVectorStore implements VectorStore {
+     const limit = Math.max(1, Math.floor(args.limit))
+     const effectiveLimit = Math.min(1_000, limit * oversample)
+     const queryVector = normalizeEmbedding(args.embedding)
++    const efSearch = computeHnswEfSearch(effectiveLimit)
++
++    return db.transaction(async (tx) => {
++      await tx.execute(sql`set local hnsw.ef_search = ${efSearch}`)
++
++      const result = await tx.execute(sql`
++        select
++          ${indexVectors.path} as "path",
++          ${indexVectors.fileId} as "fileId",
++          ${indexVectors.runId} as "runId",
++          ${indexVectors.chunkIndex} as "chunkIndex",
++          (1 - (${indexVectors.embedding} <=> ${queryVector}::vector)) as "score",
++          ${indexVectors.content} as "content"
++        from ${indexVectors}
++        inner join ${indexFileStates}
++          on ${indexFileStates.branchStateId} = ${indexVectors.branchStateId}
++         and ${indexFileStates.path} = ${indexVectors.path}
++         and ${indexFileStates.fileId} = ${indexVectors.fileId}
++        where ${indexVectors.branchStateId} = ${args.branchStateId}
++        order by ${indexVectors.embedding} <=> ${queryVector}::vector asc
++        limit ${effectiveLimit}
++      `)
+ 
+-    const result = await db.execute(sql`
+-      select
+-        ${indexVectors.path} as "path",
+-        ${indexVectors.fileId} as "fileId",
+-        ${indexVectors.runId} as "runId",
+-        ${indexVectors.chunkIndex} as "chunkIndex",
+-        (1 - (${indexVectors.embedding} <=> ${queryVector}::vector)) as "score",
+-        ${indexVectors.content} as "content"
+-      from ${indexVectors}
+-      inner join ${indexFileStates}
+-        on ${indexFileStates.branchStateId} = ${indexVectors.branchStateId}
+-       and ${indexFileStates.path} = ${indexVectors.path}
+-       and ${indexFileStates.fileId} = ${indexVectors.fileId}
+-      where ${indexVectors.branchStateId} = ${args.branchStateId}
+-      order by ${indexVectors.embedding} <=> ${queryVector}::vector asc
+-      limit ${effectiveLimit}
+-    `)
+-
+-    return result.rows.map((raw) => parseCandidate(raw as Record<string, unknown>))
++      return result.rows.map((raw) => parseCandidate(raw as Record<string, unknown>))
++    })
+   }
+ 
+   async deleteStaleByPath(args: {

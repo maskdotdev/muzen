@@ -1,0 +1,49 @@
+diff --git a/README.md b/README.md
+index dccaa863..e5d421e0 100644
+--- a/README.md
++++ b/README.md
+@@ -13,6 +13,16 @@ Setup steps:
+ 1. Copy `.env.example` to `.env` and fill in a real value for `BETTER_AUTH_SECRET`.
+ 2. Install dependencies: `npm install`.
+ 3. Ensure `DATABASE_URL` points to a PostgreSQL instance.
++### Deploying behind a tunnel (Cloudflare/ngrok/etc.)
++
++Set the auth URLs and trusted origin to the public host used by users:
++
++1. Set `BETTER_AUTH_URL` and `NEXT_PUBLIC_BETTER_AUTH_URL` to your public origin (for example `https://macro-scales-produced-uniform.trycloudflare.com`).
++2. Set `BETTER_AUTH_TRUSTED_ORIGINS` to the same origin if your app can receive requests from that host.
++3. Use a secret with at least 32 characters / high entropy:
++   - `openssl rand -base64 32`
++   - or `npx @better-auth/cli secret`
++
+ 4. Run Better Auth migrations to provision required auth tables in PostgreSQL:
+    - `bunx @better-auth/cli generate`
+    - `bunx @better-auth/cli migrate`
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index d15e1f85..ed604f81 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -5,11 +5,23 @@ import { betterAuth } from "better-auth";
+ import { oidcProvider } from "better-auth/plugins";
+ import { authSchema } from "@/lib/db/schema";
+ 
++const trustedOrigins = Array.from(
++  new Set(
++    [
++      process.env.BETTER_AUTH_URL,
++      process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
++      ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",").map((origin) => origin.trim()) ?? []),
++    ]
++      .filter(Boolean),
++  ),
++);
++
+ export const auth = betterAuth({
+   database: drizzleAdapter(db, {
+     schema: authSchema,
+     provider: "pg",
+   }),
++  trustedOrigins,
+   emailAndPassword: {
+     enabled: true,
+   },

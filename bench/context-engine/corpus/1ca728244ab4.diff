@@ -1,0 +1,179 @@
+diff --git a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts b/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts
+index e149a7d9..48db9a7f 100644
+--- a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts
++++ b/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts
+@@ -56,8 +56,8 @@ const loadRouteModule = async (options?: {
+     runWithApiRequestLog,
+     logScopedError: mock(() => {}),
+   }))
+-  mock.module("./runs-route-core", () => ({
+-    runGitLabIndexRunsGet: mock(async () => ({
++  mock.module("@/features/gitlab/server/list-gitlab-index-runs", () => ({
++    executeGitLabIndexRunsGet: mock(async () => ({
+       status: options?.response?.status ?? 200,
+       outcome: "success",
+       response: Response.json(
+@@ -127,7 +127,7 @@ describe("gitlab index runs route", () => {
+     expect(body).toEqual({ error: "Unauthorized" })
+   })
+ 
+-  test("returns the runs payload from the core handler", async () => {
++  test("returns the runs payload from the behavior module", async () => {
+     const { GET } = await loadRouteModule()
+     const response = await GET(
+       new Request(
+diff --git a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts b/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
+index 4aeb5667..309fc52d 100644
+--- a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
++++ b/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts
+@@ -1,9 +1,9 @@
+ import { NextResponse } from "next/server"
++
++import { executeGitLabIndexRunsGet } from "@/features/gitlab/server/list-gitlab-index-runs"
+ import { getSessionUserId } from "@/lib/session"
+ import { runWithApiRequestLog } from "@/lib/utils/logger"
+ 
+-import { runGitLabIndexRunsGet } from "./runs-route-core"
+-
+ export async function GET(
+   request: Request,
+   context: { params: Promise<{ integrationId: string }> },
+@@ -25,15 +25,15 @@ export async function GET(
+       }
+ 
+       const url = new URL(request.url)
+-      return runGitLabIndexRunsGet({
++      return executeGitLabIndexRunsGet({
+         userId,
+         integrationId,
+         query: {
+-        branch: url.searchParams.get("branch") ?? undefined,
+-        configHash: url.searchParams.get("configHash") ?? undefined,
+-        status: url.searchParams.get("status") ?? undefined,
+-        page: url.searchParams.get("page") ?? undefined,
+-        limit: url.searchParams.get("limit") ?? undefined,
++          branch: url.searchParams.get("branch") ?? undefined,
++          configHash: url.searchParams.get("configHash") ?? undefined,
++          status: url.searchParams.get("status") ?? undefined,
++          page: url.searchParams.get("page") ?? undefined,
++          limit: url.searchParams.get("limit") ?? undefined,
+         },
+         logger,
+       })
+diff --git a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-route-core.ts b/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-route-core.ts
+deleted file mode 100644
+index 78ec38ad..00000000
+--- a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-route-core.ts
++++ /dev/null
+@@ -1,7 +0,0 @@
+-import { executeGitLabIndexRunsGet } from "./runs-core"
+-
+-export async function runGitLabIndexRunsGet(
+-  args: Parameters<typeof executeGitLabIndexRunsGet>[0],
+-) {
+-  return executeGitLabIndexRunsGet(args)
+-}
+diff --git a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-core.test.ts b/apps/web/src/features/gitlab/server/list-gitlab-index-runs.test.ts
+similarity index 94%
+rename from apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-core.test.ts
+rename to apps/web/src/features/gitlab/server/list-gitlab-index-runs.test.ts
+index de202cc6..2895b997 100644
+--- a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-core.test.ts
++++ b/apps/web/src/features/gitlab/server/list-gitlab-index-runs.test.ts
+@@ -4,7 +4,7 @@ import { mergeModuleWithOverrides } from "@/test-utils/module-mock"
+ 
+ type LoggerContext = Record<string, unknown>
+ 
+-const loadCoreModule = async (options?: {
++const loadServerModule = async (options?: {
+   hasIntegration?: boolean
+ }) => {
+   const loggerContext: LoggerContext = {}
+@@ -170,7 +170,9 @@ const loadCoreModule = async (options?: {
+     }),
+   )
+ 
+-  const coreModule = await import(`./runs-core?cacheBust=${Math.random().toString(36).slice(2)}`)
++  const serverModule = await import(
++    `./list-gitlab-index-runs?cacheBust=${Math.random().toString(36).slice(2)}`
++  )
+ 
+   return {
+     execute: (query?: {
+@@ -180,7 +182,7 @@ const loadCoreModule = async (options?: {
+       page?: string
+       limit?: string
+     }) =>
+-      coreModule.executeGitLabIndexRunsGet({
++      serverModule.executeGitLabIndexRunsGet({
+         userId: "user-1",
+         integrationId: "integration-1",
+         query: query ?? {},
+@@ -198,9 +200,9 @@ afterEach(() => {
+   mock.restore()
+ })
+ 
+-describe("gitlab index runs core", () => {
++describe("gitlab index runs", () => {
+   test("returns 404 when integration is not accessible to the user", async () => {
+-    const { execute } = await loadCoreModule({ hasIntegration: false })
++    const { execute } = await loadServerModule({ hasIntegration: false })
+     const result = await execute()
+     const body = await result.response.json()
+ 
+@@ -209,7 +211,7 @@ describe("gitlab index runs core", () => {
+   })
+ 
+   test("returns 400 for invalid query params", async () => {
+-    const { execute } = await loadCoreModule()
++    const { execute } = await loadServerModule()
+     const result = await execute({ page: "0" })
+     const body = await result.response.json()
+ 
+@@ -218,7 +220,7 @@ describe("gitlab index runs core", () => {
+   })
+ 
+   test("returns runs pagination and latest reconcile metadata", async () => {
+-    const { execute, loggerContext } = await loadCoreModule()
++    const { execute, loggerContext } = await loadServerModule()
+     const result = await execute({ page: "1", limit: "20" })
+     const body = await result.response.json()
+ 
+diff --git a/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-core.ts b/apps/web/src/features/gitlab/server/list-gitlab-index-runs.ts
+similarity index 100%
+rename from apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/runs-core.ts
+rename to apps/web/src/features/gitlab/server/list-gitlab-index-runs.ts
+diff --git a/docs/api-domain-migration.md b/docs/api-domain-migration.md
+index 6aa6e384..9fed2fed 100644
+--- a/docs/api-domain-migration.md
++++ b/docs/api-domain-migration.md
+@@ -65,28 +65,10 @@ Rules:
+ - `admin`
+ - `search`
+ - `review`
++- `gitlab`
+ 
+ ## Migration Backlog
+ 
+-### gitlab
+-
+-Target:
+-
+-- `apps/web/src/features/gitlab/server`
+-
+-Migrated endpoints:
+-
+-- [apps/web/src/app/api/gitlab/integrations/connect](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/connect)
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/resync](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/resync)
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/ai-review-settings](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/ai-review-settings)
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/index/branches](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/branches)
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/index/ensure-mr](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/ensure-mr)
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/index/reindex](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/reindex)
+-
+-Current endpoints:
+-
+-- [apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs](/Users/mask/code/argus-app/apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs)
+-
+ ### code
+ 
+ Target:

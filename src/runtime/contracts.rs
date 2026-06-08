@@ -1524,6 +1524,49 @@ pub struct SnapshotMetricsSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReviewQualityDiagnostics {
+    pub contract_risk_units: usize,
+    pub contract_seed_count: usize,
+    pub contract_pack_count: usize,
+    pub contract_evidence_failures: usize,
+    pub candidate_findings: usize,
+    pub rescued_candidates: usize,
+    pub rejected_candidates: usize,
+    pub rejection_reasons: BTreeMap<String, usize>,
+}
+
+impl ReviewQualityDiagnostics {
+    pub fn add(&mut self, other: Self) {
+        self.contract_risk_units += other.contract_risk_units;
+        self.contract_seed_count += other.contract_seed_count;
+        self.contract_pack_count += other.contract_pack_count;
+        self.contract_evidence_failures += other.contract_evidence_failures;
+        self.candidate_findings += other.candidate_findings;
+        self.rescued_candidates += other.rescued_candidates;
+        self.rejected_candidates += other.rejected_candidates;
+        for (reason, count) in other.rejection_reasons {
+            *self.rejection_reasons.entry(reason).or_insert(0) += count;
+        }
+    }
+}
+
+impl Default for ReviewQualityDiagnostics {
+    fn default() -> Self {
+        Self {
+            contract_risk_units: 0,
+            contract_seed_count: 0,
+            contract_pack_count: 0,
+            contract_evidence_failures: 0,
+            candidate_findings: 0,
+            rescued_candidates: 0,
+            rejected_candidates: 0,
+            rejection_reasons: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConcurrentRunReport {
     pub runtime: &'static str,
     pub sessions: usize,
@@ -1546,6 +1589,7 @@ pub struct ConcurrentRunReport {
     pub snapshot_metrics: Vec<SnapshotMetricsSnapshot>,
     pub model_metrics: ModelMetricsSnapshot,
     pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
+    pub quality_diagnostics: ReviewQualityDiagnostics,
     pub benchmark_valid: bool,
     pub benchmark_failures: Vec<String>,
 }

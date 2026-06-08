@@ -127,6 +127,7 @@ impl AgentSessionRuntime {
             tool_counts,
             findings: 0,
             publishable_findings: 0,
+            quality_diagnostics: ReviewQualityDiagnostics::default(),
             elapsed_ms,
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
@@ -164,7 +165,7 @@ impl AgentSessionRuntime {
             .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
+            Err(_error) => {
                 self.events.emit_planned_runtime(
                     self.policy
                         .plan_session_finished_runtime_event(&scope, "failed"),

@@ -22,7 +22,7 @@ use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
     RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult,
-    RunnerRunSummary, RunnerSessionOutput, RunnerSnapshotSummary,
+    RunnerReviewQualityDiagnostics, RunnerRunSummary, RunnerSessionOutput, RunnerSnapshotSummary,
 };
 use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
@@ -248,6 +248,7 @@ fn runner_result_from_report(
                     side: None,
                     provider_anchor: None,
                 }),
+                related_paths: finding.related_paths,
             })
             .collect(),
     );
@@ -411,6 +412,18 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
         artifacts: summary.artifacts,
         artifact_bytes: summary.artifact_bytes,
         snapshot_count: summary.snapshot_count,
+        quality_diagnostics: RunnerReviewQualityDiagnostics {
+            contract_risk_units: summary.quality_diagnostics.contract_risk_units,
+            contract_seed_count: summary.quality_diagnostics.contract_seed_count,
+            contract_pack_count: summary.quality_diagnostics.contract_pack_count,
+            contract_evidence_failures: summary
+                .quality_diagnostics
+                .contract_evidence_failures,
+            candidate_findings: summary.quality_diagnostics.candidate_findings,
+            rescued_candidates: summary.quality_diagnostics.rescued_candidates,
+            rejected_candidates: summary.quality_diagnostics.rejected_candidates,
+            rejection_reasons: summary.quality_diagnostics.rejection_reasons.clone(),
+        },
     }
 }
 
@@ -546,6 +559,7 @@ mod tests {
                 side: None,
                 provider_anchor: None,
             }),
+            related_paths: Vec::new(),
         }
     }
 

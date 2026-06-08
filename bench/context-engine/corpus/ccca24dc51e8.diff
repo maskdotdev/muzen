@@ -1,0 +1,487 @@
+diff --git a/src/components/merge-request-diff-viewer.tsx b/src/components/merge-request-diff-viewer.tsx
+index c1e23e74..cb149118 100644
+--- a/src/components/merge-request-diff-viewer.tsx
++++ b/src/components/merge-request-diff-viewer.tsx
+@@ -4,7 +4,7 @@ import { type FileDiffMetadata } from "@pierre/diffs"
+ import { FileDiff, WorkerPoolContextProvider } from "@pierre/diffs/react"
+ import { useTheme } from "next-themes"
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+-import { ChevronDown, ChevronRight, Columns2, MonitorCog, Moon, Rows2, Sun } from "lucide-react"
++import { ChevronRight, Columns2, MonitorCog, Moon, Rows2, Sun } from "lucide-react"
+ 
+ import { Badge } from "@/components/ui/badge"
+ import { Button } from "@/components/ui/button"
+@@ -38,6 +38,8 @@ type ParsePatchWorkerResponse = {
+ 
+ const INITIAL_FILE_BATCH_SIZE = 12
+ const FILE_BATCH_SIZE = 8
++const INITIAL_PARSE_FILE_BATCH_SIZE = 1
++const BACKGROUND_PARSE_FILE_BATCH_SIZE = 8
+ const DIFF_CACHE_SIZE = 400
+ const DEFAULT_WORKER_COUNT = 4
+ type DiffThemeMode = "system" | "light" | "dark"
+@@ -64,6 +66,57 @@ const getFileLabel = (file: FileDiffMetadata) => {
+   return file.name
+ }
+ 
++const getStableFileKey = (file: Pick<FileDiffMetadata, "cacheKey" | "prevName" | "name">) => {
++  return file.cacheKey ?? `${file.prevName ?? ""}->${file.name}`
++}
++
++const splitPatchIntoFileChunks = (patchText: string) => {
++  const splitByFile = patchText.split(/^diff --git /m)
++  if (splitByFile.length <= 1) {
++    return []
++  }
++
++  const metadataPrefix = splitByFile[0].trim()
++
++  return splitByFile
++    .slice(1)
++    .map((part, index) => {
++      const chunk = `diff --git ${part}`.trim()
++      if (!chunk) {
++        return ""
++      }
++      if (index === 0 && metadataPrefix) {
++        return `${metadataPrefix}\n${chunk}`
++      }
++      return chunk
++    })
++    .filter((chunk): chunk is string => chunk.length > 0)
++}
++
++type ParsePatchResult = {
++  files: FileDiffMetadata[]
++  parseError: string
++}
++
++type PendingParseRequest = {
++  resolve: (value: ParsePatchResult) => void
++  reject: (reason?: unknown) => void
++}
++
++type DiffLoadProfile = {
++  fetchMs: number | null
++  firstParseMs: number | null
++  fullParseMs: number | null
++}
++
++const getNow = () => (typeof performance === "undefined" ? Date.now() : performance.now())
++
++let parsePatchFilesModulePromise: Promise<typeof import("@pierre/diffs")> | null = null
++const getParsePatchFilesModule = async () => {
++  parsePatchFilesModulePromise ??= import("@pierre/diffs")
++  return await parsePatchFilesModulePromise
++}
++
+ export function MergeRequestDiffViewer({
+   instanceUrl,
+   token,
+@@ -84,10 +137,17 @@ export function MergeRequestDiffViewer({
+   const [visibleFileCount, setVisibleFileCount] = useState(INITIAL_FILE_BATCH_SIZE)
+   const [parsedFiles, setParsedFiles] = useState<FileDiffMetadata[]>([])
+   const [parseError, setParseError] = useState("")
+-  const [isParsingPatch, setIsParsingPatch] = useState(false)
++  const [loadProfile, setLoadProfile] = useState<DiffLoadProfile>({
++    fetchMs: null,
++    firstParseMs: null,
++    fullParseMs: null,
++  })
++  const [isParsingInitialPatch, setIsParsingInitialPatch] = useState(false)
++  const [isParsingRemainingPatch, setIsParsingRemainingPatch] = useState(false)
+   const { resolvedTheme } = useTheme()
+   const parseWorkerRef = useRef<Worker | null>(null)
+   const parseRequestIdRef = useRef(0)
++  const pendingParseRequestsRef = useRef<Map<number, PendingParseRequest>>(new Map())
+ 
+   const effectiveDiffThemeType: "system" | "light" | "dark" = useMemo(() => {
+     if (diffThemeMode !== "system") {
+@@ -122,20 +182,27 @@ export function MergeRequestDiffViewer({
+       }
+     }
+ 
++    const pendingParseRequests = pendingParseRequestsRef.current
++
+     const handleMessage = (event: MessageEvent<ParsePatchWorkerResponse>) => {
+       const { id, files, parseError: workerParseError } = event.data
+-      if (id !== parseRequestIdRef.current) {
++      const pending = pendingParseRequests.get(id)
++      if (!pending) {
+         return
+       }
+-      setParsedFiles(files)
+-      setParseError(workerParseError)
+-      setIsParsingPatch(false)
++      pendingParseRequests.delete(id)
++      pending.resolve({
++        files,
++        parseError: workerParseError,
++      })
+     }
+ 
+     const handleError = () => {
+-      setParsedFiles([])
+-      setParseError("Unable to parse merge request diff.")
+-      setIsParsingPatch(false)
++      const pendingRequests = Array.from(pendingParseRequests.values())
++      pendingParseRequests.clear()
++      for (const pending of pendingRequests) {
++        pending.reject(new Error("Unable to parse merge request diff."))
++      }
+     }
+ 
+     worker.addEventListener("message", handleMessage)
+@@ -143,6 +210,11 @@ export function MergeRequestDiffViewer({
+ 
+     return () => {
+       parseRequestIdRef.current += 1
++      const pendingRequests = Array.from(pendingParseRequests.values())
++      pendingParseRequests.clear()
++      for (const pending of pendingRequests) {
++        pending.reject(new Error("Unable to parse merge request diff."))
++      }
+       worker.removeEventListener("message", handleMessage)
+       worker.removeEventListener("error", handleError)
+       worker.terminate()
+@@ -152,7 +224,12 @@ export function MergeRequestDiffViewer({
+     }
+   }, [])
+ 
++  useEffect(() => {
++    void getParsePatchFilesModule()
++  }, [])
++
+   const loadDiff = useCallback(async () => {
++    const loadStart = getNow()
+     setIsLoading(true)
+     setLoadError("")
+ 
+@@ -183,11 +260,22 @@ export function MergeRequestDiffViewer({
+       const source = payload.data.source === "changes" ? "changes" : "raw_diffs"
+       setPatchText(payload.data.patch)
+       setDataSource(source)
++      setCollapsedFileKeys(new Set())
++      setLoadProfile({
++        fetchMs: Math.round(getNow() - loadStart),
++        firstParseMs: null,
++        fullParseMs: null,
++      })
+       setVisibleFileCount(INITIAL_FILE_BATCH_SIZE)
+     } catch (error) {
+       setPatchText("")
+       setDataSource(null)
+       setLoadError(getErrorMessage(error))
++      setLoadProfile({
++        fetchMs: null,
++        firstParseMs: null,
++        fullParseMs: null,
++      })
+     } finally {
+       setIsLoading(false)
+     }
+@@ -202,54 +290,193 @@ export function MergeRequestDiffViewer({
+       parseRequestIdRef.current += 1
+       setParsedFiles([])
+       setParseError("")
+-      setIsParsingPatch(false)
++      setIsParsingInitialPatch(false)
++      setIsParsingRemainingPatch(false)
+       return
+     }
+ 
+-    const requestId = parseRequestIdRef.current + 1
+-    parseRequestIdRef.current = requestId
+-    setIsParsingPatch(true)
+-    setParseError("")
++    let cancelled = false
++
++    const parsePatchText = async (
++      nextPatchText: string,
++      cacheKeyPrefix: string,
++      preferMainThread = false,
++    ): Promise<ParsePatchResult> => {
++      if (preferMainThread) {
++        const { parsePatchFiles } = await getParsePatchFilesModule()
++        try {
++          const patches = parsePatchFiles(nextPatchText, cacheKeyPrefix)
++          return {
++            files: patches.flatMap((patch) => patch.files),
++            parseError: "",
++          }
++        } catch (error) {
++          return {
++            files: [],
++            parseError: getErrorMessage(error),
++          }
++        }
++      }
+ 
+-    const cacheKeyPrefix = `mr-${projectId}-${mergeRequestIid}`
+-    const worker = parseWorkerRef.current
++      const worker = parseWorkerRef.current
++      if (worker) {
++        const requestId = parseRequestIdRef.current + 1
++        parseRequestIdRef.current = requestId
++
++        return await new Promise<ParsePatchResult>((resolve, reject) => {
++          pendingParseRequestsRef.current.set(requestId, { resolve, reject })
++          try {
++            worker.postMessage({
++              id: requestId,
++              patchText: nextPatchText,
++              cacheKeyPrefix,
++            })
++          } catch (error) {
++            pendingParseRequestsRef.current.delete(requestId)
++            reject(error)
++          }
++        })
++      }
+ 
+-    if (worker) {
+-      worker.postMessage({
+-        id: requestId,
+-        patchText,
+-        cacheKeyPrefix,
+-      })
+-      return
++      const { parsePatchFiles } = await getParsePatchFilesModule()
++      try {
++        const patches = parsePatchFiles(nextPatchText, cacheKeyPrefix)
++        return {
++          files: patches.flatMap((patch) => patch.files),
++          parseError: "",
++        }
++      } catch (error) {
++        return {
++          files: [],
++          parseError: getErrorMessage(error),
++        }
++      }
+     }
+ 
+-    let cancelled = false
+-    void import("@pierre/diffs")
+-      .then(({ parsePatchFiles }) => {
+-        if (cancelled || requestId !== parseRequestIdRef.current) {
++    const parseIncrementally = async () => {
++      const parseStart = getNow()
++      const cacheKeyPrefix = `mr-${projectId}-${mergeRequestIid}`
++      const patchChunks = splitPatchIntoFileChunks(patchText)
++      setParseError("")
++      setParsedFiles([])
++      setIsParsingInitialPatch(true)
++      setIsParsingRemainingPatch(false)
++
++      if (patchChunks.length === 0) {
++        const result = await parsePatchText(patchText, cacheKeyPrefix)
++        if (cancelled) {
+           return
+         }
++        setParsedFiles(result.files)
++        setParseError(result.parseError)
++        setLoadProfile((current) => ({
++          ...current,
++          firstParseMs: Math.round(getNow() - parseStart),
++          fullParseMs: Math.round(getNow() - parseStart),
++        }))
++        setIsParsingInitialPatch(false)
++        return
++      }
+ 
+-        try {
+-          const patches = parsePatchFiles(patchText, cacheKeyPrefix)
+-          const files = patches.flatMap((patch) => patch.files)
+-          setParsedFiles(files)
+-          setParseError("")
+-        } catch (error) {
+-          setParsedFiles([])
+-          setParseError(getErrorMessage(error))
+-        } finally {
+-          setIsParsingPatch(false)
+-        }
+-      })
+-      .catch((error: unknown) => {
+-        if (cancelled || requestId !== parseRequestIdRef.current) {
++      const initialPatchChunk = patchChunks
++        .slice(0, INITIAL_PARSE_FILE_BATCH_SIZE)
++        .join("\n\n")
++      const initialResult = await parsePatchText(
++        initialPatchChunk,
++        `${cacheKeyPrefix}-batch-0`,
++        true,
++      )
++      if (cancelled) {
++        return
++      }
++
++      if (initialResult.files.length === 0 && initialResult.parseError) {
++        setParsedFiles([])
++        setParseError(initialResult.parseError)
++        setIsParsingInitialPatch(false)
++        return
++      }
++
++      let nextFiles = initialResult.files
++      let nextParseError = initialResult.parseError
++      setParsedFiles(nextFiles)
++      setCollapsedFileKeys(
++        new Set(
++          nextFiles
++            .slice(1)
++            .map((file) => getStableFileKey(file)),
++        ),
++      )
++      setParseError(nextParseError)
++      setLoadProfile((current) => ({
++        ...current,
++        firstParseMs: Math.round(getNow() - parseStart),
++      }))
++      setIsParsingInitialPatch(false)
++
++      const hasRemainingChunks = patchChunks.length > INITIAL_PARSE_FILE_BATCH_SIZE
++      if (!hasRemainingChunks) {
++        setLoadProfile((current) => ({
++          ...current,
++          fullParseMs: Math.round(getNow() - parseStart),
++        }))
++        return
++      }
++
++      setIsParsingRemainingPatch(true)
++
++      for (
++        let start = INITIAL_PARSE_FILE_BATCH_SIZE;
++        start < patchChunks.length;
++        start += BACKGROUND_PARSE_FILE_BATCH_SIZE
++      ) {
++        const nextChunk = patchChunks
++          .slice(start, start + BACKGROUND_PARSE_FILE_BATCH_SIZE)
++          .join("\n\n")
++        const batchResult = await parsePatchText(
++          nextChunk,
++          `${cacheKeyPrefix}-batch-${start}`,
++        )
++
++        if (cancelled) {
+           return
+         }
+-        setParsedFiles([])
+-        setParseError(getErrorMessage(error))
+-        setIsParsingPatch(false)
+-      })
++
++        if (batchResult.files.length > 0) {
++          nextFiles = [...nextFiles, ...batchResult.files]
++          setParsedFiles(nextFiles)
++          setCollapsedFileKeys((current) => {
++            const next = new Set(current)
++            for (const file of batchResult.files) {
++              next.add(getStableFileKey(file))
++            }
++            return next
++          })
++        }
++        if (!nextParseError && batchResult.parseError) {
++          nextParseError = batchResult.parseError
++          setParseError(nextParseError)
++        }
++      }
++
++      if (!cancelled) {
++        setLoadProfile((current) => ({
++          ...current,
++          fullParseMs: Math.round(getNow() - parseStart),
++        }))
++        setIsParsingRemainingPatch(false)
++      }
++    }
++
++    void parseIncrementally().catch((error: unknown) => {
++      if (cancelled) {
++        return
++      }
++      setParsedFiles([])
++      setParseError(getErrorMessage(error))
++      setIsParsingInitialPatch(false)
++      setIsParsingRemainingPatch(false)
++    })
+ 
+     return () => {
+       cancelled = true
+@@ -270,7 +497,7 @@ export function MergeRequestDiffViewer({
+ 
+   useEffect(() => {
+     setVisibleFileCount(INITIAL_FILE_BATCH_SIZE)
+-  }, [normalizedFilter, parsedFiles])
++  }, [normalizedFilter, patchText])
+ 
+   const totals = useMemo(
+     () =>
+@@ -289,10 +516,11 @@ export function MergeRequestDiffViewer({
+ 
+   const visibleFiles = filteredFiles.slice(0, visibleFileCount)
+   const canLoadMore = visibleFileCount < filteredFiles.length
+-  const isDiffBusy = isLoading || isParsingPatch
++  const isDiffBusy = isLoading || isParsingInitialPatch
++  const isDiffLoading = isLoading || isParsingInitialPatch || isParsingRemainingPatch
+ 
+   const getFileKey = useCallback((file: FileDiffMetadata) => {
+-    return file.cacheKey ?? `${file.prevName ?? ""}->${file.name}`
++    return getStableFileKey(file)
+   }, [])
+ 
+   const toggleFileCollapsed = useCallback(
+@@ -383,11 +611,12 @@ export function MergeRequestDiffViewer({
+             }}
+             title={isCollapsed ? "Expand diff" : "Collapse diff"}
+           >
+-            {isCollapsed ? (
+-              <ChevronRight className="size-4" aria-hidden="true" />
+-            ) : (
+-              <ChevronDown className="size-4" aria-hidden="true" />
+-            )}
++            <ChevronRight
++              className={`size-4 shrink-0 transition-all duration-200 ${
++                isCollapsed ? "rotate-0" : "rotate-90"
++              }`}
++              aria-hidden="true"
++            />
+             <span className="sr-only">
+               {isCollapsed ? "Expand diff" : "Collapse diff"}
+             </span>
+@@ -564,10 +793,10 @@ export function MergeRequestDiffViewer({
+                 type="button"
+                 size="sm"
+                 variant="outline"
+-                disabled={isDiffBusy}
++                disabled={isDiffLoading}
+                 onClick={() => void loadDiff()}
+               >
+-                {isDiffBusy ? "Reloading..." : "Reload diff"}
++                {isDiffLoading ? "Reloading..." : "Reload diff"}
+               </Button>
+             </div>
+           </div>
+@@ -577,10 +806,19 @@ export function MergeRequestDiffViewer({
+         {parseError ? (
+           <p className="text-sm text-destructive">{parseError}</p>
+         ) : null}
++        {isParsingRemainingPatch ? (
++          <p className="text-xs text-muted-foreground">Loading remaining files...</p>
++        ) : null}
++        {loadProfile.fetchMs !== null || loadProfile.firstParseMs !== null ? (
++          <p className="text-xs text-muted-foreground">
++            timing: fetch {loadProfile.fetchMs ?? "—"}ms · first files {loadProfile.firstParseMs ?? "—"}ms
++            {loadProfile.fullParseMs !== null ? ` · full index ${loadProfile.fullParseMs}ms` : ""}
++          </p>
++        ) : null}
+ 
+         {isDiffBusy ? (
+           <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+-            {isLoading ? "Loading merge request diff..." : "Parsing merge request diff..."}
++            {isLoading ? "Loading merge request diff..." : "Preparing initial diff files..."}
+           </div>
+         ) : null}
+ 

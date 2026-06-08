@@ -1,0 +1,1165 @@
+diff --git a/src/tests.rs b/src/tests.rs
+index c29a3f7..f8d1410 100644
+--- a/src/tests.rs
++++ b/src/tests.rs
+@@ -42,32 +42,6 @@ mod suite {
+     use super::*;
+     use clap::Parser;
+ 
+-    #[test]
+-    fn concurrent_transcript_stores_artifact_refs_not_content() {
+-        let item = ConversationItem::ToolResult {
+-            call_id: ToolCallId("tool-1".to_string()),
+-            name: ToolId::from(ToolName::ReadFile),
+-            content: Box::new(crate::runtime::contracts::ToolResultEnvelope {
+-                ok: true,
+-                tool_call_id: ToolCallId("tool-1".to_string()),
+-                tool_name: ToolId::from(ToolName::ReadFile),
+-                provider_id: crate::reviewer::tool_adapters::ToolProviderId::builtin_review(),
+-                snapshot_id: SnapshotId("snapshot-1".to_string()),
+-                artifact_id: Some(ConcurrentArtifactId("artifact-1".to_string())),
+-                cache: CacheInfo {
+-                    status: CacheStatus::Miss,
+-                    key_hash: None,
+-                },
+-                limits: LimitInfo::default(),
+-                data: None,
+-                error: None,
+-            }),
+-        };
+-
+-        let serialized = serde_json::to_string(&item).unwrap();
+-        assert!(serialized.contains("artifact-1"));
+-        assert!(!serialized.contains("full file content"));
+-    }
+ 
+     #[test]
+     fn path_policy_blocks_parent_escape() {
+@@ -106,59 +80,7 @@ mod suite {
+         assert!(!files.iter().any(|path| path == Path::new("link.txt")));
+     }
+ 
+-    #[test]
+-    fn optimization_gate_flags_measured_regressions() {
+-        let mut baseline = minimal_report();
+-        baseline.elapsed_ms = 100;
+-        baseline.counters.search_scans = 2;
+-        let mut concurrent = minimal_report();
+-        concurrent.elapsed_ms = 500;
+-        concurrent.counters.search_scans = 3;
+-
+-        let failures = optimization_failures(&baseline, &concurrent, 0.2);
+-        assert!(failures
+-            .iter()
+-            .any(|failure| failure.contains("scanned more batches")));
+-        assert!(failures
+-            .iter()
+-            .any(|failure| failure.contains("4x baseline")));
+-        assert!(failures
+-            .iter()
+-            .any(|failure| failure.contains("speedup below floor")));
+-        assert!(optimization_failures(&baseline, &baseline, 1.0).is_empty());
+-    }
+-
+-    #[test]
+-    fn concurrent_report_exports_publishable_finding_count() {
+-        let report = ConcurrentRunReport {
+-            runtime: "concurrent",
+-            sessions: 1,
+-            completed_sessions: 1,
+-            model_calls: 1,
+-            tool_calls: 1,
+-            tool_counts: ToolCounts::default(),
+-            findings: 1,
+-            publishable_findings: 1,
+-            elapsed_ms: 1,
+-            input_tokens: 0,
+-            output_tokens: 0,
+-            total_tokens: 0,
+-            artifacts: 1,
+-            artifact_bytes: 1,
+-            counters: ConcurrentCounters::default(),
+-            tool_metrics: Default::default(),
+-            provider_health: Vec::new(),
+-            snapshot_metrics: Vec::new(),
+-            model_metrics: Default::default(),
+-            terminal_diagnostics: Vec::new(),
+-            benchmark_valid: true,
+-            benchmark_failures: Vec::new(),
+-        };
+ 
+-        let value = serde_json::to_value(report).unwrap();
+-        assert_eq!(value["findings"], 1);
+-        assert_eq!(value["publishableFindings"], 1);
+-    }
+ 
+     #[test]
+     fn bench_terminal_policy_controls_finish_tool() {
+@@ -194,211 +116,6 @@ mod suite {
+             .all(|persona| persona.objective.contains("record_finding exactly once")));
+     }
+ 
+-    #[test]
+-    fn run_and_bench_have_no_runtime_selector() {
+-        let run_cli = Cli::parse_from(["muzen", "run", "--job", "job.json"]);
+-        match run_cli.command {
+-            Command::Run(args) => assert_eq!(args.job, PathBuf::from("job.json")),
+-            _ => panic!("expected run command"),
+-        }
+-
+-        let bench_cli = Cli::parse_from(["muzen", "bench"]);
+-        match bench_cli.command {
+-            Command::Bench(args) => assert_eq!(args.sessions, 10),
+-            _ => panic!("expected bench command"),
+-        }
+-
+-        let canary_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-manifest",
+-            "--provider-evidence",
+-            "provider.json",
+-            "--remote-object-store-evidence",
+-            "snapshot.json",
+-            "--remote-object-store-evidence",
+-            "artifact.json",
+-            "--output",
+-            "manifest.json",
+-            "--max-evidence-age-seconds",
+-            "3600",
+-        ]);
+-        match canary_cli.command {
+-            Command::CanaryManifest(args) => {
+-                assert_eq!(args.provider_evidence, PathBuf::from("provider.json"));
+-                assert_eq!(
+-                    args.remote_object_store_evidence,
+-                    vec![
+-                        PathBuf::from("snapshot.json"),
+-                        PathBuf::from("artifact.json")
+-                    ]
+-                );
+-                assert_eq!(args.output, Some(PathBuf::from("manifest.json")));
+-                assert_eq!(args.max_evidence_age_seconds, 3600);
+-            }
+-            _ => panic!("expected canary-manifest command"),
+-        }
+-
+-        let verify_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-verify",
+-            "--manifest",
+-            "manifest.json",
+-            "--max-evidence-age-seconds",
+-            "3600",
+-        ]);
+-        match verify_cli.command {
+-            Command::CanaryVerify(args) => {
+-                assert_eq!(args.manifest, PathBuf::from("manifest.json"));
+-                assert_eq!(args.max_evidence_age_seconds, 3600);
+-            }
+-            _ => panic!("expected canary-verify command"),
+-        }
+-
+-        let status_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-status",
+-            "--manifest",
+-            "manifest.json",
+-            "--output",
+-            "status.json",
+-            "--max-evidence-age-seconds",
+-            "3600",
+-        ]);
+-        match status_cli.command {
+-            Command::CanaryStatus(args) => {
+-                assert_eq!(args.manifest, PathBuf::from("manifest.json"));
+-                assert_eq!(args.output, Some(PathBuf::from("status.json")));
+-                assert_eq!(args.max_evidence_age_seconds, 3600);
+-            }
+-            _ => panic!("expected canary-status command"),
+-        }
+-
+-        let workflow_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-workflow-provenance",
+-            "--output",
+-            "workflow.json",
+-        ]);
+-        match workflow_cli.command {
+-            Command::CanaryWorkflowProvenance(args) => {
+-                assert_eq!(args.output, Some(PathBuf::from("workflow.json")));
+-            }
+-            _ => panic!("expected canary-workflow-provenance command"),
+-        }
+-
+-        let publish_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-publish",
+-            "--output-dir",
+-            "canaries",
+-            "--provider-evidence",
+-            "provider.json",
+-            "--snapshot-base-uri",
+-            "memory://snapshots/canary",
+-            "--artifact-base-uri",
+-            "memory://artifacts/canary",
+-            "--object-store-driver",
+-            "memory",
+-            "--max-evidence-age-seconds",
+-            "3600",
+-        ]);
+-        match publish_cli.command {
+-            Command::CanaryPublish(args) => {
+-                assert_eq!(args.output_dir, PathBuf::from("canaries"));
+-                assert_eq!(args.provider_evidence, Some(PathBuf::from("provider.json")));
+-                assert_eq!(args.snapshot_base_uri, "memory://snapshots/canary");
+-                assert_eq!(args.artifact_base_uri, "memory://artifacts/canary");
+-                assert_eq!(
+-                    args.object_store_driver,
+-                    crate::cli::RemoteObjectStoreCanaryDriver::Memory
+-                );
+-                assert_eq!(args.max_evidence_age_seconds, 3600);
+-            }
+-            _ => panic!("expected canary-publish command"),
+-        }
+-
+-        let preflight_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-preflight",
+-            "--output-dir",
+-            "canaries",
+-            "--snapshot-base-uri",
+-            "https://snapshots.example.test/canary",
+-            "--artifact-base-uri",
+-            "https://artifacts.example.test/canary",
+-            "--object-store-driver",
+-            "http",
+-            "--provider-base-url",
+-            "https://api.example.test/v1",
+-            "--model",
+-            "canary-model",
+-        ]);
+-        match preflight_cli.command {
+-            Command::CanaryPreflight(args) => {
+-                assert_eq!(args.output_dir, PathBuf::from("canaries"));
+-                assert_eq!(
+-                    args.provider_base_url,
+-                    Some("https://api.example.test/v1".to_string())
+-                );
+-                assert_eq!(
+-                    args.object_store_driver,
+-                    crate::cli::RemoteObjectStoreCanaryDriver::Http
+-                );
+-                assert_eq!(args.model, "canary-model");
+-            }
+-            _ => panic!("expected canary-preflight command"),
+-        }
+-
+-        let proof_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-proof",
+-            "--evidence-dir",
+-            "canaries",
+-            "--output",
+-            "proof.json",
+-            "--max-evidence-age-seconds",
+-            "3600",
+-        ]);
+-        match proof_cli.command {
+-            Command::CanaryProof(args) => {
+-                assert_eq!(args.evidence_dir, PathBuf::from("canaries"));
+-                assert_eq!(args.output, Some(PathBuf::from("proof.json")));
+-                assert_eq!(args.max_evidence_age_seconds, 3600);
+-                assert_eq!(args.expected_workflow, "Muzen Canary Evidence");
+-                assert_eq!(args.expected_job, "publish-canary-evidence");
+-                assert_eq!(args.expected_repository, None);
+-                assert_eq!(args.expected_git_ref, None);
+-            }
+-            _ => panic!("expected canary-proof command"),
+-        }
+-
+-        let proof_override_cli = Cli::parse_from([
+-            "muzen",
+-            "canary-proof",
+-            "--evidence-dir",
+-            "canaries",
+-            "--expected-workflow",
+-            "Custom Canary",
+-            "--expected-job",
+-            "custom-job",
+-            "--expected-repository",
+-            "heimdaal/review",
+-            "--expected-git-ref",
+-            "refs/heads/main",
+-        ]);
+-        match proof_override_cli.command {
+-            Command::CanaryProof(args) => {
+-                assert_eq!(args.expected_workflow, "Custom Canary");
+-                assert_eq!(args.expected_job, "custom-job");
+-                assert_eq!(
+-                    args.expected_repository,
+-                    Some("heimdaal/review".to_string())
+-                );
+-                assert_eq!(args.expected_git_ref, Some("refs/heads/main".to_string()));
+-            }
+-            _ => panic!("expected canary-proof command"),
+-        }
+-    }
+ 
+     #[test]
+     fn public_reviewer_facade_runs_mock_review() {
+@@ -2128,41 +1845,6 @@ mod suite {
+         assert_eq!(publication.failures, status.failures());
+     }
+ 
+-    #[test]
+-    fn canary_publication_report_records_live_provider_mode_without_network() {
+-        let args = crate::cli::CanaryPublishArgs {
+-            output_dir: PathBuf::from("published"),
+-            provider_evidence: None,
+-            snapshot_base_uri: "https://objects.example.test/snapshots".to_string(),
+-            artifact_base_uri: "https://objects.example.test/artifacts".to_string(),
+-            object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Http,
+-            object_store_bearer_token_env: "MUZEN_REMOTE_OBJECT_STORE_BEARER_TOKEN".to_string(),
+-            model: "canary-model".to_string(),
+-            provider_base_url: Some("https://api.example.test/v1".to_string()),
+-            max_output_tokens: 64,
+-            max_evidence_age_seconds: 86_400,
+-        };
+-        let status = current_passing_canary_manifest().status_report(
+-            &crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::current(86_400),
+-        );
+-        let publication = crate::cli::canary_publication_report(&args, &status);
+-
+-        assert_eq!(
+-            publication.provider_evidence_source,
+-            crate::cli::CanaryProviderEvidenceSource::LiveProviderCanary
+-        );
+-        assert_eq!(
+-            publication.object_store_driver,
+-            crate::cli::RemoteObjectStoreCanaryDriver::Http
+-        );
+-        assert_eq!(
+-            publication.provider_base_url.as_deref(),
+-            Some("https://api.example.test/v1")
+-        );
+-        assert_eq!(publication.model, "canary-model");
+-        assert!(publication.provider_evidence_input.is_none());
+-        assert!(publication.status_ok);
+-    }
+ 
+     #[test]
+     fn cli_canary_preflight_accepts_reused_provider_evidence_and_memory_store() {
+@@ -2303,341 +1985,16 @@ mod suite {
+         );
+     }
+ 
+-    #[test]
+-    fn cli_canary_proof_rejects_reused_provider_evidence_bundle() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let publication_path = evidence_dir.path().join("publication.json");
+-        let mut publication: crate::cli::CanaryPublicationReport =
+-            serde_json::from_str(&fs::read_to_string(&publication_path).unwrap()).unwrap();
+-        publication.provider_evidence_source =
+-            crate::cli::CanaryProviderEvidenceSource::ReusedEvidenceFile;
+-        publication.provider_evidence_input = Some("model-provider.json".to_string());
+-        write_test_json(&publication_path, &publication);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("provider evidence source"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("provider evidence source")));
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_reused_provider_preflight_shape() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let reused_preflight_args = crate::cli::CanaryPublishArgs {
+-            output_dir: evidence_dir.path().to_path_buf(),
+-            provider_evidence: Some(evidence_dir.path().join("model-provider.json")),
+-            snapshot_base_uri: "memory://muzen-canaries/snapshots".to_string(),
+-            artifact_base_uri: "memory://muzen-canaries/artifacts".to_string(),
+-            object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Memory,
+-            object_store_bearer_token_env: "MUZEN_TEST_UNUSED_BEARER_TOKEN".to_string(),
+-            model: "canary-model".to_string(),
+-            provider_base_url: Some("https://example.invalid/v1".to_string()),
+-            max_output_tokens: 64,
+-            max_evidence_age_seconds: 86_400,
+-        };
+-        let reused_preflight = crate::cli::canary_publication_preflight_report_with_env(
+-            &reused_preflight_args,
+-            &|_| None,
+-        );
+-        assert!(reused_preflight.ok);
+-        write_test_json(
+-            &evidence_dir.path().join("preflight.json"),
+-            &reused_preflight,
+-        );
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("providerEvidence"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("providerEvidence")));
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_preflight_config_mismatch() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let preflight_path = evidence_dir.path().join("preflight.json");
+-        let mut preflight: crate::cli::CanaryPublicationPreflightReport =
+-            serde_json::from_str(&fs::read_to_string(&preflight_path).unwrap()).unwrap();
+-        preflight.config.snapshot_base_uri =
+-            "https://objects.example.test/different-snapshots".to_string();
+-        write_test_json(&preflight_path, &preflight);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+ 
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("preflight snapshot base URI"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("preflight snapshot base URI")));
+-    }
+ 
+-    #[test]
+-    fn cli_canary_proof_rejects_stale_preflight_report() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let preflight_path = evidence_dir.path().join("preflight.json");
+-        let mut preflight: crate::cli::CanaryPublicationPreflightReport =
+-            serde_json::from_str(&fs::read_to_string(&preflight_path).unwrap()).unwrap();
+-        preflight.generated_at_utc = "1000.000000000Z".to_string();
+-        write_test_json(&preflight_path, &preflight);
+-        let proof_path = evidence_dir.path().join("proof.json");
+ 
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+ 
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("canary preflight report is stale"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("canary preflight report is stale")));
+-    }
+ 
+-    #[test]
+-    fn cli_canary_proof_rejects_missing_workflow_provenance() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        fs::remove_file(evidence_dir.path().join("workflow.json")).unwrap();
+-        let proof_path = evidence_dir.path().join("proof.json");
+ 
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+ 
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("failed to read canary workflow provenance"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof.workflow.is_none());
+-    }
+ 
+-    #[test]
+-    fn cli_canary_proof_rejects_manual_workflow_dispatch_provenance() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-        let mut workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        workflow.event_name = "workflow_dispatch".to_string();
+-        write_test_json(&workflow_path, &workflow);
+-        let proof_path = evidence_dir.path().join("proof.json");
+ 
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+ 
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("workflow event must be schedule"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert_eq!(
+-            proof.workflow.expect("workflow provenance").event_name,
+-            "workflow_dispatch"
+-        );
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_wrong_workflow_job_provenance() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-        let mut workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        workflow.job = "manual-canary".to_string();
+-        write_test_json(&workflow_path, &workflow);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("workflow job must be publish-canary-evidence"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert_eq!(
+-            proof.workflow.expect("workflow provenance").job,
+-            "manual-canary"
+-        );
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_wrong_workflow_repository_provenance() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-        let mut workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        workflow.repository = "forked/review".to_string();
+-        workflow.run_url = "https://github.com/forked/review/actions/runs/1234567890".to_string();
+-        write_test_json(&workflow_path, &workflow);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("workflow repository must be heimdaal/review"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("workflow repository must be heimdaal/review")));
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_wrong_workflow_git_ref_provenance() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-        let mut workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        workflow.git_ref = "refs/heads/feature-canary".to_string();
+-        write_test_json(&workflow_path, &workflow);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("workflow git ref must be refs/heads/main"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("workflow git ref must be refs/heads/main")));
+-    }
+-
+-    #[test]
+-    fn cli_canary_proof_rejects_wrong_workflow_run_url() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        write_passing_live_canary_proof_bundle(evidence_dir.path());
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-        let mut workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        workflow.run_url = "https://github.com/heimdaal/review/actions/runs/9999999999".to_string();
+-        write_test_json(&workflow_path, &workflow);
+-        let proof_path = evidence_dir.path().join("proof.json");
+-
+-        let error = crate::cli::run_canary_proof(canary_proof_args(
+-            evidence_dir.path(),
+-            proof_path.clone(),
+-        ))
+-        .unwrap_err()
+-        .to_string();
+-
+-        assert!(error.contains("canary proof failed"));
+-        assert!(error.contains("workflow run URL must be"));
+-        let proof: crate::cli::CanaryProofReport =
+-            serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
+-        assert!(!proof.ok);
+-        assert!(proof
+-            .failures
+-            .iter()
+-            .any(|failure| failure.contains("workflow run URL must be")));
+-    }
+-
+-    #[test]
+-    fn cli_canary_workflow_provenance_writes_github_actions_env() {
+-        let evidence_dir = tempfile::tempdir().unwrap();
+-        let workflow_path = evidence_dir.path().join("workflow.json");
+-
+-        crate::cli::run_canary_workflow_provenance_with_env(
+-            crate::cli::CanaryWorkflowProvenanceArgs {
+-                output: Some(workflow_path.clone()),
+-            },
+-            &github_actions_canary_env,
+-        )
+-        .unwrap();
+-
+-        let workflow: crate::cli::CanaryWorkflowProvenance =
+-            serde_json::from_str(&fs::read_to_string(&workflow_path).unwrap()).unwrap();
+-        assert_eq!(workflow.schema_version, "muzen.canary-workflow.v1");
+-        assert!(workflow.generated_at_utc.ends_with('Z'));
+-        assert_eq!(workflow.event_name, "schedule");
+-        assert_eq!(workflow.workflow, "Muzen Canary Evidence");
+-        assert_eq!(workflow.job, "publish-canary-evidence");
+-        assert_eq!(workflow.run_id, "1234567890");
+-        assert_eq!(workflow.run_attempt, "1");
+-        assert_eq!(workflow.repository, "heimdaal/review");
+-        assert_eq!(workflow.git_ref, "refs/heads/main");
+-        assert_eq!(workflow.sha, "0123456789abcdef0123456789abcdef01234567");
+-        assert_eq!(workflow.actor, "github-actions[bot]");
+-        assert_eq!(workflow.server_url, "https://github.com");
+-        assert_eq!(
+-            workflow.run_url,
+-            "https://github.com/heimdaal/review/actions/runs/1234567890"
+-        );
+-    }
+ 
+     #[test]
+     fn cli_canary_verify_gates_published_manifest_files() {
+@@ -3804,378 +3161,8 @@ mod suite {
+         assert_eq!(oldest.dropped_count(), 1);
+     }
+ 
+-    #[test]
+-    fn public_runtime_event_jsonl_matches_versioned_fixture() {
+-        let snapshot_id = crate::reviewer::ids::SnapshotId("compat-snapshot".to_string());
+-        let session_id = crate::reviewer::ids::SessionId("compat-session".to_string());
+-        let read_call_id = crate::reviewer::ids::ToolCallId("compat-call-read".to_string());
+-        let denied_call_id = crate::reviewer::ids::ToolCallId("compat-call-denied".to_string());
+-        let artifact_call_id = crate::reviewer::ids::ToolCallId("compat-call-artifact".to_string());
+-        let finding_call_id = crate::reviewer::ids::ToolCallId("compat-call-finding".to_string());
+-        let search_call_id = crate::reviewer::ids::ToolCallId("compat-call-search".to_string());
+-        let artifact_id = crate::reviewer::artifacts::ArtifactId("art_fixture".to_string());
+-        let provider_id = crate::reviewer::tool_adapters::ToolProviderId::builtin_review();
+-        let context = |session_id: Option<&crate::reviewer::ids::SessionId>,
+-                       turn_id: Option<u32>,
+-                       tool_call_id: Option<&crate::reviewer::ids::ToolCallId>,
+-                       artifact_id: Option<&crate::reviewer::artifacts::ArtifactId>,
+-                       finding_id: Option<&str>| {
+-            crate::reviewer::runtime_events::RuntimeEventContext {
+-                run_id: Some("compat-run".to_string()),
+-                snapshot_id: Some(snapshot_id.clone()),
+-                session_id: session_id.cloned(),
+-                turn_id: turn_id.map(crate::reviewer::runtime_events::TurnId),
+-                tool_call_id: tool_call_id.cloned(),
+-                artifact_id: artifact_id.cloned(),
+-                finding_id: finding_id.map(ToOwned::to_owned),
+-            }
+-        };
+-        let records = vec![
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 1,
+-                timestamp_utc: "1780520000.000000000Z".to_string(),
+-                context: context(None, None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::JobStarted {
+-                    snapshot_id: snapshot_id.clone(),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 2,
+-                timestamp_utc: "1780520001.000000000Z".to_string(),
+-                context: context(None, None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::SnapshotStarted {
+-                    snapshot_id: snapshot_id.clone(),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 3,
+-                timestamp_utc: "1780520002.000000000Z".to_string(),
+-                context: context(None, None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::RepoManifestCompleted {
+-                    files: 3,
+-                    skipped: 1,
+-                    bytes: 128,
+-                    ms: 12,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 4,
+-                timestamp_utc: "1780520003.000000000Z".to_string(),
+-                context: context(Some(&session_id), None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::SessionStarted {
+-                    session_id: session_id.clone(),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 5,
+-                timestamp_utc: "1780520004.000000000Z".to_string(),
+-                context: context(Some(&session_id), Some(1), None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ModelStarted {
+-                    session_id: session_id.clone(),
+-                    turn_id: crate::reviewer::runtime_events::TurnId(1),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 6,
+-                timestamp_utc: "1780520005.000000000Z".to_string(),
+-                context: context(Some(&session_id), Some(1), None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ModelCompleted {
+-                    session_id: session_id.clone(),
+-                    turn_id: crate::reviewer::runtime_events::TurnId(1),
+-                    tool_call_count: 2,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 7,
+-                timestamp_utc: "1780520006.000000000Z".to_string(),
+-                context: context(Some(&session_id), Some(1), None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ToolBatchStarted {
+-                    session_id: session_id.clone(),
+-                    turn_id: crate::reviewer::runtime_events::TurnId(1),
+-                    count: 2,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 8,
+-                timestamp_utc: "1780520007.000000000Z".to_string(),
+-                context: context(Some(&session_id), Some(1), Some(&read_call_id), None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ToolCallCompleted {
+-                    call_id: read_call_id,
+-                    tool_name: crate::reviewer::ids::ToolId::parse("read_file").unwrap(),
+-                    provider_id: provider_id.clone(),
+-                    cache_status: crate::reviewer::metrics::CacheStatus::Miss,
+-                    output_bytes: 42,
+-                    ok: true,
+-                    error_code: None,
+-                    error_message: None,
+-                    details: None,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 9,
+-                timestamp_utc: "1780520008.000000000Z".to_string(),
+-                context: context(
+-                    Some(&session_id),
+-                    Some(1),
+-                    Some(&denied_call_id),
+-                    None,
+-                    None,
+-                ),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ToolCallDenied {
+-                    call_id: denied_call_id,
+-                    tool_name: crate::reviewer::ids::ToolId::parse("read_file").unwrap(),
+-                    provider_id: provider_id.clone(),
+-                    error_code: crate::reviewer::tool_adapters::ToolErrorCode::ToolNotAllowed,
+-                    reason: "not granted by fixture policy".to_string(),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 10,
+-                timestamp_utc: "1780520009.000000000Z".to_string(),
+-                context: context(
+-                    Some(&session_id),
+-                    Some(2),
+-                    Some(&artifact_call_id),
+-                    Some(&artifact_id),
+-                    None,
+-                ),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::ArtifactCreated {
+-                    artifact_id: artifact_id.clone(),
+-                    tool_call_id: artifact_call_id,
+-                    tool_name: crate::reviewer::ids::ToolId::parse("search_text").unwrap(),
+-                    provider_id: provider_id.clone(),
+-                    bytes: 42,
+-                    content_hash: "hash-fixture".to_string(),
+-                    summary: Some("search_text query=fixture matches=1".to_string()),
+-                    details: Some(serde_json::json!({
+-                        "query": "fixture",
+-                        "searchedFiles": 3,
+-                        "skippedFiles": 0,
+-                        "returnedMatches": 1
+-                    })),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 11,
+-                timestamp_utc: "1780520010.000000000Z".to_string(),
+-                context: context(
+-                    Some(&session_id),
+-                    Some(3),
+-                    Some(&finding_call_id),
+-                    None,
+-                    Some("finding-fixture"),
+-                ),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::FindingRecorded {
+-                    finding_id: "finding-fixture".to_string(),
+-                    session_id: session_id.clone(),
+-                    tool_call_id: finding_call_id,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 12,
+-                timestamp_utc: "1780520011.000000000Z".to_string(),
+-                context: context(
+-                    Some(&session_id),
+-                    Some(4),
+-                    Some(&search_call_id),
+-                    None,
+-                    None,
+-                ),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::SearchBatchCompleted {
+-                    searched_files: 5,
+-                    skipped_files: 1,
+-                    bytes_scanned: 256,
+-                    ms: 3,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 13,
+-                timestamp_utc: "1780520012.000000000Z".to_string(),
+-                context: context(Some(&session_id), None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::SessionFinished {
+-                    session_id: session_id.clone(),
+-                    status: "completed".to_string(),
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 14,
+-                timestamp_utc: "1780520013.000000000Z".to_string(),
+-                context: context(None, None, None, None, None),
+-                event: crate::reviewer::runtime_events::RuntimeEvent::SnapshotFinished {
+-                    snapshot_id: snapshot_id.clone(),
+-                    sessions: 1,
+-                    completed_sessions: 1,
+-                },
+-            },
+-            crate::reviewer::runtime_events::RuntimeEventRecord {
+-                seq: 15,
+-                timestamp_utc: "1780520014.000000000Z".to_string(),
+-                context: crate::reviewer::runtime_events::RuntimeEventContext {
+-                    run_id: Some("compat-run".to_string()),
+-                    ..crate::reviewer::runtime_events::RuntimeEventContext::default()
+-                },
+-                event: crate::reviewer::runtime_events::RuntimeEvent::JobFinished {
+-                    status: "completed".to_string(),
+-                },
+-            },
+-        ];
+-        let event_log_dir = tempfile::tempdir().unwrap();
+-        let manifest = crate::reviewer::runtime_events::export_event_records_jsonl(
+-            event_log_dir.path().join("runtime-events-v1.jsonl"),
+-            &records,
+-        )
+-        .unwrap();
+-        assert_eq!(manifest.record_count, records.len());
+-        assert_eq!(manifest.dropped_count, 0);
+ 
+-        let fixture_values = include_str!("../fixtures/runtime-events-v1.jsonl")
+-            .lines()
+-            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+-            .collect::<Vec<_>>();
+-        assert_eq!(fixture_values.len(), records.len());
+-        for value in &fixture_values {
+-            assert_eq!(
+-                value["schemaVersion"].as_str(),
+-                Some(crate::util::SCHEMA_VERSION)
+-            );
+-        }
+-        let generated_values = fs::read_to_string(&manifest.path)
+-            .unwrap()
+-            .lines()
+-            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+-            .collect::<Vec<_>>();
+-        assert_eq!(generated_values, fixture_values);
+-        let fixture_path =
+-            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/runtime-events-v1.jsonl");
+-        let loaded =
+-            crate::reviewer::runtime_events::load_event_records_jsonl(&fixture_path).unwrap();
+-        assert_eq!(loaded.path, fixture_path);
+-        assert_eq!(loaded.record_count, records.len());
+-        assert_eq!(loaded.migration.migrated_records, 0);
+-        assert_eq!(
+-            loaded.migration.current_schema_version,
+-            crate::util::SCHEMA_VERSION
+-        );
+-        assert_eq!(
+-            loaded
+-                .migration
+-                .source_schema_versions
+-                .get(crate::util::SCHEMA_VERSION),
+-            Some(&records.len())
+-        );
+-        assert_eq!(loaded.records, records);
+ 
+-        let bad_log = event_log_dir
+-            .path()
+-            .join("unsupported-runtime-events.jsonl");
+-        fs::write(
+-            &bad_log,
+-            include_str!("../fixtures/runtime-events-v1.jsonl").replacen(
+-                crate::util::SCHEMA_VERSION,
+-                "heimdaal.review-run.v9",
+-                1,
+-            ),
+-        )
+-        .unwrap();
+-        assert!(matches!(
+-            crate::reviewer::runtime_events::load_event_records_jsonl(&bad_log),
+-            Err(crate::reviewer::runtime::RuntimeError::InvalidInput(message))
+-                if message.contains("unsupported event log schemaVersion")
+-        ));
+-    }
+-
+-    #[test]
+-    fn public_runtime_event_jsonl_migrates_contextless_legacy_records() {
+-        let legacy_fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+-            .join("fixtures/runtime-events-v0-contextless.jsonl");
+-        let loaded =
+-            crate::reviewer::runtime_events::load_event_records_jsonl(&legacy_fixture).unwrap();
+-
+-        assert_eq!(loaded.path, legacy_fixture);
+-        assert_eq!(loaded.record_count, 6);
+-        assert_eq!(loaded.migration.migrated_records, 6);
+-        assert_eq!(
+-            loaded.migration.current_schema_version,
+-            crate::util::SCHEMA_VERSION
+-        );
+-        assert_eq!(
+-            loaded
+-                .migration
+-                .source_schema_versions
+-                .get(crate::reviewer::runtime_events::LEGACY_CONTEXTLESS_EVENT_LOG_SCHEMA_VERSION),
+-            Some(&6)
+-        );
+-        assert!(matches!(
+-            &loaded.records[0].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::JobStarted { snapshot_id }
+-                if snapshot_id.0 == "legacy-snapshot"
+-                    && loaded.records[0].context.snapshot_id.as_ref().map(|id| id.0.as_str())
+-                        == Some("legacy-snapshot")
+-        ));
+-        assert_eq!(loaded.records[1].seq, 2);
+-        assert_eq!(loaded.records[1].timestamp_utc, "1780519901.000000000Z");
+-        assert_eq!(
+-            loaded.records[1]
+-                .context
+-                .session_id
+-                .as_ref()
+-                .map(|id| id.0.as_str()),
+-            Some("legacy-session")
+-        );
+-        assert_eq!(
+-            loaded.records[1].context.turn_id,
+-            Some(crate::reviewer::runtime_events::TurnId(7))
+-        );
+-        assert!(matches!(
+-            &loaded.records[1].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::ModelStarted { session_id, turn_id }
+-                if session_id.0 == "legacy-session" && turn_id.0 == 7
+-        ));
+-        assert!(matches!(
+-            &loaded.records[2].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::ToolCallDenied { call_id, .. }
+-                if call_id.0 == "legacy-denied-call"
+-                    && loaded.records[2].context.tool_call_id.as_ref().map(|id| id.0.as_str())
+-                        == Some("legacy-denied-call")
+-        ));
+-        assert!(matches!(
+-            &loaded.records[3].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::ArtifactCreated {
+-                artifact_id,
+-                tool_call_id,
+-                ..
+-            } if artifact_id.0 == "legacy-artifact"
+-                && tool_call_id.0 == "legacy-artifact-call"
+-                && loaded.records[3].context.artifact_id.as_ref().map(|id| id.0.as_str())
+-                    == Some("legacy-artifact")
+-                && loaded.records[3].context.tool_call_id.as_ref().map(|id| id.0.as_str())
+-                    == Some("legacy-artifact-call")
+-        ));
+-        assert!(matches!(
+-            &loaded.records[4].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::SessionFinished { session_id, status }
+-                if session_id.0 == "legacy-session"
+-                    && status == "cancelled"
+-                    && loaded.records[4].context.session_id.as_ref().map(|id| id.0.as_str())
+-                        == Some("legacy-session")
+-        ));
+-        assert!(matches!(
+-            &loaded.records[5].event,
+-            crate::reviewer::runtime_events::RuntimeEvent::JobFinished { status } if status == "partial"
+-        ));
+-        assert_eq!(
+-            loaded.records[5].context,
+-            crate::reviewer::runtime_events::RuntimeEventContext::default()
+-        );
+-    }
+-
+-    #[test]
+-    fn concurrent_repo_path_denies_escapes_and_windows_prefixes() {
+-        assert!(RepoPath::parse("../secret.txt").is_err());
+-        assert!(RepoPath::parse("/etc/passwd").is_err());
+-        assert!(RepoPath::parse("C:\\secret.txt").is_err());
+-        assert!(RepoPath::parse("safe/path.rs").is_ok());
+-    }
+ 
+     #[test]
+     fn concurrent_tool_batch_rejects_finish_mixed_with_other_tools() {
+@@ -5820,92 +4807,8 @@ mod suite {
+         assert!(duplicate.is_err());
+     }
+ 
+-    #[test]
+-    fn concurrent_review_defaults_register_all_sync_builtin_tools() {
+-        let registry = ToolRegistry::review_defaults().unwrap();
+-        let schemas = registry.schemas();
+-        for tool in all_builtin_tools() {
+-            let id = ToolId::from(tool);
+-            assert!(
+-                registry.definition(&id).is_some(),
+-                "missing concurrent registry definition for {}",
+-                tool.as_str()
+-            );
+-            assert!(
+-                schemas.iter().any(|schema| schema.id == id),
+-                "missing concurrent model schema for {}",
+-                tool.as_str()
+-            );
+-        }
+-    }
+ 
+-    #[test]
+-    fn concurrent_job_bridge_preserves_sync_repo_root_scope() {
+-        let capabilities = capabilities_from_mask(ToolMask::review_read_only());
+-        assert!(capabilities.fs_scope.cwd.is_none());
+-        assert!(capabilities.fs_scope.allowed_roots.is_empty());
+-        assert!(capabilities
+-            .fs_scope
+-            .allows(&RepoPath::parse("README.md").unwrap()));
+-        assert!(capabilities
+-            .fs_scope
+-            .allows(&RepoPath::parse("src/lib.rs").unwrap()));
+-        for tool in all_builtin_tools() {
+-            assert!(
+-                capabilities.allows_tool(&ToolId::from(tool)),
+-                "missing job-bridge capability for {}",
+-                tool.as_str()
+-            );
+-        }
+-    }
+ 
+-    #[test]
+-    fn concurrent_executes_every_sync_builtin_tool() {
+-        let temp = tempfile::tempdir().unwrap();
+-        fs::create_dir(temp.path().join("src")).unwrap();
+-        fs::write(
+-            temp.path().join("README.md"),
+-            "use docs::needle;\nimport example from 'example';\nneedle\n",
+-        )
+-        .unwrap();
+-        fs::write(temp.path().join("src/lib.rs"), "pub fn needle() {}\n").unwrap();
+-        fs::write(
+-            temp.path().join("src/lib_test.rs"),
+-            "use crate::lib;\n#[test] fn needle_test() {}\n",
+-        )
+-        .unwrap();
+-        let change = test_change_with_file("src/lib.rs");
+-        let policy = PathPolicyV1::bench(64, 20);
+-        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+-        let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
+-        let engine = ToolEngine::new(snapshot, limits).unwrap();
+-        let runtime = tokio::runtime::Builder::new_current_thread()
+-            .enable_all()
+-            .build()
+-            .unwrap();
+-
+-        for (index, tool) in all_builtin_tools().enumerate() {
+-            let results = runtime.block_on(engine.execute_batch(
+-                test_scope("session"),
+-                TurnId(index as u32),
+-                vec![ModelToolCall {
+-                    call_id: ToolCallId(format!("call-{}", tool.as_str())),
+-                    index: 0,
+-                    name: ToolId::from(tool),
+-                    raw_arguments: builtin_args(tool),
+-                }],
+-                tokio_util::sync::CancellationToken::new(),
+-            ));
+-            assert_eq!(results.len(), 1, "unexpected result count for {tool:?}");
+-            assert_eq!(results[0].tool_name, ToolId::from(tool));
+-            assert!(
+-                results[0].ok,
+-                "concurrent builtin {} failed: {:?}",
+-                tool.as_str(),
+-                results[0].error
+-            );
+-        }
+-    }
+ 
+     #[derive(Debug)]
+     struct EchoCustomTool;

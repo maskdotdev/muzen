@@ -1,0 +1,380 @@
+diff --git a/apps/review-worker/src/issue-service.ts b/apps/review-worker/src/issue-service.ts
+new file mode 100644
+index 00000000..1ef99a70
+--- /dev/null
++++ b/apps/review-worker/src/issue-service.ts
+@@ -0,0 +1,152 @@
++import { GitLabApiError, getProjectIssue } from "@argus/adapters/gitlab/api-client"
++import { fetchGitLabIssueWithDeps } from "@argus/adapters/issues/providers/gitlab"
++import { fetchJiraIssueWithDeps } from "@argus/adapters/issues/providers/jira"
++import {
++  fetchIssueWithDeps,
++  resolveIssuesFromMergeRequestWithDeps,
++} from "@argus/adapters/issues/issue-service"
++import type {
++  IssueFetchInput,
++  IssueLookupContext,
++  ResolvedIssueRef,
++} from "@argus/adapters/issues/types"
++import { getJiraIssueByKey, JiraClientError } from "@argus/adapters/jira/api-client"
++import {
++  decryptToken,
++  parseAes256GcmKey,
++  type EncryptedToken,
++} from "@argus/shared-runtime/encrypted-token"
++
++import { pool } from "./db"
++import {
++  getIntegrationById,
++  resolveManagedIntegrationToken,
++} from "./gitlab-integrations"
++
++type QueryResult = {
++  rows: Record<string, unknown>[]
++}
++
++type JiraCredentialsRow = {
++  baseUrl: string
++  tokenCiphertext: string
++  tokenIv: string
++  tokenAuthTag: string
++}
++
++type ReviewWorkerIssueQueryExecutor = (
++  query: string,
++  values?: unknown[],
++) => Promise<QueryResult>
++
++const query: ReviewWorkerIssueQueryExecutor = async (text, values) => {
++  const result = await pool.query(text, values)
++  return { rows: result.rows }
++}
++
++const decryptStoredToken = (encrypted: EncryptedToken) =>
++  decryptToken(
++    encrypted,
++    parseAes256GcmKey(
++      process.env.GITLAB_TOKEN_ENCRYPTION_KEY ?? "",
++      "GITLAB_TOKEN_ENCRYPTION_KEY",
++    ),
++  )
++
++const toJiraCredentialsRow = (row: Record<string, unknown> | undefined) => {
++  if (!row) {
++    return null
++  }
++
++  const credentials: JiraCredentialsRow = {
++    baseUrl: String(row.baseUrl ?? ""),
++    tokenCiphertext: String(row.tokenCiphertext ?? ""),
++    tokenIv: String(row.tokenIv ?? ""),
++    tokenAuthTag: String(row.tokenAuthTag ?? ""),
++  }
++
++  return credentials.baseUrl &&
++    credentials.tokenCiphertext &&
++    credentials.tokenIv &&
++    credentials.tokenAuthTag
++    ? credentials
++    : null
++}
++
++export const getStoredJiraCredentials = async (userId: string) => {
++  const result = await query(
++    `
++      select
++        base_url as "baseUrl",
++        token_ciphertext as "tokenCiphertext",
++        token_iv as "tokenIv",
++        token_auth_tag as "tokenAuthTag"
++      from jira_credentials
++      where user_id = $1
++      limit 1
++    `,
++    [userId],
++  )
++  const row = toJiraCredentialsRow(result.rows[0])
++  if (!row) {
++    return null
++  }
++
++  return {
++    baseUrl: row.baseUrl,
++    token: decryptStoredToken({
++      ciphertext: row.tokenCiphertext,
++      iv: row.tokenIv,
++      authTag: row.tokenAuthTag,
++    }),
++  }
++}
++
++export const fetchGitLabIssue = (args: {
++  ref: ResolvedIssueRef
++  context: IssueLookupContext
++}) =>
++  fetchGitLabIssueWithDeps(args, {
++    getProjectIssue,
++    isGitLabApiError: (error): error is GitLabApiError => error instanceof GitLabApiError,
++    resolveGitLabTokenForRequest: async ({ context }) => {
++      const integrationId = context.integrationId?.trim()
++      if (!integrationId) {
++        throw new Error("GitLab integration is required for issue lookup.")
++      }
++
++      const integration = await getIntegrationById(integrationId)
++      if (!integration) {
++        throw new Error(`GitLab integration ${integrationId} not found.`)
++      }
++
++      return {
++        token: await resolveManagedIntegrationToken({ integration }),
++      }
++    },
++  })
++
++export const fetchJiraIssue = (args: {
++  ref: ResolvedIssueRef
++  context: IssueLookupContext
++}) =>
++  fetchJiraIssueWithDeps(args, {
++    getJiraIssueByKey,
++    getStoredJiraCredentials,
++    isJiraClientError: (error): error is JiraClientError => error instanceof JiraClientError,
++  })
++
++const issueServiceDeps = {
++  fetchGitLabIssue,
++  fetchJiraIssue,
++}
++
++export const fetchIssue = (
++  input: IssueFetchInput | ResolvedIssueRef,
++  context: IssueLookupContext,
++) => fetchIssueWithDeps(input, context, issueServiceDeps)
++
++export const resolveIssuesFromMergeRequest = (
++  metadata: Parameters<typeof resolveIssuesFromMergeRequestWithDeps>[0],
++  context: IssueLookupContext,
++) => resolveIssuesFromMergeRequestWithDeps(metadata, context, issueServiceDeps)
+diff --git a/apps/review-worker/src/review-argus-agent.ts b/apps/review-worker/src/review-argus-agent.ts
+new file mode 100644
+index 00000000..b786daea
+--- /dev/null
++++ b/apps/review-worker/src/review-argus-agent.ts
+@@ -0,0 +1,30 @@
++import {
++  runArgusAgentReviewWithDeps,
++  type RunArgusAgentReviewArgs,
++} from "@argus/review-server/argus-agent/review-runner"
++import { log as appLog } from "evlog"
++
++import { createArtifactStore } from "./artifact-store"
++import { getDiffFiles, getDiffManifest } from "./gitlab-diff-service"
++import { resolveReviewIssueContextForMergeRequest } from "./review-issue-context"
++import {
++  createReviewWorkspaceCheckout,
++  resolveInspectableChangedFiles,
++} from "./review-workspace"
++
++export type { RunArgusAgentReviewArgs }
++
++export const runArgusAgentReview = (args: RunArgusAgentReviewArgs) =>
++  runArgusAgentReviewWithDeps(args, {
++    loadDiffManifest: getDiffManifest,
++    loadDiffFiles: async (request) => {
++      const result = await getDiffFiles(request)
++      return result.data
++    },
++    resolveIssueContext: resolveReviewIssueContextForMergeRequest,
++    createWorkspaceCheckout: createReviewWorkspaceCheckout,
++    resolveInspectableChangedFiles,
++    createArtifactStore,
++    logger: appLog,
++    env: process.env,
++  })
+diff --git a/apps/review-worker/src/review-issue-context.ts b/apps/review-worker/src/review-issue-context.ts
+new file mode 100644
+index 00000000..27c8a2fd
+--- /dev/null
++++ b/apps/review-worker/src/review-issue-context.ts
+@@ -0,0 +1,180 @@
++import { getMergeRequestDetails } from "@argus/adapters/gitlab/api-client"
++import type {
++  IssueLookupFailure,
++  NormalizedIssue,
++} from "@argus/adapters/issues/types"
++import type { ReviewIssueContext } from "@argus/contracts/review"
++
++import {
++  getIntegrationById,
++  resolveManagedIntegrationToken,
++} from "./gitlab-integrations"
++import { resolveIssuesFromMergeRequest } from "./issue-service"
++
++const REVIEW_ISSUE_DESCRIPTION_MAX_CHARS = 4_000
++const REVIEW_ISSUE_CONTEXT_ERROR = "Linked issue context could not be resolved for this review run."
++
++const isNonEmptyString = (value: unknown): value is string =>
++  typeof value === "string" && value.trim().length > 0
++
++const toOptionalString = (value: unknown) => {
++  if (!isNonEmptyString(value)) {
++    return null
++  }
++
++  return value.trim()
++}
++
++const toRecord = (value: unknown): Record<string, unknown> => {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return {}
++  }
++
++  return value as Record<string, unknown>
++}
++
++const truncateText = (value: string, maxChars = REVIEW_ISSUE_DESCRIPTION_MAX_CHARS) =>
++  value.length <= maxChars ? value : `${value.slice(0, maxChars - 1)}...`
++
++const formatIssueRef = (issue: Pick<NormalizedIssue, "provider" | "ref">) =>
++  issue.provider === "jira"
++    ? issue.ref.issueKeyOrIid
++    : issue.ref.projectPath
++      ? `${issue.ref.projectPath}#${issue.ref.issueKeyOrIid}`
++      : issue.ref.projectId
++        ? `${issue.ref.projectId}#${issue.ref.issueKeyOrIid}`
++        : issue.ref.issueKeyOrIid
++
++const formatIssueFailureRef = (failure: Pick<IssueLookupFailure, "ref">) =>
++  failure.ref.provider === "jira"
++    ? failure.ref.issueKeyOrIid
++    : failure.ref.projectPath
++      ? `${failure.ref.projectPath}#${failure.ref.issueKeyOrIid}`
++      : failure.ref.projectId
++        ? `${failure.ref.projectId}#${failure.ref.issueKeyOrIid}`
++        : failure.ref.issueKeyOrIid
++
++const serializeIssueForReviewContext = (issue: NormalizedIssue) => ({
++  provider: issue.provider,
++  ref: formatIssueRef(issue),
++  title: issue.title,
++  descriptionRaw: truncateText(issue.descriptionRaw),
++  state: issue.state,
++  labels: issue.labels.map((label) => label.name),
++  assigneeNames: issue.assigneeNames,
++  ...(issue.reporterName ? { reporterName: issue.reporterName } : {}),
++  ...(issue.priority ? { priority: issue.priority } : {}),
++  ...(issue.issueType ? { issueType: issue.issueType } : {}),
++  webUrl: issue.webUrl,
++})
++
++const serializeIssueFailureForReviewContext = (failure: IssueLookupFailure) => ({
++  provider: failure.ref.provider,
++  ref: formatIssueFailureRef(failure),
++  reason: failure.reason,
++  message: failure.message,
++  ...(typeof failure.status === "number" ? { status: failure.status } : {}),
++})
++
++const emptyReviewIssueContext = (): ReviewIssueContext => ({
++  issues: [],
++  failures: [],
++  refsParsed: 0,
++  lookupsSucceeded: 0,
++  lookupsFailed: 0,
++})
++
++export const resolveReviewIssueContext = async (args: {
++  userId: string
++  integrationId: string
++  instanceUrl: string
++  projectId?: string | null
++  projectPath?: string | null
++  sourceBranch: string | null
++  mergeRequestTitle: string | null
++  mergeRequestDescription: string | null
++}): Promise<ReviewIssueContext> => {
++  const lookupLoggerContext: Record<string, unknown> = {}
++
++  const hasExplicitIssueMetadata = Boolean(
++    args.sourceBranch || args.mergeRequestTitle || args.mergeRequestDescription,
++  )
++  if (!hasExplicitIssueMetadata) {
++    return emptyReviewIssueContext()
++  }
++
++  try {
++    const result = await resolveIssuesFromMergeRequest(
++      {
++        sourceBranch: args.sourceBranch,
++        title: args.mergeRequestTitle,
++        description: args.mergeRequestDescription,
++      },
++      {
++        userId: args.userId,
++        integrationId: args.integrationId,
++        instanceUrl: args.instanceUrl,
++        projectId: toOptionalString(args.projectId) ?? undefined,
++        projectPath: toOptionalString(args.projectPath) ?? undefined,
++        logger: {
++          set: (fields) => Object.assign(lookupLoggerContext, fields),
++        },
++      },
++    )
++
++    return {
++      issues: result.issues.map(serializeIssueForReviewContext),
++      failures: result.failures.map(serializeIssueFailureForReviewContext),
++      refsParsed:
++        typeof lookupLoggerContext.issueRefsParsed === "number"
++          ? lookupLoggerContext.issueRefsParsed
++          : result.issues.length + result.failures.length,
++      lookupsSucceeded:
++        typeof lookupLoggerContext.issueLookupsSucceeded === "number"
++          ? lookupLoggerContext.issueLookupsSucceeded
++          : result.issues.length,
++      lookupsFailed:
++        typeof lookupLoggerContext.issueLookupsFailed === "number"
++          ? lookupLoggerContext.issueLookupsFailed
++          : result.failures.length,
++    }
++  } catch {
++    return {
++      ...emptyReviewIssueContext(),
++      error: REVIEW_ISSUE_CONTEXT_ERROR,
++    }
++  }
++}
++
++export const resolveReviewIssueContextForMergeRequest = async (args: {
++  userId: string
++  integrationId: string
++  instanceUrl: string
++  mergeRequestIid: string
++  sourceBranch: string | null
++}): Promise<ReviewIssueContext> => {
++  const integration = await getIntegrationById(args.integrationId)
++  if (!integration) {
++    throw new Error(`GitLab integration ${args.integrationId} not found.`)
++  }
++
++  const token = await resolveManagedIntegrationToken({ integration })
++  const mergeRequestDetails = await getMergeRequestDetails(
++    integration.instanceUrl,
++    token,
++    integration.projectId,
++    args.mergeRequestIid,
++  ).catch(() => null)
++  const mergeRequestRecord = mergeRequestDetails ? toRecord(mergeRequestDetails) : {}
++
++  return resolveReviewIssueContext({
++    userId: args.userId,
++    integrationId: args.integrationId,
++    instanceUrl: args.instanceUrl,
++    projectId: integration.projectId,
++    projectPath: integration.projectPath,
++    sourceBranch: args.sourceBranch,
++    mergeRequestTitle: toOptionalString(mergeRequestRecord.title),
++    mergeRequestDescription: toOptionalString(mergeRequestRecord.description),
++  })
++}

@@ -1,0 +1,839 @@
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index aae446e..7a35d5c 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -256,9 +256,11 @@ Exit criteria:
+ - [ ] Implement webhook response helpers.
+   - [x] Add Rust delivery JSON response body helper.
+   - [ ] Add framework-facing SDK response helpers.
+-- [ ] Define remote HTTP API contract.
+-- [ ] Implement `createMuzenClient({ baseUrl })`.
++- [x] Define remote HTTP API contract.
++- [x] Implement `createMuzenClient({ baseUrl })`.
+ - [ ] Add SSE event response support.
++  - [x] Define SSE route contract and TypeScript remote `eventsResponse`.
++  - [ ] Implement service-side SSE route.
+ 
+ Exit criteria:
+ 
+@@ -287,6 +289,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | f524c73 | Serializable durable review records and redaction coverage for records, events, and results | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+ | 2026-06-05 | eec90c9 | Rust GitHub/GitLab webhook verification, source mapping, queued scheduling, dedupe, and delivery JSON bodies | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
+ | 2026-06-05 | 56f1af7 | TypeScript event example and Python notebook review example | `node -e "JSON.parse(...)"`; `npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python python3 -m unittest discover -s sdk/python/tests`; `cargo build --bin muzen-runner`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 examples/python/basic_review.py . Cargo.toml` |
++| 2026-06-05 | pending | Remote HTTP API contract and TypeScript `createMuzenClient({ baseUrl })` client | `npm test` |
+ 
+ ## Open Decisions
+ 
+@@ -323,6 +326,11 @@ Record every milestone with the commands that were run.
+ - TypeScript event and Python notebook examples are present. The TypeScript SDK
+   package build/test passes; direct one-off example typechecking still needs an
+   examples-level TypeScript project or package link.
++- The remote HTTP contract is documented in
++  `docs/rfcs/0001-remote-http-api-contract.md`; the TypeScript SDK can create,
++  resume, wait for, cancel, replay events for, stream events for, and read/export
++  artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
++  Service-side HTTP/SSE handlers remain open.
+ 
+ ## Notes For Reviewers
+ 
+diff --git a/docs/rfcs/0001-remote-http-api-contract.md b/docs/rfcs/0001-remote-http-api-contract.md
+new file mode 100644
+index 0000000..0909950
+--- /dev/null
++++ b/docs/rfcs/0001-remote-http-api-contract.md
+@@ -0,0 +1,157 @@
++# RFC 0001 Remote HTTP API Contract
++
++This document defines the preview HTTP contract that `createMuzenClient({
++baseUrl })` uses. The contract mirrors the Rust-owned review-session nouns and
++keeps runner ids, worker leases, attempts, and queue internals out of the
++friendly SDK surface.
++
++## Authentication
++
++Clients may send `Authorization: Bearer <token>`. The host decides how tokens
++map to users, workspaces, and allowed profile access.
++
++## Create Review
++
++`POST /v1/reviews`
++
++Request:
++
++```json
++{
++  "source": {
++    "type": "local",
++    "repo": ".",
++    "changedFiles": ["Cargo.toml"]
++  },
++  "options": {
++    "dedupe": "source",
++    "model": "default",
++    "metadata": {
++      "requestedBy": "api"
++    }
++  }
++}
++```
++
++Response:
++
++```json
++{
++  "review": {
++    "id": "review-123",
++    "status": "queued",
++    "source": {
++      "type": "github_pull_request",
++      "owner": "maskdotdev",
++      "repo": "heimdaal",
++      "number": 123
++    }
++  }
++}
++```
++
++The response MAY also be the review snapshot object directly. SDK clients must
++accept both shapes.
++
++## Get Review
++
++`GET /v1/reviews/{reviewId}`
++
++Returns a `ReviewSessionSnapshot`.
++
++## Get Result
++
++`GET /v1/reviews/{reviewId}/result`
++
++Returns one of:
++
++- `204 No Content` when no final result exists.
++- `{ "result": ReviewResult }`.
++- `ReviewResult` directly.
++
++## Cancel Review
++
++`POST /v1/reviews/{reviewId}/cancel`
++
++Request:
++
++```json
++{
++  "reason": "superseded"
++}
++```
++
++Returns `204 No Content` or a review snapshot. Cancellation is durable and must
++be honored by workers.
++
++## Replay Events
++
++`GET /v1/reviews/{reviewId}/events?after={cursor}`
++
++Response:
++
++```json
++{
++  "events": [
++    {
++      "cursor": "1",
++      "type": "session.queued",
++      "reviewId": "review-123",
++      "timestampUtc": "1780620000.000000000Z",
++      "payload": {}
++    }
++  ]
++}
++```
++
++The response MAY also be the event array directly.
++
++## Stream Events
++
++`GET /v1/reviews/{reviewId}/events/stream?after={cursor}`
++
++Returns `text/event-stream` frames using review event cursors as SSE ids:
++
++```text
++id: 1
++event: session.queued
++data: {"cursor":"1","type":"session.queued","reviewId":"review-123"}
++```
++
++## Artifacts
++
++`GET /v1/reviews/{reviewId}/artifacts/{artifactId}?view=redacted`
++
++Returns `{ "artifact": ReviewArtifact }` or `ReviewArtifact` directly.
++
++`POST /v1/reviews/{reviewId}/artifacts/export`
++
++Request:
++
++```json
++{
++  "view": "redacted",
++  "artifactIds": [],
++  "maxArtifacts": 10,
++  "maxBytes": 1048576
++}
++```
++
++Returns `ReviewArtifactExport`.
++
++## Webhooks
++
++Framework-facing SDK webhook helpers should verify provider signatures/tokens,
++map payloads to review sources, schedule reviews through `POST /v1/reviews`,
++and return the Rust delivery body shape:
++
++```json
++{
++  "type": "review_created",
++  "deliveryId": "provider-delivery-id",
++  "reviewId": "review-123",
++  "status": "queued"
++}
++```
++
++The Rust core already owns provider verification and source mapping helpers.
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+index b4c189a..d7949f2 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
+ 
+ import {
+   createMuzen,
++  createMuzenClient,
+   local,
+   MuzenUnsupportedFeatureError,
+   type Muzen,
++  type ReviewResult,
+ } from "./index.js";
+ 
+ const runnerPath = process.env.MUZEN_RUNNER_PATH;
+@@ -77,3 +79,154 @@ describe("runner-backed Muzen preview", () => {
+     },
+   );
+ });
++
++describe("remote Muzen client", () => {
++  it("uses the preview HTTP contract for reviews, events, results, and artifacts", async () => {
++    const requests: Array<{
++      method: string;
++      path: string;
++      authorization: string | null;
++      body?: unknown;
++    }> = [];
++    const result: ReviewResult = {
++      reviewId: "review-remote-1",
++      sessionId: "review-remote-1",
++      status: "completed",
++      conclusion: "approved",
++      summary: "Remote review completed.",
++      findings: [],
++      coverage: {
++        filesConsidered: 1,
++        filesReviewed: 1,
++        filesSkipped: 0,
++      },
++    };
++    const fetchMock: typeof fetch = async (input, init = {}) => {
++      const url = new URL(input instanceof Request ? input.url : String(input));
++      const method = init.method ?? "GET";
++      const headers = new Headers(init.headers);
++      const body =
++        typeof init.body === "string" ? JSON.parse(init.body) : undefined;
++      requests.push({
++        method,
++        path: `${url.pathname}${url.search}`,
++        authorization: headers.get("authorization"),
++        body,
++      });
++      if (url.pathname === "/v1/reviews" && method === "POST") {
++        return Response.json({
++          review: {
++            id: "review-remote-1",
++            status: "queued",
++            source: body.source,
++          },
++        });
++      }
++      if (url.pathname === "/v1/reviews/review-remote-1") {
++        return Response.json({
++          id: "review-remote-1",
++          status: "completed",
++          source: {
++            type: "github_pull_request",
++            owner: "maskdotdev",
++            repo: "heimdaal",
++            number: 123,
++          },
++          result,
++        });
++      }
++      if (url.pathname === "/v1/reviews/review-remote-1/events") {
++        return Response.json({
++          events: [
++            {
++              cursor: "1",
++              type: "session.queued",
++              reviewId: "review-remote-1",
++              timestampUtc: "1780620000.000000000Z",
++              payload: {},
++            },
++          ],
++        });
++      }
++      if (url.pathname === "/v1/reviews/review-remote-1/result") {
++        return Response.json({ result });
++      }
++      if (
++        url.pathname ===
++        "/v1/reviews/review-remote-1/artifacts/artifact-1"
++      ) {
++        return Response.json({
++          artifact: {
++            artifactId: "artifact-1",
++            bytes: 4,
++            contentHash: "hash",
++            content: "data",
++          },
++        });
++      }
++      if (
++        url.pathname ===
++          "/v1/reviews/review-remote-1/artifacts/export" &&
++        method === "POST"
++      ) {
++        return Response.json({
++          view: "redacted",
++          artifactCount: 1,
++          totalBytes: 4,
++          artifacts: [
++            {
++              artifactId: "artifact-1",
++              bytes: 4,
++              contentHash: "hash",
++              content: "data",
++            },
++          ],
++        });
++      }
++      if (
++        url.pathname === "/v1/reviews/review-remote-1/cancel" &&
++        method === "POST"
++      ) {
++        return new Response(null, { status: 204 });
++      }
++      return new Response("not found", { status: 404, statusText: "Not Found" });
++    };
++    const remote = createMuzenClient({
++      baseUrl: "https://muzen.example",
++      token: "test-token",
++      fetch: fetchMock,
++    });
++
++    const review = await remote.review("github:maskdotdev/heimdaal#123", {
++      dedupe: "source",
++    });
++    const events = [];
++    for await (const event of review.events()) {
++      events.push(event);
++    }
++    const finalResult = await review.wait({ timeout: "1s" });
++    const artifact = await review.readArtifact("artifact-1");
++    const exported = await review.exportArtifacts();
++    assert.equal(review.status, "completed");
++    await review.cancel("superseded");
++    const resumed = await remote.resumeReview("review-remote-1");
++
++    assert.equal(review.id, "review-remote-1");
++    assert.equal(review.status, "cancelled");
++    assert.equal(events[0]?.type, "session.queued");
++    assert.equal(finalResult.conclusion, "approved");
++    assert.equal(artifact.content, "data");
++    assert.equal(exported.artifactCount, 1);
++    assert.equal(resumed.status, "completed");
++    assert.equal(requests[0]?.authorization, "Bearer test-token");
++    assert.deepEqual(requests.map((request) => request.path), [
++      "/v1/reviews",
++      "/v1/reviews/review-remote-1/events",
++      "/v1/reviews/review-remote-1/result",
++      "/v1/reviews/review-remote-1/artifacts/artifact-1?view=redacted",
++      "/v1/reviews/review-remote-1/artifacts/export",
++      "/v1/reviews/review-remote-1/cancel",
++      "/v1/reviews/review-remote-1",
++    ]);
++  });
++});
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+index 8069dc2..0c9192b 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.ts
+@@ -49,11 +49,9 @@ export async function createMuzen(
+ }
+ 
+ export function createMuzenClient(
+-  _options: CreateMuzenClientOptions,
++  options: CreateMuzenClientOptions,
+ ): Muzen {
+-  throw new MuzenUnsupportedFeatureError(
+-    "createMuzenClient({ baseUrl }) requires the remote HTTP transport, which is not implemented in this preview",
+-  );
++  return new RemoteMuzen(options);
+ }
+ 
+ export async function createReviewSession(
+@@ -71,6 +69,280 @@ export class MuzenUnsupportedFeatureError extends Error {
+   }
+ }
+ 
++class RemoteMuzen implements Muzen {
++  private readonly baseUrl: URL;
++  private readonly fetch: typeof globalThis.fetch;
++
++  constructor(private readonly options: CreateMuzenClientOptions) {
++    this.baseUrl = new URL(options.baseUrl);
++    this.fetch = options.fetch ?? globalThis.fetch;
++    if (!this.fetch) {
++      throw new MuzenUnsupportedFeatureError(
++        "createMuzenClient({ baseUrl }) requires a fetch implementation",
++      );
++    }
++  }
++
++  async review(
++    sourceLike: ReviewSourceLike,
++    options: ReviewOptions = {},
++  ): Promise<ReviewSession> {
++    return this.createReviewSession({ source: sourceLike, options });
++  }
++
++  async createReviewSession(input: {
++    source: ReviewSourceLike;
++    options?: ReviewOptions;
++  }): Promise<ReviewSession> {
++    const source = parseReviewSource(input.source);
++    const response = await this.requestJson("/v1/reviews", {
++      method: "POST",
++      body: {
++        source,
++        options: input.options ?? {},
++      },
++    });
++    const snapshot = unwrapReviewSnapshot(response);
++    return new RemoteReviewSession(this, snapshot);
++  }
++
++  async resumeReview(id: string): Promise<ReviewSession> {
++    const snapshot = unwrapReviewSnapshot(
++      await this.requestJson(`/v1/reviews/${encodeURIComponent(id)}`),
++    );
++    return new RemoteReviewSession(this, snapshot);
++  }
++
++  async close(): Promise<void> {
++    // Remote clients do not own a local process.
++  }
++
++  async requestJson(
++    path: string,
++    options: {
++      method?: string;
++      body?: unknown;
++      signal?: AbortSignal;
++    } = {},
++  ): Promise<unknown> {
++    const response = await this.rawRequest(path, {
++      method: options.method,
++      body:
++        options.body === undefined ? undefined : JSON.stringify(options.body),
++      signal: options.signal,
++      headers: {
++        "Content-Type": "application/json",
++      },
++    });
++    if (response.status === 204) {
++      return undefined;
++    }
++    return response.json();
++  }
++
++  async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
++    const url = new URL(path, this.baseUrl);
++    const headers = new Headers(init.headers);
++    if (this.options.token) {
++      headers.set("Authorization", `Bearer ${this.options.token}`);
++    }
++    const response = await this.fetch(url, {
++      ...init,
++      headers,
++    });
++    if (!response.ok) {
++      throw new Error(
++        `Muzen remote request failed: ${response.status} ${response.statusText}`,
++      );
++    }
++    return response;
++  }
++}
++
++class RemoteReviewSession implements ReviewSession {
++  private currentStatus: ReviewStatus;
++  private currentResult?: ReviewResult;
++
++  constructor(
++    private readonly client: RemoteMuzen,
++    snapshot: ReviewSessionSnapshot,
++  ) {
++    this.id = snapshot.id;
++    this.source = snapshot.source;
++    this.currentStatus = snapshot.status;
++    this.currentResult = snapshot.result;
++  }
++
++  readonly id: string;
++  readonly source: ReviewSource;
++
++  get status(): ReviewStatus {
++    return this.currentStatus;
++  }
++
++  subscribe(
++    listener: (event: ReviewEvent) => void,
++    options: { replay?: boolean } = {},
++  ): () => void {
++    let cancelled = false;
++    if (options.replay ?? true) {
++      void (async () => {
++        for await (const event of this.events()) {
++          if (cancelled) {
++            return;
++          }
++          listener(event);
++        }
++      })();
++    }
++    return () => {
++      cancelled = true;
++    };
++  }
++
++  async *events(options: {
++    after?: string | null;
++    signal?: AbortSignal;
++  } = {}): AsyncIterable<ReviewEvent> {
++    throwIfAborted(options.signal);
++    const search = new URLSearchParams();
++    if (options.after) {
++      search.set("after", options.after);
++    }
++    const suffix = search.size > 0 ? `?${search}` : "";
++    const response = await this.client.requestJson(
++      `/v1/reviews/${encodeURIComponent(this.id)}/events${suffix}`,
++      { signal: options.signal },
++    );
++    const events = unwrapReviewEvents(response);
++    for (const event of events) {
++      throwIfAborted(options.signal);
++      yield event;
++    }
++  }
++
++  eventsResponse(options: {
++    after?: string | null;
++    signal?: AbortSignal;
++  } = {}): Response {
++    const search = new URLSearchParams();
++    if (options.after) {
++      search.set("after", options.after);
++    }
++    const suffix = search.size > 0 ? `?${search}` : "";
++    const response = this.client.rawRequest(
++      `/v1/reviews/${encodeURIComponent(this.id)}/events/stream${suffix}`,
++      { signal: options.signal },
++    );
++    return new Response(
++      new ReadableStream({
++        async start(controller) {
++          try {
++            const stream = (await response).body;
++            if (!stream) {
++              controller.close();
++              return;
++            }
++            const reader = stream.getReader();
++            while (true) {
++              const next = await reader.read();
++              if (next.done) {
++                break;
++              }
++              controller.enqueue(next.value);
++            }
++            controller.close();
++          } catch (error) {
++            controller.error(error);
++          }
++        },
++      }),
++      {
++        headers: {
++          "Content-Type": "text/event-stream",
++        },
++      },
++    );
++  }
++
++  async wait(options: {
++    timeout?: string | number;
++    signal?: AbortSignal;
++  } = {}): Promise<ReviewResult> {
++    throwIfAborted(options.signal);
++    const timeoutMs = parseTimeoutMs(options.timeout);
++    const resultPromise = pollUntilResult(() => this.result(options), options.signal);
++    if (timeoutMs === undefined) {
++      return resultPromise;
++    }
++    return withTimeout(resultPromise, timeoutMs);
++  }
++
++  async result(options: { signal?: AbortSignal } = {}): Promise<ReviewResult | undefined> {
++    if (this.currentResult) {
++      return this.currentResult;
++    }
++    const response = await this.client.requestJson(
++      `/v1/reviews/${encodeURIComponent(this.id)}/result`,
++      { signal: options.signal },
++    );
++    this.currentResult = unwrapOptionalReviewResult(response);
++    if (this.currentResult) {
++      this.currentStatus = this.currentResult.status;
++    }
++    return this.currentResult;
++  }
++
++  async readArtifact(
++    artifactId: string,
++    options: ReviewArtifactReadOptions = {},
++  ): Promise<ReviewArtifact> {
++    const search = new URLSearchParams({
++      view: options.view ?? "redacted",
++    });
++    const response = await this.client.requestJson(
++      `/v1/reviews/${encodeURIComponent(this.id)}/artifacts/${encodeURIComponent(artifactId)}?${search}`,
++    );
++    return unwrapReviewArtifact(response);
++  }
++
++  async exportArtifacts(
++    options: ReviewArtifactExportOptions = {},
++  ): Promise<ReviewArtifactExport> {
++    return unwrapReviewArtifactExport(
++      await this.client.requestJson(
++        `/v1/reviews/${encodeURIComponent(this.id)}/artifacts/export`,
++        {
++          method: "POST",
++          body: options,
++        },
++      ),
++    );
++  }
++
++  async cancel(reason?: string | ReviewCancelOptions): Promise<void> {
++    const cancelReason =
++      typeof reason === "string" ? reason : reason?.reason ?? "cancelled";
++    await this.client.requestJson(
++      `/v1/reviews/${encodeURIComponent(this.id)}/cancel`,
++      {
++        method: "POST",
++        body: { reason: cancelReason },
++      },
++    );
++    this.currentStatus = "cancelled";
++  }
++
++  async refresh(): Promise<ReviewSessionSnapshot> {
++    const snapshot = unwrapReviewSnapshot(
++      await this.client.requestJson(`/v1/reviews/${encodeURIComponent(this.id)}`),
++    );
++    this.currentStatus = snapshot.status;
++    this.currentResult = snapshot.result;
++    return snapshot;
++  }
++}
++
+ class RunnerBackedMuzen implements Muzen {
+   private readonly sessions = new Map<string, RunnerBackedReviewSession>();
+ 
+@@ -558,6 +830,155 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+   });
+ }
+ 
++async function pollUntilResult(
++  load: () => Promise<ReviewResult | undefined>,
++  signal: AbortSignal | undefined,
++): Promise<ReviewResult> {
++  while (true) {
++    throwIfAborted(signal);
++    const result = await load();
++    if (result) {
++      return result;
++    }
++    await delay(250, signal);
++  }
++}
++
++function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
++  return new Promise((resolve, reject) => {
++    const timer = setTimeout(resolve, ms);
++    signal?.addEventListener(
++      "abort",
++      () => {
++        clearTimeout(timer);
++        reject(new Error("operation aborted"));
++      },
++      { once: true },
++    );
++  });
++}
++
++function unwrapReviewSnapshot(value: unknown): ReviewSessionSnapshot {
++  const snapshot = isRecord(value) && isRecord(value.review) ? value.review : value;
++  if (!isReviewSessionSnapshot(snapshot)) {
++    throw new Error("Muzen remote returned an invalid review session snapshot");
++  }
++  return snapshot;
++}
++
++function unwrapOptionalReviewResult(value: unknown): ReviewResult | undefined {
++  if (value === undefined || value === null) {
++    return undefined;
++  }
++  const result = isRecord(value) && "result" in value ? value.result : value;
++  if (result === undefined || result === null) {
++    return undefined;
++  }
++  if (!isReviewResult(result)) {
++    throw new Error("Muzen remote returned an invalid review result");
++  }
++  return result;
++}
++
++function unwrapReviewEvents(value: unknown): ReviewEvent[] {
++  const events = isRecord(value) && Array.isArray(value.events) ? value.events : value;
++  if (!Array.isArray(events) || !events.every(isReviewEvent)) {
++    throw new Error("Muzen remote returned invalid review events");
++  }
++  return events;
++}
++
++function unwrapReviewArtifact(value: unknown): ReviewArtifact {
++  const artifact = isRecord(value) && isRecord(value.artifact) ? value.artifact : value;
++  if (!isReviewArtifact(artifact)) {
++    throw new Error("Muzen remote returned an invalid review artifact");
++  }
++  return artifact;
++}
++
++function unwrapReviewArtifactExport(value: unknown): ReviewArtifactExport {
++  if (!isReviewArtifactExport(value)) {
++    throw new Error("Muzen remote returned an invalid artifact export");
++  }
++  return value;
++}
++
++function isReviewSessionSnapshot(value: unknown): value is ReviewSessionSnapshot {
++  return (
++    isRecord(value) &&
++    typeof value.id === "string" &&
++    isReviewStatus(value.status) &&
++    isReviewSource(value.source) &&
++    (value.result === undefined || isReviewResult(value.result))
++  );
++}
++
++function isReviewSource(value: unknown): value is ReviewSource {
++  return (
++    isRecord(value) &&
++    (value.type === "local" ||
++      value.type === "github_pull_request" ||
++      value.type === "gitlab_merge_request")
++  );
++}
++
++function isReviewResult(value: unknown): value is ReviewResult {
++  return (
++    isRecord(value) &&
++    typeof value.reviewId === "string" &&
++    typeof value.sessionId === "string" &&
++    isReviewStatus(value.status) &&
++    (value.conclusion === "approved" ||
++      value.conclusion === "commented" ||
++      value.conclusion === "changes_requested") &&
++    typeof value.summary === "string" &&
++    Array.isArray(value.findings) &&
++    isRecord(value.coverage)
++  );
++}
++
++function isReviewEvent(value: unknown): value is ReviewEvent {
++  return (
++    isRecord(value) &&
++    typeof value.cursor === "string" &&
++    typeof value.type === "string" &&
++    typeof value.reviewId === "string" &&
++    typeof value.timestampUtc === "string"
++  );
++}
++
++function isReviewArtifact(value: unknown): value is ReviewArtifact {
++  return (
++    isRecord(value) &&
++    typeof value.artifactId === "string" &&
++    typeof value.bytes === "number" &&
++    typeof value.contentHash === "string" &&
++    typeof value.content === "string"
++  );
++}
++
++function isReviewArtifactExport(value: unknown): value is ReviewArtifactExport {
++  return (
++    isRecord(value) &&
++    (value.view === "redacted" || value.view === "raw") &&
++    typeof value.artifactCount === "number" &&
++    typeof value.totalBytes === "number" &&
++    Array.isArray(value.artifacts) &&
++    value.artifacts.every(isReviewArtifact)
++  );
++}
++
++function isReviewStatus(value: unknown): value is ReviewStatus {
++  return (
++    value === "created" ||
++    value === "queued" ||
++    value === "running" ||
++    value === "completed" ||
++    value === "failed" ||
++    value === "cancelled"
++  );
++}
++
+ interface RunnerReviewEventRecord {
+   seq: number;
+   timestampUtc: string;
+diff --git a/sdk/typescript/packages/muzen-sdk/src/types.ts b/sdk/typescript/packages/muzen-sdk/src/types.ts
+index 0a5013c..52271cf 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/types.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/types.ts
+@@ -214,6 +214,7 @@ export interface CreateMuzenOptions {
+ export interface CreateMuzenClientOptions {
+   baseUrl: string;
+   token?: string;
++  fetch?: typeof fetch;
+ }
+ 
+ export interface CreateReviewSessionInput {

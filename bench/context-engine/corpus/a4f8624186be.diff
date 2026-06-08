@@ -1,0 +1,101 @@
+diff --git a/apps/web/eslint.config.mjs b/apps/web/eslint.config.mjs
+index b1c45601..8e4afd94 100644
+--- a/apps/web/eslint.config.mjs
++++ b/apps/web/eslint.config.mjs
+@@ -150,6 +150,11 @@ const eslintConfig = defineConfig([
+               message:
+                 "Import MCP API key helpers from '@/features/mcp/server/api-key-store'.",
+             },
++            {
++              name: "@/lib/onboarding/types",
++              message:
++                "Import onboarding tracking contracts from '@/features/onboarding/model/tracking'.",
++            },
+             {
+               name: "@/lib/jira/client",
+               message:
+diff --git a/apps/web/src/features/observability/server/onboarding-ttfr-payload.ts b/apps/web/src/features/observability/server/onboarding-ttfr-payload.ts
+index 4be37243..de646b50 100644
+--- a/apps/web/src/features/observability/server/onboarding-ttfr-payload.ts
++++ b/apps/web/src/features/observability/server/onboarding-ttfr-payload.ts
+@@ -2,7 +2,7 @@ import { asc, gte } from "drizzle-orm"
+ 
+ import { db } from "@/server/db"
+ import { onboardingEvents } from "@/server/db/schema"
+-import type { OnboardingEventMetadata } from "@/lib/onboarding/types"
++import type { OnboardingEventMetadata } from "@/features/onboarding/model/tracking"
+ import type { ObservabilityOnboardingTtfrPayload } from "@/features/observability/model/types"
+ 
+ export const TTFR_SLO_MS = 20_000
+diff --git a/apps/web/src/lib/onboarding/types.ts b/apps/web/src/features/onboarding/model/tracking.ts
+similarity index 100%
+rename from apps/web/src/lib/onboarding/types.ts
+rename to apps/web/src/features/onboarding/model/tracking.ts
+diff --git a/apps/web/src/features/onboarding/model/types.ts b/apps/web/src/features/onboarding/model/types.ts
+index 64e17544..79079c5e 100644
+--- a/apps/web/src/features/onboarding/model/types.ts
++++ b/apps/web/src/features/onboarding/model/types.ts
+@@ -1,7 +1,7 @@
+ import type {
+   OnboardingEventMetadata as SharedOnboardingEventMetadata,
+   OnboardingTrackedEvent as SharedOnboardingTrackedEvent,
+-} from "@/lib/onboarding/types"
++} from "@/features/onboarding/model/tracking"
+ 
+ export type OnboardingRouteStep = "tokens" | "projects" | "mrs"
+ 
+diff --git a/apps/web/src/features/onboarding/server/service.ts b/apps/web/src/features/onboarding/server/service.ts
+index bec98bb4..c9888ca6 100644
+--- a/apps/web/src/features/onboarding/server/service.ts
++++ b/apps/web/src/features/onboarding/server/service.ts
+@@ -8,7 +8,7 @@ import {
+   ONBOARDING_COMPLETED_EVENT,
+   ONBOARDING_STARTED_EVENT,
+   type OnboardingEventMetadata,
+-} from "@/lib/onboarding/types"
++} from "@/features/onboarding/model/tracking"
+ 
+ const ONBOARDING_COMPLETED_UNIQUE_INDEX = "onboarding_events_user_id_completed_uq"
+ 
+diff --git a/apps/web/src/features/onboarding/server/track-onboarding.ts b/apps/web/src/features/onboarding/server/track-onboarding.ts
+index 39c244fe..7747e428 100644
+--- a/apps/web/src/features/onboarding/server/track-onboarding.ts
++++ b/apps/web/src/features/onboarding/server/track-onboarding.ts
+@@ -8,7 +8,7 @@ import {
+   ONBOARDING_EVENTS,
+   type OnboardingEventMetadata,
+   type OnboardingTrackedEvent,
+-} from "@/lib/onboarding/types"
++} from "@/features/onboarding/model/tracking"
+ 
+ type TrackEventPayload = {
+   event: OnboardingTrackedEvent
+diff --git a/apps/web/src/features/review/server/diff/review-diff.ts b/apps/web/src/features/review/server/diff/review-diff.ts
+index 74f7e134..1cfc7f28 100644
+--- a/apps/web/src/features/review/server/diff/review-diff.ts
++++ b/apps/web/src/features/review/server/diff/review-diff.ts
+@@ -6,7 +6,7 @@ import {
+   normalizeReviewGateSettings,
+   type ReviewGateSettings,
+ } from "@/features/review/model/gate"
+-import type { OnboardingEventMetadata } from "@/lib/onboarding/types"
++import type { OnboardingEventMetadata } from "@/features/onboarding/model/tracking"
+ import type { ReviewFlowStage } from "@/features/review/server/flow-run"
+ import { normalizeReviewPersonaMode, normalizeReviewPersona } from "@/features/review/model/persona"
+ 
+diff --git a/apps/web/src/server/db/schema/onboarding.ts b/apps/web/src/server/db/schema/onboarding.ts
+index 59f1ee78..e2306927 100644
+--- a/apps/web/src/server/db/schema/onboarding.ts
++++ b/apps/web/src/server/db/schema/onboarding.ts
+@@ -10,7 +10,10 @@ import {
+ } from "drizzle-orm/pg-core";
+ import { sql } from "drizzle-orm";
+ import { user } from "./auth";
+-import { ONBOARDING_EVENTS, type OnboardingEventMetadata } from "@/lib/onboarding/types";
++import {
++  ONBOARDING_EVENTS,
++  type OnboardingEventMetadata,
++} from "@/features/onboarding/model/tracking";
+ 
+ export const onboardingEventEnum = pgEnum("onboarding_event", ONBOARDING_EVENTS);
+ 

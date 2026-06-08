@@ -1,0 +1,427 @@
+diff --git a/bun.lock b/bun.lock
+index 1e6aeaea..6b64e915 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -11,6 +11,7 @@
+         "@dnd-kit/utilities": "^3.2.2",
+         "@pierre/diffs": "^1.0.10",
+         "@tabler/icons-react": "^3.36.1",
++        "@tanstack/react-query": "^5.80.0",
+         "@tanstack/react-table": "^8.21.3",
+         "babel-plugin-react-compiler": "^1.0.0",
+         "better-auth": "^1.4.18",
+@@ -540,6 +541,10 @@
+ 
+     "@tailwindcss/postcss": ["@tailwindcss/postcss@4.1.18", "", { "dependencies": { "@alloc/quick-lru": "^5.2.0", "@tailwindcss/node": "4.1.18", "@tailwindcss/oxide": "4.1.18", "postcss": "^8.4.41", "tailwindcss": "4.1.18" } }, "sha512-Ce0GFnzAOuPyfV5SxjXGn0CubwGcuDB0zcdaPuCSzAa/2vII24JTkH+I6jcbXLb1ctjZMZZI6OjDaLPJQL1S0g=="],
+ 
++    "@tanstack/query-core": ["@tanstack/query-core@5.90.20", "", {}, "sha512-OMD2HLpNouXEfZJWcKeVKUgQ5n+n3A2JFmBaScpNDUqSrQSjiveC7dKMe53uJUg1nDG16ttFPz2xfilz6i2uVg=="],
++
++    "@tanstack/react-query": ["@tanstack/react-query@5.90.21", "", { "dependencies": { "@tanstack/query-core": "5.90.20" }, "peerDependencies": { "react": "^18 || ^19" } }, "sha512-0Lu6y5t+tvlTJMTO7oh5NSpJfpg/5D41LlThfepTixPYkJ0sE2Jj0m0f6yYqujBwIXlId87e234+MxG3D3g7kg=="],
++
+     "@tanstack/react-table": ["@tanstack/react-table@8.21.3", "", { "dependencies": { "@tanstack/table-core": "8.21.3" }, "peerDependencies": { "react": ">=16.8", "react-dom": ">=16.8" } }, "sha512-5nNMTSETP4ykGegmVkhjcS8tTLW6Vl4axfEGQN3v0zdHYbK4UfoqfPChclTrJ4EoK9QynqAu9oUf8VEmrpZ5Ww=="],
+ 
+     "@tanstack/table-core": ["@tanstack/table-core@8.21.3", "", {}, "sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg=="],
+diff --git a/package.json b/package.json
+index 20d2210b..c2741903 100644
+--- a/package.json
++++ b/package.json
+@@ -37,7 +37,8 @@
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.4.0",
+     "vaul": "^1.1.2",
+-    "zod": "^4.3.6"
++    "zod": "^4.3.6",
++    "@tanstack/react-query": "^5.80.0"
+   },
+   "devDependencies": {
+     "@tailwindcss/postcss": "^4.1.18",
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 3a99f9ef..21c95930 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -2,6 +2,7 @@ import type { Metadata } from "next";
+ import { Geist, Geist_Mono } from "next/font/google";
+ import "./globals.css";
+ import { AppShell } from "@/components/app-shell";
++import { QueryProvider } from "@/components/query-provider";
+ 
+ const geistSans = Geist({
+   variable: "--font-geist-sans",
+@@ -28,7 +29,9 @@ export default function RootLayout({
+       <body
+         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+       >
++        <QueryProvider>
+         <AppShell>{children}</AppShell>
++      </QueryProvider>
+       </body>
+     </html>
+   );
+diff --git a/src/components/onboarding/onboarding-flow.tsx b/src/components/onboarding/onboarding-flow.tsx
+index 6d0cd12b..e01ea7bf 100644
+--- a/src/components/onboarding/onboarding-flow.tsx
++++ b/src/components/onboarding/onboarding-flow.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
+ import { useRouter } from "next/navigation"
++import { useQueryClient } from "@tanstack/react-query"
+ import {
+   IconArrowLeft,
+   IconCheck,
+@@ -63,26 +64,6 @@ type TokenTestFeedback = {
+   message: string
+ }
+ 
+-type ProjectsCacheEntry = {
+-  key: string
+-  projects: Project[]
+-}
+-
+-type ProjectsRequestEntry = {
+-  key: string
+-  promise: Promise<Project[]>
+-}
+-
+-type MergeRequestsCacheValue = {
+-  mergeRequests: MergeRequest[]
+-  isPartial: boolean
+-}
+-
+-type MergeRequestsCacheEntry = {
+-  key: string
+-  dataByProjectId: Record<string, MergeRequestsCacheValue>
+-}
+-
+ const INSTANCE_PRESETS = ["https://gitlab.com", "https://gitlab.example.com", "custom"]
+ const ONBOARDING_STORAGE_KEY = "argus-onboarding-selections-v2"
+ const RECENT_PROJECTS_LIMIT = 10
+@@ -90,6 +71,9 @@ const MERGE_REQUESTS_PRELOAD_PROJECTS_LIMIT = 5
+ const MERGE_REQUESTS_PRELOAD_LIMIT = 3
+ const MERGE_REQUESTS_FULL_LIMIT = 100
+ const MERGE_REQUESTS_PRELOAD_CONCURRENCY = 3
++const ONBOARDING_QUERY_STALE_TIME = 10 * 60_000
++const ONBOARDING_QUERY_GC_TIME = 30 * 60_000
++const ONBOARDING_PREFETCH_STALE_TIME = 15 * 60_000
+ 
+ const routeStepPosition: Record<OnboardingRouteStep, number> = {
+   tokens: 1,
+@@ -122,22 +106,16 @@ const readPersistedState = (): Partial<OnboardingSessionState> => {
+ const isNonEmptyString = (value: unknown): value is string =>
+   typeof value === "string" && value.trim().length > 0
+ 
+-const buildProjectsCacheKey = (instanceUrl: string, token: string) =>
+-  `${instanceUrl}::${token.trim()}`
+-
+ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }) {
+   const router = useRouter()
+   const currentStep = routeStepPosition[routeStep]
++  const queryClient = useQueryClient()
+   const startedEventTracked = useRef(false)
+   const completionEventTracked = useRef(false)
+   const projectSelectionHandlerRef = useRef<
+     ((projectId: string) => Promise<void>) | null
+   >(null)
+   const mergeRequestSelectionHandlerRef = useRef<((mrId: string) => void) | null>(null)
+-  const projectsCacheRef = useRef<ProjectsCacheEntry | null>(null)
+-  const projectsRequestRef = useRef<ProjectsRequestEntry | null>(null)
+-  const mergeRequestsCacheRef = useRef<MergeRequestsCacheEntry | null>(null)
+-  const mergeRequestsRequestRef = useRef<Map<string, Promise<MergeRequest[]>>>(new Map())
+ 
+   const [isHydrated, setIsHydrated] = useState(false)
+ 
+@@ -208,7 +186,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+ 
+     try {
+       const normalizedInstance = resolveGitLabInstance(gitlabInstance, customInstance)
+-      return buildProjectsCacheKey(normalizedInstance, token)
++      return `${normalizedInstance}::${token.trim()}`
+     } catch {
+       return ""
+     }
+@@ -272,6 +250,16 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     return payload.data
+   }, [gitlabInstance, customInstance, token])
+ 
++  const projectsQueryKey = useCallback(
++    () => ["onboarding", "projects", projectsCacheKey] as const,
++    [projectsCacheKey],
++  )
++  const mergeRequestsQueryKey = useCallback(
++    (projectId: string, perPage: number) =>
++      ["onboarding", "merge-requests", projectsCacheKey, projectId, perPage] as const,
++    [projectsCacheKey],
++  )
++
+   const applyLoadedProjects = (data: Project[]) => {
+     setProjects(data)
+     setSelectedProjectId("")
+@@ -279,24 +267,6 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     setSelectedMergeRequestId("")
+   }
+ 
+-  const getMergeRequestsCacheEntry = useCallback(() => {
+-    if (!projectsCacheKey) {
+-      throw new Error("Personal access token is required.")
+-    }
+-
+-    const existing = mergeRequestsCacheRef.current
+-    if (existing && existing.key === projectsCacheKey) {
+-      return existing
+-    }
+-
+-    const next: MergeRequestsCacheEntry = {
+-      key: projectsCacheKey,
+-      dataByProjectId: {},
+-    }
+-    mergeRequestsCacheRef.current = next
+-    return next
+-  }, [projectsCacheKey])
+-
+   const fetchMergeRequests = useCallback(async (
+     projectId: string,
+     { perPage = MERGE_REQUESTS_FULL_LIMIT }: { perPage?: number } = {},
+@@ -305,81 +275,43 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+       MERGE_REQUESTS_FULL_LIMIT,
+       Math.max(1, Math.floor(perPage)),
+     )
+-    const cacheEntry = getMergeRequestsCacheEntry()
+-    const cached = cacheEntry.dataByProjectId[projectId]
+-
+-    if (cached && (!cached.isPartial || normalizedPerPage <= MERGE_REQUESTS_PRELOAD_LIMIT)) {
+-      return cached.mergeRequests
++    if (!projectsCacheKey) {
++      throw new Error("Personal access token is required.")
+     }
+ 
+-    const requestKey = `${cacheEntry.key}::${projectId}::${normalizedPerPage}`
+-    const pendingRequest = mergeRequestsRequestRef.current.get(requestKey)
+-    if (pendingRequest) {
+-      return pendingRequest
++    const queryKey = mergeRequestsQueryKey(projectId, normalizedPerPage)
++    const cached = queryClient.getQueryData<MergeRequest[]>(queryKey)
++    if (cached !== undefined) {
++      return cached
+     }
+ 
+-    const request = (async () => {
+-      const data = (await callGitLab("merge-requests", {
+-        projectId,
+-        perPage: normalizedPerPage,
+-      })) as MergeRequest[]
+-      const isPartial =
+-        normalizedPerPage < MERGE_REQUESTS_FULL_LIMIT &&
+-        data.length >= normalizedPerPage
+-
+-      const currentEntry = mergeRequestsCacheRef.current
+-      if (currentEntry && currentEntry.key === cacheEntry.key) {
+-        const currentProjectData = currentEntry.dataByProjectId[projectId]
+-        if (!currentProjectData || currentProjectData.isPartial || !isPartial) {
+-          currentEntry.dataByProjectId[projectId] = {
+-            mergeRequests: data,
+-            isPartial,
+-          }
+-        }
+-      }
+-
+-      return data
+-    })()
+-
+-    mergeRequestsRequestRef.current.set(requestKey, request)
+-
+-    try {
+-      return await request
+-    } finally {
+-      mergeRequestsRequestRef.current.delete(requestKey)
+-    }
+-  }, [callGitLab, getMergeRequestsCacheEntry])
++    return queryClient.fetchQuery({
++      queryKey,
++      queryFn: () =>
++        callGitLab("merge-requests", {
++          projectId,
++          perPage: normalizedPerPage,
++        }) as Promise<MergeRequest[]>,
++      staleTime: ONBOARDING_QUERY_STALE_TIME,
++      gcTime: ONBOARDING_QUERY_GC_TIME,
++    })
++  }, [callGitLab, mergeRequestsQueryKey, projectsCacheKey, queryClient])
+ 
+   const fetchProjects = async ({ force = false }: { force?: boolean } = {}) => {
+     if (!projectsCacheKey) {
+       throw new Error("Personal access token is required.")
+     }
+ 
+-    const pendingRequest = projectsRequestRef.current
+-    if (pendingRequest && pendingRequest.key === projectsCacheKey) {
+-      return pendingRequest.promise
+-    }
+-
+-    const cachedEntry = projectsCacheRef.current
+-    if (!force && cachedEntry && cachedEntry.key === projectsCacheKey) {
+-      return cachedEntry.projects
++    if (force) {
++      await queryClient.invalidateQueries({ queryKey: projectsQueryKey(), exact: true })
+     }
+ 
+-    const request = (async () => {
+-      const data = (await callGitLab("projects")) as Project[]
+-      projectsCacheRef.current = { key: projectsCacheKey, projects: data }
+-      return data
+-    })()
+-
+-    projectsRequestRef.current = { key: projectsCacheKey, promise: request }
+-
+-    try {
+-      return await request
+-    } finally {
+-      if (projectsRequestRef.current?.promise === request) {
+-        projectsRequestRef.current = null
+-      }
+-    }
++    return queryClient.fetchQuery({
++      queryKey: projectsQueryKey(),
++      queryFn: () => callGitLab("projects") as Promise<Project[]>,
++      staleTime: ONBOARDING_QUERY_STALE_TIME,
++      gcTime: ONBOARDING_QUERY_GC_TIME,
++    })
+   }
+ 
+   const preloadProjectsForContinue = () => {
+@@ -493,21 +425,30 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     setSelectedMergeRequestId("")
+     setMergeRequestsError("")
+ 
+-    const cacheEntry = mergeRequestsCacheRef.current
+-    const cachedProjectData =
+-      cacheEntry && cacheEntry.key === projectsCacheKey
+-        ? cacheEntry.dataByProjectId[projectId]
+-        : undefined
++    const fullCacheKey = mergeRequestsQueryKey(projectId, MERGE_REQUESTS_FULL_LIMIT)
++    const preloadedCacheKey = mergeRequestsQueryKey(projectId, MERGE_REQUESTS_PRELOAD_LIMIT)
++    const cachedFullMergeRequests = queryClient.getQueryData<MergeRequest[]>(fullCacheKey)
++    const cachedPreloadedMergeRequests = queryClient.getQueryData<MergeRequest[]>(preloadedCacheKey)
++
++    if (cachedFullMergeRequests !== undefined) {
++      setMergeRequests(cachedFullMergeRequests)
++      router.push("/onboarding/mrs")
++      void trackEvent("onboarding_projects_selected", {
++        selectedProjectCount: projects.length,
++        projectId,
++      })
++      return
++    }
+ 
+-    if (cachedProjectData && cachedProjectData.mergeRequests.length > 0) {
+-      setMergeRequests(cachedProjectData.mergeRequests)
++    if (cachedPreloadedMergeRequests !== undefined) {
++      setMergeRequests(cachedPreloadedMergeRequests)
+       router.push("/onboarding/mrs")
+       void trackEvent("onboarding_projects_selected", {
+         selectedProjectCount: projects.length,
+         projectId,
+       })
+ 
+-      if (cachedProjectData.isPartial) {
++      if (cachedPreloadedMergeRequests.length >= MERGE_REQUESTS_PRELOAD_LIMIT) {
+         void loadMergeRequests(projectId, {
+           skipNavigation: true,
+           skipTracking: true,
+@@ -548,30 +489,6 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     if (Array.isArray(persisted.projects)) {
+       const persistedProjects = persisted.projects as Project[]
+       setProjects(persistedProjects)
+-      if (
+-        isNonEmptyString(persisted.token) &&
+-        (isNonEmptyString(persisted.gitlabInstance) ||
+-          isNonEmptyString(persisted.customInstance))
+-      ) {
+-        try {
+-          const persistedInstance = isNonEmptyString(persisted.gitlabInstance)
+-            ? persisted.gitlabInstance
+-            : INSTANCE_PRESETS[0]
+-          const persistedCustomInstance = isNonEmptyString(persisted.customInstance)
+-            ? persisted.customInstance
+-            : ""
+-          const normalizedInstance = resolveGitLabInstance(
+-            persistedInstance,
+-            persistedCustomInstance,
+-          )
+-          projectsCacheRef.current = {
+-            key: buildProjectsCacheKey(normalizedInstance, persisted.token),
+-            projects: persistedProjects,
+-          }
+-        } catch {
+-          projectsCacheRef.current = null
+-        }
+-      }
+     }
+     if (isNonEmptyString(persisted.selectedProjectId)) {
+       setSelectedProjectId(persisted.selectedProjectId)
+@@ -665,9 +582,18 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+         const batch = projectIds.slice(i, i + MERGE_REQUESTS_PRELOAD_CONCURRENCY)
+         await Promise.allSettled(
+           batch.map((projectId) =>
+-            fetchMergeRequests(projectId, {
+-              perPage: MERGE_REQUESTS_PRELOAD_LIMIT,
+-            }).catch(() => null),
++            queryClient
++              .prefetchQuery({
++                queryKey: mergeRequestsQueryKey(projectId, MERGE_REQUESTS_PRELOAD_LIMIT),
++                queryFn: () =>
++                  callGitLab("merge-requests", {
++                    projectId,
++                    perPage: MERGE_REQUESTS_PRELOAD_LIMIT,
++                  }) as Promise<MergeRequest[]>,
++                staleTime: ONBOARDING_PREFETCH_STALE_TIME,
++                gcTime: ONBOARDING_QUERY_GC_TIME,
++              })
++              .catch(() => null),
+           ),
+         )
+       }
+@@ -678,7 +604,15 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     return () => {
+       cancelled = true
+     }
+-  }, [isHydrated, routeStep, projectsCacheKey, projects, fetchMergeRequests])
++  }, [
++    callGitLab,
++    isHydrated,
++    mergeRequestsQueryKey,
++    projects,
++    projectsCacheKey,
++    queryClient,
++    routeStep,
++  ])
+ 
+   useEffect(() => {
+     if (
+diff --git a/src/components/query-provider.tsx b/src/components/query-provider.tsx
+new file mode 100644
+index 00000000..24fc2f66
+--- /dev/null
++++ b/src/components/query-provider.tsx
+@@ -0,0 +1,22 @@
++"use client"
++
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
++import { useState, type ReactNode } from "react"
++
++const createQueryClient = () =>
++  new QueryClient({
++    defaultOptions: {
++      queries: {
++        staleTime: 5 * 60_000,
++        gcTime: 30 * 60_000,
++        retry: 1,
++        refetchOnWindowFocus: false,
++        refetchOnReconnect: false,
++      },
++    },
++  })
++
++export const QueryProvider = ({ children }: { children: ReactNode }) => {
++  const [queryClient] = useState(createQueryClient)
++  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
++}
