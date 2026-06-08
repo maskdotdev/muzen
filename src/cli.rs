@@ -16,7 +16,6 @@ use crate::context_engine::{
     ContextSemanticMode, SnapshotContextEngine,
 };
 use crate::contracts::*;
-use crate::events::EventEmitter;
 use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
 use crate::reviewer::canaries::{
     export_canary_evidence_manifest, export_model_provider_canary_evidence,
@@ -27,7 +26,7 @@ use crate::reviewer::canaries::{
     EnvCredentialResolver, ModelProviderCanaryEvidence, OpenAiProviderCanaryConfig,
 };
 use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
-use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_events};
+use crate::runtime::bench::run_job_concurrent;
 use crate::runtime::repo::RepoSnapshot;
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 
@@ -56,7 +55,7 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
-    /// Run a ReviewRunJobV1 from JSON and emit JSONL RunEventV1 records.
+    /// Run a ReviewRunJobV1 from JSON.
     Run(RunArgs),
     /// Convenience benchmark wrapper that builds a ReviewRunJobV1 for a repo.
     Bench(BenchArgs),
@@ -439,7 +438,6 @@ pub(crate) struct CanaryPublicationPreflightConfig {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CanaryProviderBaseUrlSource {
     ExplicitArgument,
-    OaiBaseUrlEnv,
     OpenAiBaseUrlEnv,
     Default,
 }
@@ -571,12 +569,7 @@ pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
     }
     let job: ReviewRunJobV1 =
         serde_json::from_str(&input).context("invalid ReviewRunJobV1 JSON")?;
-    let emitter = Arc::new(EventEmitter::stdout(
-        job.run_id.clone(),
-        job.attempt,
-        job.output_redaction.policy_id.clone(),
-    ));
-    let report = run_job_concurrent_with_events(job, Some(emitter))?;
+    let report = run_job_concurrent(job)?;
     Ok(if report.completed_sessions == report.sessions {
         0
     } else {
@@ -1078,9 +1071,6 @@ fn effective_provider_base_url(
             base_url.clone(),
             CanaryProviderBaseUrlSource::ExplicitArgument,
         );
-    }
-    if let Some(base_url) = non_empty_env(env_lookup, "OAI_BASE_URL") {
-        return (base_url, CanaryProviderBaseUrlSource::OaiBaseUrlEnv);
     }
     if let Some(base_url) = non_empty_env(env_lookup, "OPENAI_BASE_URL") {
         return (base_url, CanaryProviderBaseUrlSource::OpenAiBaseUrlEnv);

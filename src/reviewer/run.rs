@@ -17,7 +17,6 @@ use crate::runtime::tools::{
 
 use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1};
 use crate::contracts::{FindingPublishability, FindingV1, ReportStatus, ValidationStatus};
-use crate::events::EventEmitter;
 use crate::runtime::agent_sessions::AgentSessionRuntime;
 use crate::runtime::contracts::AgentSessionOutput;
 use crate::runtime::planned_units::{session_semaphore, PlannedReviewRuntime};
@@ -39,7 +38,6 @@ pub struct RunBuilder {
     tool_registry: Option<Arc<RuntimeToolRegistry>>,
     reviewer_policy: Option<Arc<ReviewerPolicy>>,
     event_sink: Option<Arc<dyn RuntimeEventSink>>,
-    legacy_event_emitter: Option<Arc<EventEmitter>>,
     context_engine: Option<Arc<dyn ContextEngine>>,
 }
 
@@ -51,7 +49,6 @@ impl RunBuilder {
             tool_registry: None,
             reviewer_policy: None,
             event_sink: None,
-            legacy_event_emitter: None,
             context_engine: None,
         }
     }
@@ -93,11 +90,6 @@ impl RunBuilder {
 
     pub fn review_event_sink(mut self, event_sink: Arc<dyn ReviewEventSink>) -> Self {
         self.event_sink = Some(Arc::new(ReviewEventSinkAdapter::new(event_sink)));
-        self
-    }
-
-    pub(crate) fn legacy_event_emitter(mut self, emitter: Option<Arc<EventEmitter>>) -> Self {
-        self.legacy_event_emitter = emitter;
         self
     }
 
@@ -191,7 +183,6 @@ impl RunBuilder {
             reviewer_policy,
             context_engine,
             event_sink: self.event_sink,
-            legacy_event_emitter: self.legacy_event_emitter,
         })
     }
 }
@@ -206,7 +197,6 @@ pub struct Run {
     reviewer_policy: Arc<ReviewerPolicy>,
     context_engine: Arc<dyn ContextEngine>,
     event_sink: Option<Arc<dyn RuntimeEventSink>>,
-    legacy_event_emitter: Option<Arc<EventEmitter>>,
 }
 
 pub(crate) struct RunShard {
@@ -263,7 +253,6 @@ impl Run {
         let mut joins = tokio::task::JoinSet::new();
         for (index, shard) in self.shards.into_iter().enumerate() {
             let event_sink = self.event_sink.clone();
-            let legacy_event_emitter = self.legacy_event_emitter.clone();
             let run_id = self.run_id.clone();
             let model_router = Arc::clone(&self.model_router);
             let reviewer_policy = Arc::clone(&self.reviewer_policy);
@@ -399,7 +388,7 @@ impl Run {
                     }
                 }
                 let events =
-                    RuntimeEventDispatcher::new(shard_event_sink.clone(), legacy_event_emitter);
+                    RuntimeEventDispatcher::new(shard_event_sink.clone());
                 let tools = Arc::clone(&shard.tools);
                 let outcome = match mode {
                     RunMode::PlannedReview => {

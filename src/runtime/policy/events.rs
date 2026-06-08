@@ -1,7 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::contracts::{EventLevel, EventType, ToolName};
-use crate::events::EventRecord;
+use crate::contracts::ToolName;
 use crate::runtime::contracts::{
     ArtifactView, RuntimeError, RuntimeEvent, RuntimeEventContext, SessionId, SessionScope,
     ToolErrorCode, ToolResultEnvelope, TurnId,
@@ -72,19 +71,6 @@ impl ReviewerPolicy {
         })
     }
 
-    pub(crate) fn plan_model_router_error_event(
-        &self,
-        scope: &SessionScope,
-        error: &RuntimeError,
-    ) -> EventRecord {
-        EventRecord::new(
-            EventLevel::Error,
-            EventType::Error,
-            json!({"error": redacted_error_message(error)}),
-        )
-        .session_id(scope.id.0.clone())
-    }
-
     pub(crate) fn plan_tool_batch_started_runtime_event(
         &self,
         scope: &SessionScope,
@@ -99,50 +85,6 @@ impl ReviewerPolicy {
             turn_id,
             count,
         }))
-    }
-
-    pub(crate) fn plan_artifact_recorded_event(
-        &self,
-        scope: &SessionScope,
-        result: &ToolResultEnvelope,
-    ) -> Option<EventRecord> {
-        result.artifact_id.as_ref().map(|artifact_id| {
-            EventRecord::new(
-                EventLevel::Info,
-                EventType::ArtifactRecorded,
-                json!({
-                    "toolName": result.tool_name.as_str(),
-                    "status": tool_status(result),
-                    "summary": artifact_event_summary(result),
-                }),
-            )
-            .session_id(scope.id.0.clone())
-            .tool_call_id(result.tool_call_id.0.clone())
-            .artifact_id(artifact_id.0.clone())
-        })
-    }
-
-    pub(crate) fn plan_tool_call_completed_event(
-        &self,
-        scope: &SessionScope,
-        result: &ToolResultEnvelope,
-    ) -> EventRecord {
-        EventRecord::new(
-            if result.ok {
-                EventLevel::Info
-            } else {
-                EventLevel::Warn
-            },
-            EventType::ToolCallCompleted,
-            json!({
-                "toolName": result.tool_name.as_str(),
-                "status": tool_status(result),
-                "errorCode": result.error.as_ref().map(|error| error.code),
-                "errorMessage": result.error.as_ref().map(|error| error.message.as_str()),
-            }),
-        )
-        .session_id(scope.id.0.clone())
-        .tool_call_id(result.tool_call_id.0.clone())
     }
 
     pub(crate) fn plan_tool_result_runtime_events(
@@ -233,14 +175,6 @@ pub(crate) struct ToolResultRuntimeEventPlan {
 pub(crate) struct PlannedRuntimeEvent {
     pub(crate) context: RuntimeEventContext,
     pub(crate) event: RuntimeEvent,
-}
-
-fn tool_status(result: &ToolResultEnvelope) -> &'static str {
-    if result.ok {
-        "ok"
-    } else {
-        "error"
-    }
 }
 
 fn artifact_event_summary(result: &ToolResultEnvelope) -> String {

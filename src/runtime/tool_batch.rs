@@ -120,7 +120,7 @@ mod tests {
         let policy = ReviewerPolicy::new();
         let runtime_sink = Arc::new(RecordingRuntimeSink::default());
         let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
-        let dispatcher = RuntimeEventDispatcher::new(Some(sink), None);
+        let dispatcher = RuntimeEventDispatcher::new(Some(sink));
         let runner = ToolBatchRunner::new(&policy, &tools, &dispatcher);
         let scope = test_scope("tool-batch-session");
 

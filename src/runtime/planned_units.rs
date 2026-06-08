@@ -9,12 +9,10 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
-    ArtifactKind, ByteRangeV1, EventLevel, EventType, EvidenceLocationV1, EvidenceRefV1,
-    EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
-    RedactionMetadataV1, RedactionState, ReportStatus, Role, TokenUsage, ToolCounts, ToolName,
-    ValidationStatus,
+    ArtifactKind, ByteRangeV1, EvidenceLocationV1, EvidenceRefV1, EvidenceRevision, FileReviewV1,
+    FindingPublishability, FindingSeverity, FindingV1, LineRangeV1, RedactionMetadataV1,
+    RedactionState, ReportStatus, Role, TokenUsage, ToolCounts, ToolName, ValidationStatus,
 };
-use crate::events::EventRecord;
 use crate::review_plan::ReviewPlanFileMode;
 use crate::review_plan::{build_review_plan, ReviewPlan};
 use crate::review_units::{build_review_unit_plan, PlannedReviewUnit, ReviewUnitOptions};
@@ -59,20 +57,6 @@ impl PlannedReviewRuntime {
             build_contract_risk_plan(&review_plan, self.snapshot.diff.content.as_str());
         let review_plan = Arc::new(review_plan);
         let contract_risk = Arc::new(contract_risk);
-        self.events.emit_legacy(EventRecord::new(
-            EventLevel::Info,
-            EventType::ToolCallCompleted,
-            json!({
-                "plannedReview": {
-                    "totalFiles": review_plan.counts.total_files,
-                    "excludedFiles": review_plan.counts.excluded_files,
-                    "fullFiles": review_plan.counts.full_files,
-                    "units": unit_plan.counts.total_units,
-                    "contractRiskUnits": contract_risk.risky_unit_count(),
-                    "contractSeedCount": contract_risk.seed_count(),
-                }
-            }),
-        ));
         let mut completed_sessions = 0usize;
         let mut model_calls = 0usize;
         let mut model_metrics = ModelMetricsSnapshot::default();
@@ -315,9 +299,7 @@ impl PlannedReviewRuntime {
             .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+            Err(_error) => {
                 self.events.emit_planned_runtime(
                     self.policy
                         .plan_session_finished_runtime_event(&scope, "failed"),
@@ -561,9 +543,7 @@ impl PlannedReviewRuntime {
             final_synthesis_scope(&self.snapshot.snapshot_id, self.session_templates.first());
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+            Err(_error) => {
                 return FinalSynthesisReport::empty(final_synthesis_diagnostic(
                     false,
                     "model_router_failed",
@@ -690,8 +670,6 @@ impl PlannedReviewRuntime {
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
             Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
                 return FindingChallengeReport::empty(finding_challenge_diagnostic(
                     false,
                     "model_router_failed",
@@ -1120,10 +1098,12 @@ impl ContractRiskPlan {
         self.by_unit.get(&unit.id).unwrap_or(&NO_CONTRACT_RISK)
     }
 
+    #[cfg(test)]
     fn risky_unit_count(&self) -> usize {
         self.by_unit.values().filter(|risk| risk.high_risk).count()
     }
 
+    #[cfg(test)]
     fn seed_count(&self) -> usize {
         self.by_unit
             .values()
@@ -4166,7 +4146,7 @@ mod tests {
             policy: Arc::new(ReviewerPolicy::new()),
             limits,
             review_revision_id: "head".to_string(),
-            events: RuntimeEventDispatcher::new(None, None),
+            events: RuntimeEventDispatcher::new(None),
             session_templates,
             active_sessions,
         });

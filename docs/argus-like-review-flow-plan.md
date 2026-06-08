@@ -377,8 +377,8 @@ The run aggregator should combine:
 - model/tool metrics
 - artifacts/evidence
 
-The final result should still project to current `ReviewRunResultV1` and runner
-protocol shapes for compatibility.
+The final result should still project to current runner protocol shapes for
+compatibility.
 
 ## Compatibility Strategy
 

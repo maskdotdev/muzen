@@ -440,8 +440,7 @@ impl OpenAiProviderCanaryConfig {
                 .ok()
                 .as_deref()
                 == Some("1"),
-            base_url: std::env::var("OAI_BASE_URL")
-                .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            base_url: std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
             credential_ref: "env:OPENAI_API_KEY".to_string(),
             model: std::env::var("MUZEN_REAL_PROVIDER_MODEL").unwrap_or(default_model),

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,54 +324,6 @@ impl ToolMask {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RunEventV1 {
-    pub(crate) schema_version: &'static str,
-    pub(crate) event_id: String,
-    pub(crate) run_id: String,
-    pub(crate) attempt: u32,
-    pub(crate) seq: u64,
-    pub(crate) timestamp_utc: String,
-    pub(crate) level: EventLevel,
-    pub(crate) event_type: EventType,
-    pub(crate) session_id: Option<String>,
-    pub(crate) tool_call_id: Option<String>,
-    pub(crate) artifact_id: Option<String>,
-    pub(crate) finding_id: Option<String>,
-    pub(crate) payload: Value,
-    pub(crate) redaction: RedactionMetadataV1,
-    pub(crate) trace: EventTraceV1,
-}
-
-#[derive(Debug, Copy, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum EventLevel {
-    Info,
-    Warn,
-    Error,
-}
-
-// V1 wire contracts intentionally reserve states the concurrent MVP does not emit yet.
-#[derive(Debug, Copy, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub(crate) enum EventType {
-    RunStarted,
-    SessionStarted,
-    ModelCallStarted,
-    ModelCallCompleted,
-    ToolCallRequested,
-    ToolCallCompleted,
-    ArtifactRecorded,
-    FindingCandidate,
-    FindingValidated,
-    BudgetUpdate,
-    SessionFinished,
-    RunFinished,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct RedactionMetadataV1 {
     pub(crate) redaction_state: RedactionState,
     pub(crate) redaction_policy_id: String,
@@ -391,33 +342,6 @@ pub(crate) enum RedactionState {
     Full,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct EventTraceV1 {
-    pub(crate) parent_event_id: Option<String>,
-    pub(crate) correlation_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ReviewRunResultV1 {
-    pub(crate) schema_version: &'static str,
-    pub(crate) run_id: String,
-    pub(crate) attempt: u32,
-    pub(crate) runtime: ReviewRuntimeV1,
-    pub(crate) outcome: ReviewOutcomeV1,
-    pub(crate) publishability: Publishability,
-    pub(crate) sessions: usize,
-    pub(crate) completed_sessions: usize,
-    pub(crate) file_reviews: Vec<FileReviewV1>,
-    pub(crate) findings: Vec<FindingV1>,
-    pub(crate) tool_counts: ToolCounts,
-    pub(crate) model_calls: usize,
-    pub(crate) tokens: TokenUsage,
-    pub(crate) artifact_stats: ArtifactStats,
-    pub(crate) elapsed_ms: u64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileReviewV1 {
@@ -431,12 +355,6 @@ pub struct FileReviewV1 {
     pub evidence_count: usize,
     pub session_id: String,
     pub unit_id: String,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ReviewRuntimeV1 {
-    Concurrent,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
@@ -471,14 +389,6 @@ pub(crate) enum ArtifactKind {
     ImportSummary,
     ToolSummary,
     RedactedView,
-}
-
-#[derive(Debug, Default, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ArtifactStats {
-    pub(crate) artifacts: usize,
-    pub(crate) artifact_bytes: usize,
-    pub(crate) content_refs: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
