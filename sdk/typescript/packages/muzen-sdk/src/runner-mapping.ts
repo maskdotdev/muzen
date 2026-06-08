@@ -73,6 +73,7 @@ export function toRunnerStartParams(
     })),
     heartbeat: mapReviewHeartbeat(options),
     contextEngine: options.contextEngine,
+    qualityMode: options.qualityMode,
   };
   if (source.type === "local") {
     params.repo = source.repo;
@@ -288,7 +289,7 @@ function addHostedProfile(
     profileId: requestedId,
     profile: {
       id: requestedId,
-      provider: model.provider,
+      provider: runnerProviderForHostedModel(model.provider),
       model: model.model,
       credential: model.credential,
       baseUrl: model.baseUrl,
@@ -301,6 +302,13 @@ function addHostedProfile(
   };
   profiles.set(key, planned);
   return planned;
+}
+
+function runnerProviderForHostedModel(provider: ReviewHostedModelSpec["provider"]): string {
+  if (provider === "openai") {
+    return "openai_compatible";
+  }
+  return provider;
 }
 
 function hostedProfileKey(model: ReviewHostedModelSpec): string {

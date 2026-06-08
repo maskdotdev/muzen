@@ -344,6 +344,7 @@ impl CreateReviewSessionInput {
             heartbeat: None,
             mode: None,
             context_engine: self.options.context_engine,
+            quality_mode: None,
         })
     }
 }

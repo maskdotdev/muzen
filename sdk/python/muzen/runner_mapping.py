@@ -55,6 +55,7 @@ def _to_runner_start_params(
         "model": model_plan["runnerModel"],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
         "contextEngine": _context_engine_to_runner(options.context_engine),
+        "qualityMode": options.quality_mode,
     }
     if source.type == "local":
         payload["repo"] = source.repo
@@ -166,7 +167,7 @@ def _add_hosted_profile(
         return profiles[key]["id"]
     profiles[key] = {
         "id": profile_id,
-        "provider": model.provider,
+        "provider": _runner_provider_for_hosted_model(model.provider),
         "model": model.model,
         "credential": _credential_to_runner(model.credential),
         "baseUrl": model.base_url,
@@ -177,6 +178,12 @@ def _add_hosted_profile(
         "topP": model.top_p,
     }
     return profile_id
+
+
+def _runner_provider_for_hosted_model(provider: str) -> str:
+    if provider == "openai":
+        return "openai_compatible"
+    return provider
 
 
 def _credential_to_runner(credential: Any) -> Dict[str, str]:

@@ -2,12 +2,12 @@
 
 These benchmarks run the production reviewer path and then score the emitted
 findings against golden issues. They must not synthesize model tool turns,
-hardcode exploration, or bypass `muzen run`.
+hardcode exploration, or bypass `muzen-runner stdio`.
 
 Build the production runner first:
 
 ```sh
-cargo build --release --bin muzen
+cargo build --release --bin muzen-runner
 ```
 
 Run a materialized pull-request worktree:
@@ -16,7 +16,7 @@ Run a materialized pull-request worktree:
 MODEL=gpt-4o-mini node bench/review-quality/run-production-review.mjs \
   --repo /tmp/cal-pr-11059-worktree \
   --base-ref aci-martian/pr-11059-base \
-  --runner-path target/release/muzen \
+  --runner-path target/release/muzen-runner \
   --golden bench/review-quality/goldens/cal-pr-11059.json \
   --sessions 11 \
   --max-active 4 \
@@ -30,17 +30,19 @@ production harness:
 MODEL=gpt-4o-mini node bench/review-quality/run-github-pr-review.mjs \
   --repo-slug calcom/cal.com \
   --pr 11059 \
-  --runner-path target/release/muzen \
+  --runner-path target/release/muzen-runner \
   --golden bench/review-quality/goldens/cal-pr-11059.json \
   --sessions 11 \
   --max-active 4 \
   --output bench/results-review-quality/cal-pr-11059.json
 ```
 
-The harness builds a `ReviewRunJobV1` from git metadata, invokes
-`muzen run --job`, stores the JSONL event log, parses the final production review
-result, and reports hit rate, false positives, token/tool metrics, and candidate
-synthesis diagnostics.
+The harness builds a `run.start` request from git metadata, invokes
+`muzen-runner stdio`, stores the JSON-RPC frames, parses the final runner result,
+and reports hit rate, false positives, token/tool metrics, and candidate
+synthesis diagnostics. `--sessions` configures requested runner session
+templates; current planned-runtime results also expose `reviewUnits` and
+`completedReviewUnits` because execution is scheduled by planned review units.
 
 Summarize one or more result files:
 
