@@ -165,8 +165,6 @@ impl AgentSessionRuntime {
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
             Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
                 self.events.emit_planned_runtime(
                     self.policy
                         .plan_session_finished_runtime_event(&scope, "failed"),

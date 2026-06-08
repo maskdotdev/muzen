@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::contracts::TokenUsage;
 use crate::runtime::contracts::{
     CapabilitySet, ConcurrentRunReport, FsScope, RuntimeLimits, SnapshotStoragePolicy, ToolGrant,
     ToolId,
@@ -8,23 +7,14 @@ use crate::runtime::contracts::{
 use crate::runtime::model::{EnvCredentialResolver, ModelLimiter, ProfileModelRouter};
 use crate::runtime::tools::ToolRegistry as RuntimeToolRegistry;
 
-use crate::contracts::{
-    EventLevel, EventType, Publishability, ReviewRunJobV1, ReviewRunResultV1, ReviewRuntimeV1,
-    ToolMask, ToolName,
-};
-use crate::events::{EventEmitter, EventRecord};
+use crate::contracts::{ReviewRunJobV1, ToolMask, ToolName};
 use crate::job::{effective_personas, tool_allowed, validate_job};
 use crate::runtime::policy::ReviewerPolicy;
-use crate::util::SCHEMA_VERSION;
 
-use crate::reviewer::report::*;
 use crate::reviewer::run::*;
 use crate::reviewer::snapshots::*;
 use crate::reviewer::spec::*;
-pub(crate) fn run_review_job_with_events(
-    job: ReviewRunJobV1,
-    emitter: Option<Arc<EventEmitter>>,
-) -> anyhow::Result<ConcurrentRunReport> {
+pub(crate) fn run_review_job(job: ReviewRunJobV1) -> anyhow::Result<ConcurrentRunReport> {
     validate_job(&job)?;
     let registry = Arc::new(
         RuntimeToolRegistry::review_defaults()
@@ -37,8 +27,7 @@ pub(crate) fn run_review_job_with_events(
     );
     limits.max_tool_calls_per_turn = 4;
     limits.max_model_concurrency_global = job.budgets.max_active_sessions.max(1);
-    let base_url = std::env::var("OAI_BASE_URL")
-        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+    let base_url = std::env::var("OPENAI_BASE_URL")
         .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
     let router = ProfileModelRouter::from_profiles(
         &job.model_profiles,
@@ -56,25 +45,8 @@ pub(crate) fn run_review_job_with_events(
     let run = Run::builder(run_spec_from_job(&job, limits))
         .model_router(Arc::new(router))
         .shared_tool_registry(registry)
-        .legacy_event_emitter(emitter.clone())
         .build()
         .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let session_count = run
-        .shards
-        .iter()
-        .map(|shard| shard.sessions.len())
-        .sum::<usize>();
-    if let Some(emitter) = &emitter {
-        emitter.emit(EventRecord::new(
-            EventLevel::Info,
-            EventType::RunStarted,
-            serde_json::json!({
-            "projectId": job.project_id,
-            "sessions": session_count,
-            "runtime": "concurrent"
-            }),
-        ));
-    }
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(num_cpus::get().clamp(2, 8))
         .enable_all()
@@ -82,42 +54,6 @@ pub(crate) fn run_review_job_with_events(
         .map_err(|error| anyhow::anyhow!("failed to build tokio runtime: {error}"))?;
     let run_report = tokio_runtime.block_on(run.execute());
     let report = run_report.metrics.clone();
-    if let Some(emitter) = &emitter {
-        emitter.emit(EventRecord::new(
-            EventLevel::Info,
-            EventType::RunFinished,
-            serde_json::json!(ReviewRunResultV1 {
-                schema_version: SCHEMA_VERSION,
-                run_id: job.run_id,
-                attempt: job.attempt,
-                runtime: ReviewRuntimeV1::Concurrent,
-                outcome: concurrent_review_outcome(&report, run_report.findings.len()),
-                publishability: if report.completed_sessions == report.sessions {
-                    Publishability::Publishable
-                } else {
-                    Publishability::DiagnosticOnly
-                },
-                sessions: report.sessions,
-                completed_sessions: report.completed_sessions,
-                file_reviews: run_report.file_reviews.clone(),
-                findings: run_report.findings,
-                tool_counts: report.tool_counts,
-                model_calls: report.model_calls,
-                tokens: TokenUsage {
-                    input_tokens: report.input_tokens,
-                    output_tokens: report.output_tokens,
-                    total_tokens: report.total_tokens,
-                    cached_input_tokens: report.cached_input_tokens,
-                },
-                artifact_stats: crate::contracts::ArtifactStats {
-                    artifacts: report.artifacts,
-                    artifact_bytes: report.artifact_bytes,
-                    content_refs: report.artifacts,
-                },
-                elapsed_ms: report.elapsed_ms,
-            }),
-        ));
-    }
     Ok(report)
 }
 

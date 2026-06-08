@@ -56,15 +56,7 @@ impl<'a> ToolResultEffectProcessor<'a> {
     ) {
         let mut artifact = None;
         if let Some(artifact_id) = &result.artifact_id {
-            if let Some(event) = self.policy.plan_artifact_recorded_event(scope, &result) {
-                self.events.emit_legacy(event);
-            }
             artifact = self.tools.artifacts.get(artifact_id);
-            self.events
-                .emit_legacy(self.policy.plan_tool_call_completed_event(scope, &result));
-        } else {
-            self.events
-                .emit_legacy(self.policy.plan_tool_call_completed_event(scope, &result));
         }
         let runtime_events = self.policy.plan_tool_result_runtime_events(
             scope,
@@ -172,7 +164,7 @@ mod tests {
         let policy = ReviewerPolicy::new();
         let runtime_sink = Arc::new(RecordingRuntimeSink::default());
         let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
-        let dispatcher = RuntimeEventDispatcher::new(Some(sink), None);
+        let dispatcher = RuntimeEventDispatcher::new(Some(sink));
         let processor =
             ToolResultEffectProcessor::new(&policy, &tools, &dispatcher, &change.head_revision_id);
         let scope = test_scope("effects-session");

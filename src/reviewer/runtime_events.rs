@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -149,18 +148,8 @@ pub struct RuntimeEventJsonlManifest {
 pub struct RuntimeEventJsonlLoad {
     pub path: PathBuf,
     pub record_count: usize,
-    pub migration: RuntimeEventJsonlMigrationReport,
     pub records: Vec<RuntimeEventRecord>,
 }
-
-#[derive(Debug, Clone)]
-pub struct RuntimeEventJsonlMigrationReport {
-    pub current_schema_version: String,
-    pub source_schema_versions: BTreeMap<String, usize>,
-    pub migrated_records: usize,
-}
-
-pub const LEGACY_CONTEXTLESS_EVENT_LOG_SCHEMA_VERSION: &str = "heimdaal.review-run.v0.contextless";
 
 pub fn export_event_records_jsonl(
     path: impl AsRef<Path>,
@@ -175,8 +164,6 @@ pub fn load_event_records_jsonl(path: impl AsRef<Path>) -> RuntimeResult<Runtime
         RuntimeError::RepoUnavailable(format!("failed to read event log: {error}"))
     })?;
     let mut records = Vec::new();
-    let mut source_schema_versions = BTreeMap::new();
-    let mut migrated_records = 0usize;
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -187,31 +174,20 @@ pub fn load_event_records_jsonl(path: impl AsRef<Path>) -> RuntimeResult<Runtime
                 index + 1
             ))
         })?;
-        *source_schema_versions
-            .entry(record.schema_version.clone())
-            .or_insert(0) += 1;
-        let context = match record.schema_version.as_str() {
-            SCHEMA_VERSION => record.context.ok_or_else(|| {
-                RuntimeError::InvalidInput(format!(
-                    "missing event log context at line {} for schemaVersion {}",
-                    index + 1,
-                    SCHEMA_VERSION
-                ))
-            })?,
-            LEGACY_CONTEXTLESS_EVENT_LOG_SCHEMA_VERSION => {
-                migrated_records += 1;
-                record
-                    .context
-                    .unwrap_or_else(|| RuntimeEventContext::from_event(&record.event))
-            }
-            _ => {
-                return Err(RuntimeError::InvalidInput(format!(
-                    "unsupported event log schemaVersion {} at line {}",
-                    record.schema_version,
-                    index + 1
-                )))
-            }
-        };
+        if record.schema_version != SCHEMA_VERSION {
+            return Err(RuntimeError::InvalidInput(format!(
+                "unsupported event log schemaVersion {} at line {}",
+                record.schema_version,
+                index + 1
+            )));
+        }
+        let context = record.context.ok_or_else(|| {
+            RuntimeError::InvalidInput(format!(
+                "missing event log context at line {} for schemaVersion {}",
+                index + 1,
+                SCHEMA_VERSION
+            ))
+        })?;
         records.push(RuntimeEventRecord {
             seq: record.seq,
             timestamp_utc: record.timestamp_utc,
@@ -222,11 +198,6 @@ pub fn load_event_records_jsonl(path: impl AsRef<Path>) -> RuntimeResult<Runtime
     Ok(RuntimeEventJsonlLoad {
         path: path.to_path_buf(),
         record_count: records.len(),
-        migration: RuntimeEventJsonlMigrationReport {
-            current_schema_version: SCHEMA_VERSION.to_string(),
-            source_schema_versions,
-            migrated_records,
-        },
         records,
     })
 }

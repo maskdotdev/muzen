@@ -11,7 +11,7 @@ use crate::runtime::contracts::{
     ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 
-use crate::contracts::{FileReviewV1, FindingV1, ReviewOutcomeV1};
+use crate::contracts::{FileReviewV1, FindingV1};
 
 use crate::reviewer::adapters::metrics;
 use crate::reviewer::adapters::{capabilities, tool_adapters};
@@ -552,17 +552,4 @@ impl ArtifactView {
 #[derive(Debug, Clone)]
 pub struct RunHandle {
     pub run_id: String,
-}
-
-pub(crate) fn concurrent_review_outcome(
-    report: &ConcurrentRunReport,
-    findings: usize,
-) -> ReviewOutcomeV1 {
-    if report.completed_sessions < report.sessions {
-        ReviewOutcomeV1::FailedPartial
-    } else if findings > 0 {
-        ReviewOutcomeV1::CompletedWithFindings
-    } else {
-        ReviewOutcomeV1::CompletedNoFindings
-    }
 }
