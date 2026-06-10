@@ -299,10 +299,14 @@ fn is_duplicate_finding(left: &RunnerFinding, right: &RunnerFinding) -> bool {
     if left_location.path != right_location.path {
         return false;
     }
-    if !line_ranges_near(left_location, right_location, 3) {
-        return false;
+    let overlap = finding_token_overlap(&left_text, &right_text);
+    if line_ranges_near(left_location, right_location, 3) {
+        return overlap >= 0.4;
     }
-    finding_token_overlap(&left_text, &right_text) >= 0.5
+    // Models sometimes anchor the same bug to a different spot in the file
+    // (e.g. the enclosing function signature), so a strong content match
+    // still counts as a duplicate within one file.
+    overlap >= 0.55
 }
 
 fn line_ranges_near(

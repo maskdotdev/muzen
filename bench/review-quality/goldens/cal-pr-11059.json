@@ -4,31 +4,91 @@
       "id": "cal-11059-return-shape-refresh-token",
       "title": "Refresh-token helper returns the wrong app credential shape",
       "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
-      "keywords": ["credential", "refresh", "return"]
+      "keywords": [
+        [
+          "credential",
+          "token"
+        ],
+        "refresh",
+        "return"
+      ]
     },
     {
       "id": "cal-11059-google-calendar-return-shape",
-      "title": "Google Calendar callback expects the refreshed credential shape",
-      "path": "packages/app-store/googlecalendar/api/callback.ts",
-      "keywords": ["credential", "refresh", "return"]
+      "title": "Google Calendar refresh consumer reads token fields the sync response does not provide",
+      "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "keywords": [
+        [
+          "credential",
+          "token"
+        ],
+        "refresh",
+        [
+          "return",
+          "token"
+        ]
+      ]
     },
     {
       "id": "cal-11059-office365-calendar-return-shape",
-      "title": "Office 365 Calendar callback expects the refreshed credential shape",
-      "path": "packages/app-store/office365calendar/api/callback.ts",
-      "keywords": ["credential", "refresh", "return"]
+      "title": "Office 365 Calendar refresh consumer parses the sync response as token JSON",
+      "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "keywords": [
+        [
+          "credential",
+          "token"
+        ],
+        "refresh",
+        [
+          "return",
+          "token"
+        ]
+      ]
     },
     {
       "id": "cal-11059-zoom-video-return-shape",
-      "title": "Zoom video callback expects the refreshed credential shape",
-      "path": "packages/app-store/zoomvideo/api/callback.ts",
-      "keywords": ["credential", "refresh", "return"]
+      "title": "Zoom video refresh consumer parses the sync response as token JSON",
+      "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+      "keywords": [
+        [
+          "credential",
+          "token"
+        ],
+        "refresh",
+        [
+          "return",
+          "token"
+        ]
+      ]
+    },
+    {
+      "id": "cal-11059-zoho-bigin-return-shape",
+      "title": "Zoho Bigin refresh consumer reads .data from the sync-branch fetch Response",
+      "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+      "keywords": [
+        ["credential", "token"],
+        "refresh",
+        ["return", "token"]
+      ]
+    },
+    {
+      "id": "cal-11059-zohocrm-return-shape",
+      "title": "Zoho CRM refresh consumer reads .data from the sync-branch fetch Response",
+      "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+      "keywords": [
+        ["credential", "token"],
+        "refresh",
+        ["return", "token"]
+      ]
     },
     {
       "id": "cal-11059-webhook-credential-ownership",
       "title": "Webhook-created app credential is not tied to the expected owner contract",
       "path": "apps/web/pages/api/webhook/app-credential.ts",
-      "keywords": ["credential", "user"]
+      "keywords": [
+        "credential",
+        "user"
+      ]
     }
   ]
 }
