@@ -902,40 +902,48 @@ impl PlannedReviewRuntime {
             scope.budget.max_tool_calls,
         );
         if !read_calls.is_empty() && !cancel.is_cancelled() {
-            transcript.push(ConversationItem::AssistantToolCalls {
-                calls: read_calls.clone(),
-            });
-            let results = ToolBatchRunner::new(
-                self.policy.as_ref(),
-                self.tools.as_ref(),
-                &self.events,
-            )
-            .execute(
-                scope.clone(),
-                TurnId(u32::MAX),
-                read_calls,
-                &evidence,
-                scope.budget.max_tool_calls,
-                cancel.child_token(),
-            )
-            .await;
-            file_evidence.observe_results(&results, &self.tools.artifacts);
-            ToolResultEffectProcessor::new(
-                self.policy.as_ref(),
-                self.tools.as_ref(),
-                &self.events,
-                &self.review_revision_id,
-            )
-            .apply_batch(
-                &scope,
-                TurnId(u32::MAX),
-                results,
-                ToolResultBatchState {
-                    evidence: &mut evidence,
-                    tool_counts: &mut tool_counts,
-                    transcript: &mut transcript,
-                },
-            );
+            // The engine rejects any batch over max_tool_calls_per_turn, so
+            // bootstrap reads must execute in turn-sized chunks.
+            let chunk_size = self.limits.max_tool_calls_per_turn.max(1);
+            for (chunk_index, chunk) in read_calls.chunks(chunk_size).enumerate() {
+                if cancel.is_cancelled() {
+                    break;
+                }
+                transcript.push(ConversationItem::AssistantToolCalls {
+                    calls: chunk.to_vec(),
+                });
+                let results = ToolBatchRunner::new(
+                    self.policy.as_ref(),
+                    self.tools.as_ref(),
+                    &self.events,
+                )
+                .execute(
+                    scope.clone(),
+                    TurnId(u32::MAX - chunk_index as u32),
+                    chunk.to_vec(),
+                    &evidence,
+                    scope.budget.max_tool_calls,
+                    cancel.child_token(),
+                )
+                .await;
+                file_evidence.observe_results(&results, &self.tools.artifacts);
+                ToolResultEffectProcessor::new(
+                    self.policy.as_ref(),
+                    self.tools.as_ref(),
+                    &self.events,
+                    &self.review_revision_id,
+                )
+                .apply_batch(
+                    &scope,
+                    TurnId(u32::MAX - chunk_index as u32),
+                    results,
+                    ToolResultBatchState {
+                        evidence: &mut evidence,
+                        tool_counts: &mut tool_counts,
+                        transcript: &mut transcript,
+                    },
+                );
+            }
             transcript.push(ConversationItem::User {
                 content: "The diff and the contract pack's primary and related files have been loaded above. Use this evidence to answer every pack question. Request focused follow-up tool calls only if a specific question cannot be answered from the loaded evidence, otherwise return the final JSON result now.".to_string(),
             });
@@ -1302,7 +1310,7 @@ fn contract_pack_unit(pack: &ContractPack) -> PlannedReviewUnit {
 fn contract_pack_transcript(pack: &ContractPack) -> Vec<ConversationItem> {
     vec![
         ConversationItem::System {
-            content: "You are a contract investigation reviewer focused on exactly one contract obligation inside a pull request. Use the loaded read-only evidence to compare both sides of the contract. Return final output as strict JSON with keys summary, questionAnswers, relatedPathVerdicts, and findings. questionAnswers must contain one entry per listed question with keys question, answer, and status (issue or clean). relatedPathVerdicts must contain one entry per listed related path with keys path, affected (boolean), and reason citing the concrete code that supports the verdict. findings must contain one entry per distinct supported bug with keys title, claim, path, relatedPaths, startLine, endLine, behaviorBefore, and behaviorAfter; query/filter findings must also include predicate naming the exact changed predicate branch or guard. When the primary contract is broken and a related path consumes the broken contract, report a separate finding anchored to that related path's changed lines and include the primary path in relatedPaths. Report only issues directly supported by the gathered evidence; when behavior is safe, answer clean and explain why with the evidence you compared. Do not report style, type-only, or speculative concerns. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
+            content: "You are a contract investigation reviewer focused on exactly one contract obligation inside a pull request. Use the loaded read-only evidence to compare both sides of the contract. Return final output as strict JSON with keys summary, questionAnswers, relatedPathVerdicts, and findings. questionAnswers must contain one entry per listed question with keys question, answer, and status (issue or clean). relatedPathVerdicts must contain one entry per listed related path with keys path, affected (boolean), and reason citing the concrete code that supports the verdict. findings must contain one entry per distinct supported bug with keys title, claim, path, relatedPaths, startLine, endLine, behaviorBefore, and behaviorAfter; query/filter findings must also include predicate naming the exact changed predicate branch or guard. When the primary contract is broken and a related path consumes the broken contract, report a separate finding anchored to that related path's changed lines and include the primary path in relatedPaths. Report only issues directly supported by the gathered evidence; when behavior is safe, answer clean and explain why with the evidence you compared. Do not report style, type-only, or speculative concerns. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
         },
         ConversationItem::User {
             content: format!(
@@ -1481,7 +1489,8 @@ async fn remediate_missing_evidence(
     let remaining_budget = scope
         .budget
         .max_tool_calls
-        .saturating_sub(tool_counts.total());
+        .saturating_sub(tool_counts.total())
+        .min(runtime.limits.max_tool_calls_per_turn.max(1));
     if remaining_budget == 0 {
         return;
     }
@@ -2569,7 +2578,7 @@ fn planned_unit_transcript(
         .collect::<Vec<_>>()
         .join("\n");
     let mut system = String::new();
-    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths and be backed by reading them.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.");
+    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths and be backed by reading them.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.");
     if let Some(focus) = lens_focus {
         system.push_str("\n\n");
         system.push_str(focus);
@@ -2852,7 +2861,7 @@ fn final_synthesis_transcript(
     let packs = contract_pack_summary(contract_packs);
     vec![
         ConversationItem::System {
-            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths. Report only changed-file issues directly supported by the provided diff evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the diff proves it contradicts another invariant. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
+            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths. Report only changed-file issues directly supported by the provided diff evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the diff proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
         },
         ConversationItem::User {
             content: format!(
@@ -3125,7 +3134,11 @@ fn verify_synthesis_candidate(
     if title.is_empty() || claim.is_empty() {
         return Some("empty_title_or_claim".to_string());
     }
-    if is_speculative_finding_text(&format!("{title} {claim}")) {
+    if is_speculative_finding(
+        &format!("{title} {claim}"),
+        &candidate.behavior_before,
+        &candidate.behavior_after,
+    ) {
         return Some("speculative_claim".to_string());
     }
     if is_non_finding_text(&format!("{title} {claim}")) {
@@ -3223,29 +3236,45 @@ fn is_cross_file_claim(text: &str) -> bool {
     .any(|needle| normalized.contains(needle))
 }
 
-fn is_speculative_finding_text(text: &str) -> bool {
+/// Claims about hypothetical future code are never publishable.
+fn is_hypothetical_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        " if later ",
+        "if a future",
+        "future change",
+        "could become",
+        "may become",
+        "hypothetical",
+        "speculative",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+/// Hedged wording is common in correct findings, so it only disqualifies a
+/// claim that also lacks a concrete before/after behavior comparison.
+fn is_hedged_finding_text(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     [
         " likely ",
-        " if this ",
-        " if the ",
-        " if later ",
-        " if a ",
-        " can break",
-        " may break",
         " may ",
         " might ",
         "potential",
         "appears to",
-        " fragile",
-        " subtle ",
-        " depending on",
-        " meant to",
         " probably",
-        " can incorrectly",
+        " fragile",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
+}
+
+fn is_speculative_finding(text: &str, behavior_before: &str, behavior_after: &str) -> bool {
+    if is_hypothetical_finding_text(text) {
+        return true;
+    }
+    is_hedged_finding_text(text)
+        && (behavior_before.trim().is_empty() || behavior_after.trim().is_empty())
 }
 
 /// A model sometimes wraps "no bug found" prose in finding shape; such text
@@ -3566,7 +3595,11 @@ fn validate_candidate_finding(
     if title.is_empty() || claim.is_empty() {
         return Err("empty_title_or_claim".to_string());
     }
-    if is_speculative_finding_text(&format!("{title} {claim}")) {
+    if is_speculative_finding(
+        &format!("{title} {claim}"),
+        &candidate.behavior_before,
+        &candidate.behavior_after,
+    ) {
         return Err("speculative_claim".to_string());
     }
     if is_non_finding_text(&format!("{title} {claim}")) {
