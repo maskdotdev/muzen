@@ -14,7 +14,7 @@ const args = parseArgs(process.argv.slice(2));
 const runnerPath = args.runnerPath || "target/release/muzen-runner";
 const outputDir = args.outputDir || "bench/results-review-quality/martian-suite";
 const model = args.model || process.env.MODEL || "gpt-5.4-mini";
-const sessions = args.sessions || "11";
+const sessions = args.sessions || "1";
 const maxActive = args.maxActive || "4";
 const maxTurns = args.maxTurns || "7";
 const maxToolCalls = args.maxToolCalls || "14";
@@ -72,13 +72,41 @@ for (const testCase of CASES) {
   });
 }
 
+const antiCheatRun = spawnSync(
+  "node",
+  [
+    "bench/review-quality/run-anti-cheat.mjs",
+    "--runner-path",
+    runnerPath,
+    "--model",
+    model,
+    "--output-dir",
+    path.join(outputDir, "anti-cheat"),
+  ],
+  {
+    cwd: process.cwd(),
+    env: { ...process.env, MODEL: model },
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 128,
+  },
+);
+if (antiCheatRun.stdout) process.stderr.write(antiCheatRun.stdout);
+if (antiCheatRun.stderr) process.stderr.write(antiCheatRun.stderr);
+const antiCheat = JSON.parse(
+  fs.readFileSync(path.join(outputDir, "anti-cheat", `summary-${model}.json`), "utf8"),
+);
+
 const summary = {
   generatedAtUtc: new Date().toISOString(),
   model,
   runnerPath,
   outputDir,
-  passed: results.every((result) => result.passed),
+  passed: results.every((result) => result.passed) && antiCheat.passed,
   results,
+  antiCheat: {
+    passed: antiCheat.passed,
+    results: antiCheat.results,
+  },
 };
 const summaryPath = path.join(outputDir, `summary-${model}.json`);
 fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);

@@ -291,9 +291,10 @@ function buildRunnerStart({
           id: modelProfileId,
           provider: "openai_compatible",
           apiProtocol: "responses",
+          baseUrl: process.env.OPENAI_BASE_URL || undefined,
           credential: { env: "OPENAI_API_KEY" },
           model,
-          maxInputTokens: 32000,
+          maxInputTokens: 64000,
           maxOutputTokens,
           temperature: 0,
         },
@@ -309,7 +310,7 @@ function buildRunnerStart({
       budget: {
         maxTurns,
         maxToolCalls,
-        maxPromptTokens: 32000,
+        maxPromptTokens: 64000,
         maxOutputTokens,
       },
     })),
@@ -426,7 +427,12 @@ function issueMatchesFinding(issue, finding) {
   }
   const text = `${finding.title || ""}\n${finding.claim || ""}`.toLowerCase();
   const keywords = issue.keywords || [];
-  return keywords.every((keyword) => text.includes(String(keyword).toLowerCase()));
+  // Each entry is either a single required keyword or an array of accepted
+  // alternatives, so goldens can pin semantics without pinning phrasing.
+  return keywords.every((keyword) => {
+    const alternatives = Array.isArray(keyword) ? keyword : [keyword];
+    return alternatives.some((alternative) => text.includes(String(alternative).toLowerCase()));
+  });
 }
 
 function findingPathsOf(finding) {
@@ -474,10 +480,6 @@ function reviewReadOnlyTools() {
     findRelatedFiles: true,
     findTestsForFile: true,
     listImports: true,
-    recordFileReview: true,
-    recordFinding: true,
-    challengeFinding: true,
-    finish: true,
   };
 }
 

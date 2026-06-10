@@ -1191,6 +1191,7 @@ impl ReviewModel for CleanModel {
                 input_tokens: 10,
                 output_tokens: 5,
                 total_tokens: 15,
+                cached_input_tokens: 0,
             },
             content: serde_json::json!({
                 "summary": "clean",

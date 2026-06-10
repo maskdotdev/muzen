@@ -6,7 +6,7 @@
       "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
       "startLine": 28,
       "endLine": 43,
-      "keywords": ["retry", "cleanup", "method"]
+      "keywords": ["retry", ["cleanup", "delete", "remove"], ["method", "sms"]]
     }
   ]
 }

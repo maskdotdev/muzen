@@ -48,7 +48,11 @@ impl ContractPackPlan {
     }
 }
 
-pub(crate) fn build_contract_pack_plan(review_plan: &ReviewPlan, diff: &str) -> ContractPackPlan {
+pub(crate) fn build_contract_pack_plan(
+    review_plan: &ReviewPlan,
+    diff: &str,
+    head_contents: &BTreeMap<String, String>,
+) -> ContractPackPlan {
     let changed_paths = review_plan
         .files
         .iter()
@@ -60,7 +64,8 @@ pub(crate) fn build_contract_pack_plan(review_plan: &ReviewPlan, diff: &str) -> 
     }
     let added = added_lines_by_path(diff);
     let producers = producer_symbols(&added, &changed_paths);
-    let consumers = consumer_paths_by_symbol(&added, &changed_paths, &producers);
+    let consumers =
+        consumer_paths_by_symbol(&added, &changed_paths, &producers, head_contents);
     let mut packs = Vec::new();
     for (symbol, producer_path) in producers {
         let Some(related) = consumers.get(&symbol) else {
@@ -72,11 +77,7 @@ pub(crate) fn build_contract_pack_plan(review_plan: &ReviewPlan, diff: &str) -> 
         let Ok(primary_path) = RepoPath::parse(&producer_path) else {
             continue;
         };
-        let mut related_set = related.clone();
-        for path in related {
-            related_set.extend(companion_callback_paths(path, &changed_paths));
-        }
-        let related_paths = related_set
+        let related_paths = related
             .iter()
             .filter_map(|path| RepoPath::parse(path).ok())
             .collect::<Vec<_>>();
@@ -287,6 +288,7 @@ fn consumer_paths_by_symbol(
     added: &BTreeMap<String, Vec<String>>,
     changed_paths: &BTreeSet<String>,
     producers: &BTreeMap<String, String>,
+    head_contents: &BTreeMap<String, String>,
 ) -> BTreeMap<String, BTreeSet<String>> {
     let mut consumers = BTreeMap::<String, BTreeSet<String>>::new();
     for (path, lines) in added {
@@ -305,17 +307,52 @@ fn consumer_paths_by_symbol(
             }
         }
     }
+    for path in changed_paths {
+        let Some(content) = head_contents.get(path) else {
+            continue;
+        };
+        for (symbol, producer_path) in producers {
+            if path == producer_path {
+                continue;
+            }
+            if content
+                .lines()
+                .any(|line| contains_identifier(line, symbol))
+            {
+                consumers
+                    .entry(symbol.clone())
+                    .or_default()
+                    .insert(path.clone());
+            }
+        }
+    }
     consumers
 }
+
+const OWNERSHIP_FIELDS: &[&str] = &["userId", "teamId", "appId", "organizationId", "ownerId"];
 
 fn credential_ownership_paths(added: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     added
         .iter()
         .filter(|(path, lines)| {
-            path.contains("credential")
-                && lines.iter().any(|line| line.contains("prisma.credential.create"))
-                && lines.iter().any(|line| line.contains("userId"))
-                && lines.iter().any(|line| line.contains("appId"))
+            let mentions_credential = path.to_ascii_lowercase().contains("credential")
+                || lines
+                    .iter()
+                    .any(|line| line.to_ascii_lowercase().contains("credential"));
+            let persists = lines.iter().any(|line| {
+                line.contains(".create(")
+                    || line.contains(".createMany(")
+                    || line.contains(".upsert(")
+            });
+            let owner_fields = OWNERSHIP_FIELDS
+                .iter()
+                .filter(|field| {
+                    lines
+                        .iter()
+                        .any(|line| contains_identifier(line, field))
+                })
+                .count();
+            mentions_credential && persists && owner_fields >= 2
         })
         .map(|(path, _)| path.clone())
         .collect()
@@ -365,18 +402,6 @@ fn time_boundary_paths(added: &BTreeMap<String, Vec<String>>) -> Vec<String> {
                     || joined.contains("boundary"))
         })
         .map(|(path, _)| path.clone())
-        .collect()
-}
-
-fn companion_callback_paths(path: &str, changed_paths: &BTreeSet<String>) -> Vec<String> {
-    let Some((prefix, _)) = path.split_once("/lib/") else {
-        return Vec::new();
-    };
-    let callback = format!("{prefix}/api/callback.ts");
-    changed_paths
-        .contains(&callback)
-        .then_some(callback)
-        .into_iter()
         .collect()
 }
 
@@ -471,11 +496,45 @@ diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-
 +++ b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\n\
 +import refreshOAuthTokens from \"../../_utils/oauth/refreshOAuthTokens\";\n\
 +const response = await refreshOAuthTokens();\n";
-        let plan = build_contract_pack_plan(&review_plan, diff);
+        let plan = build_contract_pack_plan(&review_plan, diff, &BTreeMap::new());
 
         assert_eq!(plan.packs.len(), 1);
         assert_eq!(plan.packs[0].kind, ContractPackKind::ReturnShape);
         assert_eq!(plan.packs[0].related_paths.len(), 2);
+    }
+
+    #[test]
+    fn detects_consumers_through_head_content_when_consumer_lines_did_not_change() {
+        let review_plan = test_plan(vec![
+            "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+            "packages/app-store/googlecalendar/api/callback.ts",
+        ]);
+        let diff =
+            "diff --git a/packages/app-store/_utils/oauth/refreshOAuthTokens.ts b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts\n\
+--- a/packages/app-store/_utils/oauth/refreshOAuthTokens.ts\n\
++++ b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts\n\
++const refreshOAuthTokens = async () => {\n\
++  return response;\n\
++};\n\
++export default refreshOAuthTokens;\n\
+diff --git a/packages/app-store/googlecalendar/api/callback.ts b/packages/app-store/googlecalendar/api/callback.ts\n\
+--- a/packages/app-store/googlecalendar/api/callback.ts\n\
++++ b/packages/app-store/googlecalendar/api/callback.ts\n\
++const unrelatedFlag = true;\n";
+        let mut head_contents = BTreeMap::new();
+        head_contents.insert(
+            "packages/app-store/googlecalendar/api/callback.ts".to_string(),
+            "import refreshOAuthTokens from \"../../_utils/oauth/refreshOAuthTokens\";\nconst key = await refreshOAuthTokens();\nconst unrelatedFlag = true;\n"
+                .to_string(),
+        );
+        let plan = build_contract_pack_plan(&review_plan, diff, &head_contents);
+
+        assert_eq!(plan.packs.len(), 1);
+        assert_eq!(plan.packs[0].kind, ContractPackKind::ReturnShape);
+        assert_eq!(
+            plan.packs[0].related_paths[0].display(),
+            "packages/app-store/googlecalendar/api/callback.ts"
+        );
     }
 
     #[test]
@@ -490,7 +549,7 @@ diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-
 +    appId: appMetadata.slug,\n\
 +  },\n\
 +});\n";
-        let plan = build_contract_pack_plan(&review_plan, diff);
+        let plan = build_contract_pack_plan(&review_plan, diff, &BTreeMap::new());
 
         assert_eq!(plan.packs.len(), 1);
         assert_eq!(plan.packs[0].kind, ContractPackKind::CredentialOwnership);
@@ -504,7 +563,7 @@ diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-
 --- a/src/workflow.ts\n\
 +++ b/src/workflow.ts\n\
 +await prisma.workflowReminder.deleteMany({ where: { OR: [{ method: 'SMS' }, { retryCount: { gt: 1 } }] } });\n";
-        let plan = build_contract_pack_plan(&review_plan, diff);
+        let plan = build_contract_pack_plan(&review_plan, diff, &BTreeMap::new());
 
         assert!(plan.packs.iter().any(|pack| {
             pack.kind == ContractPackKind::QueryFilterScope
@@ -523,7 +582,7 @@ diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-
 +++ b/src/slots.ts\n\
 +const slotEndTime = slotStartTime.add(duration, 'minutes');\n\
 +if (slotEndTime.isBefore(dayjs(date.start).tz(timeZone))) return false;\n";
-        let plan = build_contract_pack_plan(&review_plan, diff);
+        let plan = build_contract_pack_plan(&review_plan, diff, &BTreeMap::new());
 
         assert!(plan.packs.iter().any(|pack| {
             pack.kind == ContractPackKind::TimeBoundary
