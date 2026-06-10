@@ -13,7 +13,6 @@ use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
 use crate::reviewer::report::{ReviewRunSummary, RunReport};
 use crate::reviewer::run::Run;
 use crate::reviewer::runtime_events::EventSink as RuntimeEventSink;
-use crate::runtime::contracts::ToolEffects;
 
 use super::adapters::StreamingRunnerEventSink;
 use super::planning::plan_run_start;
@@ -162,30 +161,6 @@ fn start_heartbeat(
     Ok(HeartbeatGuard { stop })
 }
 
-#[allow(dead_code)]
-fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
-    if effects.is_empty() {
-        return Ok(ToolEffects::custom_read_only());
-    }
-    let mut parsed = ToolEffects::default();
-    for effect in effects {
-        match effect.as_str() {
-            "read_repo" | "read_diff" => parsed.repo_read = true,
-            "read_artifact" => parsed.artifact_read = true,
-            "write_artifact" => parsed.artifact_write = true,
-            "read_host" => parsed.host_read = true,
-            "read_network" => parsed.network_read = true,
-            "read_scratch" => parsed.scratch_read = true,
-            "write_scratch" => parsed.scratch_write = true,
-            "external_side_effect" => {
-                anyhow::bail!("external_side_effect tools are not supported in V1")
-            }
-            unknown => anyhow::bail!("unknown tool effect {unknown}"),
-        }
-    }
-    Ok(parsed)
-}
-
 fn runner_result_from_report(
     report: &RunReport,
     metadata: BTreeMap<String, Value>,
@@ -295,33 +270,63 @@ fn runner_result_from_report(
 }
 
 fn dedupe_runner_findings(findings: Vec<RunnerFinding>) -> Vec<RunnerFinding> {
-    let mut by_key: BTreeMap<String, RunnerFinding> = BTreeMap::new();
-    let mut order = Vec::new();
+    let mut kept: Vec<RunnerFinding> = Vec::new();
     for finding in findings {
-        let key = finding_dedupe_key(&finding);
-        if let Some(existing) = by_key.get_mut(&key) {
+        if let Some(existing) = kept
+            .iter_mut()
+            .find(|existing| is_duplicate_finding(existing, &finding))
+        {
             merge_runner_finding(existing, finding);
             continue;
         }
-        order.push(key.clone());
-        by_key.insert(key, finding);
+        kept.push(finding);
     }
-    order
-        .into_iter()
-        .filter_map(|key| by_key.remove(&key))
-        .collect()
+    kept
 }
 
-fn finding_dedupe_key(finding: &RunnerFinding) -> String {
-    let text = normalize_finding_text(&format!("{} {}", finding.title, finding.claim));
-    if text.contains("foreach")
-        && text.contains("async")
-        && (text.contains("await") || text.contains("promise"))
-        && (text.contains("cleanup") || text.contains("delete") || text.contains("deletion"))
-    {
-        return "root-cause:unawaited-async-iteration-cleanup".to_string();
+/// Independent review passes (units, packs, synthesis) frequently rediscover
+/// the same bug with different phrasing, so duplicates are detected by anchor
+/// overlap plus content similarity instead of exact text equality.
+fn is_duplicate_finding(left: &RunnerFinding, right: &RunnerFinding) -> bool {
+    let left_text = normalize_finding_text(&format!("{} {}", left.title, left.claim));
+    let right_text = normalize_finding_text(&format!("{} {}", right.title, right.claim));
+    if left_text == right_text {
+        return true;
     }
-    format!("text:{text}")
+    let (Some(left_location), Some(right_location)) = (&left.location, &right.location) else {
+        return false;
+    };
+    if left_location.path != right_location.path {
+        return false;
+    }
+    if !line_ranges_near(left_location, right_location, 3) {
+        return false;
+    }
+    finding_token_overlap(&left_text, &right_text) >= 0.5
+}
+
+fn line_ranges_near(
+    left: &RunnerFindingLocation,
+    right: &RunnerFindingLocation,
+    slack: usize,
+) -> bool {
+    let (Some(left_start), Some(right_start)) = (left.start_line, right.start_line) else {
+        return false;
+    };
+    let left_end = left.end_line.unwrap_or(left_start);
+    let right_end = right.end_line.unwrap_or(right_start);
+    left_start <= right_end.saturating_add(slack) && right_start <= left_end.saturating_add(slack)
+}
+
+fn finding_token_overlap(left: &str, right: &str) -> f64 {
+    let left_tokens = left.split_whitespace().collect::<BTreeSet<_>>();
+    let right_tokens = right.split_whitespace().collect::<BTreeSet<_>>();
+    let smaller = left_tokens.len().min(right_tokens.len());
+    if smaller == 0 {
+        return 0.0;
+    }
+    let shared = left_tokens.intersection(&right_tokens).count();
+    shared as f64 / smaller as f64
 }
 
 fn normalize_finding_text(value: &str) -> String {
@@ -465,63 +470,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_tool_effects_keep_legacy_custom_read_only_authority() {
-        let effects = parse_tool_effects(&[]).expect("default effects");
-
-        assert_eq!(effects, ToolEffects::custom_read_only());
-    }
-
-    #[test]
-    fn parses_explicit_provider_neutral_tool_effects() {
-        let effects = parse_tool_effects(&[
-            "read_host".to_string(),
-            "read_network".to_string(),
-            "write_artifact".to_string(),
-            "write_scratch".to_string(),
-        ])
-        .expect("explicit effects");
-
-        assert!(effects.host_read);
-        assert!(effects.network_read);
-        assert!(effects.artifact_write);
-        assert!(effects.scratch_write);
-        assert!(!effects.repo_read);
-        assert!(!effects.artifact_read);
-        assert!(!effects.scratch_read);
-        assert!(!effects.external_side_effect);
-    }
-
-    #[test]
-    fn rejects_external_side_effect_tools_in_runner_v1() {
-        let error = parse_tool_effects(&["external_side_effect".to_string()])
-            .expect_err("external side effects are unsupported");
-
-        assert!(error
-            .to_string()
-            .contains("external_side_effect tools are not supported in V1"));
-    }
-
-    #[test]
-    fn rejects_unknown_tool_effects() {
-        let error = parse_tool_effects(&["write_host".to_string()])
-            .expect_err("unknown effects are rejected");
-
-        assert!(error.to_string().contains("unknown tool effect write_host"));
-    }
-
-    #[test]
-    fn dedupes_unawaited_async_iteration_cleanup_findings() {
+    fn dedupes_findings_with_identical_normalized_text() {
         let findings = dedupe_runner_findings(vec![
             test_finding(
                 "finding-a",
-                "Unawaited reschedule cleanup deletions can be lost",
-                "src/a.ts starts async cleanup deletions inside forEach(async ...) without awaiting returned promises.",
+                "Cleanup deletes unrelated reminders",
+                "The changed deleteMany predicate removes reminders outside the SMS scope.",
                 "src/a.ts",
             ),
             test_finding(
                 "finding-b",
-                "Reschedule fires deletion promises without awaiting them",
-                "src/b.ts starts deletion promises from forEach(async ...) and never awaits them.",
+                "Cleanup deletes unrelated reminders",
+                "The changed deleteMany predicate removes reminders outside the SMS scope.",
                 "src/b.ts",
             ),
         ]);
@@ -533,6 +493,55 @@ mod tests {
             findings[0].discovered_by,
             vec!["session-finding-a", "session-finding-b"]
         );
+    }
+
+    #[test]
+    fn dedupes_rephrased_findings_on_the_same_anchor() {
+        let findings = dedupe_runner_findings(vec![
+            test_finding(
+                "finding-a",
+                "Zero-length override detection uses Dayjs object identity instead of value equality",
+                "The changed override check compares dayjs(date.start) === dayjs(date.end), which compares object identity, so zero-length overrides are never recognized.",
+                "src/slots.ts",
+            ),
+            test_finding(
+                "finding-b",
+                "Zero-length date overrides are never recognized because the code compares Dayjs objects by identity",
+                "dayjs(date.start) === dayjs(date.end) compares two distinct Dayjs object instances, so the zero-length override branch never runs.",
+                "src/slots.ts",
+            ),
+        ]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "finding-a");
+        assert_eq!(
+            findings[0].discovered_by,
+            vec!["session-finding-a", "session-finding-b"]
+        );
+    }
+
+    #[test]
+    fn keeps_distinct_findings_on_different_anchors_in_one_file() {
+        let mut working_hours = test_finding(
+            "finding-a",
+            "Working-hours end check reuses the slot start minute",
+            "The end boundary recomputes slotStartTime minutes instead of using slotEndTime, so slots can pass the end check.",
+            "src/slots.ts",
+        );
+        working_hours.location.as_mut().unwrap().start_line = Some(137);
+        working_hours.location.as_mut().unwrap().end_line = Some(145);
+        let mut dayjs_identity = test_finding(
+            "finding-b",
+            "Zero-length override detection compares Dayjs objects by identity",
+            "dayjs(date.start) === dayjs(date.end) compares object identity so the zero-length branch never runs.",
+            "src/slots.ts",
+        );
+        dayjs_identity.location.as_mut().unwrap().start_line = Some(109);
+        dayjs_identity.location.as_mut().unwrap().end_line = Some(114);
+
+        let findings = dedupe_runner_findings(vec![working_hours, dayjs_identity]);
+
+        assert_eq!(findings.len(), 2);
     }
 
     fn test_finding(id: &str, title: &str, claim: &str, path: &str) -> RunnerFinding {

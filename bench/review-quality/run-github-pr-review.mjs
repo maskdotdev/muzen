@@ -36,7 +36,7 @@ function main() {
     "--golden",
     golden,
     "--sessions",
-    args.sessions || "11",
+    args.sessions || "1",
     "--max-active",
     args.maxActive || "4",
     "--max-turns",

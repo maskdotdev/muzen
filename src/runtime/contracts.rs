@@ -685,7 +685,7 @@ impl ModelOutputPolicy {
         Self {
             include_tool_data: true,
             include_artifact_refs: true,
-            max_tool_data_bytes: 4 * 1024,
+            max_tool_data_bytes: 16 * 1024,
         }
     }
 

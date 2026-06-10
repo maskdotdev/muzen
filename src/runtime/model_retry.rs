@@ -204,7 +204,7 @@ mod tests {
         sink: Arc<CaptureSink>,
     ) -> ModelTurnOutcome {
         let scope = test_scope();
-        let events = RuntimeEventDispatcher::new(Some(sink), None);
+        let events = RuntimeEventDispatcher::new(Some(sink));
         complete_model_turn(
             model,
             &ReviewerPolicy::new(),

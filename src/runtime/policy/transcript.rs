@@ -111,17 +111,22 @@ fn exploration_tools() -> &'static [ToolName] {
     EXPLORATION_TOOLS
 }
 
+// Reviewers must be able to read whole changed hunks; snippets sized below a
+// typical diff hunk starve every downstream evidence validator.
+const MODEL_VISIBLE_DIFF_CHARS: usize = 12_000;
+const MODEL_VISIBLE_FILE_CHARS: usize = 10_000;
+
 fn compact_tool_data(tool: Option<ToolName>, data: &Value) -> Value {
     match tool {
         Some(ToolName::ReadDiff) => json!({
             "contentHash": data.get("contentHash").cloned(),
-            "contentSnippet": data.get("content").and_then(Value::as_str).map(|value| truncate_chars(value, 1200)),
+            "contentSnippet": data.get("content").and_then(Value::as_str).map(|value| truncate_chars(value, MODEL_VISIBLE_DIFF_CHARS)),
         }),
         Some(ToolName::ReadFile | ToolName::ReadHeadFile | ToolName::ReadBaseFile) => json!({
             "path": data.get("path").cloned(),
             "available": data.get("available").cloned(),
             "evidenceId": data.get("evidenceId").cloned(),
-            "contentSnippet": data.get("content").and_then(Value::as_str).map(|value| truncate_chars(value, 1200)),
+            "contentSnippet": data.get("content").and_then(Value::as_str).map(|value| truncate_chars(value, MODEL_VISIBLE_FILE_CHARS)),
             "message": data.get("message").and_then(Value::as_str).map(|value| truncate_chars(value, 400)),
         }),
         Some(ToolName::SearchText) => json!({
