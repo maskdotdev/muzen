@@ -375,10 +375,14 @@ impl ContextEngine for SnapshotContextEngine {
                     self.config.rrf_k,
                 )
                 .await?;
-                let data = Some(serde_json::json!({
+                let mut data_value = serde_json::json!({
                     "fusion": outcome.fusion,
                     "fusionOmissions": outcome.omissions,
-                }));
+                });
+                if !outcome.degraded.is_empty() {
+                    data_value["degraded"] = serde_json::json!(outcome.degraded);
+                }
+                let data = Some(data_value);
                 Ok(ContextQueryResult {
                     kind: request.kind,
                     evidence: outcome.evidence,

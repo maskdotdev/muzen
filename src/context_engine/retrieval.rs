@@ -47,6 +47,12 @@ pub(crate) struct FusionTrace {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_rank: Option<usize>,
     pub score: f32,
+    /// 1-based rank assigned by the rerank stage; `None` when reranking
+    /// is off or the item fell outside the reranked window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_rank: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_score: Option<f32>,
 }
 
 /// Evidence excluded by the post-fusion sensitivity filter, with the reason
@@ -58,10 +64,21 @@ pub(crate) struct FusionOmission {
     pub reason: &'static str,
 }
 
+/// A retrieval stage that failed and was skipped instead of failing the
+/// query: results degrade (lexical-only, or fused order without rerank)
+/// and the failure is recorded, never silent.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FusionDegradation {
+    pub stage: &'static str,
+    pub message: String,
+}
+
 pub(crate) struct FusedSearch {
     pub evidence: Vec<ContextEvidence>,
     pub fusion: Vec<FusionTrace>,
     pub omissions: Vec<FusionOmission>,
+    pub degraded: Vec<FusionDegradation>,
 }
 
 /// Reciprocal Rank Fusion over the lexical and semantic candidate lists:
@@ -80,6 +97,8 @@ pub(crate) fn rrf_fuse(lexical: &[String], semantic: &[String], rrf_k: f32) -> V
                 lexical_rank: None,
                 semantic_rank: None,
                 score: 0.0,
+                rerank_rank: None,
+                rerank_score: None,
             });
             traces.len() - 1
         }
@@ -104,9 +123,14 @@ pub(crate) fn rrf_fuse(lexical: &[String], semantic: &[String], rrf_k: f32) -> V
     traces
 }
 
-/// Hybrid text search: BM25 and vector candidates fused by rank, then
-/// filtered by sensitivity (restricted items become recorded omissions),
-/// then truncated to `limit`.
+/// Hybrid text search: BM25 and vector candidates fused by rank, filtered
+/// by sensitivity (restricted items become recorded omissions), optionally
+/// reranked by a cross-encoder over the fused top candidates, then
+/// truncated to `limit`.
+///
+/// Provider failures in the semantic or rerank stages degrade the result
+/// (lexical-only fusion, or fused order without rerank) with a recorded
+/// `FusionDegradation` instead of failing the query.
 pub(crate) async fn fused_search(
     index: &super::ContextIndex,
     query: &str,
@@ -115,7 +139,15 @@ pub(crate) async fn fused_search(
     bm25_b: f32,
     rrf_k: f32,
 ) -> RuntimeResult<FusedSearch> {
-    let pool = limit.saturating_mul(2).max(limit);
+    let rerank_config = &index.semantic.rerank;
+    // Reranking needs the full candidate window before truncation.
+    let window = if rerank_config.enabled {
+        limit.max(rerank_config.top_n)
+    } else {
+        limit
+    };
+    let pool = window.saturating_mul(2).max(window);
+    let mut degraded = Vec::new();
     let lexical_ranked: Vec<String> = index
         .lexical
         .search(query, pool, bm25_k1, bm25_b)
@@ -124,22 +156,34 @@ pub(crate) async fn fused_search(
         .collect();
     let semantic_ranked: Vec<String> = match index.semantic_vectors.as_ref() {
         None => Vec::new(),
-        Some(vectors) => {
-            let query_vector = embed_query(&index.semantic, query).await?;
-            vectors
+        Some(vectors) => match embed_query(&index.semantic, query).await {
+            Ok(query_vector) => vectors
                 .search(&query_vector, pool)?
                 .into_iter()
                 .filter(|(_, score)| *score > 0.0)
                 .map(|(id, _score)| id)
-                .collect()
-        }
+                .collect(),
+            Err(RuntimeError::ProviderMessage {
+                status, message, ..
+            }) => {
+                let status = status.map_or(String::new(), |code| format!(" (status {code})"));
+                degraded.push(FusionDegradation {
+                    stage: "semantic",
+                    message: format!(
+                        "query embedding provider failed{status}; results are lexical-only: {message}"
+                    ),
+                });
+                Vec::new()
+            }
+            Err(error) => return Err(error),
+        },
     };
     let fused = rrf_fuse(&lexical_ranked, &semantic_ranked, rrf_k);
     let mut evidence = Vec::new();
     let mut fusion = Vec::new();
     let mut omissions = Vec::new();
     for trace in fused {
-        if evidence.len() >= limit {
+        if evidence.len() >= window {
             break;
         }
         let Some(candidate) = index
@@ -159,11 +203,111 @@ pub(crate) async fn fused_search(
         evidence.push(candidate.clone());
         fusion.push(trace);
     }
+    if rerank_config.enabled {
+        if let Some(degradation) =
+            rerank_fused_candidates(index, query, &mut evidence, &mut fusion).await?
+        {
+            degraded.push(degradation);
+        }
+    }
+    evidence.truncate(limit);
+    fusion.truncate(limit);
     Ok(FusedSearch {
         evidence,
         fusion,
         omissions,
+        degraded,
     })
+}
+
+/// Rerank the fused top candidates in place. The reranked window reorders
+/// by cross-encoder relevance (ties keep fused order for determinism);
+/// candidates beyond the window keep their fused positions. Returns the
+/// degradation record when the provider fails; configuration errors
+/// propagate.
+async fn rerank_fused_candidates(
+    index: &super::ContextIndex,
+    query: &str,
+    evidence: &mut [ContextEvidence],
+    fusion: &mut [FusionTrace],
+) -> RuntimeResult<Option<FusionDegradation>> {
+    let window = index.semantic.rerank.top_n.min(evidence.len());
+    if window == 0 {
+        return Ok(None);
+    }
+    let candidates = evidence[..window]
+        .iter()
+        .map(|item| super::RerankCandidate {
+            id: item.id.0.clone(),
+            text: rerank_text(index, item),
+            sensitivity: item.sensitivity,
+        })
+        .collect::<Vec<_>>();
+    // The post-fusion sensitivity filter already excluded restricted
+    // evidence; this guard keeps the policy explicit and load-bearing
+    // even if the pipeline above changes.
+    super::validate_rerank_batch(index.semantic.allow_restricted_hosted_inputs, &candidates)?;
+    let reranker = super::HostedReranker::from_config(&index.semantic.rerank)?;
+    let scored = match reranker.rerank(query, &candidates).await {
+        Ok(scored) => scored,
+        Err(RuntimeError::ProviderMessage {
+            status, message, ..
+        }) => {
+            let status = status.map_or(String::new(), |code| format!(" (status {code})"));
+            return Ok(Some(FusionDegradation {
+                stage: "rerank",
+                message: format!(
+                    "rerank provider failed{status}; results keep the fused order: {message}"
+                ),
+            }));
+        }
+        Err(error) => return Err(error),
+    };
+    let mut score_by_position = vec![None; window];
+    for (position, score) in scored {
+        score_by_position[position] = Some(score);
+    }
+    // Sort window positions by reranker score (descending); unscored
+    // candidates and ties keep their fused order.
+    let mut order: Vec<usize> = (0..window).collect();
+    order.sort_by(|&left, &right| {
+        match (score_by_position[left], score_by_position[right]) {
+            (Some(left_score), Some(right_score)) => right_score
+                .total_cmp(&left_score)
+                .then_with(|| left.cmp(&right)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => left.cmp(&right),
+        }
+    });
+    let reordered_evidence = order
+        .iter()
+        .map(|&position| evidence[position].clone())
+        .collect::<Vec<_>>();
+    let reordered_fusion = order
+        .iter()
+        .enumerate()
+        .map(|(rank, &position)| {
+            let mut trace = fusion[position].clone();
+            trace.rerank_rank = Some(rank + 1);
+            trace.rerank_score = score_by_position[position];
+            trace
+        })
+        .collect::<Vec<_>>();
+    evidence[..window].clone_from_slice(&reordered_evidence);
+    fusion[..window].clone_from_slice(&reordered_fusion);
+    Ok(None)
+}
+
+/// The reranker scores the same text surface the embedding provider
+/// embeds: summary, path, and the evidence's content slice.
+fn rerank_text(index: &super::ContextIndex, evidence: &ContextEvidence) -> String {
+    let content = evidence
+        .path
+        .as_ref()
+        .and_then(|path| index.file_contents.get(path))
+        .map(|content| super::chunking::slice_evidence_lines(content, evidence.range.as_ref()));
+    super::context_embedding_text(evidence, content.as_deref())
 }
 
 async fn embed_query(
@@ -176,6 +320,16 @@ async fn embed_query(
         }
         ContextSemanticMode::Local => {
             let provider = LocalHashEmbeddingProvider::new(256)?;
+            provider
+                .embed(vec![EmbeddingInput {
+                    id: "query".to_string(),
+                    text: query.to_string(),
+                    sensitivity: ContextSensitivity::Private,
+                }])
+                .await?
+        }
+        ContextSemanticMode::LocalOnnx => {
+            let provider = super::index::local_onnx_provider(semantic)?;
             provider
                 .embed(vec![EmbeddingInput {
                     id: "query".to_string(),

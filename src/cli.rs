@@ -158,6 +158,16 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long)]
     pub(crate) local_semantic: bool,
 
+    /// Local transformer embeddings via ONNX Runtime; requires
+    /// --onnx-model-dir.
+    #[arg(long)]
+    pub(crate) local_onnx_semantic: bool,
+
+    /// Directory holding model.onnx/model_quantized.onnx and
+    /// tokenizer.json for --local-onnx-semantic.
+    #[arg(long)]
+    pub(crate) onnx_model_dir: Option<PathBuf>,
+
     #[arg(long)]
     pub(crate) hosted_semantic: bool,
 
@@ -172,6 +182,28 @@ pub(crate) struct ContextSnapshotArgs {
 
     #[arg(long, default_value_t = 512)]
     pub(crate) max_embedding_inputs: usize,
+
+    /// Enable the cross-encoder rerank stage over the fused top
+    /// candidates (R8). Requires --rerank-base-url.
+    #[arg(long)]
+    pub(crate) rerank: bool,
+
+    /// Cohere-style /rerank endpoint (Cohere, Jina, or an in-house
+    /// vLLM/Infinity server).
+    #[arg(long)]
+    pub(crate) rerank_base_url: Option<String>,
+
+    #[arg(long)]
+    pub(crate) rerank_model: Option<String>,
+
+    /// Credential reference (env:NAME). Omit for unauthenticated
+    /// in-house rerankers.
+    #[arg(long)]
+    pub(crate) rerank_credential_ref: Option<String>,
+
+    /// Fused candidates sent to the reranker.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) rerank_top_n: usize,
 
     /// Directory for the durable derived-data cache (R9). Re-indexing
     /// an unchanged repo recomputes nothing; only changed files pay.
@@ -778,13 +810,27 @@ async fn index_context_snapshot(
 }
 
 fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConfig> {
-    if args.local_semantic && args.hosted_semantic {
-        bail!("--local-semantic and --hosted-semantic are mutually exclusive");
+    if [args.local_semantic, args.local_onnx_semantic, args.hosted_semantic]
+        .iter()
+        .filter(|enabled| **enabled)
+        .count()
+        > 1
+    {
+        bail!("--local-semantic, --local-onnx-semantic, and --hosted-semantic are mutually exclusive");
     }
     let mut config = ContextEngineConfig::snapshot_v0();
     if args.local_semantic {
         config.semantic.mode = ContextSemanticMode::Local;
         config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
+        config.semantic.max_embedding_inputs = args.max_embedding_inputs;
+    } else if args.local_onnx_semantic {
+        let model_dir = args
+            .onnx_model_dir
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--local-onnx-semantic requires --onnx-model-dir"))?;
+        config.semantic.mode = ContextSemanticMode::LocalOnnx;
+        config.semantic.provider = Some(ContextEmbeddingProviderKind::LocalOnnx);
+        config.semantic.local_onnx_model_dir = Some(model_dir.display().to_string());
         config.semantic.max_embedding_inputs = args.max_embedding_inputs;
     } else if args.hosted_semantic {
         config.semantic.mode = ContextSemanticMode::Hosted;
@@ -793,6 +839,16 @@ fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConf
         config.semantic.hosted_model = args.hosted_embedding_model.clone();
         config.semantic.hosted_credential_ref = args.hosted_embedding_credential_ref.clone();
         config.semantic.max_embedding_inputs = args.max_embedding_inputs;
+    }
+    if args.rerank {
+        if args.rerank_base_url.is_none() {
+            bail!("--rerank requires --rerank-base-url");
+        }
+        config.semantic.rerank.enabled = true;
+        config.semantic.rerank.base_url = args.rerank_base_url.clone();
+        config.semantic.rerank.model = args.rerank_model.clone();
+        config.semantic.rerank.credential_ref = args.rerank_credential_ref.clone();
+        config.semantic.rerank.top_n = args.rerank_top_n;
     }
     Ok(config)
 }

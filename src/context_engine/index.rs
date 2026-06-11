@@ -134,6 +134,11 @@ pub struct ContextIndexReport {
     pub embeddings_computed: usize,
     /// Embedding vectors served from the content-hash cache.
     pub embeddings_cached: usize,
+    /// Identity of the embedding provider behind the semantic vectors
+    /// (`hosted:<model>` or `local_hash_256`); absent in no-vector mode
+    /// and when the provider failed and the build degraded to lexical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_provider: Option<String>,
     pub warnings: Vec<ContextIndexWarning>,
     pub artifacts: Vec<ArtifactId>,
 }
@@ -162,6 +167,9 @@ pub struct ContextManifestArtifact {
     pub evidence_count: usize,
     pub rule_count: usize,
     pub diff_hunk_count: usize,
+    /// Embedding model provenance for the semantic vectors in this index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_provider: Option<String>,
     pub skips: Vec<ContextIndexSkip>,
     pub warnings: Vec<ContextIndexWarning>,
 }
@@ -447,13 +455,38 @@ impl ContextIndex {
         }
 
         let lexical = super::LexicalIndex::build(&evidence, &file_contents, &body_terms_by_id);
-        let (semantic_vectors, embeddings_computed, embeddings_cached) = build_semantic_vectors(
-            &request.semantic,
-            &evidence,
-            &file_contents,
-            derived_cache.as_ref(),
-        )
-        .await?;
+        // Provider failure (network, HTTP, malformed response) degrades to
+        // lexical-only retrieval with a recorded warning; policy and
+        // configuration errors still fail the build loudly.
+        let mut semantic_warning = None;
+        let (semantic_vectors, embeddings_computed, embeddings_cached) =
+            match build_semantic_vectors(
+                &request.semantic,
+                &evidence,
+                &file_contents,
+                derived_cache.as_ref(),
+            )
+            .await
+            {
+                Ok(built) => built,
+                Err(RuntimeError::ProviderMessage {
+                    status, message, ..
+                }) => {
+                    let status = status.map_or(String::new(), |code| format!(" (status {code})"));
+                    semantic_warning = Some(format!(
+                        "embedding provider failed{status}; semantic retrieval disabled for this index: {message}"
+                    ));
+                    (None, 0, 0)
+                }
+                Err(error) => return Err(error),
+            };
+        let semantic_provider = semantic_vectors
+            .is_some()
+            .then(|| super::semantic_provider_tag(&request.semantic))
+            .flatten();
+        if let Some(vectors) = &semantic_vectors {
+            apply_semantic_change_signals(&mut evidence, &mut skeletons, vectors);
+        }
 
         let index_id = ContextIndexId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -462,6 +495,13 @@ impl ContextIndex {
             &evidence.len().to_string(),
         ]));
         let mut warnings = Vec::new();
+        if let Some(message) = semantic_warning {
+            warnings.push(ContextIndexWarning {
+                code: "semantic_provider_failed".to_string(),
+                message,
+                path: None,
+            });
+        }
         if graph_overflow > 0 {
             warnings.push(ContextIndexWarning {
                 code: "graph_candidates_truncated".to_string(),
@@ -503,6 +543,7 @@ impl ContextIndex {
             derived_cache_misses,
             embeddings_computed,
             embeddings_cached,
+            semantic_provider: semantic_provider.clone(),
             warnings: warnings.clone(),
             artifacts: Vec::new(),
         };
@@ -519,6 +560,7 @@ impl ContextIndex {
             evidence_count: evidence.len(),
             rule_count,
             diff_hunk_count,
+            semantic_provider,
             skips: skips.clone(),
             warnings,
         };
@@ -614,6 +656,63 @@ fn compute_derived_file_data(
     }
 }
 
+pub(crate) fn local_onnx_provider(
+    semantic: &ContextSemanticConfig,
+) -> RuntimeResult<std::sync::Arc<super::LocalOnnxEmbeddingProvider>> {
+    let model_dir = semantic.local_onnx_model_dir.as_deref().ok_or_else(|| {
+        RuntimeError::InvalidInput(
+            "local_onnx semantic mode requires local_onnx_model_dir".to_string(),
+        )
+    })?;
+    super::LocalOnnxEmbeddingProvider::shared(std::path::Path::new(model_dir))
+}
+
+/// Anchor cap for the semantic-change signal: bounds the cosine pass at
+/// O(evidence x anchors) regardless of diff size.
+const SEMANTIC_CHANGE_ANCHOR_LIMIT: usize = 32;
+
+/// The semantic ranking signal (R8): each embedded evidence item scores
+/// its similarity to the nearest change anchor (an embedded changed
+/// span). Changed spans themselves stay at zero - they are already
+/// credited by `weight_changed_span` - and skeleton twins mirror the
+/// score of the chunk they stand in for.
+fn apply_semantic_change_signals(
+    evidence: &mut [ContextEvidence],
+    skeletons: &mut BTreeMap<String, ContextEvidence>,
+    vectors: &InMemoryVectorIndex,
+) {
+    let anchor_ids = evidence
+        .iter()
+        .filter(|item| item.is_changed_span)
+        .map(|item| item.id.0.clone())
+        .collect::<Vec<_>>();
+    let anchors = anchor_ids
+        .iter()
+        .filter_map(|id| vectors.get(id))
+        .take(SEMANTIC_CHANGE_ANCHOR_LIMIT)
+        .collect::<Vec<_>>();
+    if anchors.is_empty() {
+        return;
+    }
+    for item in evidence.iter_mut() {
+        if item.is_changed_span {
+            continue;
+        }
+        let Some(vector) = vectors.get(&item.id.0) else {
+            continue;
+        };
+        let score = anchors
+            .iter()
+            .map(|anchor| super::cosine_similarity(anchor, vector))
+            .fold(0.0f32, f32::max)
+            .clamp(0.0, 1.0);
+        item.signals.semantic_change_score = score;
+        if let Some(skeleton) = skeletons.get_mut(&item.id.0) {
+            skeleton.signals.semantic_change_score = score;
+        }
+    }
+}
+
 async fn build_semantic_vectors(
     semantic: &ContextSemanticConfig,
     evidence: &[ContextEvidence],
@@ -652,14 +751,8 @@ async fn build_semantic_vectors(
     // Vectors cache per (provider identity, embedded text): only inputs
     // absent from the cache reach a provider, so warm re-index spends
     // nothing on embeddings.
-    let provider_tag = match semantic.mode {
-        ContextSemanticMode::NoVector => unreachable!("handled above"),
-        ContextSemanticMode::Local => "local_hash_256".to_string(),
-        ContextSemanticMode::Hosted => format!(
-            "hosted:{}",
-            semantic.hosted_model.as_deref().unwrap_or("default")
-        ),
-    };
+    let provider_tag = super::semantic_provider_tag(semantic)
+        .expect("no-vector mode returned before vector build");
     let keys = inputs
         .iter()
         .map(|input| derived_vector_key(&provider_tag, &input.text))
@@ -685,6 +778,10 @@ async fn build_semantic_vectors(
             ContextSemanticMode::NoVector => Vec::new(),
             ContextSemanticMode::Local => {
                 let provider = LocalHashEmbeddingProvider::new(256)?;
+                provider.embed(batch).await?
+            }
+            ContextSemanticMode::LocalOnnx => {
+                let provider = local_onnx_provider(semantic)?;
                 provider.embed(batch).await?
             }
             ContextSemanticMode::Hosted => {

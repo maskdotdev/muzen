@@ -118,6 +118,12 @@ pub struct ContextRankSignals {
     /// Directory proximity to the nearest changed file, in [0, 1].
     #[serde(default)]
     pub path_proximity: f32,
+    /// Embedding similarity to the nearest change anchor, in [0, 1]
+    /// (R8). Zero in no-vector mode, for changed spans themselves, and
+    /// for evidence outside the embedded window, so the deterministic
+    /// default ranking is untouched.
+    #[serde(default)]
+    pub semantic_change_score: f32,
 }
 
 /// How evidence content enters a pack (R7): the full chunk text, or a
