@@ -177,8 +177,8 @@ mod tests {
     use crate::runtime::contracts::{EvidenceId, RepoPath};
 
     use crate::context_engine::{
-        ContextEvidenceKind, ContextEvidenceSource, ContextProvenance, ContextScope,
-        ContextSensitivity, ContextTrust,
+        ContextEvidenceKind, ContextEvidenceSource, ContextProvenance, ContextRankSignals,
+        ContextScope, ContextSensitivity, ContextTrust,
     };
 
     const K1: f32 = 1.2;
@@ -198,6 +198,7 @@ mod tests {
             content_hash: None,
             summary: Some(summary.to_string()),
             is_changed_span: false,
+            signals: ContextRankSignals::default(),
             token_estimate: 1,
             provenance: ContextProvenance {
                 provider: "test".to_string(),

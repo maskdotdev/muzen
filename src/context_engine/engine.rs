@@ -239,9 +239,7 @@ impl ContextEngine for SnapshotContextEngine {
         let index = self.store.get_index(&request.snapshot_id).ok_or_else(|| {
             RuntimeError::InvalidInput("context index not found for snapshot".to_string())
         })?;
-        let graph_boost = super::graph_boost_by_path(&index.graph_candidates);
-        let mut ranked =
-            rank_for_purpose(&index.evidence, request.purpose, &self.config, &graph_boost);
+        let mut ranked = rank_for_purpose(&index.evidence, request.purpose, &self.config);
         let mut used_tokens = 0usize;
         let mut selected = Vec::new();
         let mut omitted_candidates = Vec::new();
