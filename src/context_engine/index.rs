@@ -175,6 +175,8 @@ pub struct ContextIndex {
     pub graph: ReferenceGraph,
     pub graph_candidates: Vec<GraphCandidate>,
     pub relationships: Vec<ContextRelationship>,
+    /// Diff hunk ranges by changed file path (new-side line spans).
+    pub hunk_ranges: BTreeMap<String, Vec<ContextRange>>,
     pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
@@ -457,6 +459,7 @@ impl ContextIndex {
             graph,
             graph_candidates,
             relationships,
+            hunk_ranges,
             semantic: request.semantic,
             semantic_vectors,
             denied_cross_repo_contracts,

@@ -67,6 +67,8 @@ class CaseResult:
     missing_expected_ranges: list[dict[str, Any]]
     token_estimate: int
     omitted: int
+    sufficiency_status: str | None
+    sufficiency_blocking_gaps: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -160,6 +162,25 @@ def materialize_repo(source: dict[str, Any]) -> Path:
     return target
 
 
+def materialize_diff(source: dict[str, Any]) -> Path | None:
+    """Write the pinned commit's unified diff next to the checkout. Hunks
+    anchor changed-span detection and sufficiency coverage (R6)."""
+    if source["kind"] != "git":
+        return None
+    commit = source["commit"]
+    repo = materialize_repo(source)
+    diff_path = CORPUS_CACHE / f"{commit[:12]}.diff"
+    if not diff_path.exists():
+        show = subprocess.run(
+            ["git", "-C", str(repo), "show", commit, "--format=", "--no-color"],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        diff_path.write_text(show.stdout)
+    return diff_path
+
+
 def base_command(muzen_bin: Path | None) -> list[str]:
     if muzen_bin:
         return [str(muzen_bin)]
@@ -179,6 +200,9 @@ def run_context_case(
     command.extend(["--repo", str(repo)])
     for changed_file in case_file["changedFiles"]:
         command.extend(["--changed-file", changed_file])
+    diff_path = materialize_diff(case_file["repoSource"])
+    if diff_path is not None:
+        command.extend(["--diff-file", str(diff_path)])
     if case.get("localSemantic"):
         command.append("--local-semantic")
         command.extend(
@@ -297,17 +321,46 @@ def score_case(case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path 
         if not any(evidence_matches_range(entry, expected) for entry in evidence)
     ]
     omitted = result.get("omittedCandidates", result.get("omitted", 0))
+    # Ranking metrics grade context retrieval BEYOND the diff: the changed
+    # files are the query, not the answer, so they neither earn nor occupy
+    # ranked slots. Recall/precision/strict gating keep the full sets.
+    changed_set = set(case_file.get("changedFiles", []))
+    eval_expected = expected_set - changed_set
+    eval_retrieved = [path for path in retrieved_unique if path not in changed_set]
+    eval_evidence = [
+        entry for entry in evidence if entry.get("path") not in changed_set
+    ]
+    if eval_expected:
+        ranked_recall_at_5 = recall_at_k(eval_retrieved, eval_expected, 5)
+        ranked_recall_at_10 = recall_at_k(eval_retrieved, eval_expected, 10)
+        ranked_recall_at_25 = recall_at_k(eval_retrieved, eval_expected, 25)
+        ranked_ndcg_at_10 = ndcg_at_k(eval_retrieved, eval_expected, 10)
+        first_relevant_tokens = tokens_to_first_relevant(eval_evidence, eval_expected)
+    else:
+        # Every expected path is itself a changed file (fixture invariant
+        # cases): grade against the full sets.
+        ranked_recall_at_5 = recall_at_k(retrieved_unique, expected_set, 5)
+        ranked_recall_at_10 = recall_at_k(retrieved_unique, expected_set, 10)
+        ranked_recall_at_25 = recall_at_k(retrieved_unique, expected_set, 25)
+        ranked_ndcg_at_10 = ndcg_at_k(retrieved_unique, expected_set, 10)
+        first_relevant_tokens = tokens_to_first_relevant(evidence, expected_set)
+    sufficiency = result.get("sufficiency") or {}
+    sufficiency_blocking_gaps = sum(
+        1
+        for gap in sufficiency.get("gaps", [])
+        if any(kind != "no_related_tests" for kind in gap.get("missing", []))
+    )
     return CaseResult(
         id=case["id"],
         kind=case.get("kind", case.get("command", "query")),
         strict=bool(case.get("strict")),
         recall=hit_count / len(expected_set) if expected_set else 1.0,
         precision=hit_count / len(retrieved_set) if retrieved_set else 0.0,
-        recall_at_5=recall_at_k(retrieved_unique, expected_set, 5),
-        recall_at_10=recall_at_k(retrieved_unique, expected_set, 10),
-        recall_at_25=recall_at_k(retrieved_unique, expected_set, 25),
-        ndcg_at_10=ndcg_at_k(retrieved_unique, expected_set, 10),
-        tokens_to_first_relevant=tokens_to_first_relevant(evidence, expected_set),
+        recall_at_5=ranked_recall_at_5,
+        recall_at_10=ranked_recall_at_10,
+        recall_at_25=ranked_recall_at_25,
+        ndcg_at_10=ranked_ndcg_at_10,
+        tokens_to_first_relevant=first_relevant_tokens,
         secret_redaction_correct=not forbidden_content_hits and not missing_required_content,
         prompt_injection_resistant=not trusted_forbidden_paths,
         useful_evidence_per_1k_tokens=useful_per_1k,
@@ -322,6 +375,8 @@ def score_case(case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path 
         missing_expected_ranges=missing_expected_ranges,
         token_estimate=token_estimate,
         omitted=len(omitted) if isinstance(omitted, list) else int(omitted),
+        sufficiency_status=sufficiency.get("status"),
+        sufficiency_blocking_gaps=sufficiency_blocking_gaps,
     )
 
 
@@ -354,6 +409,27 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         for result in results
         if result.tokens_to_first_relevant is not None
     ]
+    # Sufficiency calibration (R6): packs missing ground truth should
+    # report blocking gaps; packs containing all ground truth should not
+    # report insufficient.
+    with_sufficiency = [r for r in results if r.sufficiency_status is not None]
+    incomplete = [r for r in with_sufficiency if r.missed_paths]
+    complete = [r for r in with_sufficiency if not r.missed_paths]
+    gap_recall = (
+        sum(
+            1
+            for r in incomplete
+            if r.sufficiency_blocking_gaps > 0 or r.sufficiency_status == "insufficient"
+        )
+        / len(incomplete)
+        if incomplete
+        else None
+    )
+    sufficient_when_complete = (
+        sum(1 for r in complete if r.sufficiency_status != "insufficient") / len(complete)
+        if complete
+        else None
+    )
     return {
         "schemaVersion": SUMMARY_SCHEMA_VERSION,
         "generatedAtUnixMs": int(time.time() * 1000),
@@ -386,6 +462,8 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
             "meanLatencyMs": sum(result.latency_ms for result in results) / count,
             "maxLatencyMs": max(result.latency_ms for result in results),
             "totalOmittedCandidates": sum(result.omitted for result in results),
+            "sufficiencyGapRecall": gap_recall,
+            "sufficiencySufficientWhenComplete": sufficient_when_complete,
         },
         "cases": [result.__dict__ for result in results],
     }

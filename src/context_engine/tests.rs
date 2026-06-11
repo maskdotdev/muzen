@@ -733,6 +733,246 @@ async fn fused_search_records_restricted_evidence_as_omission() {
         .any(|omission| omission.evidence_id == top.0 && omission.reason == "restricted"));
 }
 
+async fn sufficiency_fixture() -> (
+    SnapshotContextEngine,
+    Arc<RepoSnapshot>,
+    tempfile::TempDir,
+) {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::create_dir_all(repo.path().join("tests")).unwrap();
+    std::fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub fn changed_fn() {\n    let a = 1;\n    let b = 2;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/caller.rs"),
+        "use crate::lib::changed_fn;\npub fn call() { changed_fn(); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("tests/lib_test.rs"),
+        "use crate::lib::changed_fn;\n#[test]\nfn changed_fn_works() { changed_fn(); }\n",
+    )
+    .unwrap();
+    let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -2,2 +2,2 @@\n+    let a = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/lib.rs"], diff);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    (engine, snapshot, repo)
+}
+
+fn sufficiency_query(
+    snapshot: &RepoSnapshot,
+    kind: ContextQueryKind,
+    arguments: serde_json::Value,
+    current_evidence: Vec<crate::runtime::contracts::EvidenceId>,
+) -> ContextQuery {
+    ContextQuery {
+        run_id: None,
+        snapshot_id: snapshot.snapshot_id.clone(),
+        session_id: None,
+        purpose: Some(ContextPackPurpose::Correctness),
+        kind,
+        arguments,
+        current_evidence,
+        limits: ContextQueryLimits {
+            max_results: 10,
+            max_tokens: 2000,
+        },
+    }
+}
+
+#[tokio::test]
+async fn missing_enclosing_definition_gap_clears_after_running_suggested_query() {
+    let (engine, snapshot, _repo) = sufficiency_fixture().await;
+    let check = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                Vec::new(),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let sufficiency = check.sufficiency.unwrap();
+    assert_eq!(sufficiency.status, ContextSufficiencyStatus::Insufficient);
+    let gap = sufficiency
+        .gaps
+        .iter()
+        .find(|gap| {
+            gap.missing
+                .contains(&ContextCoverageGapKind::EnclosingDefinition)
+        })
+        .expect("empty evidence reports an enclosing_definition gap");
+
+    // The suggested query is runnable as-is and returns the evidence
+    // that clears the gap.
+    let kind: ContextQueryKind =
+        serde_json::from_value(gap.suggested_query["kind"].clone()).unwrap();
+    let filled = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                kind,
+                gap.suggested_query["arguments"].clone(),
+                Vec::new(),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(!filled.evidence.is_empty());
+    let recheck = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                filled
+                    .evidence
+                    .iter()
+                    .map(|evidence| evidence.id.clone())
+                    .collect(),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let recheck_sufficiency = recheck.sufficiency.unwrap();
+    assert!(
+        !recheck_sufficiency.gaps.iter().any(|gap| {
+            gap.missing
+                .contains(&ContextCoverageGapKind::EnclosingDefinition)
+        }),
+        "running the suggested query clears the enclosing_definition gap"
+    );
+}
+
+#[tokio::test]
+async fn unreferenced_private_helper_does_not_demand_callers() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/helper.rs"),
+        "fn private_helper() {\n    let a = 1;\n}\n",
+    )
+    .unwrap();
+    let diff = "diff --git a/src/helper.rs b/src/helper.rs\n--- a/src/helper.rs\n+++ b/src/helper.rs\n@@ -2,1 +2,1 @@\n+    let a = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/helper.rs"], diff);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let current_evidence = index
+        .evidence
+        .iter()
+        .filter(|evidence| evidence.is_changed_span)
+        .map(|evidence| evidence.id.clone())
+        .collect();
+    let check = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                current_evidence,
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let sufficiency = check.sufficiency.unwrap();
+    assert!(
+        !sufficiency
+            .gaps
+            .iter()
+            .any(|gap| gap.missing.contains(&ContextCoverageGapKind::Callers)),
+        "a verifiably unreferenced helper must not demand callers"
+    );
+}
+
+#[tokio::test]
+async fn pack_sufficiency_equals_sufficiency_check_over_same_evidence() {
+    let (engine, snapshot, _repo) = sufficiency_fixture().await;
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens: 10_000,
+                seed_evidence: Vec::new(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let check = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                pack.evidence
+                    .iter()
+                    .map(|evidence| evidence.id.clone())
+                    .collect(),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let checked = check.sufficiency.unwrap();
+    assert_eq!(pack.sufficiency.status, checked.status);
+    assert_eq!(pack.sufficiency.gaps, checked.gaps);
+}
+
+#[tokio::test]
+async fn budget_exhaustion_downgrades_to_probably_sufficient_with_recorded_gaps() {
+    let (engine, snapshot, _repo) = sufficiency_fixture().await;
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens: 1,
+                seed_evidence: Vec::new(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(!pack.omitted_candidates.is_empty());
+    assert_eq!(
+        pack.sufficiency.status,
+        ContextSufficiencyStatus::ProbablySufficient,
+        "budget exhaustion downgrades instead of blocking"
+    );
+    assert!(
+        !pack.sufficiency.gaps.is_empty(),
+        "unresolved gaps stay recorded"
+    );
+}
+
 #[tokio::test]
 async fn read_span_redacts_known_secret_patterns() {
     let repo = tempfile::tempdir().unwrap();

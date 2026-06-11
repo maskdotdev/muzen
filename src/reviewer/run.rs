@@ -627,14 +627,44 @@ fn context_pack_instruction(pack: &crate::context_engine::ContextPack) -> String
         })
         .collect::<Vec<_>>()
         .join("\n");
-    format!(
+    let mut instruction = format!(
         "Context pack {} for purpose {} has sufficiency {} and {} selected evidence item(s).\nUse context tools when this pack is insufficient. Selected evidence:\n{}",
         pack.id.0,
         pack.purpose.as_str(),
         pack.sufficiency.status.as_str(),
         pack.evidence.len(),
         evidence
-    )
+    );
+    // R6: when coverage gaps exist, hand the session ready-to-run queries
+    // so it can fill them before producing findings. Iteration stays
+    // bounded by the existing session budgets.
+    if !pack.sufficiency.gaps.is_empty() {
+        let gaps = pack
+            .sufficiency
+            .gaps
+            .iter()
+            .take(12)
+            .map(|gap| {
+                format!(
+                    "- {}:{}-{} missing [{}]; run context query: {}",
+                    gap.path,
+                    gap.start_line,
+                    gap.end_line,
+                    gap.missing
+                        .iter()
+                        .map(|kind| kind.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    gap.suggested_query
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        instruction.push_str(&format!(
+            "\nCoverage gaps to fill before producing findings (bounded by session budgets):\n{gaps}"
+        ));
+    }
+    instruction
 }
 
 #[cfg(test)]
