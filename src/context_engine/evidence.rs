@@ -120,6 +120,18 @@ pub struct ContextRankSignals {
     pub path_proximity: f32,
 }
 
+/// How evidence content enters a pack (R7): the full chunk text, or a
+/// signatures-only skeleton when the full content does not fit the
+/// remaining budget. Token estimates always describe the active
+/// representation.
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextEvidenceRepresentation {
+    #[default]
+    FullContent,
+    Skeleton,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextEvidence {
@@ -143,6 +155,14 @@ pub struct ContextEvidence {
     /// review. Structured replacement for "changed" markers in summaries.
     #[serde(default)]
     pub is_changed_span: bool,
+    #[serde(default)]
+    pub representation: ContextEvidenceRepresentation,
+    /// Skeleton view text (bodies elided, line numbers preserved).
+    /// Present exactly when `representation == Skeleton`: skeletons are
+    /// synthesized views that exist nowhere on disk, so the pack carries
+    /// their text. Full-content evidence resolves through (path, range).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeleton_text: Option<String>,
     #[serde(default)]
     pub signals: ContextRankSignals,
     pub token_estimate: usize,
@@ -198,6 +218,9 @@ pub enum ContextOmissionReason {
     OutsideScope,
     SupersededBySummary,
     RequiresUngrantedCapability,
+    /// The full content did not fit the remaining pack budget, but its
+    /// file's signatures-only skeleton did and was included instead.
+    DowngradedToSkeleton,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -193,6 +193,12 @@ pub(crate) fn explain_selected_evidence(
 ) -> Vec<String> {
     let signals = &evidence.signals;
     let mut why: Vec<String> = Vec::new();
+    if evidence.representation == super::ContextEvidenceRepresentation::Skeleton {
+        why.push(
+            "included as a signatures-only skeleton: the full content did not fit the remaining budget"
+                .to_string(),
+        );
+    }
     if evidence.is_changed_span {
         why.push("encloses changed lines under review".to_string());
     }
@@ -279,6 +285,8 @@ mod tests {
             content_hash: None,
             summary: None,
             is_changed_span,
+            representation: crate::context_engine::ContextEvidenceRepresentation::FullContent,
+            skeleton_text: None,
             signals,
             token_estimate: 100,
             provenance: ContextProvenance {
@@ -401,13 +409,9 @@ mod tests {
             false,
         );
         let why = explain_selected_evidence(&item, ContextPackPurpose::Correctness);
-        assert!(why
-            .iter()
-            .any(|reason| reason.contains("reference graph")));
+        assert!(why.iter().any(|reason| reason.contains("reference graph")));
         assert!(why.iter().any(|reason| reason.contains("co-changed")));
-        assert!(why
-            .iter()
-            .any(|reason| reason.contains("directory tree")));
+        assert!(why.iter().any(|reason| reason.contains("directory tree")));
         assert!(
             !why.iter().any(|reason| reason.contains("V0")),
             "explanations cite signals, not V0 heuristics"

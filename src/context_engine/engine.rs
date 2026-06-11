@@ -9,10 +9,7 @@ use crate::runtime::contracts::{stable_id, RuntimeError, RuntimeResult, Snapshot
 
 use super::unix_timestamp_string;
 use super::ContextLearningStore;
-use super::{
-    evidence_by_id, fused_search, read_line_span, string_arg, trust_rank,
-    usize_arg,
-};
+use super::{evidence_by_id, fused_search, read_line_span, string_arg, trust_rank, usize_arg};
 use super::{explain_selected_evidence, purpose_name, rank_for_purpose, score_for_purpose};
 use super::{learning_is_expired, redact_context_content};
 use super::{path_stem, related_symbol_score, related_symbol_terms};
@@ -23,8 +20,8 @@ use super::{
     ContextLearningApprovalReceipt, ContextLearningScope, ContextLearningSource,
     ContextLearningStatus, ContextOmissionReason, ContextPack, ContextPackId, ContextPackRequest,
     ContextQuery, ContextQueryKind, ContextQueryResult, ContextRange, FileContextLearningStore,
-    InMemoryContextIndexStore,
-    InMemoryContextLearningStore, OmittedContextCandidate, CONTEXT_ENGINE_VERSION,
+    InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
+    CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -240,23 +237,39 @@ impl ContextEngine for SnapshotContextEngine {
             RuntimeError::InvalidInput("context index not found for snapshot".to_string())
         })?;
         let mut ranked = rank_for_purpose(&index.evidence, request.purpose, &self.config);
+        // Degradation ladder (R7), applied at each candidate's turn in
+        // rank order: full content when it fits, the chunk's
+        // signatures-only skeleton twin when only that fits, omission
+        // otherwise. A candidate enters as exactly one representation,
+        // so a chunk and its skeleton are never both included.
         let mut used_tokens = 0usize;
-        let mut selected = Vec::new();
+        let mut selected: Vec<ContextEvidence> = Vec::new();
         let mut omitted_candidates = Vec::new();
         for (score, evidence) in ranked.drain(..) {
             if used_tokens.saturating_add(evidence.token_estimate) <= request.max_tokens {
                 used_tokens = used_tokens.saturating_add(evidence.token_estimate);
                 selected.push(evidence);
-            } else {
-                omitted_candidates.push(OmittedContextCandidate {
-                    evidence_id: evidence.id,
-                    kind: evidence.kind,
-                    path: evidence.path,
-                    score,
-                    token_estimate: evidence.token_estimate,
-                    reason: ContextOmissionReason::BudgetExhausted,
-                });
+                continue;
             }
+            let skeleton = index.skeletons.get(&evidence.id.0).filter(|skeleton| {
+                used_tokens.saturating_add(skeleton.token_estimate) <= request.max_tokens
+            });
+            let reason = match skeleton {
+                Some(skeleton) => {
+                    used_tokens = used_tokens.saturating_add(skeleton.token_estimate);
+                    selected.push(skeleton.clone());
+                    ContextOmissionReason::DowngradedToSkeleton
+                }
+                None => ContextOmissionReason::BudgetExhausted,
+            };
+            omitted_candidates.push(OmittedContextCandidate {
+                evidence_id: evidence.id,
+                kind: evidence.kind,
+                path: evidence.path,
+                score,
+                token_estimate: evidence.token_estimate,
+                reason,
+            });
         }
         let selected_ids: std::collections::BTreeSet<&str> = selected
             .iter()
@@ -273,9 +286,14 @@ impl ContextEngine for SnapshotContextEngine {
             .collect();
         // Pack sufficiency comes from the same per-hunk coverage logic as
         // the sufficiency_check query, so the two can never disagree.
-        let budget_exhausted = omitted_candidates
-            .iter()
-            .any(|candidate| candidate.reason == ContextOmissionReason::BudgetExhausted);
+        // Both reasons mean full content did not fit within budget.
+        let budget_exhausted = omitted_candidates.iter().any(|candidate| {
+            matches!(
+                candidate.reason,
+                ContextOmissionReason::BudgetExhausted
+                    | ContextOmissionReason::DowngradedToSkeleton
+            )
+        });
         let sufficiency = super::evaluate_sufficiency(&index, &selected, budget_exhausted);
         let pack_id = ContextPackId(stable_id(&[
             &request.snapshot_id.0,
@@ -626,7 +644,18 @@ impl ContextEngine for SnapshotContextEngine {
                 })
             }
             ContextQueryKind::SufficiencyCheck => {
-                let evidence = evidence_by_id(&index.evidence, &request.current_evidence);
+                let mut evidence = evidence_by_id(&index.evidence, &request.current_evidence);
+                // Packs can cite skeleton evidence (R7); resolve those
+                // ids too so a check over pack ids sees the same set.
+                evidence.extend(
+                    index
+                        .skeletons
+                        .values()
+                        .filter(|skeleton| {
+                            request.current_evidence.iter().any(|id| id == &skeleton.id)
+                        })
+                        .cloned(),
+                );
                 let sufficiency = super::evaluate_sufficiency(&index, &evidence, false);
                 Ok(ContextQueryResult {
                     kind: request.kind,

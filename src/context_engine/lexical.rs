@@ -159,14 +159,26 @@ fn split_identifier(identifier: &str) -> Vec<String> {
             let case_boundary = previous.is_ascii_lowercase() && current.is_ascii_uppercase();
             let acronym_boundary = previous.is_ascii_uppercase()
                 && current.is_ascii_uppercase()
-                && chars.get(index + 1).is_some_and(|next| next.is_ascii_lowercase());
+                && chars
+                    .get(index + 1)
+                    .is_some_and(|next| next.is_ascii_lowercase());
             let digit_boundary = previous.is_ascii_digit() != current.is_ascii_digit();
             if case_boundary || acronym_boundary || digit_boundary {
-                parts.push(chars[start..index].iter().collect::<String>().to_ascii_lowercase());
+                parts.push(
+                    chars[start..index]
+                        .iter()
+                        .collect::<String>()
+                        .to_ascii_lowercase(),
+                );
                 start = index;
             }
         }
-        parts.push(chars[start..].iter().collect::<String>().to_ascii_lowercase());
+        parts.push(
+            chars[start..]
+                .iter()
+                .collect::<String>()
+                .to_ascii_lowercase(),
+        );
     }
     parts
 }
@@ -198,6 +210,8 @@ mod tests {
             content_hash: None,
             summary: Some(summary.to_string()),
             is_changed_span: false,
+            representation: crate::context_engine::ContextEvidenceRepresentation::FullContent,
+            skeleton_text: None,
             signals: ContextRankSignals::default(),
             token_estimate: 1,
             provenance: ContextProvenance {
@@ -212,14 +226,10 @@ mod tests {
         }
     }
 
-    fn contents(
-        entries: &[(&str, &str)],
-    ) -> BTreeMap<crate::runtime::contracts::RepoPath, String> {
+    fn contents(entries: &[(&str, &str)]) -> BTreeMap<crate::runtime::contracts::RepoPath, String> {
         entries
             .iter()
-            .map(|(path, content)| {
-                (RepoPath::parse(path).unwrap(), content.to_string())
-            })
+            .map(|(path, content)| (RepoPath::parse(path).unwrap(), content.to_string()))
             .collect()
     }
 
@@ -246,12 +256,26 @@ mod tests {
     #[test]
     fn camel_case_query_finds_snake_case_definition() {
         let docs = vec![
-            evidence("ev_def", "src/auth/user.rs", "fn get_user_id in src/auth/user.rs"),
-            evidence("ev_noise", "src/routes.rs", "fn handle_user_routes in src/routes.rs"),
+            evidence(
+                "ev_def",
+                "src/auth/user.rs",
+                "fn get_user_id in src/auth/user.rs",
+            ),
+            evidence(
+                "ev_noise",
+                "src/routes.rs",
+                "fn handle_user_routes in src/routes.rs",
+            ),
         ];
         let files = contents(&[
-            ("src/auth/user.rs", "pub fn get_user_id(token: &Token) -> UserId {}\n"),
-            ("src/routes.rs", "pub fn handle_user_routes() { /* user pages */ }\n"),
+            (
+                "src/auth/user.rs",
+                "pub fn get_user_id(token: &Token) -> UserId {}\n",
+            ),
+            (
+                "src/routes.rs",
+                "pub fn handle_user_routes() { /* user pages */ }\n",
+            ),
         ]);
         let index = LexicalIndex::build(&docs, &files);
         let ranked = index.search("getUserId", 10, K1, B);
@@ -261,7 +285,11 @@ mod tests {
     #[test]
     fn exact_identifier_ranks_exact_match_first() {
         let docs = vec![
-            evidence("ev_exact", "src/token.rs", "fn validate_token in src/token.rs"),
+            evidence(
+                "ev_exact",
+                "src/token.rs",
+                "fn validate_token in src/token.rs",
+            ),
             evidence("ev_partial", "src/lib.rs", "fn validate in src/lib.rs"),
         ];
         let files = contents(&[
@@ -286,7 +314,11 @@ mod tests {
         )];
         for index in 0..20 {
             let path = format!("src/noise{index}.rs");
-            docs.push(evidence(&format!("ev_noise{index}"), &path, "common helper"));
+            docs.push(evidence(
+                &format!("ev_noise{index}"),
+                &path,
+                "common helper",
+            ));
             entries.push((path, "pub fn helper() { let value = 1; }\n".to_string()));
         }
         let files = entries

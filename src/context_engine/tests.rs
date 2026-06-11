@@ -43,6 +43,8 @@ fn context_contracts_serde_round_trip() {
         content_hash: Some("hash".to_string()),
         summary: Some("summary".to_string()),
         is_changed_span: false,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: 10,
         provenance: ContextProvenance {
@@ -76,6 +78,8 @@ fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
         content_hash: None,
         summary: Some("restricted evidence".to_string()),
         is_changed_span: false,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: 4,
         provenance: ContextProvenance {
@@ -678,9 +682,10 @@ async fn changed_ts_export_surfaces_importing_call_sites_without_collisions() {
         "same-named module in another directory must not surface as a caller"
     );
     assert!(
-        index.relationships.iter().any(|relationship| {
-            relationship.kind == ContextRelationshipKind::CalledBy
-        }),
+        index
+            .relationships
+            .iter()
+            .any(|relationship| { relationship.kind == ContextRelationshipKind::CalledBy }),
         "graph candidates become typed relationships"
     );
 }
@@ -733,11 +738,7 @@ async fn fused_search_records_restricted_evidence_as_omission() {
         .any(|omission| omission.evidence_id == top.0 && omission.reason == "restricted"));
 }
 
-async fn sufficiency_fixture() -> (
-    SnapshotContextEngine,
-    Arc<RepoSnapshot>,
-    tempfile::TempDir,
-) {
+async fn sufficiency_fixture() -> (SnapshotContextEngine, Arc<RepoSnapshot>, tempfile::TempDir) {
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(repo.path().join("src")).unwrap();
     std::fs::create_dir_all(repo.path().join("tests")).unwrap();
@@ -1889,4 +1890,282 @@ async fn pathological_file_respects_chunk_budget_and_records_skip() {
         skip.path.display() == "src/pathological.rs"
             && skip.reason == ContextIndexSkipReason::ChunkBudgetExceeded
     }));
+}
+
+/// Fixture for the R7 degradation ladder: a small changed file plus a
+/// large related file whose single full chunk dwarfs the pack budget.
+/// `chunk_max_tokens` is raised so the large file stays one chunk,
+/// making "full content does not fit" deterministic.
+async fn skeleton_fixture() -> (SnapshotContextEngine, Arc<RepoSnapshot>, tempfile::TempDir) {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub fn changed_fn() {\n    let a = 1;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/big.rs"),
+        many_function_rust_file(40, 18),
+    )
+    .unwrap();
+    let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -2,1 +2,1 @@\n+    let a = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/lib.rs"], diff);
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.chunk_max_tokens = 16_000;
+    let engine = SnapshotContextEngine::new(config);
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    (engine, snapshot, repo)
+}
+
+fn assert_pack_budget_and_dedup_invariants(pack: &ContextPack) {
+    let total: usize = pack
+        .evidence
+        .iter()
+        .map(|evidence| evidence.token_estimate)
+        .sum();
+    assert_eq!(
+        pack.budget.used_tokens, total,
+        "budget usage equals the sum of included content estimates"
+    );
+    assert!(pack.budget.used_tokens <= pack.budget.max_tokens);
+    for skeleton in pack
+        .evidence
+        .iter()
+        .filter(|evidence| evidence.representation == ContextEvidenceRepresentation::Skeleton)
+    {
+        assert!(skeleton.skeleton_text.is_some());
+        let skeleton_range = skeleton.range.expect("skeleton evidence carries a range");
+        assert!(
+            !pack.evidence.iter().any(|other| {
+                other.representation == ContextEvidenceRepresentation::FullContent
+                    && other.kind != ContextEvidenceKind::Symbol
+                    && other.path == skeleton.path
+                    && other.range.is_some_and(|range| {
+                        range.start_line <= skeleton_range.end_line
+                            && skeleton_range.start_line <= range.end_line
+                    })
+            }),
+            "a chunk and its skeleton are never both included"
+        );
+    }
+}
+
+#[tokio::test]
+async fn large_related_file_enters_budget_constrained_pack_as_skeleton() {
+    let (engine, snapshot, _repo) = skeleton_fixture().await;
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    let big_chunk = index
+        .evidence
+        .iter()
+        .filter(|evidence| {
+            evidence.path.as_ref() == Some(&big_path)
+                && evidence.kind == ContextEvidenceKind::FileSpan
+        })
+        .min_by_key(|evidence| evidence.token_estimate)
+        .expect("big.rs chunk evidence");
+    let skeleton = index
+        .skeletons
+        .get(&big_chunk.id.0)
+        .expect("skeleton twin for the src/big.rs chunk");
+    let big_chunk_tokens = big_chunk.token_estimate;
+    let other_tokens: usize = index
+        .evidence
+        .iter()
+        .filter(|evidence| evidence.path.as_ref() != Some(&big_path))
+        .map(|evidence| evidence.token_estimate)
+        .sum();
+    let max_tokens = other_tokens + skeleton.token_estimate;
+    assert!(
+        max_tokens < big_chunk_tokens,
+        "fixture invariant: the full chunk must not fit the budget"
+    );
+
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens,
+                seed_evidence: Vec::new(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let included_skeleton = pack
+        .evidence
+        .iter()
+        .find(|evidence| evidence.representation == ContextEvidenceRepresentation::Skeleton)
+        .expect("large related file enters the pack as a skeleton");
+    assert_eq!(included_skeleton.path.as_ref(), Some(&big_path));
+    let text = included_skeleton.skeleton_text.as_deref().unwrap();
+    assert!(text.contains("    1| "), "line numbers preserved: {text}");
+    assert!(text.contains("     | ..."), "bodies elided to ...");
+    assert!(
+        text.contains("pub fn generated_0()"),
+        "signature text preserved for coverage checks"
+    );
+    assert!(
+        pack.omitted_candidates.iter().any(|candidate| {
+            candidate.path.as_ref() == Some(&big_path)
+                && candidate.reason == ContextOmissionReason::DowngradedToSkeleton
+        }),
+        "the downgrade is recorded in omission data"
+    );
+    assert_pack_budget_and_dedup_invariants(&pack);
+}
+
+#[tokio::test]
+async fn full_content_suppresses_skeleton_when_budget_allows() {
+    let (engine, snapshot, _repo) = skeleton_fixture().await;
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens: 50_000,
+                seed_evidence: Vec::new(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    assert!(pack.evidence.iter().any(|evidence| {
+        evidence.path.as_ref() == Some(&big_path)
+            && evidence.representation == ContextEvidenceRepresentation::FullContent
+            && evidence.kind == ContextEvidenceKind::FileSpan
+    }));
+    assert!(!pack
+        .evidence
+        .iter()
+        .any(|evidence| evidence.representation == ContextEvidenceRepresentation::Skeleton));
+    assert!(!pack
+        .omitted_candidates
+        .iter()
+        .any(|candidate| candidate.reason == ContextOmissionReason::DowngradedToSkeleton));
+    assert_pack_budget_and_dedup_invariants(&pack);
+}
+
+#[tokio::test]
+async fn skeleton_evidence_does_not_satisfy_hunk_coverage() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/big.rs"),
+        many_function_rust_file(40, 12),
+    )
+    .unwrap();
+    let diff = "diff --git a/src/big.rs b/src/big.rs\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -2,3 +2,4 @@\n+    let added = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/big.rs"], diff);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    let changed_chunk = index
+        .evidence
+        .iter()
+        .find(|evidence| {
+            evidence.kind == ContextEvidenceKind::FileSpan
+                && evidence.is_changed_span
+                && evidence.path.as_ref() == Some(&big_path)
+        })
+        .expect("enclosing chunk evidence");
+    let skeleton = index
+        .skeletons
+        .get(&changed_chunk.id.0)
+        .expect("skeleton twin for the changed chunk");
+
+    // Bodies are elided, so a skeleton cannot stand in for the enclosing
+    // definition of a hunk.
+    let check = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                vec![skeleton.id.clone()],
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        check.evidence.iter().any(|item| item.id == skeleton.id),
+        "the sufficiency check resolves skeleton evidence ids"
+    );
+    let sufficiency = check.sufficiency.unwrap();
+    assert!(sufficiency.gaps.iter().any(|gap| {
+        gap.missing
+            .contains(&ContextCoverageGapKind::EnclosingDefinition)
+    }));
+
+    // The full chunk enclosing the hunk clears the gap.
+    let recheck = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                vec![changed_chunk.id.clone()],
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(!recheck.sufficiency.unwrap().gaps.iter().any(|gap| {
+        gap.missing
+            .contains(&ContextCoverageGapKind::EnclosingDefinition)
+    }));
+}
+
+#[tokio::test]
+async fn skeleton_text_passes_redaction() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    let secret = "ghp_1234567890abcdefghijklmnopqrst";
+    let content = format!(
+        "pub const TOKEN: &str = \"{secret}\";\n\n{}",
+        many_function_rust_file(20, 12)
+    );
+    std::fs::write(repo.path().join("src/secret.rs"), content).unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["src/secret.rs"]);
+    let index = ContextIndex::build(ContextIndexRequest::for_snapshot(
+        snapshot,
+        &ContextEngineConfig::snapshot_v0(),
+    ))
+    .await
+    .unwrap();
+    assert!(!index.skeletons.is_empty(), "skeleton twins exist");
+    for skeleton in index.skeletons.values() {
+        let text = skeleton.skeleton_text.as_deref().unwrap();
+        assert!(!text.contains(secret), "secret retained in skeleton view");
+    }
+    assert!(
+        index.skeletons.values().any(|skeleton| skeleton
+            .skeleton_text
+            .as_deref()
+            .unwrap()
+            .contains("[REDACTED]")),
+        "the retained signature line carries the redaction marker"
+    );
 }
