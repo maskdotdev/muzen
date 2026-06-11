@@ -308,7 +308,13 @@ impl ContextEngine for SnapshotContextEngine {
         match request.kind {
             ContextQueryKind::SearchText => {
                 let query = string_arg(&request.arguments, "query")?;
-                let matches = search_evidence(&index.evidence, &index.file_contents, &query, limit);
+                let matches = search_evidence(
+                    &index,
+                    &query,
+                    limit,
+                    self.config.bm25_k1,
+                    self.config.bm25_b,
+                );
                 let matches = merge_semantic_search(
                     matches,
                     &index.evidence,

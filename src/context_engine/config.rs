@@ -7,7 +7,7 @@ pub enum ContextEngineMode {
     SnapshotV0,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextEngineConfig {
     pub mode: ContextEngineMode,
@@ -23,6 +23,10 @@ pub struct ContextEngineConfig {
     /// Cap on chunk evidence per file; the remainder is recorded as a
     /// `chunk_budget_exceeded` skip.
     pub max_chunks_per_file: usize,
+    /// BM25 term-frequency saturation constant.
+    pub bm25_k1: f32,
+    /// BM25 document-length normalization constant.
+    pub bm25_b: f32,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -47,6 +51,8 @@ impl ContextEngineConfig {
             max_query_results: 120,
             chunk_max_tokens: 400,
             max_chunks_per_file: 64,
+            bm25_k1: 1.2,
+            bm25_b: 0.75,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,

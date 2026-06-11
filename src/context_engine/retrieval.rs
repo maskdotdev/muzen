@@ -36,47 +36,25 @@ pub(crate) fn usize_arg(arguments: &Value, key: &str) -> RuntimeResult<usize> {
         .ok_or_else(|| RuntimeError::InvalidInput(format!("context query requires {key}")))
 }
 
+/// Rank evidence for a text query with BM25 over the lexical index.
+/// Returns scored, rank-ordered evidence (highest first).
 pub(crate) fn search_evidence(
-    evidence: &[ContextEvidence],
-    file_contents: &std::collections::BTreeMap<RepoPath, String>,
+    index: &super::ContextIndex,
     query: &str,
     limit: usize,
+    bm25_k1: f32,
+    bm25_b: f32,
 ) -> Vec<ContextEvidence> {
-    let terms = query
-        .split('|')
-        .map(str::trim)
-        .filter(|term| !term.is_empty())
-        .map(str::to_ascii_lowercase)
-        .collect::<Vec<_>>();
-    if terms.is_empty() {
-        return Vec::new();
-    }
-    evidence
-        .iter()
-        .filter(|evidence| {
-            let content = evidence
-                .path
-                .as_ref()
-                .and_then(|path| file_contents.get(path))
-                .map(|content| {
-                    super::chunking::slice_evidence_lines(content, evidence.range.as_ref())
-                })
-                .unwrap_or_default();
-            let haystack = format!(
-                "{} {} {}",
-                evidence
-                    .path
-                    .as_ref()
-                    .map(|path| path.display())
-                    .unwrap_or_default(),
-                evidence.summary.as_deref().unwrap_or(""),
-                content
-            )
-            .to_ascii_lowercase();
-            terms.iter().any(|term| haystack.contains(term))
+    let ranked = index.lexical.search(query, limit, bm25_k1, bm25_b);
+    ranked
+        .into_iter()
+        .filter_map(|(id, _score)| {
+            index
+                .evidence
+                .iter()
+                .find(|candidate| candidate.id == id)
+                .cloned()
         })
-        .take(limit)
-        .cloned()
         .collect()
 }
 
