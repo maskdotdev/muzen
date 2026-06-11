@@ -13,6 +13,9 @@ use crate::runtime::contracts::*;
 #[derive(Debug)]
 pub(crate) struct RepoSnapshot {
     pub(crate) snapshot_id: SnapshotId,
+    /// Canonicalized checkout root the snapshot was captured from.
+    /// Read-only git history access (co-change mining) roots here.
+    pub(crate) source_root: PathBuf,
     pub(crate) manifest_hash: String,
     pub(crate) path_policy_hash: String,
     pub(crate) storage_policy_hash: String,
@@ -321,6 +324,7 @@ impl RepoSnapshot {
         });
         Ok(Arc::new(Self {
             snapshot_id,
+            source_root: root_path,
             manifest_hash,
             path_policy_hash,
             storage_policy_hash,

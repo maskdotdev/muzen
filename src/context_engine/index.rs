@@ -11,12 +11,14 @@ use crate::runtime::contracts::{
 use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
 use super::chunking::{chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, FileChunk};
+use super::graph::{co_change_stats, expand_from_changes, GraphCandidate, ReferenceGraph};
+use super::syntax::ParsedSymbols;
 use super::{
     context_embedding_text, validate_embedding_batch, ContextEngineConfig, ContextEvidence,
     ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRange,
-    ContextRevision, ContextScope, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
-    ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider, HostedEmbeddingProvider,
-    InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
+    ContextRelationship, ContextRevision, ContextScope, ContextSemanticConfig, ContextSemanticMode,
+    ContextSensitivity, ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider,
+    HostedEmbeddingProvider, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
@@ -73,6 +75,9 @@ pub struct ContextLimits {
     pub max_query_results: usize,
     pub chunk_max_tokens: usize,
     pub max_chunks_per_file: usize,
+    pub graph_max_hops: usize,
+    pub graph_max_candidates_per_anchor: usize,
+    pub co_change_commit_limit: usize,
 }
 
 impl ContextLimits {
@@ -85,6 +90,9 @@ impl ContextLimits {
             max_query_results: config.max_query_results,
             chunk_max_tokens: config.chunk_max_tokens,
             max_chunks_per_file: config.max_chunks_per_file,
+            graph_max_hops: config.graph_max_hops,
+            graph_max_candidates_per_anchor: config.graph_max_candidates_per_anchor,
+            co_change_commit_limit: config.co_change_commit_limit,
         }
     }
 }
@@ -163,6 +171,9 @@ pub struct ContextIndex {
     pub file_contents: BTreeMap<RepoPath, String>,
     pub lexical: super::LexicalIndex,
     pub symbol_graph: ContextSymbolGraph,
+    pub graph: ReferenceGraph,
+    pub graph_candidates: Vec<GraphCandidate>,
+    pub relationships: Vec<ContextRelationship>,
     pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
@@ -179,6 +190,7 @@ impl ContextIndex {
         let mut evidence = Vec::new();
         let mut file_contents = BTreeMap::new();
         let mut symbol_graph = ContextSymbolGraph::default();
+        let mut parsed_by_file: BTreeMap<RepoPath, ParsedSymbols> = BTreeMap::new();
         let mut denied_cross_repo_contracts = 0usize;
         let mut skips = Vec::new();
         let mut indexed_files = 0usize;
@@ -244,7 +256,7 @@ impl ContextIndex {
                                     reason: ContextIndexSkipReason::ChunkBudgetExceeded,
                                 });
                             }
-                            index_symbols(
+                            let parsed = index_symbols(
                                 &snapshot,
                                 file,
                                 &content,
@@ -253,11 +265,12 @@ impl ContextIndex {
                                 &mut evidence,
                                 request.limits.max_evidence_items,
                             );
+                            parsed_by_file.insert(file.rel_path.clone(), parsed);
                             file_contents.insert(file.rel_path.clone(), content);
                         }
                         Some(content) => {
                             evidence.push(file_evidence(&snapshot, file, kind));
-                            index_symbols(
+                            let parsed = index_symbols(
                                 &snapshot,
                                 file,
                                 &content,
@@ -266,6 +279,7 @@ impl ContextIndex {
                                 &mut evidence,
                                 request.limits.max_evidence_items,
                             );
+                            parsed_by_file.insert(file.rel_path.clone(), parsed);
                             file_contents.insert(file.rel_path.clone(), content);
                         }
                         None => evidence.push(file_evidence(&snapshot, file, kind)),
@@ -354,6 +368,29 @@ impl ContextIndex {
             }
         }
 
+        // Change-rooted graph: the diff anchors expansion into the blast
+        // radius of the change (callers, callees, tests, co-changes).
+        let changed_paths: BTreeSet<RepoPath> = snapshot
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.is_changed)
+            .map(|file| file.rel_path.clone())
+            .collect();
+        let mut graph = ReferenceGraph::build(&parsed_by_file);
+        graph.co_change = co_change_stats(
+            &snapshot.source_root,
+            &changed_paths,
+            request.limits.co_change_commit_limit,
+        );
+        let (graph_candidates, graph_overflow) = expand_from_changes(
+            &graph,
+            &changed_paths,
+            request.limits.graph_max_hops,
+            request.limits.graph_max_candidates_per_anchor,
+        );
+        let relationships = build_relationships(&evidence, &graph_candidates);
+
         let lexical = super::LexicalIndex::build(&evidence, &file_contents);
         let semantic_vectors =
             build_semantic_vectors(&request.semantic, &evidence, &file_contents).await?;
@@ -364,7 +401,16 @@ impl ContextIndex {
             CONTEXT_ENGINE_VERSION,
             &evidence.len().to_string(),
         ]));
-        let warnings = Vec::new();
+        let mut warnings = Vec::new();
+        if graph_overflow > 0 {
+            warnings.push(ContextIndexWarning {
+                code: "graph_candidates_truncated".to_string(),
+                message: format!(
+                    "graph expansion dropped {graph_overflow} candidates over per-anchor budget"
+                ),
+                path: None,
+            });
+        }
         let report = ContextIndexReport {
             index_id: index_id.clone(),
             snapshot_id: snapshot.snapshot_id.clone(),
@@ -405,6 +451,9 @@ impl ContextIndex {
             file_contents,
             lexical,
             symbol_graph,
+            graph,
+            graph_candidates,
+            relationships,
             semantic: request.semantic,
             semantic_vectors,
             denied_cross_repo_contracts,
@@ -669,6 +718,61 @@ fn chunked_kind(kind: ContextEvidenceKind, content: &str) -> bool {
     }
 }
 
+/// Map graph expansion candidates and changed chunks to typed,
+/// evidence-id-level relationships for packs and explanations.
+fn build_relationships(
+    evidence: &[ContextEvidence],
+    candidates: &[GraphCandidate],
+) -> Vec<ContextRelationship> {
+    use super::ContextRelationshipKind;
+    let mut by_path: BTreeMap<&RepoPath, &ContextEvidence> = BTreeMap::new();
+    let mut changed_by_path: BTreeMap<&RepoPath, &ContextEvidence> = BTreeMap::new();
+    for item in evidence {
+        if let Some(path) = &item.path {
+            by_path.entry(path).or_insert(item);
+            if item.is_changed_span {
+                changed_by_path.entry(path).or_insert(item);
+            }
+        }
+    }
+    let mut relationships = Vec::new();
+    if let Some(diff) = evidence
+        .iter()
+        .find(|item| item.kind == ContextEvidenceKind::Diff)
+    {
+        for item in evidence {
+            if item.is_changed_span && item.path.is_some() && item.range.is_some() {
+                relationships.push(ContextRelationship {
+                    from: item.id.clone(),
+                    to: diff.id.clone(),
+                    kind: ContextRelationshipKind::EnclosesHunk,
+                    confidence: 1.0,
+                    reason: "definition-aligned chunk encloses changed lines".to_string(),
+                });
+            }
+        }
+    }
+    for candidate in candidates {
+        let Some(from) = changed_by_path
+            .get(&candidate.anchor)
+            .or_else(|| by_path.get(&candidate.anchor))
+        else {
+            continue;
+        };
+        let Some(to) = by_path.get(&candidate.path) else {
+            continue;
+        };
+        relationships.push(ContextRelationship {
+            from: from.id.clone(),
+            to: to.id.clone(),
+            kind: candidate.kind,
+            confidence: candidate.confidence,
+            reason: candidate.reason.clone(),
+        });
+    }
+    relationships
+}
+
 #[allow(clippy::too_many_arguments)]
 fn index_symbols(
     snapshot: &RepoSnapshot,
@@ -678,10 +782,10 @@ fn index_symbols(
     symbol_graph: &mut ContextSymbolGraph,
     evidence: &mut Vec<ContextEvidence>,
     max_evidence_items: usize,
-) {
+) -> ParsedSymbols {
     let parsed_symbols = symbol_graph.add_file(file.rel_path.clone(), content);
     if !file.is_changed {
-        return;
+        return parsed_symbols;
     }
     for symbol in &parsed_symbols.definitions {
         if evidence.len() >= max_evidence_items {
@@ -699,6 +803,7 @@ fn index_symbols(
             is_changed_span,
         ));
     }
+    parsed_symbols
 }
 
 fn chunk_evidence(

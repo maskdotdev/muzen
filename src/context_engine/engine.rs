@@ -239,7 +239,9 @@ impl ContextEngine for SnapshotContextEngine {
         let index = self.store.get_index(&request.snapshot_id).ok_or_else(|| {
             RuntimeError::InvalidInput("context index not found for snapshot".to_string())
         })?;
-        let mut ranked = rank_for_purpose(&index.evidence, request.purpose, &self.config);
+        let graph_boost = super::graph_boost_by_path(&index.graph_candidates);
+        let mut ranked =
+            rank_for_purpose(&index.evidence, request.purpose, &self.config, &graph_boost);
         let mut used_tokens = 0usize;
         let mut selected = Vec::new();
         let mut omitted_candidates = Vec::new();
@@ -258,6 +260,19 @@ impl ContextEngine for SnapshotContextEngine {
                 });
             }
         }
+        let selected_ids: std::collections::BTreeSet<&str> = selected
+            .iter()
+            .map(|evidence| evidence.id.0.as_str())
+            .collect();
+        let relationships: Vec<_> = index
+            .relationships
+            .iter()
+            .filter(|relationship| {
+                selected_ids.contains(relationship.from.0.as_str())
+                    && selected_ids.contains(relationship.to.0.as_str())
+            })
+            .cloned()
+            .collect();
         let pack_id = ContextPackId(stable_id(&[
             &request.snapshot_id.0,
             request
@@ -276,7 +291,7 @@ impl ContextEngine for SnapshotContextEngine {
             session_id: request.session_id,
             purpose: request.purpose,
             evidence: selected,
-            relationships: Vec::new(),
+            relationships,
             omitted_candidates,
             budget: ContextBudgetUsage {
                 max_tokens: request.max_tokens,
@@ -332,32 +347,66 @@ impl ContextEngine for SnapshotContextEngine {
             ContextQueryKind::RelatedTests => {
                 let path = string_arg(&request.arguments, "path").unwrap_or_default();
                 let path_stem = path_stem(&path);
-                let evidence = index
+                // Tests connected through the resolved reference graph rank
+                // above path-stem matches.
+                let graph_test_paths: std::collections::BTreeSet<_> =
+                    crate::runtime::contracts::RepoPath::parse(&path)
+                        .map(|query_path| {
+                            index
+                                .graph
+                                .referencers(&query_path)
+                                .filter(|edge| super::is_test_path(&edge.from.display()))
+                                .map(|edge| edge.from.clone())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                let mut ranked = index
                     .evidence
                     .iter()
                     .filter(|evidence| evidence.kind == ContextEvidenceKind::Test)
-                    .filter(|evidence| {
-                        path_stem.is_empty()
-                            || evidence
+                    .filter_map(|evidence| {
+                        let in_graph = evidence
+                            .path
+                            .as_ref()
+                            .map(|path| graph_test_paths.contains(path))
+                            .unwrap_or(false);
+                        let stem_match = !path_stem.is_empty()
+                            && (evidence
                                 .path
                                 .as_ref()
                                 .map(|path| path.display().contains(&path_stem))
                                 .unwrap_or(false)
-                            || evidence
-                                .summary
-                                .as_ref()
-                                .map(|summary| summary.contains(&path_stem))
-                                .unwrap_or(false)
+                                || evidence
+                                    .summary
+                                    .as_ref()
+                                    .map(|summary| summary.contains(&path_stem))
+                                    .unwrap_or(false));
+                        let score = match (in_graph, stem_match) {
+                            (true, true) => 3u8,
+                            (true, false) => 2,
+                            (false, true) => 1,
+                            (false, false) => return path_stem.is_empty().then_some((0, evidence)),
+                        };
+                        Some((score, evidence))
                     })
+                    .collect::<Vec<_>>();
+                ranked.sort_by(|(left_score, left), (right_score, right)| {
+                    right_score
+                        .cmp(left_score)
+                        .then_with(|| left.id.0.cmp(&right.id.0))
+                });
+                let omitted = ranked.len().saturating_sub(limit);
+                let evidence = ranked
+                    .into_iter()
                     .take(limit)
-                    .cloned()
+                    .map(|(_, evidence)| evidence.clone())
                     .collect::<Vec<_>>();
                 Ok(ContextQueryResult {
                     kind: request.kind,
                     evidence,
                     sufficiency: None,
                     data: None,
-                    omitted: 0,
+                    omitted,
                 })
             }
             ContextQueryKind::RelatedSymbols => {
@@ -379,7 +428,7 @@ impl ContextEngine for SnapshotContextEngine {
                         related_symbol_score(
                             evidence,
                             &index.file_contents,
-                            &index.symbol_graph,
+                            &index.graph,
                             &path,
                             &terms,
                         )

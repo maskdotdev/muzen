@@ -29,6 +29,13 @@ pub struct ContextEngineConfig {
     pub bm25_b: f32,
     /// Reciprocal Rank Fusion constant: `score = sum 1 / (rrf_k + rank)`.
     pub rrf_k: f32,
+    /// Max hops for change-rooted graph expansion.
+    pub graph_max_hops: usize,
+    /// Max expansion candidates per changed-file anchor; overflow is
+    /// recorded, not silently dropped.
+    pub graph_max_candidates_per_anchor: usize,
+    /// Commits of history walked for co-change mining (0 disables).
+    pub co_change_commit_limit: usize,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -56,6 +63,9 @@ impl ContextEngineConfig {
             bm25_k1: 1.2,
             bm25_b: 0.75,
             rrf_k: 60.0,
+            graph_max_hops: 2,
+            graph_max_candidates_per_anchor: 16,
+            co_change_commit_limit: 500,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,
