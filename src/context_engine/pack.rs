@@ -120,15 +120,50 @@ pub struct ContextPackRequest {
     pub seed_evidence: Vec<EvidenceId>,
 }
 
+/// Per-path score boost from change-rooted graph expansion: evidence in
+/// the blast radius of the diff (tests, callers, co-changes) outranks
+/// unrelated evidence of the same kind.
+pub(crate) fn graph_boost_by_path(
+    candidates: &[super::GraphCandidate],
+) -> std::collections::BTreeMap<crate::runtime::contracts::RepoPath, f32> {
+    use super::ContextRelationshipKind;
+    let mut boost = std::collections::BTreeMap::new();
+    for candidate in candidates {
+        let weight = match candidate.kind {
+            ContextRelationshipKind::Tests => 0.20,
+            ContextRelationshipKind::CalledBy => 0.15,
+            ContextRelationshipKind::CoChanged => 0.15,
+            ContextRelationshipKind::Calls => 0.10,
+            ContextRelationshipKind::SameModule => 0.05,
+            _ => 0.0,
+        } * candidate.confidence;
+        let entry = boost.entry(candidate.path.clone()).or_insert(0.0f32);
+        *entry = entry.max(weight);
+    }
+    boost
+}
+
 pub(crate) fn rank_for_purpose(
     evidence: &[ContextEvidence],
     purpose: ContextPackPurpose,
     config: &ContextEngineConfig,
+    graph_boost: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, f32>,
 ) -> Vec<(f32, ContextEvidence)> {
     let mut ranked = evidence
         .iter()
         .cloned()
-        .map(|evidence| (score_for_purpose(&evidence, purpose, config), evidence))
+        .map(|evidence| {
+            let boost = evidence
+                .path
+                .as_ref()
+                .and_then(|path| graph_boost.get(path))
+                .copied()
+                .unwrap_or(0.0);
+            (
+                score_for_purpose(&evidence, purpose, config) + boost,
+                evidence,
+            )
+        })
         .collect::<Vec<_>>();
     ranked.sort_by(|(left_score, left), (right_score, right)| {
         right_score

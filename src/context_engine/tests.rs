@@ -577,6 +577,108 @@ async fn no_vector_search_is_pure_bm25_with_lexical_only_fusion_ranks() {
 }
 
 #[tokio::test]
+async fn hunk_inside_function_maps_to_enclosing_chunk_not_file() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/big.rs"),
+        "pub fn first() {\n    let a = 1;\n    let b = 2;\n}\n\npub fn second() {\n    let c = 3;\n}\n",
+    )
+    .unwrap();
+    let diff = "diff --git a/src/big.rs b/src/big.rs\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -2,2 +2,2 @@\n+    let a = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/big.rs"], diff);
+    let mut config = ContextEngineConfig::snapshot_v0();
+    // Force one chunk per function so enclosure is observable.
+    config.chunk_max_tokens = 16;
+    let engine = SnapshotContextEngine::new(config);
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let enclosing: Vec<_> = index
+        .relationships
+        .iter()
+        .filter(|relationship| relationship.kind == ContextRelationshipKind::EnclosesHunk)
+        .collect();
+    assert!(!enclosing.is_empty(), "changed chunk maps to the hunk");
+    for relationship in &enclosing {
+        let from = index
+            .evidence
+            .iter()
+            .find(|evidence| evidence.id == relationship.from)
+            .unwrap();
+        let range = from.range.expect("enclosing evidence cites a real range");
+        assert!(
+            range.start_line <= 2 && range.end_line >= 2,
+            "chunk encloses the changed line, got {range:?}"
+        );
+        assert!(
+            range.end_line < 8,
+            "maps to the function chunk, not the whole file"
+        );
+    }
+}
+
+#[tokio::test]
+async fn changed_ts_export_surfaces_importing_call_sites_without_collisions() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src/a")).unwrap();
+    std::fs::create_dir_all(repo.path().join("src/b")).unwrap();
+    std::fs::write(
+        repo.path().join("src/a/load.ts"),
+        "export function loadUser(id: string) { return id; }\n",
+    )
+    .unwrap();
+    // Same exported name in an unrelated module: must not collide.
+    std::fs::write(
+        repo.path().join("src/b/load.ts"),
+        "export function loadUser(id: string) { return id + '!'; }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/app.ts"),
+        "import { loadUser } from './a/load';\nexport function main() { return loadUser('1'); }\n",
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["src/a/load.ts"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let called_by: Vec<_> = index
+        .graph_candidates
+        .iter()
+        .filter(|candidate| candidate.kind == ContextRelationshipKind::CalledBy)
+        .collect();
+    assert!(called_by
+        .iter()
+        .any(|candidate| candidate.path.display() == "src/app.ts"));
+    assert!(
+        !index
+            .graph_candidates
+            .iter()
+            .any(|candidate| candidate.path.display() == "src/b/load.ts"
+                && candidate.kind == ContextRelationshipKind::CalledBy),
+        "same-named module in another directory must not surface as a caller"
+    );
+    assert!(
+        index.relationships.iter().any(|relationship| {
+            relationship.kind == ContextRelationshipKind::CalledBy
+        }),
+        "graph candidates become typed relationships"
+    );
+}
+
+#[tokio::test]
 async fn fused_search_records_restricted_evidence_as_omission() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(

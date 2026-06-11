@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -137,22 +138,24 @@ def validate_case_file(case_file: dict[str, Any], path: Path) -> None:
 
 
 def materialize_repo(source: dict[str, Any]) -> Path:
+    """Clone (not archive) so the checkout keeps .git: the engine mines
+    co-change signal from the pinned commit's history (R4)."""
     if source["kind"] == "fixture":
         return ROOT / source["path"]
     commit = source["commit"]
     target = CORPUS_CACHE / commit[:12]
-    if target.exists():
+    if (target / ".git").exists():
         return target
-    target.mkdir(parents=True)
-    archive = subprocess.run(
-        ["git", "-C", str(ROOT), "archive", commit],
+    if target.exists():
+        # Pre-R4 archive materialization without history: rebuild.
+        shutil.rmtree(target)
+    subprocess.run(
+        ["git", "clone", "--quiet", "--no-checkout", str(ROOT), str(target)],
         check=True,
-        stdout=subprocess.PIPE,
     )
     subprocess.run(
-        ["tar", "-x", "-C", str(target)],
+        ["git", "-C", str(target), "checkout", "--quiet", "--detach", commit],
         check=True,
-        input=archive.stdout,
     )
     return target
 

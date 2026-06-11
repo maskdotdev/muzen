@@ -1,4 +1,4 @@
-use super::{ContextEvidence, ContextEvidenceKind, ContextSymbolGraph};
+use super::{ContextEvidence, ContextEvidenceKind, ReferenceGraph};
 
 pub(crate) fn path_stem(path: &str) -> String {
     std::path::Path::new(path)
@@ -49,7 +49,7 @@ pub(crate) fn related_symbol_terms(
 pub(crate) fn related_symbol_score(
     evidence: &ContextEvidence,
     file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
-    symbol_graph: &ContextSymbolGraph,
+    graph: &ReferenceGraph,
     path: &str,
     terms: &[String],
 ) -> Option<usize> {
@@ -60,11 +60,18 @@ pub(crate) fn related_symbol_score(
     }
     let mut score = 0usize;
     if let Ok(query_path) = crate::runtime::contracts::RepoPath::parse(path) {
-        if symbol_graph
-            .related_importers(&query_path)
-            .contains(evidence_path)
+        // Resolved reference edges outrank name-matched fallback edges.
+        if let Some(edge) = graph
+            .referencers(&query_path)
+            .find(|edge| edge.from == *evidence_path)
         {
-            score = score.saturating_add(90);
+            score = score.saturating_add(if edge.resolved { 90 } else { 50 });
+        }
+        if let Some(edge) = graph
+            .references(&query_path)
+            .find(|edge| edge.to == *evidence_path)
+        {
+            score = score.saturating_add(if edge.resolved { 70 } else { 40 });
         }
     }
     let summary = evidence

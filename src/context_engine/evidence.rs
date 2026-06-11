@@ -137,6 +137,10 @@ pub struct ContextEvidence {
 pub enum ContextRelationshipKind {
     Imports,
     Calls,
+    CalledBy,
+    EnclosesHunk,
+    CoChanged,
+    SameModule,
     Implements,
     Tests,
     Configures,
