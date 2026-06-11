@@ -3,7 +3,8 @@
   "name": "mined-51f0d750c016",
   "repoSource": {
     "kind": "git",
-    "commit": "51f0d750c016739ed44c7f477c513fe5540ea7f9"
+    "commit": "51f0d750c016739ed44c7f477c513fe5540ea7f9",
+    "origin": "self"
   },
   "changedFiles": [
     "src/runtime/policy.rs"

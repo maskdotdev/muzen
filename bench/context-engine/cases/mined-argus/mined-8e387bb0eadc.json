@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8e387bb0eadc",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8e387bb0eadc1fd9dffb22f5599c2299af2fa995",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/argus-config/server/repository-config.ts",
+    "apps/web/src/features/review/server/diff/review-diff-types.ts",
+    "apps/web/src/features/review/server/diff/review-diff.test.ts",
+    "apps/web/src/features/review/server/diff/review-diff.ts"
+  ],
+  "description": "Mined pair: base 8e387bb0eadc (feat(review): use resolved token for argus config sync) followed by fd52e08f3255 (fix: resolve lint errors, warnings, and missing @types/node in indexing-server).",
+  "minedFrom": {
+    "baseCommit": "8e387bb0eadc1fd9dffb22f5599c2299af2fa995",
+    "followUpCommit": "fd52e08f3255ed3779d8fe33f0e57c58537d4982"
+  },
+  "cases": [
+    {
+      "id": "mined-8e387bb0eadc-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/integration-connect.test.ts",
+        "apps/web/src/features/issues/server/providers/gitlab.ts",
+        "apps/web/src/features/review/model/diff/types.ts",
+        "apps/web/src/features/review/server/persist-review-run.ts"
+      ]
+    }
+  ]
+}

@@ -3,7 +3,8 @@
   "name": "mined-a6f903317086",
   "repoSource": {
     "kind": "git",
-    "commit": "a6f903317086dfb708142b75a34ed892c95673fe"
+    "commit": "a6f903317086dfb708142b75a34ed892c95673fe",
+    "origin": "self"
   },
   "changedFiles": [
     "src/runtime/dispatch.rs",

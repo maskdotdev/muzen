@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-82f9f4bffdf4",
+  "repoSource": {
+    "kind": "git",
+    "commit": "82f9f4bffdf47a199f046befdc5e98c954bd2eba",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/review-argus-agent.test.ts",
+    "apps/web/src/features/review/server/review-argus-agent.ts",
+    "apps/web/src/features/review/server/review-worker-runtime.ts"
+  ],
+  "description": "Mined pair: base 82f9f4bffdf4 (fix(review-worker): bypass proxy for MinIO artifact writes) followed by 8ee7dd847adb (fix(review): resolve merged review runtime regressions).",
+  "minedFrom": {
+    "baseCommit": "82f9f4bffdf47a199f046befdc5e98c954bd2eba",
+    "followUpCommit": "8ee7dd847adba8e052bdcfd383c7d3b2afe2e106"
+  },
+  "cases": [
+    {
+      "id": "mined-82f9f4bffdf4-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+        "apps/web/src/features/review/components/diff/linked-issue-context.tsx",
+        "apps/web/src/features/review/components/sidebar-review-overview.tsx",
+        "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+        "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+      ]
+    }
+  ]
+}

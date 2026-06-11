@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-c6fd3dc285c3",
+  "repoSource": {
+    "kind": "git",
+    "commit": "c6fd3dc285c3bb0c9bb2dff69f0fd6765a0324ee",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/components/onboarding/hooks/use-onboarding-flow-controller.ts",
+    "apps/web/src/components/onboarding/tests/use-onboarding-flow-controller.test.ts"
+  ],
+  "description": "Mined pair: base c6fd3dc285c3 (fix(onboarding): autoload projects after instant route transition) followed by ca6928f630d1 (fix(onboarding): stabilize mrs navigation and prefetch timeout handling).",
+  "minedFrom": {
+    "baseCommit": "c6fd3dc285c3bb0c9bb2dff69f0fd6765a0324ee",
+    "followUpCommit": "ca6928f630d16a05d9a67cd02667ee0c1f5c7a57"
+  },
+  "cases": [
+    {
+      "id": "mined-c6fd3dc285c3-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/api/gitlab/route.test.ts",
+        "apps/web/src/app/api/gitlab/route.ts",
+        "apps/web/src/components/onboarding/hooks/use-onboarding-data.ts",
+        "apps/web/src/components/onboarding/hooks/use-onboarding-persistence.ts",
+        "apps/web/src/components/onboarding/hooks/use-onboarding-selection-handlers.ts",
+        "apps/web/src/components/onboarding/onboarding-flow.utils.ts",
+        "apps/web/src/components/onboarding/tests/onboarding-flow.utils.test.ts",
+        "apps/web/src/components/onboarding/tests/use-onboarding-data.test.ts",
+        "apps/web/src/components/onboarding/tests/use-onboarding-selection-handlers.test.ts"
+      ]
+    }
+  ]
+}

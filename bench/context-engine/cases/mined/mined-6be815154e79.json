@@ -3,7 +3,8 @@
   "name": "mined-6be815154e79",
   "repoSource": {
     "kind": "git",
-    "commit": "6be815154e79fc31e8642a03e5be602823b04855"
+    "commit": "6be815154e79fc31e8642a03e5be602823b04855",
+    "origin": "self"
   },
   "changedFiles": [
     "src/contracts.rs",

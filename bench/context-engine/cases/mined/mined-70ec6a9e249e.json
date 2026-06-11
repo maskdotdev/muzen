@@ -3,7 +3,8 @@
   "name": "mined-70ec6a9e249e",
   "repoSource": {
     "kind": "git",
-    "commit": "70ec6a9e249eebea7487bd5ceeb2200bfa87ec3f"
+    "commit": "70ec6a9e249eebea7487bd5ceeb2200bfa87ec3f",
+    "origin": "self"
   },
   "changedFiles": [
     "src/context_engine/store.rs"

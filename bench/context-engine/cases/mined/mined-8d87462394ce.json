@@ -3,7 +3,8 @@
   "name": "mined-8d87462394ce",
   "repoSource": {
     "kind": "git",
-    "commit": "8d87462394ce1f6685ba972fd1b51c2cc8e99ea2"
+    "commit": "8d87462394ce1f6685ba972fd1b51c2cc8e99ea2",
+    "origin": "self"
   },
   "changedFiles": [
     "src/bin/muzen-service.rs",

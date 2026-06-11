@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-ba613eefa9ae",
+  "repoSource": {
+    "kind": "git",
+    "commit": "ba613eefa9ae0cad40d451b4750155e4035cd7e6",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/persist-review-run.ts",
+    "packages/review/server/src/persist-review-run.test.ts",
+    "packages/review/server/src/persist-review-run.ts"
+  ],
+  "description": "Mined pair: base ba613eefa9ae (refactor(review): move persist review orchestration) followed by 2070571ee925 (refactor(review): use package engine error).",
+  "minedFrom": {
+    "baseCommit": "ba613eefa9ae0cad40d451b4750155e4035cd7e6",
+    "followUpCommit": "2070571ee925b91eb12a2ef3bd4ad66d46f28921"
+  },
+  "cases": [
+    {
+      "id": "mined-ba613eefa9ae-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/server/review-argus-agent.ts"
+      ]
+    }
+  ]
+}

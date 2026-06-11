@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-2d407db0c171",
+  "repoSource": {
+    "kind": "git",
+    "commit": "2d407db0c171ff7d116d689628d8bbbf0f8bac42",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/review-worker-runtime.ts",
+    "packages/review-server/src/worker-service.test.ts",
+    "packages/review-server/src/worker-service.ts"
+  ],
+  "description": "Mined pair: base 2d407db0c171 (refactor(review): move worker service assembly to review server) followed by 473cc8a8a75a (refactor(review): move flow run server types to review server).",
+  "minedFrom": {
+    "baseCommit": "2d407db0c171ff7d116d689628d8bbbf0f8bac42",
+    "followUpCommit": "473cc8a8a75ad2e546412dd13b53c279ecb14532"
+  },
+  "cases": [
+    {
+      "id": "mined-2d407db0c171-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/server/flow-run-claim.ts",
+        "apps/web/src/features/review/server/flow-run-dedupe.ts",
+        "apps/web/src/features/review/server/flow-run.helpers.ts",
+        "apps/web/src/features/review/server/flow-run.ts"
+      ]
+    }
+  ]
+}

@@ -5,9 +5,7 @@ use async_trait::async_trait;
 
 use crate::runtime::contracts::{RuntimeError, RuntimeResult};
 
-use super::{
-    ContextEmbeddingProviderKind, EmbeddingInput, EmbeddingProvider, EmbeddingVector,
-};
+use super::{ContextEmbeddingProviderKind, EmbeddingInput, EmbeddingProvider, EmbeddingVector};
 
 /// Token cap per embedded input; bounds inference latency on dense code.
 const LOCAL_ONNX_MAX_TOKENS: usize = 2048;
@@ -33,7 +31,12 @@ impl LocalOnnxEmbeddingProvider {
     /// embeddings.
     pub fn shared(model_dir: &Path) -> RuntimeResult<std::sync::Arc<Self>> {
         static REGISTRY: std::sync::OnceLock<
-            Mutex<std::collections::HashMap<std::path::PathBuf, std::sync::Arc<LocalOnnxEmbeddingProvider>>>,
+            Mutex<
+                std::collections::HashMap<
+                    std::path::PathBuf,
+                    std::sync::Arc<LocalOnnxEmbeddingProvider>,
+                >,
+            >,
         > = std::sync::OnceLock::new();
         let registry = REGISTRY.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
         let mut providers = registry.lock().expect("ONNX provider registry poisoned");
@@ -58,12 +61,10 @@ impl LocalOnnxEmbeddingProvider {
             })?;
         let session = ort::session::Session::builder()
             .and_then(|mut builder| builder.commit_from_file(&model_path))
-            .map_err(|error| {
-                RuntimeError::ProviderMessage {
-                    status: None,
-                    retryable: false,
-                    message: format!("failed to load ONNX embedding model: {error}"),
-                }
+            .map_err(|error| RuntimeError::ProviderMessage {
+                status: None,
+                retryable: false,
+                message: format!("failed to load ONNX embedding model: {error}"),
             })?;
         let needs_token_type_ids = session
             .inputs()
@@ -75,15 +76,16 @@ impl LocalOnnxEmbeddingProvider {
                 retryable: false,
                 message: format!("failed to load embedding tokenizer: {error}"),
             })?;
-        tokenizer.with_truncation(Some(tokenizers::TruncationParams {
-            max_length: LOCAL_ONNX_MAX_TOKENS,
-            ..Default::default()
-        }))
-        .map_err(|error| RuntimeError::ProviderMessage {
-            status: None,
-            retryable: false,
-            message: format!("failed to configure tokenizer truncation: {error}"),
-        })?;
+        tokenizer
+            .with_truncation(Some(tokenizers::TruncationParams {
+                max_length: LOCAL_ONNX_MAX_TOKENS,
+                ..Default::default()
+            }))
+            .map_err(|error| RuntimeError::ProviderMessage {
+                status: None,
+                retryable: false,
+                message: format!("failed to configure tokenizer truncation: {error}"),
+            })?;
         Ok(Self {
             session: Mutex::new(session),
             tokenizer,
@@ -126,7 +128,10 @@ impl LocalOnnxEmbeddingProvider {
             .map_err(|error| provider_error(format!("embedding input tensor failed: {error}")))?;
         let mask_tensor = ort::value::Tensor::from_array((shape, attention_mask.clone()))
             .map_err(|error| provider_error(format!("embedding mask tensor failed: {error}")))?;
-        let mut inputs: Vec<(std::borrow::Cow<'_, str>, ort::session::SessionInputValue<'_>)> = vec![
+        let mut inputs: Vec<(
+            std::borrow::Cow<'_, str>,
+            ort::session::SessionInputValue<'_>,
+        )> = vec![
             ("input_ids".into(), ids_tensor.into()),
             ("attention_mask".into(), mask_tensor.into()),
         ];
@@ -160,8 +165,7 @@ impl LocalOnnxEmbeddingProvider {
                 }
                 token_count += 1.0;
                 let offset = (row * width + column) * dims;
-                for (value, hidden_value) in pooled.iter_mut().zip(&hidden[offset..offset + dims])
-                {
+                for (value, hidden_value) in pooled.iter_mut().zip(&hidden[offset..offset + dims]) {
                     *value += hidden_value;
                 }
             }
@@ -185,7 +189,10 @@ impl EmbeddingProvider for LocalOnnxEmbeddingProvider {
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
         let mut vectors = Vec::with_capacity(inputs.len());
         for batch in inputs.chunks(LOCAL_ONNX_BATCH) {
-            let texts = batch.iter().map(|input| input.text.as_str()).collect::<Vec<_>>();
+            let texts = batch
+                .iter()
+                .map(|input| input.text.as_str())
+                .collect::<Vec<_>>();
             vectors.extend(self.embed_batch(&texts)?);
         }
         Ok(vectors)

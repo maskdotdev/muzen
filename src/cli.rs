@@ -810,13 +810,19 @@ async fn index_context_snapshot(
 }
 
 fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConfig> {
-    if [args.local_semantic, args.local_onnx_semantic, args.hosted_semantic]
-        .iter()
-        .filter(|enabled| **enabled)
-        .count()
+    if [
+        args.local_semantic,
+        args.local_onnx_semantic,
+        args.hosted_semantic,
+    ]
+    .iter()
+    .filter(|enabled| **enabled)
+    .count()
         > 1
     {
-        bail!("--local-semantic, --local-onnx-semantic, and --hosted-semantic are mutually exclusive");
+        bail!(
+            "--local-semantic, --local-onnx-semantic, and --hosted-semantic are mutually exclusive"
+        );
     }
     let mut config = ContextEngineConfig::snapshot_v0();
     if args.local_semantic {

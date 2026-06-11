@@ -3,7 +3,8 @@
   "name": "mined-409401a0fb04",
   "repoSource": {
     "kind": "git",
-    "commit": "409401a0fb04511bc628c4deedaefebbef687171"
+    "commit": "409401a0fb04511bc628c4deedaefebbef687171",
+    "origin": "self"
   },
   "changedFiles": [
     "src/runtime/model.rs"

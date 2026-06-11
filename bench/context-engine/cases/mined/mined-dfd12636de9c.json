@@ -3,7 +3,8 @@
   "name": "mined-dfd12636de9c",
   "repoSource": {
     "kind": "git",
-    "commit": "dfd12636de9ce3aa02cdb5beebf853a710dd2e18"
+    "commit": "dfd12636de9ce3aa02cdb5beebf853a710dd2e18",
+    "origin": "self"
   },
   "changedFiles": [
     "src/tests.rs"

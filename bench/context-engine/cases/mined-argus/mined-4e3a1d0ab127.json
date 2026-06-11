@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-4e3a1d0ab127",
+  "repoSource": {
+    "kind": "git",
+    "commit": "4e3a1d0ab127ad2f50dec649499b1b9be7a91a27",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/review-argus-agent.test.ts",
+    "apps/web/src/features/review/server/review-argus-agent.ts",
+    "packages/argus-agent/src/index.ts",
+    "packages/argus-agent/src/review/prompt.test.ts",
+    "packages/argus-agent/src/review/prompt.ts",
+    "packages/argus-agent/src/review/types.ts",
+    "packages/argus-agent/src/review/workflow.test.ts",
+    "packages/argus-agent/src/review/workflow.ts"
+  ],
+  "description": "Mined pair: base 4e3a1d0ab127 (feat(review): apply linked issue acceptance criteria) followed by e98a7b6d066e (fix(agent): harden bootstrap diagnostics and fallback).",
+  "minedFrom": {
+    "baseCommit": "4e3a1d0ab127ad2f50dec649499b1b9be7a91a27",
+    "followUpCommit": "e98a7b6d066e3b94bcca5ddf6da3bc71ffe693ae"
+  },
+  "cases": [
+    {
+      "id": "mined-4e3a1d0ab127-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "packages/argus-agent/src/runtime/argus-index.test.ts",
+        "packages/argus-agent/src/runtime/argus-index.ts"
+      ]
+    }
+  ]
+}

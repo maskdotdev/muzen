@@ -7,9 +7,9 @@ reported metrics reflect the same surface developers and hosted workers use.
 Case files use schema `muzen.context-eval-case.v2`:
 
 - `repoSource` is either `{"kind": "fixture", "path": "fixtures/..."}` for a
-  vendored fixture tree, or `{"kind": "git", "commit": "<sha>"}` for a pinned
-  commit of this repository, materialized with `git archive` into the corpus
-  cache.
+  vendored fixture tree, or `{"kind": "git", "commit": "<sha>", "origin": ...}`
+  for a pinned commit cloned into the corpus cache. `origin` is `"self"` for
+  this repository or a cloneable path/URL for an external corpus repository.
 - Cases with `"strict": true` fail the run on any missed expected path or
   range. Non-strict (mined) cases are graded with ranking metrics instead.
 - Redaction and prompt-injection violations always fail the run.
@@ -181,11 +181,33 @@ def validate_case_file(case_file: dict[str, Any], path: Path) -> None:
         raise SystemExit(f"{path}: fixture repoSource requires 'path'")
     if source["kind"] == "git" and not source.get("commit"):
         raise SystemExit(f"{path}: git repoSource requires a pinned 'commit'")
+    if source["kind"] == "git" and not source.get("origin"):
+        raise SystemExit(
+            f"{path}: git repoSource requires an 'origin' "
+            "('self' or a cloneable path/URL)"
+        )
     if not case_file.get("cases"):
         raise SystemExit(f"{path}: case file declares no cases")
     for case in case_file["cases"]:
         if not case.get("expectedPaths"):
             raise SystemExit(f"{path}: case {case.get('id')!r} has no ground-truth expectedPaths")
+
+
+def resolve_origin(source: dict[str, Any]) -> str:
+    """Resolve a git repoSource origin to a cloneable location. 'self' is
+    this repository; anything else is a path (with ~ expansion) or URL."""
+    origin = source["origin"]
+    if origin == "self":
+        return str(ROOT)
+    expanded = Path(origin).expanduser()
+    if expanded.exists():
+        return str(expanded)
+    if "://" in origin or origin.startswith("git@"):
+        return origin
+    raise SystemExit(
+        f"repoSource origin {origin!r} not found at {expanded}; "
+        "clone the corpus repository there or update the case's origin"
+    )
 
 
 def materialize_repo(source: dict[str, Any]) -> Path:
@@ -201,7 +223,7 @@ def materialize_repo(source: dict[str, Any]) -> Path:
         # Pre-R4 archive materialization without history: rebuild.
         shutil.rmtree(target)
     subprocess.run(
-        ["git", "clone", "--quiet", "--no-checkout", str(ROOT), str(target)],
+        ["git", "clone", "--quiet", "--no-checkout", resolve_origin(source), str(target)],
         check=True,
     )
     subprocess.run(

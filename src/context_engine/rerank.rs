@@ -77,13 +77,16 @@ impl HostedReranker {
         if let Some(api_key) = &self.api_key {
             builder = builder.bearer_auth(api_key);
         }
-        let response = builder.json(&request).send().await.map_err(|error| {
-            RuntimeError::ProviderMessage {
-                status: None,
-                retryable: error.is_timeout() || error.is_connect(),
-                message: error.to_string(),
-            }
-        })?;
+        let response =
+            builder
+                .json(&request)
+                .send()
+                .await
+                .map_err(|error| RuntimeError::ProviderMessage {
+                    status: None,
+                    retryable: error.is_timeout() || error.is_connect(),
+                    message: error.to_string(),
+                })?;
         let status = response.status();
         if !status.is_success() {
             let retryable = status.is_server_error()
@@ -154,8 +157,7 @@ pub fn validate_rerank_batch(
             .any(|candidate| candidate.sensitivity == ContextSensitivity::Restricted)
     {
         return Err(RuntimeError::InvalidInput(
-            "context rerank cannot receive restricted evidence without explicit opt-in"
-                .to_string(),
+            "context rerank cannot receive restricted evidence without explicit opt-in".to_string(),
         ));
     }
     Ok(())

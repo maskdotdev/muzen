@@ -205,11 +205,11 @@ pub(crate) fn explain_selected_evidence(
     }
     match signals.graph_distance {
         Some(1) if !evidence.is_changed_span => {
-            why.push("directly references changed code in the reference graph".to_string());
+            why.push("directly references changed code in the Context Graph".to_string());
         }
         Some(distance) if distance >= 2 => {
             why.push(format!(
-                "{distance} hops from changed code in the reference graph"
+                "{distance} hops from changed code in the Context Graph"
             ));
         }
         _ => {}
@@ -416,7 +416,7 @@ mod tests {
             false,
         );
         let why = explain_selected_evidence(&item, ContextPackPurpose::Correctness);
-        assert!(why.iter().any(|reason| reason.contains("reference graph")));
+        assert!(why.iter().any(|reason| reason.contains("Context Graph")));
         assert!(why.iter().any(|reason| reason.contains("co-changed")));
         assert!(why.iter().any(|reason| reason.contains("directory tree")));
         assert!(

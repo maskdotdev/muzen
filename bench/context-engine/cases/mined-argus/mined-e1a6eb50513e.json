@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-e1a6eb50513e",
+  "repoSource": {
+    "kind": "git",
+    "commit": "e1a6eb50513e37f7a3a450884e8084489fd25603",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/lib/argus-search/sdk-client-utils.ts",
+    "apps/web/src/lib/argus-search/sdk-client.ts",
+    "apps/web/src/lib/argus-search/trace-impact-graph.ts"
+  ],
+  "description": "Mined pair: base e1a6eb50513e (refactor(web): extract sdk client helpers) followed by 23ffdaae163f (feat(argus-search): expose native trace impact api).",
+  "minedFrom": {
+    "baseCommit": "e1a6eb50513e37f7a3a450884e8084489fd25603",
+    "followUpCommit": "23ffdaae163f7be1bc295272b41babde33482183"
+  },
+  "cases": [
+    {
+      "id": "mined-e1a6eb50513e-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "packages/argus-search/__test__/kitedb.spec.ts",
+        "packages/argus-search/index.d.ts",
+        "packages/argus-search/src/core/kitedb_store.rs",
+        "packages/argus-search/src/python/mod.rs",
+        "packages/argus-search/src/typescript/mod.rs",
+        "packages/argus-search/types.d.ts"
+      ]
+    }
+  ]
+}

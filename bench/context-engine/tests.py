@@ -61,7 +61,7 @@ class CaseValidationTest(unittest.TestCase):
         return {
             "schemaVersion": run.CASE_SCHEMA_VERSION,
             "name": "t",
-            "repoSource": {"kind": "git", "commit": "0" * 40},
+            "repoSource": {"kind": "git", "commit": "0" * 40, "origin": "self"},
             "changedFiles": ["src/lib.rs"],
             "cases": [{"id": "t-1", "command": "pack", "expectedPaths": ["src/a.rs"]}],
         }
@@ -83,9 +83,24 @@ class CaseValidationTest(unittest.TestCase):
 
     def test_git_source_requires_pinned_commit(self):
         case_file = self.valid_case_file()
-        case_file["repoSource"] = {"kind": "git"}
+        case_file["repoSource"] = {"kind": "git", "origin": "self"}
         with self.assertRaises(SystemExit):
             run.validate_case_file(case_file, Path("t.json"))
+
+    def test_git_source_requires_origin(self):
+        case_file = self.valid_case_file()
+        case_file["repoSource"] = {"kind": "git", "commit": "0" * 40}
+        with self.assertRaises(SystemExit):
+            run.validate_case_file(case_file, Path("t.json"))
+
+    def test_self_origin_resolves_to_this_repository(self):
+        source = {"kind": "git", "commit": "0" * 40, "origin": "self"}
+        self.assertEqual(run.resolve_origin(source), str(run.ROOT))
+
+    def test_missing_external_origin_path_is_rejected(self):
+        source = {"kind": "git", "commit": "0" * 40, "origin": "/nonexistent/corpus-repo"}
+        with self.assertRaises(SystemExit):
+            run.resolve_origin(source)
 
 
 class RegressionGateTest(unittest.TestCase):

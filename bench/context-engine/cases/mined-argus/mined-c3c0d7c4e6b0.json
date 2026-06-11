@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-c3c0d7c4e6b0",
+  "repoSource": {
+    "kind": "git",
+    "commit": "c3c0d7c4e6b0b5e01e09012b3e408023f21c9958",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/mcp/src/server.test.ts",
+    "apps/mcp/src/server.ts"
+  ],
+  "description": "Mined pair: base c3c0d7c4e6b0 (fix(mcp): validate tool arguments before dispatch) followed by ab8ac90fcf67 (fix(mcp): avoid publishing wildcard bind addresses).",
+  "minedFrom": {
+    "baseCommit": "c3c0d7c4e6b0b5e01e09012b3e408023f21c9958",
+    "followUpCommit": "ab8ac90fcf676bd9f5973f01d72b24e50eb6a7ef"
+  },
+  "cases": [
+    {
+      "id": "mined-c3c0d7c4e6b0-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/mcp/src/main.ts"
+      ]
+    }
+  ]
+}

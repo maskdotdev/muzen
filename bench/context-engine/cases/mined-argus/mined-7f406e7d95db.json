@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7f406e7d95db",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7f406e7d95dbb0b7f2744b6e8d97bce32578a6cc",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/components/merge-request-diff/build-merge-request-diff-panel-props.ts",
+    "apps/web/src/components/merge-request-diff/hooks/use-merge-request-diff-viewer-controller.ts",
+    "apps/web/src/components/merge-request-diff/merge-request-diff-panel.tsx",
+    "apps/web/src/components/merge-request-diff/tests/build-merge-request-diff-panel-props.test.ts"
+  ],
+  "description": "Mined pair: base 7f406e7d95db (fix(merge-request-diff): restore inline line-selection comment composer) followed by ed45122b094a (fix(merge-request-diff): prevent stuck review state and add abort action).",
+  "minedFrom": {
+    "baseCommit": "7f406e7d95dbb0b7f2744b6e8d97bce32578a6cc",
+    "followUpCommit": "ed45122b094a0cd7e0226f1e9d51771742fc4fc5"
+  },
+  "cases": [
+    {
+      "id": "mined-7f406e7d95db-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/components/merge-request-diff/hooks/use-merge-request-ai-review.ts",
+        "apps/web/src/components/merge-request-diff/merge-request-review-process.tsx",
+        "apps/web/src/lib/review/flow-run.ts"
+      ]
+    }
+  ]
+}

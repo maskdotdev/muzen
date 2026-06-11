@@ -18,7 +18,11 @@ use super::derived::{
     derived_file_key, derived_vector_key, ContextDerivedCache, DerivedFileData,
     InMemoryContextDerivedCache,
 };
-use super::graph::{co_change_stats, expand_from_changes, GraphCandidate, ReferenceGraph};
+use super::graph::{
+    ContextGraph, ContextGraphBuildInput, ContextGraphCandidate, ContextGraphExpansion,
+    ContextGraphExpansionPurpose, ContextGraphExpansionRequest, ContextGraphOmissionReason,
+    ContextNodeId, ContextNodeKind,
+};
 use super::syntax::{parse_symbols, ParsedSymbols};
 use super::{
     context_embedding_text, redact_context_content, validate_embedding_batch, ContextEngineConfig,
@@ -201,8 +205,8 @@ pub struct ContextIndex {
     pub file_contents: BTreeMap<RepoPath, String>,
     pub lexical: super::LexicalIndex,
     pub symbol_graph: ContextSymbolGraph,
-    pub graph: ReferenceGraph,
-    pub graph_candidates: Vec<GraphCandidate>,
+    pub graph: ContextGraph,
+    pub graph_expansion: ContextGraphExpansion,
     pub relationships: Vec<ContextRelationship>,
     /// Diff hunk ranges by changed file path (new-side line spans).
     pub hunk_ranges: BTreeMap<String, Vec<ContextRange>>,
@@ -242,21 +246,30 @@ impl ContextIndex {
         let diff_hunk_count = count_diff_hunks(&snapshot.diff.content);
 
         let hunk_ranges = diff_hunk_ranges(&snapshot.diff.content);
-        for file in &snapshot.manifest.files {
-            if indexed_files >= request.limits.max_indexed_files
-                || indexed_bytes as usize >= request.limits.max_indexed_bytes
-                || evidence.len() >= request.limits.max_evidence_items
-            {
-                skips.push(ContextIndexSkip {
-                    path: file.rel_path.clone(),
-                    reason: ContextIndexSkipReason::BudgetExceeded,
-                });
-                continue;
-            }
+
+        // ---- Pass 1: capture and derive (parse, chunk) every text file
+        // within the file/byte budgets. No evidence is emitted yet: the
+        // evidence budget is allocated by review relevance in pass 3, not
+        // by manifest order, so a large repository cannot exhaust the
+        // budget on alphabetically-early files before the change is even
+        // indexed.
+        let mut prepared: Vec<PreparedFile> = Vec::new();
+        let mut parsed_files = 0usize;
+        let mut parsed_bytes = 0u64;
+        for (meta_index, file) in snapshot.manifest.files.iter().enumerate() {
             match file.capture_status {
                 SnapshotCaptureStatus::Captured => {
-                    indexed_files += 1;
-                    indexed_bytes = indexed_bytes.saturating_add(file.size);
+                    if parsed_files >= request.limits.max_indexed_files
+                        || parsed_bytes as usize >= request.limits.max_indexed_bytes
+                    {
+                        skips.push(ContextIndexSkip {
+                            path: file.rel_path.clone(),
+                            reason: ContextIndexSkipReason::BudgetExceeded,
+                        });
+                        continue;
+                    }
+                    parsed_files += 1;
+                    parsed_bytes = parsed_bytes.saturating_add(file.size);
                     if file.is_changed {
                         indexed_changed_files += 1;
                     }
@@ -264,10 +277,6 @@ impl ContextIndex {
                     if kind == ContextEvidenceKind::RepositoryRule {
                         rule_count += 1;
                     }
-                    let file_hunks = hunk_ranges
-                        .get(&file.rel_path.display())
-                        .map(Vec::as_slice)
-                        .unwrap_or(&[]);
                     let content = snapshot
                         .read_bounded(file.file_id, request.limits.max_indexed_bytes)
                         .ok()
@@ -275,7 +284,7 @@ impl ContextIndex {
                     match content {
                         Some(content) => {
                             let chunked = chunked_kind(kind, &content);
-                            let derived = derived_for_file(
+                            let mut derived = derived_for_file(
                                 derived_cache.as_ref(),
                                 file,
                                 &content,
@@ -284,57 +293,23 @@ impl ContextIndex {
                                 &mut derived_cache_hits,
                                 &mut derived_cache_misses,
                             );
-                            if chunked {
-                                let mut emitted = 0usize;
-                                let mut truncated = false;
-                                for ((chunk, view), terms) in derived
-                                    .chunks
-                                    .iter()
-                                    .zip(derived.skeletons.iter())
-                                    .zip(derived.chunk_terms.into_iter())
-                                {
-                                    if emitted >= request.limits.max_chunks_per_file
-                                        || evidence.len() >= request.limits.max_evidence_items
-                                    {
-                                        truncated = true;
-                                        break;
-                                    }
-                                    let item =
-                                        chunk_evidence(&snapshot, file, kind, chunk, file_hunks);
-                                    if let Some(view) = view {
-                                        skeletons.insert(
-                                            item.id.0.clone(),
-                                            skeleton_evidence(&snapshot, file, &item, view),
-                                        );
-                                    }
-                                    body_terms_by_id.insert(item.id.0.clone(), terms);
-                                    evidence.push(item);
-                                    emitted += 1;
-                                }
-                                if truncated {
-                                    skips.push(ContextIndexSkip {
-                                        path: file.rel_path.clone(),
-                                        reason: ContextIndexSkipReason::ChunkBudgetExceeded,
-                                    });
-                                }
-                            } else {
-                                let item = file_evidence(&snapshot, file, kind, Some(&content));
-                                body_terms_by_id.insert(item.id.0.clone(), derived.file_terms);
-                                evidence.push(item);
-                            }
-                            index_symbols(
-                                &snapshot,
-                                file,
-                                &derived.parsed,
-                                file_hunks,
-                                &mut symbol_graph,
-                                &mut evidence,
-                                request.limits.max_evidence_items,
-                            );
-                            parsed_by_file.insert(file.rel_path.clone(), derived.parsed);
+                            let parsed = std::mem::take(&mut derived.parsed);
+                            symbol_graph.add_parsed(file.rel_path.clone(), &parsed);
+                            parsed_by_file.insert(file.rel_path.clone(), parsed);
                             file_contents.insert(file.rel_path.clone(), content);
+                            prepared.push(PreparedFile {
+                                meta_index,
+                                kind,
+                                chunked,
+                                derived: Some(derived),
+                            });
                         }
-                        None => evidence.push(file_evidence(&snapshot, file, kind, None)),
+                        None => prepared.push(PreparedFile {
+                            meta_index,
+                            kind,
+                            chunked: false,
+                            derived: None,
+                        }),
                     }
                 }
                 SnapshotCaptureStatus::NotTextCandidate => skips.push(ContextIndexSkip {
@@ -349,38 +324,133 @@ impl ContextIndex {
             }
         }
 
+        // ---- Pass 2: build the Context Graph from every parsed file.
+        // The diff anchors expansion into the blast radius of the change
+        // (callers, callees, tests, co-changes).
+        let changed_paths: BTreeSet<RepoPath> = snapshot
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.is_changed)
+            .map(|file| file.rel_path.clone())
+            .collect();
+        let mut chunks_by_file: BTreeMap<RepoPath, &[FileChunk]> = BTreeMap::new();
+        let mut node_kind_by_file: BTreeMap<RepoPath, ContextNodeKind> = BTreeMap::new();
+        for entry in &prepared {
+            let file = &snapshot.manifest.files[entry.meta_index];
+            if let Some(derived) = &entry.derived {
+                if entry.chunked && !derived.chunks.is_empty() {
+                    chunks_by_file.insert(file.rel_path.clone(), derived.chunks.as_slice());
+                }
+            }
+            let node_kind = match entry.kind {
+                ContextEvidenceKind::Test => ContextNodeKind::Test,
+                ContextEvidenceKind::Config => ContextNodeKind::Config,
+                ContextEvidenceKind::RepositoryRule => ContextNodeKind::RepositoryRule,
+                _ => ContextNodeKind::File,
+            };
+            if node_kind != ContextNodeKind::File {
+                node_kind_by_file.insert(file.rel_path.clone(), node_kind);
+            }
+        }
+        let graph = ContextGraph::build(ContextGraphBuildInput {
+            snapshot_id: snapshot.snapshot_id.clone(),
+            repo_root: &snapshot.source_root,
+            parsed_by_file: &parsed_by_file,
+            file_contents: &file_contents,
+            chunks_by_file,
+            node_kind_by_file,
+            hunk_ranges: &hunk_ranges,
+            changed_paths: &changed_paths,
+            co_change_commit_limit: request.limits.co_change_commit_limit,
+        });
+        let mut graph_expansion = graph.expand(ContextGraphExpansionRequest {
+            max_hops: request.limits.graph_max_hops,
+            max_candidates_per_anchor: request.limits.graph_max_candidates_per_anchor,
+            min_confidence: 0.0,
+            purpose: ContextGraphExpansionPurpose::Retrieval,
+        });
+
+        // ---- Pass 3: project files into evidence in relevance order:
+        // the diff manifest, changed files, repository rules, graph
+        // expansion candidates, then everything else in manifest order.
         if !snapshot.diff.content.is_empty() && evidence.len() < request.limits.max_evidence_items {
-            evidence.push(ContextEvidence {
-                id: EvidenceId(stable_id(&[
-                    &snapshot.snapshot_id.0,
-                    "diff",
-                    &snapshot.diff.content_hash,
-                ])),
-                kind: ContextEvidenceKind::Diff,
-                source: ContextEvidenceSource::Snapshot,
-                trust: ContextTrust::Kernel,
-                sensitivity: ContextSensitivity::Private,
-                scope: ContextScope::Snapshot,
-                path: None,
-                revision: None,
-                range: None,
-                content_hash: Some(snapshot.diff.content_hash.clone()),
-                summary: Some("Review diff manifest".to_string()),
-                is_changed_span: true,
-                representation: ContextEvidenceRepresentation::FullContent,
-                skeleton_text: None,
-                signals: ContextRankSignals::default(),
-                token_estimate: estimate_tokens(snapshot.diff.content.len()),
-                provenance: ContextProvenance {
-                    provider: "snapshot_diff".to_string(),
-                    query: None,
-                    tool_call_id: None,
-                    snapshot_id: Some(snapshot.snapshot_id.0.clone()),
-                    original_url: None,
-                },
-                created_at_utc: None,
-                expires_at_utc: None,
-            });
+            evidence.push(diff_evidence(&snapshot));
+        }
+        let emission_order = evidence_emission_order(
+            &prepared,
+            &snapshot.manifest.files,
+            &graph_expansion.candidates,
+        );
+        for slot in emission_order {
+            let entry = &prepared[slot];
+            let file = &snapshot.manifest.files[entry.meta_index];
+            if evidence.len() >= request.limits.max_evidence_items {
+                skips.push(ContextIndexSkip {
+                    path: file.rel_path.clone(),
+                    reason: ContextIndexSkipReason::BudgetExceeded,
+                });
+                continue;
+            }
+            indexed_files += 1;
+            indexed_bytes = indexed_bytes.saturating_add(file.size);
+            let kind = entry.kind;
+            let file_hunks = hunk_ranges
+                .get(&file.rel_path.display())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let Some(derived) = &entry.derived else {
+                evidence.push(file_evidence(&snapshot, file, kind, None));
+                continue;
+            };
+            if entry.chunked {
+                let mut emitted = 0usize;
+                let mut truncated = false;
+                for ((chunk, view), terms) in derived
+                    .chunks
+                    .iter()
+                    .zip(derived.skeletons.iter())
+                    .zip(derived.chunk_terms.iter())
+                {
+                    if emitted >= request.limits.max_chunks_per_file
+                        || evidence.len() >= request.limits.max_evidence_items
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    let item = chunk_evidence(&snapshot, file, kind, chunk, file_hunks);
+                    if let Some(view) = view {
+                        skeletons.insert(
+                            item.id.0.clone(),
+                            skeleton_evidence(&snapshot, file, &item, view),
+                        );
+                    }
+                    body_terms_by_id.insert(item.id.0.clone(), terms.clone());
+                    evidence.push(item);
+                    emitted += 1;
+                }
+                if truncated {
+                    skips.push(ContextIndexSkip {
+                        path: file.rel_path.clone(),
+                        reason: ContextIndexSkipReason::ChunkBudgetExceeded,
+                    });
+                }
+            } else {
+                let content = file_contents.get(&file.rel_path).map(String::as_str);
+                let item = file_evidence(&snapshot, file, kind, content);
+                body_terms_by_id.insert(item.id.0.clone(), derived.file_terms.clone());
+                evidence.push(item);
+            }
+            if let Some(parsed) = parsed_by_file.get(&file.rel_path) {
+                emit_changed_symbol_evidence(
+                    &snapshot,
+                    file,
+                    parsed,
+                    file_hunks,
+                    &mut evidence,
+                    request.limits.max_evidence_items,
+                );
+            }
         }
 
         if request.include_host_context && evidence.len() < request.limits.max_evidence_items {
@@ -423,29 +493,13 @@ impl ContextIndex {
             }
         }
 
-        // Change-rooted graph: the diff anchors expansion into the blast
-        // radius of the change (callers, callees, tests, co-changes).
-        let changed_paths: BTreeSet<RepoPath> = snapshot
-            .manifest
-            .files
-            .iter()
-            .filter(|file| file.is_changed)
-            .map(|file| file.rel_path.clone())
-            .collect();
-        let mut graph = ReferenceGraph::build(&parsed_by_file);
-        graph.co_change = co_change_stats(
-            &snapshot.source_root,
-            &changed_paths,
-            request.limits.co_change_commit_limit,
-        );
-        let (graph_candidates, graph_overflow) = expand_from_changes(
+        let relationships = build_relationships(&evidence, &mut graph_expansion);
+        apply_rank_signals(
+            &mut evidence,
             &graph,
+            &graph_expansion.candidates,
             &changed_paths,
-            request.limits.graph_max_hops,
-            request.limits.graph_max_candidates_per_anchor,
         );
-        let relationships = build_relationships(&evidence, &graph_candidates);
-        apply_rank_signals(&mut evidence, &graph, &graph_candidates, &changed_paths);
         // A skeleton twin carries the same structural signals as the
         // full chunk it stands in for, so explanations stay truthful.
         for item in &evidence {
@@ -502,12 +556,20 @@ impl ContextIndex {
                 path: None,
             });
         }
-        if graph_overflow > 0 {
+        let omitted_counts = graph_expansion.omitted_counts();
+        let omitted_over_budget = omitted_counts
+            .get(&ContextGraphOmissionReason::BudgetExceeded)
+            .copied()
+            .unwrap_or(0);
+        if omitted_over_budget > 0 {
+            let breakdown = omitted_counts
+                .iter()
+                .map(|(reason, count)| format!("{}={count}", reason.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ");
             warnings.push(ContextIndexWarning {
                 code: "graph_candidates_truncated".to_string(),
-                message: format!(
-                    "graph expansion dropped {graph_overflow} candidates over per-anchor budget"
-                ),
+                message: format!("graph expansion omitted candidates: {breakdown}"),
                 path: None,
             });
         }
@@ -573,7 +635,7 @@ impl ContextIndex {
             lexical,
             symbol_graph,
             graph,
-            graph_candidates,
+            graph_expansion,
             relationships,
             hunk_ranges,
             skeletons,
@@ -1018,17 +1080,20 @@ fn chunked_kind(kind: ContextEvidenceKind, content: &str) -> bool {
 }
 
 /// Fill structural ranking signals (R5) on every evidence item once the
-/// reference graph, expansion candidates, and co-change stats exist.
+/// Context Graph, expansion candidates, and co-change stats exist.
 fn apply_rank_signals(
     evidence: &mut [ContextEvidence],
-    graph: &ReferenceGraph,
-    candidates: &[GraphCandidate],
+    graph: &ContextGraph,
+    candidates: &[ContextGraphCandidate],
     changed: &BTreeSet<RepoPath>,
 ) {
     let mut min_hop: BTreeMap<&RepoPath, u8> = BTreeMap::new();
     for candidate in candidates {
-        let entry = min_hop.entry(&candidate.path).or_insert(candidate.hop);
-        *entry = (*entry).min(candidate.hop);
+        let Some(path) = candidate.repo_path() else {
+            continue;
+        };
+        let entry = min_hop.entry(path).or_insert(candidate.hop_count);
+        *entry = (*entry).min(candidate.hop_count);
     }
     for item in evidence {
         let Some(path) = item.path.clone() else {
@@ -1089,8 +1154,9 @@ fn shared_dir_ratio(left: &str, right: &str) -> f32 {
 /// evidence-id-level relationships for packs and explanations.
 fn build_relationships(
     evidence: &[ContextEvidence],
-    candidates: &[GraphCandidate],
+    expansion: &mut ContextGraphExpansion,
 ) -> Vec<ContextRelationship> {
+    use super::graph::{ContextGraphOmission, ContextGraphOmissionReason};
     use super::ContextRelationshipKind;
     let mut by_path: BTreeMap<&RepoPath, &ContextEvidence> = BTreeMap::new();
     let mut changed_by_path: BTreeMap<&RepoPath, &ContextEvidence> = BTreeMap::new();
@@ -1119,38 +1185,156 @@ fn build_relationships(
             }
         }
     }
-    for candidate in candidates {
+    let mut no_projection: Vec<ContextGraphOmission> = Vec::new();
+    for candidate in &expansion.candidates {
+        let Some(anchor_path) = candidate.anchor_path() else {
+            continue;
+        };
+        let Some(candidate_path) = candidate.repo_path() else {
+            continue;
+        };
         let Some(from) = changed_by_path
-            .get(&candidate.anchor)
-            .or_else(|| by_path.get(&candidate.anchor))
+            .get(anchor_path)
+            .or_else(|| by_path.get(anchor_path))
         else {
             continue;
         };
-        let Some(to) = by_path.get(&candidate.path) else {
+        // Chunk candidates project to the evidence item covering the
+        // referencing span; file candidates to the file's first item.
+        let to = match &candidate.node_id {
+            ContextNodeId::Chunk { range, .. } => evidence
+                .iter()
+                .find(|item| {
+                    item.path.as_ref() == Some(candidate_path)
+                        && item
+                            .range
+                            .map(|item_range| range_overlaps(&item_range, range))
+                            .unwrap_or(false)
+                })
+                .or_else(|| by_path.get(candidate_path).copied()),
+            _ => by_path.get(candidate_path).copied(),
+        };
+        let Some(to) = to else {
+            no_projection.push(ContextGraphOmission {
+                node_id: candidate.node_id.clone(),
+                anchor: Some(candidate.anchor.clone()),
+                reason: ContextGraphOmissionReason::NoEvidenceProjection,
+            });
             continue;
         };
         relationships.push(ContextRelationship {
             from: from.id.clone(),
             to: to.id.clone(),
-            kind: candidate.kind,
-            confidence: candidate.confidence,
-            reason: candidate.reason.clone(),
+            kind: candidate.relationship_kind(),
+            confidence: candidate.score,
+            reason: candidate.reason(),
         });
     }
+    expansion.omitted.extend(no_projection);
     relationships
 }
 
-#[allow(clippy::too_many_arguments)]
-fn index_symbols(
+/// One captured file after the parse pass (pass 1), before evidence
+/// projection (pass 3). `derived` is `None` when the file content was
+/// not readable as UTF-8.
+struct PreparedFile {
+    meta_index: usize,
+    kind: ContextEvidenceKind,
+    chunked: bool,
+    derived: Option<DerivedFileData>,
+}
+
+/// Order prepared files for evidence emission by review relevance:
+/// changed files, repository rules, Context Graph expansion candidates
+/// (best confidence first), then everything else in manifest order. The
+/// evidence budget then truncates the least relevant tail instead of an
+/// alphabetical one. Deterministic: ties resolve to manifest order.
+fn evidence_emission_order(
+    prepared: &[PreparedFile],
+    files: &[FileMeta],
+    candidates: &[ContextGraphCandidate],
+) -> Vec<usize> {
+    let mut best_confidence: BTreeMap<&RepoPath, f32> = BTreeMap::new();
+    for candidate in candidates {
+        let Some(path) = candidate.repo_path() else {
+            continue;
+        };
+        let entry = best_confidence.entry(path).or_insert(candidate.score);
+        if candidate.score > *entry {
+            *entry = candidate.score;
+        }
+    }
+    let mut ranked_candidates: Vec<(&RepoPath, f32)> = best_confidence.into_iter().collect();
+    ranked_candidates
+        .sort_by(|left, right| right.1.total_cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+    let candidate_rank: BTreeMap<&RepoPath, usize> = ranked_candidates
+        .into_iter()
+        .enumerate()
+        .map(|(rank, (path, _))| (path, rank))
+        .collect();
+    let mut keyed: Vec<((u8, usize, usize), usize)> = prepared
+        .iter()
+        .enumerate()
+        .map(|(slot, entry)| {
+            let file = &files[entry.meta_index];
+            let key = if file.is_changed {
+                (0u8, 0usize, entry.meta_index)
+            } else if entry.kind == ContextEvidenceKind::RepositoryRule {
+                (1, 0, entry.meta_index)
+            } else if let Some(rank) = candidate_rank.get(&file.rel_path) {
+                (2, *rank, entry.meta_index)
+            } else {
+                (3, 0, entry.meta_index)
+            };
+            (key, slot)
+        })
+        .collect();
+    keyed.sort();
+    keyed.into_iter().map(|(_, slot)| slot).collect()
+}
+
+fn diff_evidence(snapshot: &RepoSnapshot) -> ContextEvidence {
+    ContextEvidence {
+        id: EvidenceId(stable_id(&[
+            &snapshot.snapshot_id.0,
+            "diff",
+            &snapshot.diff.content_hash,
+        ])),
+        kind: ContextEvidenceKind::Diff,
+        source: ContextEvidenceSource::Snapshot,
+        trust: ContextTrust::Kernel,
+        sensitivity: ContextSensitivity::Private,
+        scope: ContextScope::Snapshot,
+        path: None,
+        revision: None,
+        range: None,
+        content_hash: Some(snapshot.diff.content_hash.clone()),
+        summary: Some("Review diff manifest".to_string()),
+        is_changed_span: true,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
+        signals: ContextRankSignals::default(),
+        token_estimate: estimate_tokens(snapshot.diff.content.len()),
+        provenance: ContextProvenance {
+            provider: "snapshot_diff".to_string(),
+            query: None,
+            tool_call_id: None,
+            snapshot_id: Some(snapshot.snapshot_id.0.clone()),
+            original_url: None,
+        },
+        created_at_utc: None,
+        expires_at_utc: None,
+    }
+}
+
+fn emit_changed_symbol_evidence(
     snapshot: &RepoSnapshot,
     file: &FileMeta,
     parsed_symbols: &ParsedSymbols,
     file_hunks: &[ContextRange],
-    symbol_graph: &mut ContextSymbolGraph,
     evidence: &mut Vec<ContextEvidence>,
     max_evidence_items: usize,
 ) {
-    symbol_graph.add_parsed(file.rel_path.clone(), parsed_symbols);
     if !file.is_changed {
         return;
     }

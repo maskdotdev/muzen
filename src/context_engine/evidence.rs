@@ -80,7 +80,7 @@ impl ContextRevision {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextRange {
     pub start_line: u32,
@@ -102,12 +102,12 @@ pub struct ContextProvenance {
 }
 
 /// Structural ranking signals (R5), computed in an index post-pass once
-/// the reference graph and co-change history exist. Typed inputs to
+/// the Context Graph and co-change history exist. Typed inputs to
 /// `score_for_purpose`; never parsed from display strings.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextRankSignals {
-    /// Hops from the nearest change anchor in the reference graph:
+    /// Hops from the nearest change anchor in the Context Graph:
     /// 0 = overlaps changed lines, 1 = same file or direct reference,
     /// 2 = two hops out. `None` = unconnected to the change.
     #[serde(default, skip_serializing_if = "Option::is_none")]

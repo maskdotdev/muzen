@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-1f24e1cbc166",
+  "repoSource": {
+    "kind": "git",
+    "commit": "1f24e1cbc16645313cee9d57af19a6f79823bc87",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/model/gate.test.ts",
+    "apps/web/src/features/review/model/gate.ts",
+    "apps/web/src/features/review/server/diff/review-diff.test.ts",
+    "apps/web/src/features/review/server/diff/review-diff.ts"
+  ],
+  "description": "Mined pair: base 1f24e1cbc166 (fix(review): apply argus json settings) followed by 675104a27286 (refactor(argus-config): centralize trusted settings resolution).",
+  "minedFrom": {
+    "baseCommit": "1f24e1cbc16645313cee9d57af19a6f79823bc87",
+    "followUpCommit": "675104a27286f567ba11fa3b33d268b1af33f7ba"
+  },
+  "cases": [
+    {
+      "id": "mined-1f24e1cbc166-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
+        "apps/web/src/features/review/server/persist-review-run.ts"
+      ]
+    }
+  ]
+}

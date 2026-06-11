@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::runtime::contracts::RepoPath;
 
 use super::chunking::range_overlaps;
-use super::graph::is_test_path;
+use super::graph::ContextEdgeKind;
 use super::{
     ContextEvidence, ContextEvidenceKind, ContextIndex, ContextRange, ContextSufficiency,
     ContextSufficiencyStatus,
@@ -86,10 +86,19 @@ pub(crate) fn evaluate_sufficiency(
         let Ok(path) = RepoPath::parse(path_text) else {
             continue;
         };
+        // Caller coverage comes from the same Context Graph paths
+        // retrieval uses: cross-file relationship edges into the changed
+        // file or its symbols.
         let referencer_paths: BTreeSet<&RepoPath> = index
             .graph
-            .referencers(&path)
-            .map(|edge| &edge.from)
+            .file_referencers(&path)
+            .filter(|edge| {
+                matches!(
+                    edge.kind,
+                    ContextEdgeKind::Imports | ContextEdgeKind::References | ContextEdgeKind::Tests
+                )
+            })
+            .filter_map(|edge| edge.from_path())
             .collect();
         let related_test_paths = related_test_paths(index, &path);
         for hunk in hunks {
@@ -185,30 +194,16 @@ pub(crate) fn evaluate_sufficiency(
     }
 }
 
-/// Test files connected to `path`: test importers from the resolved
-/// graph plus stem-matching test evidence (same signal set as the
-/// `related_tests` query).
+/// Test files connected to `path` through `Tests` edges: import-resolved
+/// test linkage plus stem-convention edges. The graph owns both sources,
+/// so sufficiency never recreates path-stem or test-convention logic.
 fn related_test_paths(index: &ContextIndex, path: &RepoPath) -> BTreeSet<RepoPath> {
-    let mut paths: BTreeSet<RepoPath> = index
+    index
         .graph
-        .referencers(path)
-        .filter(|edge| is_test_path(&edge.from.display()))
-        .map(|edge| edge.from.clone())
-        .collect();
-    let stem = super::path_stem(&path.display());
-    if !stem.is_empty() {
-        for item in &index.evidence {
-            if item.kind != ContextEvidenceKind::Test {
-                continue;
-            }
-            if let Some(item_path) = &item.path {
-                if item_path.display().contains(&stem) {
-                    paths.insert(item_path.clone());
-                }
-            }
-        }
-    }
-    paths
+        .file_referencers(path)
+        .filter(|edge| edge.kind == ContextEdgeKind::Tests)
+        .filter_map(|edge| edge.from_path().cloned())
+        .collect()
 }
 
 fn suggested_query(

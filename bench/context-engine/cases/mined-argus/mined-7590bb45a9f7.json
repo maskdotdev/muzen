@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7590bb45a9f7",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7590bb45a9f734b8c2a6735ae7135ae64e34fc95",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.test.tsx",
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+    "apps/web/src/features/review/components/diff/review-process.tsx",
+    "apps/web/src/features/review/components/review-status.ts",
+    "apps/web/src/features/review/components/sidebar-review-overview.test.tsx",
+    "apps/web/src/features/review/components/sidebar-review-overview.tsx"
+  ],
+  "description": "Mined pair: base 7590bb45a9f7 (fix(review): restore V2 review freshness and summary state) followed by 4d23965267b3 (feat(review): auto-switch narrow diffs to unified).",
+  "minedFrom": {
+    "baseCommit": "7590bb45a9f734b8c2a6735ae7135ae64e34fc95",
+    "followUpCommit": "4d23965267b397d0bdb4010aa675e9ea347a9fbf"
+  },
+  "cases": [
+    {
+      "id": "mined-7590bb45a9f7-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/components/diff/panel.tsx"
+      ]
+    }
+  ]
+}

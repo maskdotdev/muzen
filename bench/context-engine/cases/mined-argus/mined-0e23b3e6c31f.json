@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-0e23b3e6c31f",
+  "repoSource": {
+    "kind": "git",
+    "commit": "0e23b3e6c31fc5c5a1269521c7d9828edcaa8c5f",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/diff/review-diff-deps.ts",
+    "apps/web/src/features/review/server/diff/review-diff-types.ts",
+    "apps/web/src/features/review/server/flow-run.helpers.ts",
+    "apps/web/src/features/review/server/review-engine.ts",
+    "apps/web/src/features/review/server/review-worker-runtime.ts",
+    "packages/contracts/src/bun-test.d.ts",
+    "packages/contracts/src/review/index.ts",
+    "packages/contracts/src/review/review-execution-backend.test.ts"
+  ],
+  "description": "Mined pair: base 0e23b3e6c31f (refactor(review): remove execution backend shim) followed by 41e856966513 (refactor(review): move argus config constants to domain).",
+  "minedFrom": {
+    "baseCommit": "0e23b3e6c31fc5c5a1269521c7d9828edcaa8c5f",
+    "followUpCommit": "41e856966513587ffada46762ebbfecbbd179082"
+  },
+  "cases": [
+    {
+      "id": "mined-0e23b3e6c31f-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/server/review-argus-agent.test.ts",
+        "apps/web/src/features/review/server/review-argus-agent.ts",
+        "packages/review-domain/src/argus-agent/config.ts"
+      ]
+    }
+  ]
+}

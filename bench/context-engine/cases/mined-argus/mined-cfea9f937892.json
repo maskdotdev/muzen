@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-cfea9f937892",
+  "repoSource": {
+    "kind": "git",
+    "commit": "cfea9f9378929564070a6a88216e099d5e116c6e",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/review-worker/src/issue-service.ts",
+    "apps/review-worker/src/review-argus-agent.ts",
+    "apps/review-worker/src/review-issue-context.ts"
+  ],
+  "description": "Mined pair: base cfea9f937892 (refactor(review-worker): add issue aware agent adapter) followed by f32a27abe2ba (refactor(review-worker): compose runtime locally).",
+  "minedFrom": {
+    "baseCommit": "cfea9f9378929564070a6a88216e099d5e116c6e",
+    "followUpCommit": "f32a27abe2ba50ceacbb9a5c9bc08718493ee7d4"
+  },
+  "cases": [
+    {
+      "id": "mined-cfea9f937892-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/review-worker/src/runtime-resources.ts",
+        "apps/review-worker/src/worker-runtime.ts"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7df7aaa8685a",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7df7aaa8685a976e3e264cddb968945584801379",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/(app)/analytics/_lib/page-data.ts",
+    "apps/web/src/features/analytics/server/overview-data.ts",
+    "apps/web/src/features/analytics/server/overview.ts"
+  ],
+  "description": "Mined pair: base 7df7aaa8685a (refactor(web): move analytics overview builder into feature ownership) followed by 9d564cea6f36 (refactor(web): move analytics integration scope into feature ownership).",
+  "minedFrom": {
+    "baseCommit": "7df7aaa8685a976e3e264cddb968945584801379",
+    "followUpCommit": "9d564cea6f362ac986499bbf1579870a4a96a0d6"
+  },
+  "cases": [
+    {
+      "id": "mined-7df7aaa8685a-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/analytics/_components/page-content.tsx",
+        "apps/web/src/app/(app)/analytics/page.tsx"
+      ]
+    }
+  ]
+}

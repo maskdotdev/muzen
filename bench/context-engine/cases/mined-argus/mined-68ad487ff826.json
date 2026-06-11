@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-68ad487ff826",
+  "repoSource": {
+    "kind": "git",
+    "commit": "68ad487ff826d3a5154b7a3229e43116af26ac3d",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/server/review-impact-service.ts",
+    "packages/review/server/src/review-impact-service.test.ts",
+    "packages/review/server/src/review-impact-service.ts"
+  ],
+  "description": "Mined pair: base 68ad487ff826 (refactor(review): share impact workflow) followed by d64599eaf65d (refactor(review): share comment publish workflow).",
+  "minedFrom": {
+    "baseCommit": "68ad487ff826d3a5154b7a3229e43116af26ac3d",
+    "followUpCommit": "d64599eaf65d761223e2b3da558afed30834f363"
+  },
+  "cases": [
+    {
+      "id": "mined-68ad487ff826-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/server/comment-publish.test.ts",
+        "apps/web/src/features/review/server/comment-publish.ts"
+      ]
+    }
+  ]
+}

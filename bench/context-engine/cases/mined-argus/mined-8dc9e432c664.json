@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8dc9e432c664",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8dc9e432c664f158e5c8879399f919291d8182ca",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/app/api/gitlab/integrations/[integrationId]/index/branches/route.test.ts",
+    "src/app/api/gitlab/integrations/[integrationId]/index/branches/route.ts",
+    "src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts",
+    "src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts",
+    "src/lib/indexing/job-queue.ts",
+    "src/lib/indexing/processors/reconcile.ts",
+    "src/lib/indexing/runner.ts",
+    "src/lib/indexing/tests/processors/reconcile.test.ts"
+  ],
+  "description": "Mined pair: base 8dc9e432c664 (fix(indexing): add periodic reconcile scheduling for missed webhook events) followed by 51a75f570092 (fix(indexing): add artifact retention and cleanup policy).",
+  "minedFrom": {
+    "baseCommit": "8dc9e432c664f158e5c8879399f919291d8182ca",
+    "followUpCommit": "51a75f57009234e993595e6bdf33d56f8b53b8ee"
+  },
+  "cases": [
+    {
+      "id": "mined-8dc9e432c664-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/lib/indexing/stores/artifact-store.fs.ts",
+        "src/lib/indexing/stores/artifact-store.s3.ts"
+      ]
+    }
+  ]
+}
