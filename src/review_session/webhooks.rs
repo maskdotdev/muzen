@@ -120,7 +120,7 @@ impl WebhookReviewDelivery {
 }
 
 impl MuzenWorkspace {
-    pub fn handle_github_webhook(
+    pub async fn handle_github_webhook(
         &self,
         headers: &WebhookHeaders,
         body: &[u8],
@@ -158,9 +158,10 @@ impl MuzenWorkspace {
             delivery_id,
             options.into(),
         )
+        .await
     }
 
-    pub fn handle_gitlab_webhook(
+    pub async fn handle_gitlab_webhook(
         &self,
         headers: &WebhookHeaders,
         body: &[u8],
@@ -202,9 +203,10 @@ impl MuzenWorkspace {
             delivery_id,
             options.into(),
         )
+        .await
     }
 
-    fn schedule_webhook_review(
+    async fn schedule_webhook_review(
         &self,
         source: ReviewSource,
         provider: &str,
@@ -241,11 +243,13 @@ impl MuzenWorkspace {
         }
         let dedupe_key = review_options.dedupe_key(&source);
         let was_deduped = if let Some(key) = &dedupe_key {
-            self.store.get_by_dedupe_key(key)?.is_some()
+            self.store.get_by_dedupe_key(key).await?.is_some()
         } else {
             false
         };
-        let review = self.schedule_review_with_options(source, review_options)?;
+        let review = self
+            .schedule_review_with_options(source, review_options)
+            .await?;
         if was_deduped {
             Ok(WebhookReviewDelivery::ReviewDeduped {
                 review,

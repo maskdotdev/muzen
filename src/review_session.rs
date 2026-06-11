@@ -45,10 +45,12 @@ pub use router::{
 pub use session::{CreateReviewSessionInput, ReviewSession};
 pub use source::{ReviewSource, ReviewSourceLike};
 pub use store::{
-    InMemoryReviewSessionStore, PostgresReviewSessionStore, ReviewAttemptFailure,
-    ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy,
-    ReviewLogStream, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
-    ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+    stores_from_url, InMemoryReviewSessionStore, LibsqlReviewSessionStore,
+    LibsqlWorkspaceProfileStore, MuzenStoreBundle, PostgresReviewSessionStore,
+    ReviewAttemptFailure, ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry,
+    ReviewLogRedactionPolicy, ReviewLogStream, ReviewRetryPolicy, ReviewSessionRecord,
+    ReviewSessionStore, ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits,
+    ReviewWorkerLease, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
 };
 pub use webhooks::{
     github_webhook_signature, map_github_webhook_source, map_gitlab_webhook_source,
@@ -126,29 +128,32 @@ impl Muzen {
         }
     }
 
-    pub fn review(
+    pub async fn review(
         &self,
         source: impl Into<ReviewSourceLike>,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.create_review_session(CreateReviewSessionInput::new(source)?)
+            .await
     }
 
-    pub fn review_with_options(
+    pub async fn review_with_options(
         &self,
         source: impl Into<ReviewSourceLike>,
         options: ReviewOptions,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.create_review_session(CreateReviewSessionInput::with_options(source, options)?)
+            .await
     }
 
-    pub fn schedule_review(
+    pub async fn schedule_review(
         &self,
         source: impl Into<ReviewSourceLike>,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.schedule_review_with_options(source, ReviewOptions::default())
+            .await
     }
 
-    pub fn schedule_review_with_options(
+    pub async fn schedule_review_with_options(
         &self,
         source: impl Into<ReviewSourceLike>,
         options: ReviewOptions,
@@ -157,12 +162,14 @@ impl Muzen {
         let input = CreateReviewSessionInput { source, options };
         let dedupe_key = input.options.dedupe_key(&input.source);
         if let Some(dedupe_key) = &dedupe_key {
-            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key).await? {
                 return Ok(ReviewSession::from_record(record));
             }
         }
         let review = ReviewSession::queued(self.next_review_id(), input);
-        self.store.insert(review.to_record(dedupe_key, None))?;
+        self.store
+            .insert(review.to_record(dedupe_key, None))
+            .await?;
         Ok(review)
     }
 
@@ -174,18 +181,20 @@ impl Muzen {
         ReviewWorker::new(worker_id, self.store.clone(), host_config)
     }
 
-    pub fn create_review_session(
+    pub async fn create_review_session(
         &self,
         input: CreateReviewSessionInput,
     ) -> Result<ReviewSession, ReviewSessionError> {
         let dedupe_key = input.options.dedupe_key(&input.source);
         if let Some(dedupe_key) = &dedupe_key {
-            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key).await? {
                 return Ok(ReviewSession::from_record(record));
             }
         }
-        let review = ReviewSession::execute_local(self.next_review_id(), input)?;
-        self.store.insert(review.to_record(dedupe_key, None))?;
+        let review = ReviewSession::execute_local_async(self.next_review_id(), input).await?;
+        self.store
+            .insert(review.to_record(dedupe_key, None))
+            .await?;
         Ok(review)
     }
 
@@ -232,75 +241,85 @@ impl MuzenWorkspace {
         &self.id
     }
 
-    pub fn review(
+    pub async fn review(
         &self,
         source: impl Into<ReviewSourceLike>,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.review_with_options(source, ReviewOptions::default())
+            .await
     }
 
-    pub fn review_with_options(
+    pub async fn review_with_options(
         &self,
         source: impl Into<ReviewSourceLike>,
         mut options: ReviewOptions,
     ) -> Result<ReviewSession, ReviewSessionError> {
         let source = source.into().resolve()?;
-        options.config_snapshot =
-            Some(self.effective_config_snapshot(&source, options.model.as_deref())?);
+        options.config_snapshot = Some(
+            self.effective_config_snapshot(&source, options.model.as_deref())
+                .await?,
+        );
         let input = CreateReviewSessionInput { source, options };
         let dedupe_key = input.options.dedupe_key(&input.source);
         if let Some(dedupe_key) = &dedupe_key {
-            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key).await? {
                 return Ok(ReviewSession::from_record(record));
             }
         }
-        let review = ReviewSession::execute_local(self.next_review_id(), input)?;
+        let review = ReviewSession::execute_local_async(self.next_review_id(), input).await?;
         self.store
-            .insert(review.to_record(dedupe_key, Some(self.id.clone())))?;
+            .insert(review.to_record(dedupe_key, Some(self.id.clone())))
+            .await?;
         Ok(review)
     }
 
-    pub fn schedule_review(
+    pub async fn schedule_review(
         &self,
         source: impl Into<ReviewSourceLike>,
     ) -> Result<ReviewSession, ReviewSessionError> {
         self.schedule_review_with_options(source, ReviewOptions::default())
+            .await
     }
 
-    pub fn schedule_review_with_options(
+    pub async fn schedule_review_with_options(
         &self,
         source: impl Into<ReviewSourceLike>,
         mut options: ReviewOptions,
     ) -> Result<ReviewSession, ReviewSessionError> {
         let source = source.into().resolve()?;
-        options.config_snapshot =
-            Some(self.effective_config_snapshot(&source, options.model.as_deref())?);
+        options.config_snapshot = Some(
+            self.effective_config_snapshot(&source, options.model.as_deref())
+                .await?,
+        );
         let input = CreateReviewSessionInput { source, options };
         let dedupe_key = input.options.dedupe_key(&input.source);
         if let Some(dedupe_key) = &dedupe_key {
-            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key)? {
+            if let Some(record) = self.store.get_by_dedupe_key(dedupe_key).await? {
                 return Ok(ReviewSession::from_record(record));
             }
         }
         let review = ReviewSession::queued(self.next_review_id(), input);
         self.store
-            .insert(review.to_record(dedupe_key, Some(self.id.clone())))?;
+            .insert(review.to_record(dedupe_key, Some(self.id.clone())))
+            .await?;
         Ok(review)
     }
 
-    pub fn effective_config_snapshot(
+    pub async fn effective_config_snapshot(
         &self,
         source: &ReviewSource,
         model: Option<&str>,
     ) -> Result<EffectiveConfigSnapshot, ReviewSessionError> {
         let model_profile = self
-            .selected_model_profile(model)?
+            .selected_model_profile(model)
+            .await?
             .map(|profile| profile.version_ref());
         let provider_profile = self
-            .source_provider_profile(source)?
+            .source_provider_profile(source)
+            .await?
             .map(|profile| profile.version_ref());
         let mut routing = BTreeMap::new();
-        if let Some(profile) = self.selected_model_profile(model)? {
+        if let Some(profile) = self.selected_model_profile(model).await? {
             routing.insert(
                 "model.provider".to_string(),
                 profile.provider.as_str().to_string(),
@@ -313,7 +332,7 @@ impl MuzenWorkspace {
                 routing.insert(format!("model.routing.{key}"), value);
             }
         }
-        if let Some(profile) = self.source_provider_profile(source)? {
+        if let Some(profile) = self.source_provider_profile(source).await? {
             routing.insert(
                 "provider.kind".to_string(),
                 profile.provider.as_str().to_string(),
@@ -332,44 +351,48 @@ impl MuzenWorkspace {
         })
     }
 
-    pub fn set_model_profile(
+    pub async fn set_model_profile(
         &self,
         name: impl Into<String>,
         input: ModelProfileInput,
     ) -> Result<ModelProfile, ReviewSessionError> {
         self.profile_store
             .set_model_profile(&self.id, name.into(), input)
+            .await
     }
 
-    pub fn get_model_profile(
+    pub async fn get_model_profile(
         &self,
         name: &str,
     ) -> Result<Option<ModelProfile>, ReviewSessionError> {
-        self.profile_store.get_model_profile(&self.id, name)
+        self.profile_store.get_model_profile(&self.id, name).await
     }
 
-    pub fn list_model_profiles(&self) -> Result<Vec<ModelProfile>, ReviewSessionError> {
-        self.profile_store.list_model_profiles(&self.id)
+    pub async fn list_model_profiles(&self) -> Result<Vec<ModelProfile>, ReviewSessionError> {
+        self.profile_store.list_model_profiles(&self.id).await
     }
 
-    pub fn set_provider_profile(
+    pub async fn set_provider_profile(
         &self,
         name: impl Into<String>,
         input: ProviderProfileInput,
     ) -> Result<ProviderProfile, ReviewSessionError> {
         self.profile_store
             .set_provider_profile(&self.id, name.into(), input)
+            .await
     }
 
-    pub fn get_provider_profile(
+    pub async fn get_provider_profile(
         &self,
         name: &str,
     ) -> Result<Option<ProviderProfile>, ReviewSessionError> {
-        self.profile_store.get_provider_profile(&self.id, name)
+        self.profile_store
+            .get_provider_profile(&self.id, name)
+            .await
     }
 
-    pub fn list_provider_profiles(&self) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
-        self.profile_store.list_provider_profiles(&self.id)
+    pub async fn list_provider_profiles(&self) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
+        self.profile_store.list_provider_profiles(&self.id).await
     }
 
     fn next_review_id(&self) -> ReviewSessionId {
@@ -377,15 +400,15 @@ impl MuzenWorkspace {
         ReviewSessionId(format!("review-{id}"))
     }
 
-    fn selected_model_profile(
+    async fn selected_model_profile(
         &self,
         model: Option<&str>,
     ) -> Result<Option<ModelProfile>, ReviewSessionError> {
         let name = model.unwrap_or("default");
-        self.profile_store.get_model_profile(&self.id, name)
+        self.profile_store.get_model_profile(&self.id, name).await
     }
 
-    fn source_provider_profile(
+    async fn source_provider_profile(
         &self,
         source: &ReviewSource,
     ) -> Result<Option<ProviderProfile>, ReviewSessionError> {
@@ -396,7 +419,9 @@ impl MuzenWorkspace {
             ReviewSource::Custom { provider, .. } => provider.as_str(),
             ReviewSource::Local { .. } | ReviewSource::RawSnapshot { .. } => return Ok(None),
         };
-        self.profile_store.get_provider_profile(&self.id, name)
+        self.profile_store
+            .get_provider_profile(&self.id, name)
+            .await
     }
 }
 

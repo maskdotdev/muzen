@@ -32,6 +32,15 @@ pub struct ReviewSession {
 }
 
 impl ReviewSession {
+    pub(super) async fn execute_local_async(
+        id: ReviewSessionId,
+        input: CreateReviewSessionInput,
+    ) -> Result<Self, ReviewSessionError> {
+        tokio::task::spawn_blocking(move || Self::execute_local(id, input))
+            .await
+            .map_err(|error| ReviewSessionError::Runner(error.to_string()))?
+    }
+
     pub(super) fn execute_local(
         id: ReviewSessionId,
         input: CreateReviewSessionInput,

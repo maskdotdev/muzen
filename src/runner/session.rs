@@ -31,7 +31,7 @@ use crate::contracts::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
     RenameDetection, SnapshotMode,
 };
-use crate::review_session::{Muzen, WebhookHeaders};
+use crate::review_session::{Muzen, ReviewSessionError, WebhookHeaders};
 use crate::runtime::contracts::{SnapshotId, SnapshotStoragePolicy};
 use crate::runtime::repo::RepoSnapshot;
 
@@ -797,26 +797,29 @@ impl RunnerStdioSession {
         );
         let headers = params.headers.into_iter().collect::<WebhookHeaders>();
         let delivery = match provider {
-            "github" => workspace.handle_github_webhook(
+            "github" => block_on_muzen(workspace.handle_github_webhook(
                 &headers,
                 params.body.as_bytes(),
                 params.secret.as_deref(),
                 params.options,
-            ),
-            "gitlab" => workspace.handle_gitlab_webhook(
+            )),
+            "gitlab" => block_on_muzen(workspace.handle_gitlab_webhook(
                 &headers,
                 params.body.as_bytes(),
                 params.secret.as_deref(),
                 params.options,
-            ),
+            )),
             _ => unreachable!("unsupported webhook provider"),
         };
-        match delivery.and_then(|delivery| delivery.http_response()) {
+        let response = match delivery {
+            Ok(delivery) => delivery
+                .http_response()
+                .map_err(|error| JsonRpcError::invalid_params(error.to_string())),
+            Err(error) => Err(error),
+        };
+        match response {
             Ok(response) => Ok(JsonRpcResponse::success(request.id, json!(response))),
-            Err(error) => Ok(JsonRpcResponse::error(
-                request.id,
-                JsonRpcError::invalid_params(error.to_string()),
-            )),
+            Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
         }
     }
 
@@ -827,15 +830,12 @@ impl RunnerStdioSession {
         };
         let worker_id = params.worker_id().to_string();
         let worker = self.muzen.worker(worker_id.clone(), params.host_config);
-        match worker.run_once(params.max_sessions) {
+        match block_on_muzen(worker.run_once(params.max_sessions)) {
             Ok(run) => Ok(JsonRpcResponse::success(
                 request.id,
                 json!(WorkerRunOnceResult::from_run(worker_id, run)),
             )),
-            Err(error) => Ok(JsonRpcResponse::error(
-                request.id,
-                JsonRpcError::runner_error(error.to_string()),
-            )),
+            Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
         }
     }
 }
@@ -883,6 +883,17 @@ fn build_context_snapshot(
         SnapshotStoragePolicy::default(),
     )
     .map_err(|error| JsonRpcError::runner_error(error.to_string()))
+}
+
+fn block_on_muzen<T>(
+    future: impl std::future::Future<Output = Result<T, ReviewSessionError>>,
+) -> Result<T, JsonRpcError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| JsonRpcError::runner_error(error.to_string()))?
+        .block_on(future)
+        .map_err(|error| JsonRpcError::runner_error(error.to_string()))
 }
 
 fn block_on_context<T>(
