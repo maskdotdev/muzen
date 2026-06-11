@@ -1,3 +1,4 @@
+mod chunking;
 mod config;
 mod engine;
 mod evidence;
@@ -14,6 +15,7 @@ mod syntax;
 mod time;
 mod tools;
 
+pub use chunking::*;
 pub use config::*;
 pub use engine::*;
 pub use evidence::*;

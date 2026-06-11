@@ -1,5 +1,13 @@
+//! Symbol extraction backed by tree-sitter parsers.
+//!
+//! Definitions carry the full span of the defining node, not just its
+//! first line, so downstream evidence can cite real ranges.
+
 use std::collections::{BTreeMap, BTreeSet};
 
+use tree_sitter::Node;
+
+use super::chunking::{language_for_path, parse_tree};
 use super::ContextRange;
 use crate::runtime::contracts::RepoPath;
 
@@ -56,246 +64,157 @@ pub struct ParsedSymbols {
 }
 
 pub fn parse_symbols(path: &str, content: &str) -> ParsedSymbols {
-    let lower = path.to_ascii_lowercase();
-    let mut parsed = if lower.ends_with(".rs") {
-        parse_rust_symbols(content)
-    } else if lower.ends_with(".ts")
-        || lower.ends_with(".tsx")
-        || lower.ends_with(".js")
-        || lower.ends_with(".jsx")
-    {
-        parse_typescript_symbols(content)
-    } else if lower.ends_with(".py") {
-        parse_python_symbols(content)
-    } else {
-        ParsedSymbols::default()
+    let Some(language) = language_for_path(path) else {
+        return ParsedSymbols::default();
     };
-    parsed.definitions = dedupe(parsed.definitions);
-    parsed.imports = dedupe(parsed.imports);
+    let Some(tree) = parse_tree(language, content) else {
+        return ParsedSymbols::default();
+    };
+    let mut collector = SymbolCollector {
+        content,
+        definitions: Vec::new(),
+        definition_ranges: BTreeMap::new(),
+        imports: Vec::new(),
+    };
+    collector.walk(tree.root_node());
+    let mut parsed = ParsedSymbols {
+        definitions: dedupe(collector.definitions),
+        definition_ranges: collector.definition_ranges,
+        imports: dedupe(collector.imports),
+    };
     parsed
         .definition_ranges
         .retain(|definition, _| parsed.definitions.contains(definition));
     parsed
 }
 
-fn parse_rust_symbols(content: &str) -> ParsedSymbols {
-    let mut definitions = Vec::new();
-    let mut definition_ranges = BTreeMap::new();
-    let mut imports = Vec::new();
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        let tokens = lexical_tokens(line);
-        for (index, token) in tokens.iter().enumerate() {
-            if matches!(
-                token.as_str(),
-                "fn" | "struct" | "enum" | "trait" | "type" | "const" | "static" | "mod"
-            ) {
-                if let Some(name) = tokens.get(index + 1).and_then(|token| symbol_name(token)) {
-                    definition_ranges.insert(name.clone(), line_range(line_index));
-                    definitions.push(name);
-                }
-            }
-        }
-        if let Some(rest) = line
-            .strip_prefix("use ")
-            .or_else(|| line.strip_prefix("pub use "))
-        {
-            imports.extend(parse_rust_use(rest));
-        }
-    }
-    ParsedSymbols {
-        definitions,
-        definition_ranges,
-        imports,
-    }
+struct SymbolCollector<'content> {
+    content: &'content str,
+    definitions: Vec<String>,
+    definition_ranges: BTreeMap<String, ContextRange>,
+    imports: Vec<String>,
 }
 
-fn parse_typescript_symbols(content: &str) -> ParsedSymbols {
-    let mut definitions = Vec::new();
-    let mut definition_ranges = BTreeMap::new();
-    let mut imports = Vec::new();
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        let tokens = lexical_tokens(line);
-        for (index, token) in tokens.iter().enumerate() {
-            if matches!(
-                token.as_str(),
-                "function" | "class" | "interface" | "type" | "enum" | "const" | "let" | "var"
-            ) {
-                if let Some(name) = tokens.get(index + 1).and_then(|token| symbol_name(token)) {
-                    definition_ranges.insert(name.clone(), line_range(line_index));
-                    definitions.push(name);
+impl SymbolCollector<'_> {
+    fn walk(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if !child.is_named() {
+                continue;
+            }
+            match child.kind() {
+                // ---- definitions ----
+                "function_item"
+                | "struct_item"
+                | "enum_item"
+                | "trait_item"
+                | "type_item"
+                | "const_item"
+                | "static_item"
+                | "mod_item"
+                | "function_signature_item"
+                | "union_item"
+                | "function_declaration"
+                | "generator_function_declaration"
+                | "class_declaration"
+                | "abstract_class_declaration"
+                | "interface_declaration"
+                | "type_alias_declaration"
+                | "enum_declaration"
+                | "method_definition"
+                | "method_signature"
+                | "function_definition"
+                | "class_definition" => {
+                    self.record_definition(child);
+                    self.walk(child); // nested definitions (impl methods, inner fns)
                 }
+                "variable_declarator" => {
+                    // const/let/var NAME = ...
+                    self.record_definition(child);
+                    self.walk(child);
+                }
+                // ---- imports ----
+                "use_declaration" => self.record_rust_use(child),
+                "import_statement" | "import_from_statement" => self.record_import_names(child),
+                "export_statement" => {
+                    // re-exports (`export { x } from './y'`) act as imports
+                    if child.child_by_field_name("source").is_some() {
+                        self.record_import_names(child);
+                    }
+                    self.walk(child);
+                }
+                _ => self.walk(child),
             }
         }
-        if line.starts_with("import ") || line.starts_with("export ") {
-            imports.extend(parse_typescript_imports(line));
-        }
-        if let Some(method) = parse_typescript_method_definition(line) {
-            definition_ranges.insert(method.clone(), line_range(line_index));
-            definitions.push(method);
-        }
     }
-    ParsedSymbols {
-        definitions,
-        definition_ranges,
-        imports,
-    }
-}
 
-fn parse_python_symbols(content: &str) -> ParsedSymbols {
-    let mut definitions = Vec::new();
-    let mut definition_ranges = BTreeMap::new();
-    let mut imports = Vec::new();
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        let tokens = lexical_tokens(line);
-        if let Some(first) = tokens.first() {
-            if matches!(first.as_str(), "def" | "class") {
-                if let Some(name) = tokens.get(1).and_then(|token| symbol_name(token)) {
-                    definition_ranges.insert(name.clone(), line_range(line_index));
-                    definitions.push(name);
-                }
-            } else if first == "import" {
-                imports.extend(tokens.iter().skip(1).filter_map(|token| symbol_name(token)));
-            } else if first == "from" {
-                if let Some(import_index) = tokens.iter().position(|token| token == "import") {
-                    imports.extend(
-                        tokens
-                            .iter()
-                            .skip(import_index + 1)
-                            .filter_map(|token| symbol_name(token)),
+    fn record_definition(&mut self, node: Node) {
+        let Some(name_node) = node.child_by_field_name("name") else {
+            return;
+        };
+        let Some(name) = self.content.get(name_node.byte_range()) else {
+            return;
+        };
+        if name.is_empty() {
+            return;
+        }
+        self.definition_ranges
+            .insert(name.to_string(), node_range(node));
+        self.definitions.push(name.to_string());
+    }
+
+    /// Collect every path segment and alias inside a `use` tree.
+    fn record_rust_use(&mut self, node: Node) {
+        self.collect_identifiers(node, &["identifier", "type_identifier"]);
+    }
+
+    /// Collect imported and aliased names from JS/TS/Python import nodes.
+    fn record_import_names(&mut self, node: Node) {
+        self.collect_identifiers(
+            node,
+            &[
+                "identifier",
+                "property_identifier",
+                "dotted_name",
+                "type_identifier",
+            ],
+        );
+    }
+
+    fn collect_identifiers(&mut self, node: Node, kinds: &[&str]) {
+        if kinds.contains(&node.kind()) {
+            if let Some(text) = self.content.get(node.byte_range()) {
+                if node.kind() == "dotted_name" {
+                    self.imports.extend(
+                        text.split('.')
+                            .map(str::to_string)
+                            .filter(|part| !part.is_empty()),
                     );
+                } else if !is_path_keyword(text) {
+                    self.imports.push(text.to_string());
                 }
             }
+            // dotted_name still has identifier children; stop here either way
+            if node.kind() == "dotted_name" {
+                return;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.collect_identifiers(child, kinds);
         }
     }
-    ParsedSymbols {
-        definitions,
-        definition_ranges,
-        imports,
-    }
 }
 
-fn parse_rust_use(rest: &str) -> Vec<String> {
-    let trimmed = rest.trim_end_matches(';');
-    if trimmed.contains('{') {
-        return parse_symbol_names(trimmed);
-    }
-    if let Some((_, tail)) = trimmed.rsplit_once("::") {
-        return parse_symbol_names(tail)
-            .into_iter()
-            .chain(symbol_name(tail))
-            .collect();
-    }
-    parse_symbol_names(trimmed)
-        .into_iter()
-        .chain(symbol_name(trimmed))
-        .collect()
-}
-
-fn parse_typescript_imports(line: &str) -> Vec<String> {
-    let before_from = line
-        .split_once(" from ")
-        .map(|(head, _)| head)
-        .unwrap_or(line);
-    let selected = before_from
-        .strip_prefix("import ")
-        .or_else(|| before_from.strip_prefix("export "))
-        .unwrap_or(before_from);
-    parse_symbol_names(selected)
-}
-
-fn parse_typescript_method_definition(line: &str) -> Option<String> {
-    if line.starts_with("function ")
-        || line.starts_with("if ")
-        || line.starts_with("for ")
-        || line.starts_with("while ")
-        || line.starts_with("switch ")
-        || line.starts_with("catch ")
-        || line.starts_with("return ")
-        || line.starts_with("export ")
-        || line.starts_with("import ")
-        || line.contains("=>")
-        || line.contains('=')
-        || line.contains('.')
-    {
-        return None;
-    }
-    let (candidate, _) = line.split_once('(')?;
-    let name = candidate.split_whitespace().last().and_then(symbol_name)?;
-    (!is_typescript_method_modifier(&name)).then_some(name)
-}
-
-fn parse_symbol_names(text: &str) -> Vec<String> {
-    let selected = if text.contains('{') {
-        text.chars()
-            .map(|ch| if matches!(ch, '{' | '}') { ',' } else { ch })
-            .collect::<String>()
-    } else {
-        text.to_string()
-    };
-    lexical_tokens(&selected)
-        .into_iter()
-        .filter(|token| {
-            !matches!(
-                token.as_str(),
-                "as" | "from" | "import" | "export" | "default"
-            )
-        })
-        .filter_map(|token| symbol_name(&token))
-        .collect()
-}
-
-fn is_typescript_method_modifier(token: &str) -> bool {
-    matches!(
-        token,
-        "abstract" | "async" | "private" | "protected" | "public" | "readonly" | "static"
-    )
-}
-
-fn line_range(line_index: usize) -> ContextRange {
-    let line = line_index.saturating_add(1).try_into().unwrap_or(u32::MAX);
+fn node_range(node: Node) -> ContextRange {
     ContextRange {
-        start_line: line,
-        end_line: line,
+        start_line: node.start_position().row as u32 + 1,
+        end_line: node.end_position().row as u32 + 1,
     }
 }
 
-fn lexical_tokens(line: &str) -> Vec<String> {
-    line.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-        .filter(|token| !token.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-fn symbol_name(token: &str) -> Option<String> {
-    let first = token.as_bytes().first()?;
-    if !first.is_ascii_alphabetic() && *first != b'_' {
-        return None;
-    }
-    (!is_keyword(token)).then(|| token.to_string())
-}
-
-fn is_keyword(token: &str) -> bool {
-    matches!(
-        token,
-        "as" | "async"
-            | "await"
-            | "crate"
-            | "default"
-            | "export"
-            | "from"
-            | "import"
-            | "let"
-            | "mut"
-            | "pub"
-            | "self"
-            | "Self"
-            | "super"
-            | "use"
-            | "var"
-    )
+fn is_path_keyword(text: &str) -> bool {
+    matches!(text, "crate" | "self" | "super" | "Self")
 }
 
 fn dedupe(values: Vec<String>) -> Vec<String> {
@@ -326,6 +245,21 @@ mod tests {
         );
         assert!(parsed.imports.contains(&"Token".to_string()));
         assert!(parsed.imports.contains(&"authorize_request".to_string()));
+    }
+
+    #[test]
+    fn definition_ranges_span_whole_bodies() {
+        let parsed = parse_symbols(
+            "src/lib.rs",
+            "pub fn long() {\n    let a = 1;\n    let b = 2;\n}\n",
+        );
+        assert_eq!(
+            parsed.definition_ranges.get("long"),
+            Some(&ContextRange {
+                start_line: 1,
+                end_line: 4,
+            })
+        );
     }
 
     #[test]
@@ -376,5 +310,11 @@ mod tests {
         assert!(py.definitions.contains(&"AuthService".to_string()));
         assert!(py.definitions.contains(&"check_user".to_string()));
         assert!(py.imports.contains(&"Token".to_string()));
+    }
+
+    #[test]
+    fn unparsed_language_yields_no_symbols() {
+        let parsed = parse_symbols("notes.adoc", "some text\nmore text\n");
+        assert_eq!(parsed, ParsedSymbols::default());
     }
 }

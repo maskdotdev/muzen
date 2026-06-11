@@ -42,6 +42,7 @@ fn context_contracts_serde_round_trip() {
         }),
         content_hash: Some("hash".to_string()),
         summary: Some("summary".to_string()),
+        is_changed_span: false,
         token_estimate: 10,
         provenance: ContextProvenance {
             provider: "test".to_string(),
@@ -73,6 +74,7 @@ fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
         range: None,
         content_hash: None,
         summary: Some("restricted evidence".to_string()),
+        is_changed_span: false,
         token_estimate: 4,
         provenance: ContextProvenance {
             provider: "test".to_string(),
@@ -252,10 +254,19 @@ async fn snapshot_engine_builds_purpose_specific_pack() {
 
     assert_eq!(tests_pack.purpose, ContextPackPurpose::Tests);
     assert_eq!(architecture_pack.purpose, ContextPackPurpose::Architecture);
-    assert_eq!(tests_pack.evidence[0].kind, ContextEvidenceKind::Test);
+    // The diff manifest anchors every pack; purpose-specific evidence must
+    // lead among the remaining candidates.
+    assert_eq!(tests_pack.evidence[0].kind, ContextEvidenceKind::Diff);
+    let first_non_diff = |pack: &ContextPack| {
+        pack.evidence
+            .iter()
+            .find(|evidence| evidence.kind != ContextEvidenceKind::Diff)
+            .map(|evidence| evidence.kind)
+    };
+    assert_eq!(first_non_diff(&tests_pack), Some(ContextEvidenceKind::Test));
     assert_eq!(
-        architecture_pack.evidence[0].kind,
-        ContextEvidenceKind::RepositoryRule
+        first_non_diff(&architecture_pack),
+        Some(ContextEvidenceKind::RepositoryRule)
     );
 
     let explanation = engine
@@ -1236,4 +1247,173 @@ fn build_snapshot(root: &std::path::Path, changed_files: Vec<&str>) -> Arc<RepoS
             .collect(),
     };
     RepoSnapshot::build(root, &PathPolicyV1::bench(200, 120), &change).unwrap()
+}
+
+fn build_snapshot_with_diff(
+    root: &std::path::Path,
+    changed_files: Vec<&str>,
+    inline_diff: &str,
+) -> Arc<RepoSnapshot> {
+    let change = ChangeScopeV1 {
+        kind: crate::contracts::ChangeKind::LocalDiff,
+        change_id: "local".to_string(),
+        source_ref: "head".to_string(),
+        target_ref: "base".to_string(),
+        base_revision_id: "base".to_string(),
+        head_revision_id: "head".to_string(),
+        merge_base_revision_id: None,
+        changed_files_manifest_ref: None,
+        diff_manifest_ref: None,
+        inline_diff: Some(inline_diff.to_string()),
+        snapshot_mode: crate::contracts::SnapshotMode::WorktreeHead,
+        rename_detection: crate::contracts::RenameDetection::None,
+        changed_files: changed_files
+            .into_iter()
+            .map(|path| ChangedFileEntryV1 {
+                status: ChangedFileStatus::Modified,
+                old_path: Some(std::path::PathBuf::from(path)),
+                new_path: Some(std::path::PathBuf::from(path)),
+                old_content_hash: None,
+                new_content_hash: None,
+                is_binary: false,
+                is_generated: false,
+            })
+            .collect(),
+    };
+    RepoSnapshot::build(root, &PathPolicyV1::bench(200, 120), &change).unwrap()
+}
+
+fn many_function_rust_file(functions: usize, lines_per_fn: usize) -> String {
+    let mut content = String::new();
+    for index in 0..functions {
+        content.push_str(&format!("pub fn generated_{index}() {{\n"));
+        for line in 0..lines_per_fn {
+            content.push_str(&format!("    let value_{line} = {line} + {index};\n"));
+        }
+        content.push_str("}\n\n");
+    }
+    content
+}
+
+#[tokio::test]
+async fn index_emits_chunk_evidence_with_changed_span_flags() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/big.rs"),
+        many_function_rust_file(40, 12),
+    )
+    .unwrap();
+    // Hunk touches the first function only.
+    let diff = "diff --git a/src/big.rs b/src/big.rs\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -2,3 +2,4 @@\n+    let added = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/big.rs"], diff);
+    let index = ContextIndex::build(ContextIndexRequest::for_snapshot(
+        snapshot,
+        &ContextEngineConfig::snapshot_v0(),
+    ))
+    .await
+    .unwrap();
+
+    let chunks = index
+        .evidence
+        .iter()
+        .filter(|evidence| {
+            evidence.kind == ContextEvidenceKind::FileSpan
+                && evidence.path.as_ref().map(|path| path.display())
+                    == Some("src/big.rs".to_string())
+        })
+        .collect::<Vec<_>>();
+    assert!(chunks.len() > 1, "expected chunk-level evidence");
+    for chunk in &chunks {
+        let range = chunk.range.expect("chunk evidence must carry a range");
+        assert!(range.start_line >= 1 && range.end_line >= range.start_line);
+        assert!(
+            chunk.token_estimate <= ContextEngineConfig::snapshot_v0().chunk_max_tokens,
+            "chunk evidence exceeds chunk_max_tokens"
+        );
+        assert!(!chunk
+            .summary
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("changed"));
+    }
+    let changed_chunks = chunks
+        .iter()
+        .filter(|chunk| chunk.is_changed_span)
+        .collect::<Vec<_>>();
+    assert!(!changed_chunks.is_empty(), "hunk overlap must be marked");
+    assert!(
+        changed_chunks
+            .iter()
+            .all(|chunk| chunk.range.unwrap().start_line <= 5),
+        "only the first function overlaps the hunk"
+    );
+    assert!(
+        chunks.iter().any(|chunk| !chunk.is_changed_span),
+        "untouched chunks must not be marked changed"
+    );
+}
+
+#[tokio::test]
+async fn chunk_evidence_ids_are_stable_across_index_runs() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/stable.rs"),
+        many_function_rust_file(20, 10),
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["src/stable.rs"]);
+    let config = ContextEngineConfig::snapshot_v0();
+    let ids = |index: &ContextIndex| {
+        index
+            .evidence
+            .iter()
+            .map(|evidence| evidence.id.0.clone())
+            .collect::<Vec<_>>()
+    };
+    let first = ContextIndex::build(ContextIndexRequest::for_snapshot(
+        Arc::clone(&snapshot),
+        &config,
+    ))
+    .await
+    .unwrap();
+    let second = ContextIndex::build(ContextIndexRequest::for_snapshot(
+        Arc::clone(&snapshot),
+        &config,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(ids(&first), ids(&second));
+}
+
+#[tokio::test]
+async fn pathological_file_respects_chunk_budget_and_records_skip() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/pathological.rs"),
+        many_function_rust_file(300, 20),
+    )
+    .unwrap();
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.max_chunks_per_file = 4;
+    let snapshot = build_snapshot(repo.path(), vec!["src/pathological.rs"]);
+    let index = ContextIndex::build(ContextIndexRequest::for_snapshot(snapshot, &config))
+        .await
+        .unwrap();
+
+    let chunk_count = index
+        .evidence
+        .iter()
+        .filter(|evidence| {
+            evidence.kind == ContextEvidenceKind::FileSpan
+                && evidence.provenance.provider == "snapshot_chunk_v1"
+        })
+        .count();
+    assert!(chunk_count <= 4, "chunk budget exceeded: {chunk_count}");
+    assert!(index.skips.iter().any(|skip| {
+        skip.path.display() == "src/pathological.rs"
+            && skip.reason == ContextIndexSkipReason::ChunkBudgetExceeded
+    }));
 }

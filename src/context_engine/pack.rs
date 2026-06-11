@@ -144,12 +144,7 @@ pub(crate) fn score_for_purpose(
     purpose: ContextPackPurpose,
     config: &ContextEngineConfig,
 ) -> f32 {
-    let changed_bonus = evidence
-        .summary
-        .as_ref()
-        .map(|summary| summary.contains("changed"))
-        .unwrap_or(false) as u8 as f32
-        * 0.25;
+    let changed_bonus = evidence.is_changed_span as u8 as f32 * 0.25;
     let kind_bonus = match (purpose, evidence.kind) {
         (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => 0.35,
         (ContextPackPurpose::Security, ContextEvidenceKind::Config) => 0.25,
@@ -173,13 +168,8 @@ pub(crate) fn explain_selected_evidence(
     purpose: ContextPackPurpose,
 ) -> Vec<&'static str> {
     let mut why = Vec::new();
-    if evidence
-        .summary
-        .as_ref()
-        .map(|summary| summary.contains("changed"))
-        .unwrap_or(false)
-    {
-        why.push("changed-file evidence");
+    if evidence.is_changed_span {
+        why.push("overlaps changed lines under review");
     }
     match (purpose, evidence.kind) {
         (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => {
