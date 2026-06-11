@@ -55,8 +55,9 @@ pressure, and commit-sized milestones.
   leaking runner internals into SDK contracts.
 - [x] Rust core exposes workspace-owned model and provider profile records with
   secret-reference-only config snapshots.
-- [x] Rust core exposes Postgres-backed review-session and workspace-profile
-  stores for `DATABASE_URL` service deployments.
+- [x] Rust core exposes review-session and workspace-profile stores behind one
+  Muzen store URL contract, with durable SQLite by default and explicit Postgres
+  and memory modes.
 - [x] SDK-first `@muzen/sdk` package exists.
 - [x] `createMuzen()` works end to end against `muzen-runner`.
 - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
@@ -404,14 +405,15 @@ Record every milestone with the commands that were run.
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
   paths should use durable queued scheduling.
-- The store boundary has in-memory and Postgres implementations. The Postgres
-  review-session store persists JSONB records, events, results, artifacts, logs,
-  leases, cancellations, retry state, and dedupe keys, and uses transactional
-  `FOR UPDATE SKIP LOCKED` worker claims. The Postgres workspace-profile store
-  persists model/provider profiles for service deployments.
+- The store boundary has in-memory, libSQL-backed SQLite, and Postgres
+  implementations. The SQLite store is the service default and persists session
+  records, events, results, artifacts, logs, leases, cancellations, retry state,
+  dedupe keys, and workspace profiles in a local database file. The Postgres
+  review-session store persists JSONB records and uses transactional
+  `FOR UPDATE SKIP LOCKED` worker claims.
 - Host scheduling configuration now defines lease defaults, retry defaults,
   fairness strategy, and global/workspace/user/model/provider concurrency
-  limits. The Postgres store enforces worker claiming transactionally.
+  limits. Durable stores enforce worker claiming transactionally.
 - Durable cancellation clears leases, blocks later claims, and now preserves the
   cancelled terminal state if a worker attempts to write a late execution
   result after cancellation was requested. The local synchronous runner still
@@ -444,16 +446,18 @@ Record every milestone with the commands that were run.
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
   review, event, artifact, webhook, and workspace profile routes. The
-  `muzen-service` binary binds that router through an Axum HTTP adapter and uses
-  Postgres-backed stores when `DATABASE_URL` is set.
+  `muzen-service` binary binds that router through an Axum HTTP adapter and
+  selects durable SQLite, Postgres, or explicit memory stores through
+  `--store-url` / `MUZEN_STORE_URL`.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
-- Production worker deployment can use the Postgres-backed durable store through
+- Production worker deployment can use durable service storage through
   `muzen-service`; local provider-source execution now reaches Rust provider
   materialization.
-- The current verification compiles and exercises the Postgres store wiring
-  through Rust tests and service builds. A live Postgres integration run should
-  be part of deployment CI where `DATABASE_URL` is available.
+- The current verification compiles and exercises SQLite, memory, and Postgres
+  store wiring through Rust tests and service builds. A live Postgres integration
+  run should be part of deployment CI where `MUZEN_POSTGRES_TEST_URL` is
+  available.
 - The provider materialization verification uses deterministic local Git remote
   tests. A live GitHub/GitLab provider smoke run should be part of deployment CI
   where provider tokens and network access are available.

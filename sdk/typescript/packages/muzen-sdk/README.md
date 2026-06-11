@@ -14,7 +14,7 @@ npm install @muzen/sdk
 ## 2. Configure
 
 ```sh
-DATABASE_URL=postgres://...
+MUZEN_STORE_URL=sqlite://.muzen/muzen.db
 GITHUB_TOKEN=...
 GITHUB_WEBHOOK_SECRET=...
 OPENAI_API_KEY=...
@@ -84,8 +84,9 @@ completed:
   GitLab;
 - local worker execution is exposed through `muzen.workers.runOnce()` and
   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
-- `muzen-service` can use Postgres-backed durable review-session and workspace
-  profile stores when `DATABASE_URL` is set;
+- `muzen-service` uses durable local SQLite by default and can be pointed at
+  explicit SQLite, Postgres, or non-durable memory stores with `MUZEN_STORE_URL`
+  or `--store-url`;
 - provider-backed review sources are forwarded to Rust runner core, which
   materializes GitHub/GitLab pull/merge request refs into temporary Git
   checkouts with token-safe auth headers and changed-file inference.
