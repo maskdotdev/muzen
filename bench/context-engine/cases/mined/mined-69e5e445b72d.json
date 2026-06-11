@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-69e5e445b72d",
+  "repoSource": {
+    "kind": "git",
+    "commit": "69e5e445b72d9e912c58400b894bd09ef99b4c60"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/http.rs",
+    "src/review_session/router.rs"
+  ],
+  "description": "Mined pair: base 69e5e445b72d (feat: add rust review http router) followed by e16b582025bd (feat: add sdk worker facade).",
+  "minedFrom": {
+    "baseCommit": "69e5e445b72d9e912c58400b894bd09ef99b4c60",
+    "followUpCommit": "e16b582025bdc3be48c532d52500924bf6e8d88e"
+  },
+  "cases": [
+    {
+      "id": "mined-69e5e445b72d-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/index.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts",
+        "src/review_session/worker.rs",
+        "src/runner.rs",
+        "src/runner/protocol.rs",
+        "src/runner/schema.rs",
+        "src/runner/session.rs",
+        "src/runner/types.rs"
+      ]
+    }
+  ]
+}

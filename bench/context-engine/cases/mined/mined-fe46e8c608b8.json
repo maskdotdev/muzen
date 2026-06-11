@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-fe46e8c608b8",
+  "repoSource": {
+    "kind": "git",
+    "commit": "fe46e8c608b8201e9f3e959c6b1e69fe7ca6c261"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/store.rs"
+  ],
+  "description": "Mined pair: base fe46e8c608b8 (feat: add redacted review log persistence) followed by 69e5e445b72d (feat: add rust review http router).",
+  "minedFrom": {
+    "baseCommit": "fe46e8c608b8201e9f3e959c6b1e69fe7ca6c261",
+    "followUpCommit": "69e5e445b72d9e912c58400b894bd09ef99b4c60"
+  },
+  "cases": [
+    {
+      "id": "mined-fe46e8c608b8-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/http.rs"
+      ]
+    }
+  ]
+}

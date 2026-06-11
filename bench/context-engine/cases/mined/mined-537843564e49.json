@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-537843564e49",
+  "repoSource": {
+    "kind": "git",
+    "commit": "537843564e49711d1bd0eadad40501c2dcb9dcea"
+  },
+  "changedFiles": [
+    "sdk/python/muzen/__init__.py",
+    "sdk/python/muzen/types.py",
+    "sdk/python/muzen/webhooks.py",
+    "sdk/python/tests/test_client.py",
+    "sdk/typescript/packages/muzen-sdk/src/index.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+    "sdk/typescript/packages/muzen-sdk/src/webhooks.ts"
+  ],
+  "description": "Mined pair: base 537843564e49 (feat: add sdk webhook response helpers) followed by ea15eccdb7d4 (feat: add remote webhook request facade).",
+  "minedFrom": {
+    "baseCommit": "537843564e49711d1bd0eadad40501c2dcb9dcea",
+    "followUpCommit": "ea15eccdb7d4c2ccf100af613a0c7ee6a00fbdc3"
+  },
+  "cases": [
+    {
+      "id": "mined-537843564e49-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts"
+      ]
+    }
+  ]
+}

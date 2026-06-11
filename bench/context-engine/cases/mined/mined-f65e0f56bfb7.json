@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-f65e0f56bfb7",
+  "repoSource": {
+    "kind": "git",
+    "commit": "f65e0f56bfb72f98308a20137b02a8c273cf8a9d"
+  },
+  "changedFiles": [
+    "src/context_engine/engine.rs",
+    "src/context_engine/store.rs",
+    "src/context_engine/tests.rs"
+  ],
+  "description": "Mined pair: base f65e0f56bfb7 (feat: persist context learnings) followed by 40d9162d4e90 (feat: add local context embeddings).",
+  "minedFrom": {
+    "baseCommit": "f65e0f56bfb72f98308a20137b02a8c273cf8a9d",
+    "followUpCommit": "40d9162d4e904bccd11fb9d4e317ac4ace4445d6"
+  },
+  "cases": [
+    {
+      "id": "mined-f65e0f56bfb7-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/context_engine/semantic.rs"
+      ]
+    }
+  ]
+}

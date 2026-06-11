@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-df88ae83bb87",
+  "repoSource": {
+    "kind": "git",
+    "commit": "df88ae83bb875e27db33d92e5f28832ef1435b37"
+  },
+  "changedFiles": [
+    "src/runner/execution.rs"
+  ],
+  "description": "Mined pair: base df88ae83bb87 (test(runner): drop execution mapping unit tests) followed by 58b6926c454d (refactor(reviewer): split facade into domain modules).",
+  "minedFrom": {
+    "baseCommit": "df88ae83bb875e27db33d92e5f28832ef1435b37",
+    "followUpCommit": "58b6926c454df527d20fdec8ea9be5baa21ed89a"
+  },
+  "cases": [
+    {
+      "id": "mined-df88ae83bb87-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/cli.rs",
+        "src/review_session/outcome.rs",
+        "src/review_session/tests.rs",
+        "src/runner/adapters.rs",
+        "src/runner/stored.rs",
+        "src/runner/types.rs",
+        "src/runtime/bench.rs",
+        "src/runtime/model.rs",
+        "src/runtime/policy.rs"
+      ]
+    }
+  ]
+}

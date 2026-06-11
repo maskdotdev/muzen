@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-3950339a6022",
+  "repoSource": {
+    "kind": "git",
+    "commit": "3950339a60223f5b0edecc56d1e472e101172113"
+  },
+  "changedFiles": [
+    "examples/tanstack-durable-review/src/App.tsx",
+    "examples/tanstack-durable-review/src/server.ts",
+    "examples/tanstack-durable-review/src/server/github.test.ts",
+    "examples/tanstack-durable-review/src/server/github.ts",
+    "examples/tanstack-durable-review/src/shared.ts"
+  ],
+  "description": "Mined pair: base 3950339a6022 (demo: support real GitHub PR reviews) followed by b6d79284bc07 (feat: add review quality benchmark workflow).",
+  "minedFrom": {
+    "baseCommit": "3950339a60223f5b0edecc56d1e472e101172113",
+    "followUpCommit": "b6d79284bc07f0997456edb872539191736ddfab"
+  },
+  "cases": [
+    {
+      "id": "mined-3950339a6022-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "examples/tanstack-durable-review/src/server/store.ts",
+        "examples/tanstack-durable-review/src/server/worker.ts"
+      ]
+    }
+  ]
+}

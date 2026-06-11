@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-dafb39e36f7a",
+  "repoSource": {
+    "kind": "git",
+    "commit": "dafb39e36f7a7ca1cc232c4450b2a9de8067816d"
+  },
+  "changedFiles": [
+    "src/context_engine/syntax.rs"
+  ],
+  "description": "Mined pair: base dafb39e36f7a (feat: broaden context symbol parsing) followed by 442f3cc35629 (feat: add context symbol ranges).",
+  "minedFrom": {
+    "baseCommit": "dafb39e36f7a7ca1cc232c4450b2a9de8067816d",
+    "followUpCommit": "442f3cc35629a5face4afdb0e09b9b69835d954e"
+  },
+  "cases": [
+    {
+      "id": "mined-dafb39e36f7a-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/context_engine/index.rs",
+        "src/context_engine/tests.rs"
+      ]
+    }
+  ]
+}

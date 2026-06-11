@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7d3f09386239",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7d3f09386239ee6ae680b2179d34b80bbf6f9979"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/webhooks.rs"
+  ],
+  "description": "Mined pair: base 7d3f09386239 (feat: include webhook heads in source dedupe) followed by 91119f2f7da6 (fix: preserve durable cancellation results).",
+  "minedFrom": {
+    "baseCommit": "7d3f09386239ee6ae680b2179d34b80bbf6f9979",
+    "followUpCommit": "91119f2f7da64318fa3655ec67704e7c81ef9f28"
+  },
+  "cases": [
+    {
+      "id": "mined-7d3f09386239-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/store.rs",
+        "src/review_session/worker.rs"
+      ]
+    }
+  ]
+}

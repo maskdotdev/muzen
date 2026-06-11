@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "muzen.context-eval-baseline.v1",
+  "caseCount": 45,
+  "metrics": {
+    "meanRecall": 0.21728395061728398,
+    "meanPrecision": 0.09189063110818897,
+    "meanRecallAt5": 0.16,
+    "meanRecallAt10": 0.1711111111111111,
+    "meanRecallAt25": 0.20765432098765432,
+    "meanNdcgAt10": 0.16274016970281674,
+    "firstRelevantRate": 0.35555555555555557,
+    "meanTokensToFirstRelevant": 3533.3125,
+    "meanUsefulEvidencePer1kTokens": 2.264813994085402
+  }
+}

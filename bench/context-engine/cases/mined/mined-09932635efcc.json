@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-09932635efcc",
+  "repoSource": {
+    "kind": "git",
+    "commit": "09932635efcccf5fdc3333c2b982f3cdd4a5762f"
+  },
+  "changedFiles": [
+    "src/review_session/tests.rs",
+    "src/review_units.rs",
+    "src/runtime/planned_units.rs"
+  ],
+  "description": "Mined pair: base 09932635efcc (test(review): drop adapter mapping and planner unit tests) followed by 409401a0fb04 (test(model): drop wire-shape and canary export unit tests).",
+  "minedFrom": {
+    "baseCommit": "09932635efcccf5fdc3333c2b982f3cdd4a5762f",
+    "followUpCommit": "409401a0fb04511bc628c4deedaefebbef687171"
+  },
+  "cases": [
+    {
+      "id": "mined-09932635efcc-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/runtime/model.rs"
+      ]
+    }
+  ]
+}
