@@ -635,6 +635,30 @@ fn context_pack_instruction(pack: &crate::context_engine::ContextPack) -> String
         pack.evidence.len(),
         evidence
     );
+    // R7: skeleton evidence is a synthesized view that exists nowhere on
+    // disk, so its text ships inline. It already fit the pack budget by
+    // construction.
+    let skeletons = pack
+        .evidence
+        .iter()
+        .filter_map(|evidence| {
+            let text = evidence.skeleton_text.as_deref()?;
+            let path = evidence
+                .path
+                .as_ref()
+                .map(|path| path.display())
+                .unwrap_or_else(|| evidence.id.0.clone());
+            Some(format!(
+                "--- {path} (skeleton: bodies elided, line numbers preserved) ---\n{text}"
+            ))
+        })
+        .collect::<Vec<_>>();
+    if !skeletons.is_empty() {
+        instruction.push_str(
+            "\nSkeleton views included because the full content exceeded the pack budget:\n",
+        );
+        instruction.push_str(&skeletons.join("\n"));
+    }
     // R6: when coverage gaps exist, hand the session ready-to-run queries
     // so it can fill them before producing findings. Iteration stays
     // bounded by the existing session budgets.
@@ -698,6 +722,64 @@ mod tests {
             strict_findings[0].report_status,
             ReportStatus::Suppressed
         ));
+    }
+
+    #[test]
+    fn pack_instruction_inlines_skeleton_views() {
+        use crate::context_engine::{
+            ContextBudgetUsage, ContextEvidence, ContextEvidenceKind,
+            ContextEvidenceRepresentation, ContextEvidenceSource, ContextPack, ContextPackId,
+            ContextProvenance, ContextRankSignals, ContextScope, ContextSensitivity,
+            ContextSufficiency, ContextTrust,
+        };
+        let skeleton_text = "    1| pub fn generated_0() {\n     | ...\n   20| }";
+        let pack = ContextPack {
+            id: ContextPackId("pack_1".to_string()),
+            run_id: None,
+            snapshot_id: crate::runtime::contracts::SnapshotId("snap_1".to_string()),
+            session_id: None,
+            purpose: ContextPackPurpose::Correctness,
+            evidence: vec![ContextEvidence {
+                id: crate::runtime::contracts::EvidenceId("ev_skel".to_string()),
+                kind: ContextEvidenceKind::FileSpan,
+                source: ContextEvidenceSource::Snapshot,
+                trust: ContextTrust::Kernel,
+                sensitivity: ContextSensitivity::Private,
+                scope: ContextScope::Snapshot,
+                path: Some(crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap()),
+                revision: None,
+                range: None,
+                content_hash: None,
+                summary: Some("skeleton of src/big.rs".to_string()),
+                is_changed_span: false,
+                representation: ContextEvidenceRepresentation::Skeleton,
+                skeleton_text: Some(skeleton_text.to_string()),
+                signals: ContextRankSignals::default(),
+                token_estimate: 12,
+                provenance: ContextProvenance {
+                    provider: "snapshot_skeleton_v1".to_string(),
+                    query: None,
+                    tool_call_id: None,
+                    snapshot_id: None,
+                    original_url: None,
+                },
+                created_at_utc: None,
+                expires_at_utc: None,
+            }],
+            relationships: Vec::new(),
+            omitted_candidates: Vec::new(),
+            budget: ContextBudgetUsage {
+                max_tokens: 100,
+                used_tokens: 12,
+            },
+            sufficiency: ContextSufficiency::probably_sufficient(),
+            compiler_version: "test".to_string(),
+            created_at_utc: "0".to_string(),
+        };
+        let instruction = context_pack_instruction(&pack);
+        assert!(instruction.contains("Skeleton views included"));
+        assert!(instruction.contains("src/big.rs (skeleton: bodies elided"));
+        assert!(instruction.contains(skeleton_text));
     }
 
     fn test_finding() -> FindingV1 {

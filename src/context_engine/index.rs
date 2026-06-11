@@ -10,16 +10,19 @@ use crate::runtime::contracts::{
 };
 use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
-use super::chunking::{chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, FileChunk};
+use super::chunking::{
+    body_elision_map, chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, skeleton_view,
+    FileChunk, SkeletonView,
+};
 use super::graph::{co_change_stats, expand_from_changes, GraphCandidate, ReferenceGraph};
 use super::syntax::ParsedSymbols;
 use super::{
-    context_embedding_text, validate_embedding_batch, ContextEngineConfig, ContextEvidence,
-    ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRange,
-    ContextRankSignals, ContextRelationship, ContextRevision, ContextScope, ContextSemanticConfig,
-    ContextSemanticMode, ContextSensitivity, ContextSymbolGraph, ContextTrust, EmbeddingInput,
-    EmbeddingProvider,
-    HostedEmbeddingProvider, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
+    context_embedding_text, redact_context_content, validate_embedding_batch, ContextEngineConfig,
+    ContextEvidence, ContextEvidenceKind, ContextEvidenceRepresentation, ContextEvidenceSource,
+    ContextIndexId, ContextProvenance, ContextRange, ContextRankSignals, ContextRelationship,
+    ContextRevision, ContextScope, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
+    ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider, HostedEmbeddingProvider,
+    InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
@@ -177,6 +180,11 @@ pub struct ContextIndex {
     pub relationships: Vec<ContextRelationship>,
     /// Diff hunk ranges by changed file path (new-side line spans).
     pub hunk_ranges: BTreeMap<String, Vec<ContextRange>>,
+    /// Signatures-only skeleton twin per chunk evidence id (R7). Not
+    /// part of `evidence` (skeletons are not retrieval candidates); the
+    /// pack compiler downgrades a candidate to its twin when the full
+    /// content exceeds the remaining budget.
+    pub skeletons: BTreeMap<String, ContextEvidence>,
     pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
@@ -191,6 +199,7 @@ impl ContextIndex {
         let _review_plan = &request.review_plan;
         let snapshot = request.snapshot;
         let mut evidence = Vec::new();
+        let mut skeletons: BTreeMap<String, ContextEvidence> = BTreeMap::new();
         let mut file_contents = BTreeMap::new();
         let mut symbol_graph = ContextSymbolGraph::default();
         let mut parsed_by_file: BTreeMap<RepoPath, ParsedSymbols> = BTreeMap::new();
@@ -240,6 +249,8 @@ impl ContextIndex {
                                 &content,
                                 request.limits.chunk_max_tokens,
                             );
+                            let elision = body_elision_map(&file.rel_path.display(), &content);
+                            let lines = content.lines().collect::<Vec<_>>();
                             let mut emitted = 0usize;
                             let mut truncated = false;
                             for chunk in &chunks {
@@ -249,8 +260,17 @@ impl ContextIndex {
                                     truncated = true;
                                     break;
                                 }
-                                evidence
-                                    .push(chunk_evidence(&snapshot, file, kind, chunk, file_hunks));
+                                let item = chunk_evidence(&snapshot, file, kind, chunk, file_hunks);
+                                if let Some(view) = elision
+                                    .as_deref()
+                                    .and_then(|elided| skeleton_view(&lines, chunk.range(), elided))
+                                {
+                                    skeletons.insert(
+                                        item.id.0.clone(),
+                                        skeleton_evidence(&snapshot, file, &item, &view),
+                                    );
+                                }
+                                evidence.push(item);
                                 emitted += 1;
                             }
                             if truncated {
@@ -272,7 +292,7 @@ impl ContextIndex {
                             file_contents.insert(file.rel_path.clone(), content);
                         }
                         Some(content) => {
-                            evidence.push(file_evidence(&snapshot, file, kind));
+                            evidence.push(file_evidence(&snapshot, file, kind, Some(&content)));
                             let parsed = index_symbols(
                                 &snapshot,
                                 file,
@@ -285,7 +305,7 @@ impl ContextIndex {
                             parsed_by_file.insert(file.rel_path.clone(), parsed);
                             file_contents.insert(file.rel_path.clone(), content);
                         }
-                        None => evidence.push(file_evidence(&snapshot, file, kind)),
+                        None => evidence.push(file_evidence(&snapshot, file, kind, None)),
                     }
                 }
                 SnapshotCaptureStatus::NotTextCandidate => skips.push(ContextIndexSkip {
@@ -318,6 +338,8 @@ impl ContextIndex {
                 content_hash: Some(snapshot.diff.content_hash.clone()),
                 summary: Some("Review diff manifest".to_string()),
                 is_changed_span: true,
+                representation: ContextEvidenceRepresentation::FullContent,
+                skeleton_text: None,
                 signals: ContextRankSignals::default(),
                 token_estimate: estimate_tokens(snapshot.diff.content.len()),
                 provenance: ContextProvenance {
@@ -395,6 +417,13 @@ impl ContextIndex {
         );
         let relationships = build_relationships(&evidence, &graph_candidates);
         apply_rank_signals(&mut evidence, &graph, &graph_candidates, &changed_paths);
+        // A skeleton twin carries the same structural signals as the
+        // full chunk it stands in for, so explanations stay truthful.
+        for item in &evidence {
+            if let Some(skeleton) = skeletons.get_mut(&item.id.0) {
+                skeleton.signals = item.signals;
+            }
+        }
 
         let lexical = super::LexicalIndex::build(&evidence, &file_contents);
         let semantic_vectors =
@@ -460,6 +489,7 @@ impl ContextIndex {
             graph_candidates,
             relationships,
             hunk_ranges,
+            skeletons,
             semantic: request.semantic,
             semantic_vectors,
             denied_cross_repo_contracts,
@@ -558,6 +588,8 @@ fn cross_repo_contract_evidence(
             concise_text(&candidate.summary)
         )),
         is_changed_span: false,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
@@ -605,6 +637,8 @@ fn host_instruction_evidence(
         content_hash: Some(stable_id(&[text])),
         summary: Some(format!("host {}: {}", instruction.kind, concise_text(text))),
         is_changed_span: false,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
@@ -653,6 +687,8 @@ fn host_metadata_evidence(
         content_hash: Some(stable_id(&[&text])),
         summary: Some(format!("host metadata {key}: {}", concise_text(&text))),
         is_changed_span: false,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
@@ -912,10 +948,66 @@ fn chunk_evidence(
         content_hash: Some(content_hash),
         summary: Some(chunk_summary(file, kind, chunk)),
         is_changed_span,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: chunk.token_estimate(),
         provenance: ContextProvenance {
             provider: "snapshot_chunk_v1".to_string(),
+            query: None,
+            tool_call_id: None,
+            snapshot_id: Some(snapshot.snapshot_id.0.clone()),
+            original_url: None,
+        },
+        created_at_utc: None,
+        expires_at_utc: None,
+    }
+}
+
+/// Skeleton twin (R7): a signatures-only stand-in for one chunk whose
+/// full content exceeds the remaining pack budget. The text ships on
+/// the evidence (skeleton views exist nowhere on disk) and passes the
+/// same redaction as full content. Path, range, kind, and changed-span
+/// status mirror the full chunk; the token estimate describes the view.
+fn skeleton_evidence(
+    snapshot: &RepoSnapshot,
+    file: &FileMeta,
+    chunk: &ContextEvidence,
+    view: &SkeletonView,
+) -> ContextEvidence {
+    let text = redact_context_content(&view.text);
+    let content_hash = stable_id(&[&text]);
+    let range = chunk.range.expect("chunk evidence carries a range");
+    ContextEvidence {
+        id: EvidenceId(stable_id(&[
+            &snapshot.snapshot_id.0,
+            "skeleton",
+            &file.rel_path.display(),
+            &range.start_line.to_string(),
+            &content_hash,
+        ])),
+        kind: chunk.kind,
+        source: ContextEvidenceSource::Snapshot,
+        trust: ContextTrust::Kernel,
+        sensitivity: ContextSensitivity::Private,
+        scope: ContextScope::Snapshot,
+        path: Some(file.rel_path.clone()),
+        revision: Some(ContextRevision::head()),
+        range: Some(range),
+        content_hash: Some(content_hash),
+        summary: Some(format!(
+            "skeleton of {} (lines {}-{}; signatures only, bodies elided)",
+            file.rel_path.display(),
+            range.start_line,
+            range.end_line
+        )),
+        is_changed_span: chunk.is_changed_span,
+        representation: ContextEvidenceRepresentation::Skeleton,
+        skeleton_text: Some(text.clone()),
+        signals: ContextRankSignals::default(),
+        token_estimate: estimate_tokens(text.len()),
+        provenance: ContextProvenance {
+            provider: "snapshot_skeleton_v1".to_string(),
             query: None,
             tool_call_id: None,
             snapshot_id: Some(snapshot.snapshot_id.0.clone()),
@@ -973,6 +1065,8 @@ fn symbol_evidence(
         content_hash: file.content_hash.clone(),
         summary: Some(format!("symbol {symbol} in {}", file.rel_path.display())),
         is_changed_span,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(symbol.len()),
         provenance: ContextProvenance {
@@ -991,7 +1085,16 @@ fn file_evidence(
     snapshot: &RepoSnapshot,
     file: &FileMeta,
     kind: ContextEvidenceKind,
+    content: Option<&str>,
 ) -> ContextEvidence {
+    let summary = file_summary(file, kind);
+    // Honest token accounting (R7): budget math uses the indexed content
+    // length. When content is unavailable (unreadable as UTF-8), only
+    // the summary can ever enter a pack.
+    let token_estimate = match content {
+        Some(content) => estimate_tokens(content.len()),
+        None => estimate_tokens(summary.len()),
+    };
     ContextEvidence {
         id: EvidenceId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -1012,10 +1115,12 @@ fn file_evidence(
         revision: Some(ContextRevision::head()),
         range: None,
         content_hash: file.content_hash.clone(),
-        summary: Some(file_summary(file, kind)),
+        summary: Some(summary),
         is_changed_span: file.is_changed,
+        representation: ContextEvidenceRepresentation::FullContent,
+        skeleton_text: None,
         signals: ContextRankSignals::default(),
-        token_estimate: estimate_tokens(file.size as usize),
+        token_estimate,
         provenance: ContextProvenance {
             provider: "repo_snapshot".to_string(),
             query: None,

@@ -313,6 +313,111 @@ fn merge_symbol_paths(left: Option<String>, right: Option<String>) -> Option<Str
     }
 }
 
+/// A signatures-only view of a span (R7): definitions, doc comments,
+/// fields, and imports retained; function bodies elided to `...`.
+/// Each retained line carries its original 1-based line number so the
+/// view stays citable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkeletonView {
+    pub text: String,
+    pub token_estimate: usize,
+    /// Number of original lines the view covers.
+    pub line_count: u32,
+}
+
+/// Function-like node kinds whose bodies are elided in skeleton views.
+/// Class/impl/trait/struct bodies are kept so nested signatures and
+/// fields stay visible; their methods elide individually.
+fn elides_body(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_item"
+            | "function_declaration"
+            | "function_definition"
+            | "function_expression"
+            | "generator_function_declaration"
+            | "method_definition"
+    )
+}
+
+/// Per-file map of lines elided in skeleton views: true for interior
+/// body lines of function-like definitions. `None` when the file has no
+/// parser or nothing elides.
+pub(crate) fn body_elision_map(path: &str, content: &str) -> Option<Vec<bool>> {
+    let language = language_for_path(path)?;
+    let tree = parse_tree(language, content)?;
+    let line_count = content.lines().count();
+    if line_count == 0 {
+        return None;
+    }
+    let mut elided = vec![false; line_count];
+    mark_elided_lines(tree.root_node(), &mut elided);
+    elided.iter().any(|flag| *flag).then_some(elided)
+}
+
+/// Render the skeleton view of a 1-based inclusive line range. Returns
+/// `None` when the span elides nothing or when the view would not save
+/// tokens over the full span (the line-number gutter has a cost).
+pub(crate) fn skeleton_view(
+    lines: &[&str],
+    range: ContextRange,
+    elided: &[bool],
+) -> Option<SkeletonView> {
+    let start = range.start_line.max(1) as usize - 1;
+    let end = (range.end_line as usize).min(lines.len()).min(elided.len());
+    if start >= end {
+        return None;
+    }
+    if !elided[start..end].iter().any(|flag| *flag) {
+        return None;
+    }
+    let mut text = String::new();
+    let mut span_len = 0usize;
+    let mut in_elision = false;
+    for index in start..end {
+        span_len += lines[index].len() + 1;
+        if elided[index] {
+            if !in_elision {
+                text.push_str("     | ...\n");
+                in_elision = true;
+            }
+        } else {
+            text.push_str(&format!("{:>5}| {}\n", index + 1, lines[index]));
+            in_elision = false;
+        }
+    }
+    let text = text.trim_end().to_string();
+    let token_estimate = estimate_tokens(text.len());
+    if token_estimate >= estimate_tokens(span_len) {
+        return None;
+    }
+    Some(SkeletonView {
+        text,
+        token_estimate,
+        line_count: (end - start) as u32,
+    })
+}
+
+/// Mark interior body lines of function-like nodes as elided. The
+/// body's first and last lines stay (signature/opening and closing
+/// delimiter for brace languages), preserving line-number anchors.
+fn mark_elided_lines(node: Node, elided: &mut [bool]) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if elides_body(child.kind()) {
+            if let Some(body) = child.child_by_field_name("body") {
+                let start = body.start_position().row;
+                let end = body.end_position().row;
+                for row in (start + 1)..end.min(elided.len()) {
+                    elided[row] = true;
+                }
+            }
+            continue;
+        }
+        mark_elided_lines(child, elided);
+    }
+}
+
 /// Parse the new-side line ranges touched by each file in a unified diff.
 pub(crate) fn diff_hunk_ranges(diff: &str) -> BTreeMap<String, Vec<ContextRange>> {
     let mut ranges: BTreeMap<String, Vec<ContextRange>> = BTreeMap::new();
@@ -500,6 +605,78 @@ mod tests {
         );
         assert!(!ranges.contains_key("/dev/null"));
         assert_eq!(ranges.len(), 1);
+    }
+
+    fn skeleton_of(path: &str, content: &str, range: Option<ContextRange>) -> Option<SkeletonView> {
+        let elided = body_elision_map(path, content)?;
+        let lines = content.lines().collect::<Vec<_>>();
+        let range = range.unwrap_or(ContextRange {
+            start_line: 1,
+            end_line: lines.len() as u32,
+        });
+        skeleton_view(&lines, range, &elided)
+    }
+
+    #[test]
+    fn skeleton_elides_function_bodies_and_preserves_line_numbers() {
+        let content = rust_file(10, 20);
+        let skeleton = skeleton_of("src/big.rs", &content, None).expect("skeleton view");
+        assert!(skeleton.token_estimate < estimate_tokens(content.len()));
+        assert_eq!(skeleton.line_count, content.lines().count() as u32);
+        // Signatures and docs survive with their original line numbers.
+        assert!(skeleton.text.contains("    1| /// Doc for f0"));
+        assert!(skeleton.text.contains("    2| pub fn f0() {"));
+        assert!(skeleton.text.contains("     | ..."));
+        // Bodies are gone.
+        assert!(!skeleton.text.contains("let v0"));
+    }
+
+    #[test]
+    fn skeleton_of_chunk_range_keeps_original_line_numbers() {
+        let content = rust_file(10, 20);
+        // A mid-file span: each function block spans 24 lines, so the
+        // second function's doc comment sits at line 25.
+        let skeleton = skeleton_of(
+            "src/big.rs",
+            &content,
+            Some(ContextRange {
+                start_line: 25,
+                end_line: 47,
+            }),
+        )
+        .expect("span skeleton");
+        assert!(skeleton.text.contains("   25| /// Doc for f1"));
+        assert!(!skeleton.text.contains("    1| "));
+    }
+
+    #[test]
+    fn skeleton_keeps_impl_member_signatures() {
+        let mut content = String::from("impl Engine {\n");
+        for index in 0..5 {
+            content.push_str(&format!("    pub fn method{index}(&self) -> usize {{\n"));
+            for line in 0..15 {
+                content.push_str(&format!("        let value{line} = {line} * {index};\n"));
+            }
+            content.push_str("        0\n    }\n");
+        }
+        content.push_str("}\n");
+        let skeleton = skeleton_of("src/engine.rs", &content, None).expect("skeleton view");
+        for index in 0..5 {
+            assert!(
+                skeleton
+                    .text
+                    .contains(&format!("pub fn method{index}(&self) -> usize {{")),
+                "method{index} signature retained"
+            );
+        }
+        assert!(!skeleton.text.contains("let value0"));
+    }
+
+    #[test]
+    fn skeleton_absent_when_it_saves_nothing() {
+        assert!(skeleton_of("src/tiny.rs", "pub fn a() {}\n", None).is_none());
+        assert!(skeleton_of("README.adoc", "no parser here\n", None).is_none());
+        assert!(skeleton_of("src/empty.rs", "", None).is_none());
     }
 
     #[test]

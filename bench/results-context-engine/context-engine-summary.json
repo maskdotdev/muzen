@@ -1,25 +1,25 @@
 {
   "schemaVersion": "muzen.context-eval-summary.v2",
-  "generatedAtUnixMs": 1781143709150,
+  "generatedAtUnixMs": 1781145967172,
   "caseCount": 46,
   "ok": true,
   "failures": [],
   "metrics": {
-    "meanRecall": 0.5757779659953574,
-    "meanPrecision": 0.18896050489720564,
+    "meanRecall": 0.6037792521488174,
+    "meanPrecision": 0.19326275457989014,
     "meanRecallAt5": 0.4436429512516469,
-    "meanRecallAt10": 0.5369659326181065,
-    "meanRecallAt25": 0.5757779659953574,
-    "meanNdcgAt10": 0.46720100920245855,
-    "firstRelevantRate": 0.782608695652174,
-    "meanTokensToFirstRelevant": 2088.75,
+    "meanRecallAt10": 0.5396833239224543,
+    "meanRecallAt25": 0.6037792521488174,
+    "meanNdcgAt10": 0.46893567308425094,
+    "firstRelevantRate": 0.8043478260869565,
+    "meanTokensToFirstRelevant": 2356.4054054054054,
     "secretRedactionCorrectRate": 1.0,
     "promptInjectionResistanceRate": 1.0,
-    "meanUsefulEvidencePer1kTokens": 2.4384369313135696,
-    "meanLatencyMs": 1221.9776983104605,
-    "maxLatencyMs": 2467.570957960561,
-    "totalOmittedCandidates": 59723,
-    "sufficiencyGapRecall": 0.9230769230769231,
+    "meanUsefulEvidencePer1kTokens": 2.443870355113379,
+    "meanLatencyMs": 370.0372037381622,
+    "maxLatencyMs": 663.4049579733983,
+    "totalOmittedCandidates": 59926,
+    "sufficiencyGapRecall": 1.0,
     "sufficiencySufficientWhenComplete": 1.0
   },
   "cases": [
@@ -37,7 +37,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1710.8264589915052,
+      "latency_ms": 477.03266597818583,
       "expected_paths": [
         "src/runtime/model.rs"
       ],
@@ -84,7 +84,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1721,
+      "omitted": 1722,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -102,7 +102,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 2059.925416018814,
+      "latency_ms": 663.4049579733983,
       "expected_paths": [
         "src/context_engine/syntax.rs"
       ],
@@ -128,7 +128,7 @@
         "src/runtime/contracts.rs",
         "src/reviewer/run.rs",
         "src/reviewer/events.rs",
-        "src/cli.rs"
+        "src/context_engine/semantic.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
@@ -139,11 +139,11 @@
         "sdk/typescript/packages/muzen-sdk/src/local.ts",
         "sdk/typescript/packages/muzen-sdk/src/remote.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
-        "src/cli.rs",
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
         "src/context_engine/mod.rs",
         "src/context_engine/pack.rs",
+        "src/context_engine/semantic.rs",
         "src/context_engine/store.rs",
         "src/context_engine/tools.rs",
         "src/review_session/router.rs",
@@ -159,16 +159,16 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2337,
+      "omitted": 2340,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 13
+      "sufficiency_blocking_gaps": 14
     },
     {
       "id": "mined-291451f29ce5-pack",
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.23076923076923078,
+      "precision": 0.2727272727272727,
       "recall_at_5": 0.3333333333333333,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -177,7 +177,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 1564.3010410130955,
+      "latency_ms": 492.155666986946,
       "expected_paths": [
         "src/review_session/options.rs",
         "src/runner/execution.rs",
@@ -194,31 +194,27 @@
         "src/runner/session.rs",
         "src/review_session/options.rs",
         "src/review_session/outcome.rs",
-        "src/runner.rs",
-        "src/review_session/tests.rs",
-        "src/runtime/contracts.rs"
+        "src/runner.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
         "src/contracts.rs",
         "src/review_session.rs",
         "src/review_session/outcome.rs",
-        "src/review_session/tests.rs",
         "src/reviewer.rs",
         "src/runner.rs",
         "src/runner/materialize.rs",
         "src/runner/schema.rs",
-        "src/runner/session.rs",
-        "src/runtime/contracts.rs"
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1699,
-      "sufficiency_status": "sufficient",
-      "sufficiency_blocking_gaps": 0
+      "omitted": 1706,
+      "sufficiency_status": "probably_sufficient",
+      "sufficiency_blocking_gaps": 3
     },
     {
       "id": "mined-3950339a6022-pack",
@@ -234,7 +230,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1299.9648330151103,
+      "latency_ms": 416.15308402106166,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server/store.ts",
         "examples/tanstack-durable-review/src/server/worker.ts"
@@ -275,7 +271,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1451,
+      "omitted": 1460,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 15
     },
@@ -284,7 +280,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.3333333333333333,
-      "precision": 0.07692307692307693,
+      "precision": 0.08333333333333333,
       "recall_at_5": 0.3333333333333333,
       "recall_at_10": 0.3333333333333333,
       "recall_at_25": 0.3333333333333333,
@@ -293,7 +289,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 971.0199999972247,
+      "latency_ms": 322.09591701393947,
       "expected_paths": [
         "src/review_session.rs",
         "src/review_session/profiles.rs",
@@ -311,8 +307,7 @@
         "src/service.rs",
         "src/lib.rs",
         "Cargo.lock",
-        "src/review_session/router.rs",
-        "src/bin/muzen-service.rs"
+        "src/contracts.rs"
       ],
       "missed_paths": [
         "src/review_session/profiles.rs",
@@ -322,12 +317,11 @@
         "Cargo.lock",
         "src/bench.rs",
         "src/bin/muzen-runner.rs",
-        "src/bin/muzen-service.rs",
         "src/cli.rs",
+        "src/contracts.rs",
         "src/events.rs",
         "src/lib.rs",
         "src/main.rs",
-        "src/review_session/router.rs",
         "src/reviewer.rs",
         "src/service.rs",
         "src/util.rs"
@@ -337,16 +331,16 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 998,
+      "omitted": 1002,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 21
+      "sufficiency_blocking_gaps": 23
     },
     {
       "id": "mined-409401a0fb04-pack",
       "kind": "pack",
       "strict": false,
       "recall": 0.25,
-      "precision": 0.08333333333333333,
+      "precision": 0.09090909090909091,
       "recall_at_5": 0.0,
       "recall_at_10": 0.25,
       "recall_at_25": 0.25,
@@ -355,7 +349,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1512.7440000069328,
+      "latency_ms": 475.16674996586516,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -373,8 +367,7 @@
         "src/runner/types.rs",
         "src/runtime/planned_units.rs",
         "src/util.rs",
-        "src/runtime/model.rs",
-        "src/runtime/tools/mod.rs"
+        "src/runtime/model.rs"
       ],
       "missed_paths": [
         "src/review_session/tests.rs",
@@ -391,7 +384,6 @@
         "src/runtime/contracts.rs",
         "src/runtime/model.rs",
         "src/runtime/policy.rs",
-        "src/runtime/tools/mod.rs",
         "src/util.rs"
       ],
       "forbidden_content_hits": [],
@@ -399,7 +391,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1721,
+      "omitted": 1727,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 3
     },
@@ -408,7 +400,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.5,
-      "precision": 0.16666666666666666,
+      "precision": 0.125,
       "recall_at_5": 0.5,
       "recall_at_10": 0.5,
       "recall_at_25": 0.5,
@@ -417,7 +409,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1981.637250049971,
+      "latency_ms": 622.8516250266694,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/tests.rs"
@@ -428,7 +420,9 @@
         "sdk/python/muzen/types.py",
         "src/context_engine/config.rs",
         "src/context_engine/pack.rs",
-        "src/context_engine/semantic.rs"
+        "src/runtime/contracts.rs",
+        "src/context_engine/semantic.rs",
+        "src/context_engine/tools.rs"
       ],
       "missed_paths": [
         "src/context_engine/tests.rs"
@@ -438,14 +432,16 @@
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "src/context_engine/config.rs",
         "src/context_engine/pack.rs",
-        "src/context_engine/semantic.rs"
+        "src/context_engine/semantic.rs",
+        "src/context_engine/tools.rs",
+        "src/runtime/contracts.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2232,
+      "omitted": 2237,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 3
     },
@@ -462,8 +458,8 @@
       "tokens_to_first_relevant": 91,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.5000416701391783,
-      "latency_ms": 2032.6127919834107,
+      "useful_evidence_per_1k_tokens": 0.5,
+      "latency_ms": 642.1345419948921,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -487,7 +483,7 @@
         "sdk/python/muzen/remote.py",
         "sdk/python/muzen/types.py",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
-        "src/runtime/contracts.rs"
+        "src/context_engine/syntax.rs"
       ],
       "missed_paths": [
         "sdk/python/muzen/runner_mapping.py",
@@ -497,17 +493,17 @@
       ],
       "unexpected_paths": [
         "src/context_engine/mod.rs",
+        "src/context_engine/syntax.rs",
         "src/review_session/router.rs",
         "src/runner/session.rs",
-        "src/runner/types.rs",
-        "src/runtime/contracts.rs"
+        "src/runner/types.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
-      "token_estimate": 11999,
-      "omitted": 2305,
+      "token_estimate": 12000,
+      "omitted": 2306,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 16
     },
@@ -516,7 +512,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.1111111111111111,
+      "precision": 0.1,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -525,7 +521,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1148.3592090080492,
+      "latency_ms": 344.42170802503824,
       "expected_paths": [
         "src/review_session/store.rs"
       ],
@@ -537,35 +533,37 @@
         "src/review_session/options.rs",
         "src/review_session/source.rs",
         "src/review_session/router.rs",
-        "src/review_session/session.rs",
-        "src/review_session.rs"
+        "src/review_session/worker.rs",
+        "src/runner/session.rs",
+        "src/runner.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
-        "src/review_session.rs",
         "src/review_session/http.rs",
         "src/review_session/options.rs",
         "src/review_session/outcome.rs",
         "src/review_session/router.rs",
-        "src/review_session/session.rs",
         "src/review_session/source.rs",
-        "src/review_session/webhooks.rs"
+        "src/review_session/webhooks.rs",
+        "src/review_session/worker.rs",
+        "src/runner.rs",
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1161,
+      "omitted": 1169,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 6
+      "sufficiency_blocking_gaps": 7
     },
     {
       "id": "mined-51f0d750c016-pack",
       "kind": "pack",
       "strict": false,
       "recall": 0.5,
-      "precision": 0.14285714285714285,
+      "precision": 0.15384615384615385,
       "recall_at_5": 0.0,
       "recall_at_10": 0.25,
       "recall_at_25": 0.5,
@@ -574,7 +572,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1624.4220410007983,
+      "latency_ms": 497.9875829885714,
       "expected_paths": [
         "src/runtime/dispatch.rs",
         "src/runtime/tools/authorization.rs",
@@ -594,7 +592,6 @@
         "src/runtime/tools/engine.rs",
         "src/util.rs",
         "src/runtime/dispatch.rs",
-        "src/runtime/tools/mod.rs",
         "src/runtime/policy.rs"
       ],
       "missed_paths": [
@@ -612,7 +609,6 @@
         "src/runtime/policy.rs",
         "src/runtime/repo.rs",
         "src/runtime/tool_batch.rs",
-        "src/runtime/tools/mod.rs",
         "src/util.rs"
       ],
       "forbidden_content_hits": [],
@@ -620,16 +616,16 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1797,
+      "omitted": 1802,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 4
+      "sufficiency_blocking_gaps": 8
     },
     {
       "id": "mined-537843564e49-pack",
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.2222222222222222,
+      "precision": 0.25,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -638,7 +634,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 951.3495829887688,
+      "latency_ms": 310.21391600370407,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts"
@@ -651,25 +647,23 @@
         "sdk/typescript/packages/muzen-sdk/src/webhooks.ts",
         "sdk/python/muzen/__init__.py",
         "src/review_session.rs",
-        "src/review_session/profiles.rs",
-        "sdk/python/muzen/types.py"
+        "src/reviewer.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/client.py",
         "sdk/python/muzen/runner.py",
-        "sdk/python/muzen/types.py",
         "sdk/typescript/packages/muzen-sdk/src/webhooks.ts",
         "src/review_session.rs",
-        "src/review_session/profiles.rs"
+        "src/reviewer.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1016,
+      "omitted": 1019,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 11
     },
@@ -678,7 +672,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.0625,
+      "precision": 0.07142857142857142,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -687,7 +681,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1107.6109160203487,
+      "latency_ms": 352.8429160360247,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts"
       ],
@@ -705,19 +699,15 @@
         "src/runner/adapters.rs",
         "src/runner/cli.rs",
         "src/runner/stored.rs",
-        "src/review_session/http.rs",
-        "sdk/typescript/packages/muzen-sdk/src/wire-validation.ts",
-        "src/runner.rs"
+        "src/review_session/http.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
-        "sdk/typescript/packages/muzen-sdk/src/wire-validation.ts",
         "src/cli.rs",
         "src/review_session.rs",
         "src/review_session/http.rs",
         "src/reviewer.rs",
-        "src/runner.rs",
         "src/runner/adapters.rs",
         "src/runner/cli.rs",
         "src/runner/execution.rs",
@@ -732,25 +722,25 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1195,
+      "omitted": 1197,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 12
+      "sufficiency_blocking_gaps": 11
     },
     {
       "id": "mined-635d41c15ef5-pack",
       "kind": "pack",
       "strict": false,
-      "recall": 0.3333333333333333,
-      "precision": 0.16666666666666666,
+      "recall": 0.4444444444444444,
+      "precision": 0.2222222222222222,
       "recall_at_5": 0.1111111111111111,
       "recall_at_10": 0.2222222222222222,
-      "recall_at_25": 0.3333333333333333,
+      "recall_at_25": 0.4444444444444444,
       "ndcg_at_10": 0.17198436893338082,
       "tokens_to_first_relevant": 909,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 1580.395666998811,
+      "useful_evidence_per_1k_tokens": 0.3333333333333333,
+      "latency_ms": 485.89729104423895,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -778,14 +768,13 @@
         "src/repo.rs",
         "src/lib.rs",
         "src/bench.rs",
-        "src/main.rs",
-        "src/review_units.rs",
+        "src/runner/execution.rs",
+        "src/runner/schema.rs",
         "src/runtime/planned_units.rs"
       ],
       "missed_paths": [
         "src/review_session/outcome.rs",
         "src/runner/adapters.rs",
-        "src/runner/execution.rs",
         "src/runner/stored.rs",
         "src/runner/types.rs",
         "src/runtime/bench.rs"
@@ -795,12 +784,11 @@
         "src/contracts.rs",
         "src/job.rs",
         "src/lib.rs",
-        "src/main.rs",
         "src/repo.rs",
         "src/review_session.rs",
-        "src/review_units.rs",
         "src/reviewer.rs",
         "src/runner.rs",
+        "src/runner/schema.rs",
         "src/runtime/contracts.rs",
         "src/runtime/effects.rs",
         "src/runtime/planned_units.rs",
@@ -812,9 +800,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1701,
+      "omitted": 1706,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 6
+      "sufficiency_blocking_gaps": 9
     },
     {
       "id": "mined-69a6f73feea1-pack",
@@ -829,8 +817,8 @@
       "tokens_to_first_relevant": 911,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 1321.4497920125723,
+      "useful_evidence_per_1k_tokens": 0.16666666666666666,
+      "latency_ms": 418.58275001868606,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server.ts",
         "examples/tanstack-durable-review/src/server/store.ts",
@@ -869,8 +857,8 @@
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
-      "token_estimate": 11999,
-      "omitted": 1410,
+      "token_estimate": 12000,
+      "omitted": 1416,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 3
     },
@@ -879,7 +867,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.2,
-      "precision": 0.25,
+      "precision": 0.2222222222222222,
       "recall_at_5": 0.2,
       "recall_at_10": 0.2,
       "recall_at_25": 0.2,
@@ -888,7 +876,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1054.1846670093946,
+      "latency_ms": 328.76420801039785,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -909,7 +897,8 @@
         "src/review_session/http.rs",
         "src/review_session.rs",
         "src/runner/session.rs",
-        "src/runner.rs"
+        "src/runner.rs",
+        "src/reviewer.rs"
       ],
       "missed_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
@@ -927,14 +916,15 @@
         "src/review_session/profiles.rs",
         "src/review_session/router.rs",
         "src/review_session/store.rs",
-        "src/review_session/webhooks.rs"
+        "src/review_session/webhooks.rs",
+        "src/reviewer.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1193,
+      "omitted": 1195,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 16
     },
@@ -952,7 +942,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 749.4195000035688,
+      "latency_ms": 239.13233302300796,
       "expected_paths": [
         "src/runner.rs"
       ],
@@ -1001,7 +991,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 825,
+      "omitted": 831,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -1019,7 +1009,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 2204.604541999288,
+      "latency_ms": 630.810999951791,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
@@ -1053,7 +1043,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2239,
+      "omitted": 2242,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -1071,7 +1061,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 984.1439580195583,
+      "latency_ms": 296.94745904998854,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
@@ -1084,8 +1074,8 @@
         "src/review_session.rs",
         "sdk/python/muzen/types.py",
         "sdk/python/muzen/sources.py",
-        "src/review_session/webhooks.rs",
-        "sdk/python/tests/test_client.py"
+        "src/review_session/worker.rs",
+        "src/reviewer.rs"
       ],
       "missed_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
@@ -1096,18 +1086,18 @@
         "sdk/python/muzen/runner.py",
         "sdk/python/muzen/sources.py",
         "sdk/python/muzen/types.py",
-        "sdk/python/tests/test_client.py",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "src/review_session.rs",
-        "src/review_session/webhooks.rs"
+        "src/review_session/worker.rs",
+        "src/reviewer.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1014,
+      "omitted": 1025,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 18
     },
@@ -1125,7 +1115,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 802.8432920109481,
+      "latency_ms": 257.220417028293,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -1139,7 +1129,7 @@
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/types.py",
         "sdk/python/muzen/sources.py",
-        "sdk/python/tests/test_sources.py"
+        "src/reviewer.rs"
       ],
       "missed_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
@@ -1154,14 +1144,14 @@
         "sdk/python/muzen/runner.py",
         "sdk/python/muzen/sources.py",
         "sdk/python/muzen/types.py",
-        "sdk/python/tests/test_sources.py"
+        "src/reviewer.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 871,
+      "omitted": 877,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 9
     },
@@ -1170,7 +1160,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.5,
-      "precision": 0.2,
+      "precision": 0.16666666666666666,
       "recall_at_5": 0.5,
       "recall_at_10": 0.5,
       "recall_at_25": 0.5,
@@ -1179,7 +1169,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1093.0934579810128,
+      "latency_ms": 333.71516602346674,
       "expected_paths": [
         "src/review_session/store.rs",
         "src/review_session/worker.rs"
@@ -1188,7 +1178,8 @@
         "src/review_session/store.rs",
         "src/review_session/http.rs",
         "src/review_session/router.rs",
-        "src/review_session/webhooks.rs",
+        "src/runner/session.rs",
+        "src/runner.rs",
         "src/review_session.rs"
       ],
       "missed_paths": [
@@ -1198,32 +1189,33 @@
         "src/review_session.rs",
         "src/review_session/http.rs",
         "src/review_session/router.rs",
-        "src/review_session/webhooks.rs"
+        "src/runner.rs",
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1206,
+      "omitted": 1208,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 18
+      "sufficiency_blocking_gaps": 19
     },
     {
       "id": "mined-8d87462394ce-pack",
       "kind": "pack",
       "strict": false,
-      "recall": 0.14285714285714285,
-      "precision": 0.07142857142857142,
+      "recall": 0.2857142857142857,
+      "precision": 0.13333333333333333,
       "recall_at_5": 0.0,
       "recall_at_10": 0.14285714285714285,
-      "recall_at_25": 0.14285714285714285,
+      "recall_at_25": 0.2857142857142857,
       "ndcg_at_10": 0.07945707943276742,
       "tokens_to_first_relevant": 3649,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1081.5686659771018,
+      "useful_evidence_per_1k_tokens": 0.16666666666666666,
+      "latency_ms": 333.23929202742875,
       "expected_paths": [
         "sdk/python/muzen/client.py",
         "sdk/python/tests/test_client.py",
@@ -1247,13 +1239,13 @@
         "src/review_session/store.rs",
         "src/runner/session.rs",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "sdk/typescript/packages/muzen-sdk/src/index.ts"
+        "sdk/typescript/packages/muzen-sdk/src/index.ts",
+        "src/runner.rs"
       ],
       "missed_paths": [
         "sdk/python/muzen/client.py",
         "sdk/python/tests/test_client.py",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
-        "src/runner.rs",
         "src/runner/execution.rs",
         "src/runner/types.rs"
       ],
@@ -1277,7 +1269,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1266,
+      "omitted": 1267,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 30
     },
@@ -1285,17 +1277,17 @@
       "id": "mined-8e8d4301e346-pack",
       "kind": "pack",
       "strict": false,
-      "recall": 0.0,
-      "precision": 0.0,
+      "recall": 1.0,
+      "precision": 0.05555555555555555,
       "recall_at_5": 0.0,
       "recall_at_10": 0.0,
-      "recall_at_25": 0.0,
+      "recall_at_25": 1.0,
       "ndcg_at_10": 0.0,
-      "tokens_to_first_relevant": null,
+      "tokens_to_first_relevant": 11992,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 2100.016249984037,
+      "useful_evidence_per_1k_tokens": 0.08333333333333333,
+      "latency_ms": 613.2149159675464,
       "expected_paths": [
         "src/context_engine/store.rs"
       ],
@@ -1316,12 +1308,10 @@
         "src/reviewer/run.rs",
         "src/runtime/contracts.rs",
         "src/reviewer/events.rs",
-        "src/context_engine/engine.rs",
-        "src/cli.rs"
+        "src/context_engine/store.rs",
+        "src/context_engine/engine.rs"
       ],
-      "missed_paths": [
-        "src/context_engine/store.rs"
-      ],
+      "missed_paths": [],
       "unexpected_paths": [
         "bench/context-engine/run.py",
         "fixtures/context-engine/security-guidance/src/lib.rs",
@@ -1332,7 +1322,6 @@
         "sdk/python/muzen/runner_mapping.py",
         "sdk/python/muzen/types.py",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
-        "src/cli.rs",
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
         "src/context_engine/mod.rs",
@@ -1347,7 +1336,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2274,
+      "omitted": 2277,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 17
     },
@@ -1365,7 +1354,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 896.9091250328347,
+      "latency_ms": 288.86833298020065,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts"
       ],
@@ -1392,7 +1381,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1067,
+      "omitted": 1070,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 10
     },
@@ -1401,7 +1390,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.3333333333333333,
-      "precision": 0.041666666666666664,
+      "precision": 0.045454545454545456,
       "recall_at_5": 0.0,
       "recall_at_10": 0.0,
       "recall_at_25": 0.3333333333333333,
@@ -1410,7 +1399,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1691.924457962159,
+      "latency_ms": 471.29470796789974,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1438,9 +1427,7 @@
         "src/runtime/tools/read.rs",
         "src/runtime/tools/metrics.rs",
         "src/runtime/tools/mod.rs",
-        "src/runtime/tools/registry.rs",
-        "src/runtime/dispatch.rs",
-        "src/runtime/tools/engine.rs"
+        "src/runtime/tools/registry.rs"
       ],
       "missed_paths": [
         "src/review_session/tests.rs",
@@ -1454,13 +1441,11 @@
         "src/runner/schema.rs",
         "src/runner/types.rs",
         "src/runtime/contracts.rs",
-        "src/runtime/dispatch.rs",
         "src/runtime/effects.rs",
         "src/runtime/policy.rs",
         "src/runtime/repo.rs",
         "src/runtime/tool_batch.rs",
         "src/runtime/tools/authorization.rs",
-        "src/runtime/tools/engine.rs",
         "src/runtime/tools/metrics.rs",
         "src/runtime/tools/mod.rs",
         "src/runtime/tools/read.rs",
@@ -1476,9 +1461,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1721,
-      "sufficiency_status": "sufficient",
-      "sufficiency_blocking_gaps": 0
+      "omitted": 1727,
+      "sufficiency_status": "probably_sufficient",
+      "sufficiency_blocking_gaps": 3
     },
     {
       "id": "mined-a80cf0fe27b6-pack",
@@ -1494,7 +1479,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1123.9330410026014,
+      "latency_ms": 336.34629199514166,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1502,24 +1487,24 @@
         "src/review_session/store.rs",
         "src/review_session/worker.rs",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "sdk/typescript/packages/muzen-sdk/src/index.ts",
-        "src/review_session/options.rs",
-        "src/review_session.rs"
+        "src/bin/muzen-service.rs",
+        "src/runner/session.rs",
+        "src/review_session/options.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
-        "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "src/review_session.rs",
+        "src/bin/muzen-service.rs",
         "src/review_session/options.rs",
-        "src/review_session/store.rs"
+        "src/review_session/store.rs",
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1184,
+      "omitted": 1191,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 7
     },
@@ -1537,7 +1522,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 2027.2535419790074,
+      "latency_ms": 605.5795829743147,
       "expected_paths": [
         "src/context_engine/store.rs",
         "src/context_engine/tests.rs"
@@ -1562,6 +1547,7 @@
         "sdk/typescript/packages/muzen-sdk/src/local.ts",
         "sdk/typescript/packages/muzen-sdk/src/remote.ts",
         "src/runner/execution.rs",
+        "src/reviewer/run.rs",
         "src/runtime/contracts.rs"
       ],
       "missed_paths": [
@@ -1584,6 +1570,7 @@
         "src/context_engine/syntax.rs",
         "src/context_engine/tools.rs",
         "src/review_session/router.rs",
+        "src/reviewer/run.rs",
         "src/runner/execution.rs",
         "src/runner/schema.rs",
         "src/runner/session.rs",
@@ -1595,7 +1582,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2278,
+      "omitted": 2283,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 14
     },
@@ -1613,7 +1600,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1643.5181249980815,
+      "latency_ms": 490.62225001398474,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1636,9 +1623,7 @@
         "src/runtime/policy.rs",
         "src/runtime/repo.rs",
         "src/runtime/effects.rs",
-        "src/runner.rs",
-        "src/runner/types.rs",
-        "src/review_session/options.rs"
+        "src/runner.rs"
       ],
       "missed_paths": [
         "src/review_session/tests.rs",
@@ -1649,7 +1634,6 @@
         "src/cli.rs",
         "src/contracts.rs",
         "src/review_session.rs",
-        "src/review_session/options.rs",
         "src/review_session/outcome.rs",
         "src/reviewer.rs",
         "src/runner.rs",
@@ -1659,7 +1643,6 @@
         "src/runner/schema.rs",
         "src/runner/session.rs",
         "src/runner/transport.rs",
-        "src/runner/types.rs",
         "src/runtime/contracts.rs",
         "src/runtime/effects.rs",
         "src/runtime/model.rs",
@@ -1671,7 +1654,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1846,
+      "omitted": 1849,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 6
     },
@@ -1680,7 +1663,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.14285714285714285,
+      "precision": 0.125,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -1689,7 +1672,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1086.1834160168655,
+      "latency_ms": 333.73787498567253,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1699,24 +1682,26 @@
         "src/review_session/http.rs",
         "src/review_session/source.rs",
         "src/review_session/router.rs",
-        "src/review_session/outcome.rs",
-        "src/review_session.rs"
+        "src/bin/muzen-service.rs",
+        "src/runner/session.rs",
+        "src/review_session/outcome.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
-        "src/review_session.rs",
+        "src/bin/muzen-service.rs",
         "src/review_session/http.rs",
         "src/review_session/outcome.rs",
         "src/review_session/router.rs",
         "src/review_session/source.rs",
-        "src/review_session/store.rs"
+        "src/review_session/store.rs",
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1182,
+      "omitted": 1188,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 6
     },
@@ -1724,17 +1709,17 @@
       "id": "mined-d90e6f735c06-pack",
       "kind": "pack",
       "strict": false,
-      "recall": 0.25,
-      "precision": 0.2222222222222222,
+      "recall": 0.375,
+      "precision": 0.3,
       "recall_at_5": 0.25,
-      "recall_at_10": 0.25,
-      "recall_at_25": 0.25,
-      "ndcg_at_10": 0.224322946018989,
+      "recall_at_10": 0.375,
+      "recall_at_25": 0.375,
+      "ndcg_at_10": 0.3041174845814372,
       "tokens_to_first_relevant": 8899,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1009.1132500092499,
+      "useful_evidence_per_1k_tokens": 0.25,
+      "latency_ms": 304.41995803266764,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
@@ -1753,12 +1738,12 @@
         "sdk/python/muzen/client.py",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/python/muzen/types.py",
+        "src/reviewer.rs",
         "src/review_session.rs",
-        "src/reviewer.rs"
+        "src/runner.rs"
       ],
       "missed_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
-        "src/runner.rs",
         "src/runner/protocol.rs",
         "src/runner/schema.rs",
         "src/runner/session.rs",
@@ -1778,7 +1763,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1086,
+      "omitted": 1094,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -1787,7 +1772,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.5,
-      "precision": 0.16666666666666666,
+      "precision": 0.2,
       "recall_at_5": 0.5,
       "recall_at_10": 0.5,
       "recall_at_25": 0.5,
@@ -1795,8 +1780,8 @@
       "tokens_to_first_relevant": 213,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 2039.645750017371,
+      "useful_evidence_per_1k_tokens": 0.08333333333333333,
+      "latency_ms": 614.2288749688305,
       "expected_paths": [
         "src/context_engine/index.rs",
         "src/context_engine/tests.rs"
@@ -1806,7 +1791,6 @@
         "src/context_engine/syntax.rs",
         "src/runtime/contracts.rs",
         "src/context_engine/engine.rs",
-        "src/context_engine/store.rs",
         "src/context_engine/tools.rs"
       ],
       "missed_paths": [
@@ -1814,7 +1798,6 @@
       ],
       "unexpected_paths": [
         "src/context_engine/engine.rs",
-        "src/context_engine/store.rs",
         "src/context_engine/syntax.rs",
         "src/context_engine/tools.rs",
         "src/runtime/contracts.rs"
@@ -1823,8 +1806,8 @@
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
-      "token_estimate": 11999,
-      "omitted": 2256,
+      "token_estimate": 12000,
+      "omitted": 2261,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 1
     },
@@ -1842,7 +1825,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 1773.291582998354,
+      "latency_ms": 465.8227500040084,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -1894,9 +1877,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1692,
-      "sufficiency_status": "sufficient",
-      "sufficiency_blocking_gaps": 0
+      "omitted": 1694,
+      "sufficiency_status": "probably_sufficient",
+      "sufficiency_blocking_gaps": 2
     },
     {
       "id": "mined-dfd12636de9c-pack",
@@ -1912,7 +1895,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1691.8299170210958,
+      "latency_ms": 464.27333395695314,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1931,8 +1914,7 @@
         "src/runtime/repo.rs",
         "src/runner/types.rs",
         "src/runtime/effects.rs",
-        "src/runtime/tools/validation.rs",
-        "src/main.rs"
+        "src/runtime/tools/validation.rs"
       ],
       "missed_paths": [
         "src/review_session/tests.rs",
@@ -1941,7 +1923,6 @@
       ],
       "unexpected_paths": [
         "src/contracts.rs",
-        "src/main.rs",
         "src/reviewer.rs",
         "src/runner.rs",
         "src/runner/execution.rs",
@@ -1959,8 +1940,8 @@
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
-      "token_estimate": 12000,
-      "omitted": 1619,
+      "token_estimate": 11999,
+      "omitted": 1621,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 7
     },
@@ -1968,17 +1949,17 @@
       "id": "mined-e48b3e805048-pack",
       "kind": "pack",
       "strict": false,
-      "recall": 0.18181818181818182,
-      "precision": 0.13333333333333333,
+      "recall": 0.09090909090909091,
+      "precision": 0.07142857142857142,
       "recall_at_5": 0.09090909090909091,
       "recall_at_10": 0.09090909090909091,
-      "recall_at_25": 0.18181818181818182,
+      "recall_at_25": 0.09090909090909091,
       "ndcg_at_10": 0.13886244387355454,
       "tokens_to_first_relevant": 479,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
-      "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 2234.5750420354307,
+      "useful_evidence_per_1k_tokens": 0.08333333333333333,
+      "latency_ms": 647.5869590067305,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -2006,8 +1987,7 @@
         "src/reviewer/canaries.rs",
         "src/reviewer/snapshots.rs",
         "src/contracts.rs",
-        "src/cli.rs",
-        "src/context_engine/index.rs"
+        "src/cli.rs"
       ],
       "missed_paths": [
         "sdk/python/muzen/local.py",
@@ -2017,6 +1997,7 @@
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "src/context_engine/config.rs",
         "src/context_engine/engine.rs",
+        "src/context_engine/index.rs",
         "src/context_engine/semantic.rs",
         "src/context_engine/tests.rs"
       ],
@@ -2040,7 +2021,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2350,
+      "omitted": 2357,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 14
     },
@@ -2058,32 +2039,32 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1155.9211250278167,
+      "latency_ms": 338.29079201677814,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
       "retrieved_paths": [
         "src/review_session/store.rs",
         "src/review_session/worker.rs",
-        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "sdk/typescript/packages/muzen-sdk/src/index.ts",
-        "src/review_session.rs",
-        "src/review_session/source.rs"
+        "src/runner/session.rs",
+        "src/runner.rs",
+        "src/reviewer.rs",
+        "src/runner/materialize.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
-        "sdk/typescript/packages/muzen-sdk/src/index.ts",
-        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "src/review_session.rs",
-        "src/review_session/source.rs",
-        "src/review_session/store.rs"
+        "src/review_session/store.rs",
+        "src/reviewer.rs",
+        "src/runner.rs",
+        "src/runner/materialize.rs",
+        "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1192,
+      "omitted": 1200,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 9
     },
@@ -2101,7 +2082,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1165.522166993469,
+      "latency_ms": 305.90495897922665,
       "expected_paths": [
         "src/review_session/http.rs",
         "src/runner.rs",
@@ -2121,7 +2102,7 @@
         "sdk/python/muzen/types.py",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "sdk/python/muzen/runner.py",
-        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
+        "src/review_session/webhooks.rs"
       ],
       "missed_paths": [
         "src/review_session/http.rs",
@@ -2136,20 +2117,20 @@
         "sdk/python/muzen/client.py",
         "sdk/python/muzen/runner.py",
         "sdk/python/muzen/types.py",
-        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/protocol.ts",
         "sdk/typescript/packages/muzen-sdk/src/sources.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "sdk/typescript/packages/muzen-sdk/src/webhooks.ts",
-        "src/review_session.rs"
+        "src/review_session.rs",
+        "src/review_session/webhooks.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1153,
+      "omitted": 1166,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 15
     },
@@ -2167,7 +2148,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 814.660832984373,
+      "latency_ms": 261.99766696663573,
       "expected_paths": [
         "src/review_session.rs"
       ],
@@ -2176,7 +2157,7 @@
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "src/runner/session.rs",
-        "sdk/typescript/packages/muzen-sdk/src/sources.ts"
+        "src/runner/execution.rs"
       ],
       "missed_paths": [
         "src/review_session.rs"
@@ -2184,8 +2165,8 @@
       "unexpected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
-        "sdk/typescript/packages/muzen-sdk/src/sources.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
+        "src/runner/execution.rs",
         "src/runner/session.rs"
       ],
       "forbidden_content_hits": [],
@@ -2193,7 +2174,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 929,
+      "omitted": 940,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 14
     },
@@ -2211,7 +2192,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 993.1614169618115,
+      "latency_ms": 295.5311670084484,
       "expected_paths": [
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/types.py",
@@ -2224,7 +2205,8 @@
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
         "sdk/typescript/packages/muzen-sdk/src/protocol.ts",
         "sdk/typescript/packages/muzen-sdk/src/sources.ts",
-        "sdk/typescript/packages/muzen-sdk/src/index.ts"
+        "sdk/typescript/packages/muzen-sdk/src/index.ts",
+        "src/reviewer.rs"
       ],
       "missed_paths": [
         "sdk/python/muzen/__init__.py",
@@ -2238,14 +2220,15 @@
         "sdk/typescript/packages/muzen-sdk/src/protocol.ts",
         "sdk/typescript/packages/muzen-sdk/src/sources.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
-        "src/review_session.rs"
+        "src/review_session.rs",
+        "src/reviewer.rs"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1116,
+      "omitted": 1118,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 18
     },
@@ -2263,7 +2246,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 2467.570957960561,
+      "latency_ms": 601.9263750058599,
       "expected_paths": [
         "src/context_engine/semantic.rs"
       ],
@@ -2284,7 +2267,6 @@
         "src/runtime/contracts.rs",
         "src/reviewer/events.rs",
         "src/reviewer/run.rs",
-        "src/cli.rs",
         "src/context_engine/store.rs"
       ],
       "missed_paths": [
@@ -2299,7 +2281,6 @@
         "sdk/typescript/packages/muzen-sdk/src/local.ts",
         "sdk/typescript/packages/muzen-sdk/src/remote.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts",
-        "src/cli.rs",
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
         "src/context_engine/mod.rs",
@@ -2315,7 +2296,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 2275,
+      "omitted": 2279,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 14
     },
@@ -2333,7 +2314,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1129.9951250548474,
+      "latency_ms": 313.9078749809414,
       "expected_paths": [
         "src/review_session/http.rs"
       ],
@@ -2347,12 +2328,11 @@
         "src/review_session.rs",
         "src/reviewer.rs",
         "src/util.rs",
-        "docs/rfcs/0001-implementation-progress.md",
+        "src/runner.rs",
         "src/runner/session.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
-        "docs/rfcs/0001-implementation-progress.md",
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/client.py",
         "src/review_session.rs",
@@ -2360,6 +2340,7 @@
         "src/review_session/store.rs",
         "src/review_session/worker.rs",
         "src/reviewer.rs",
+        "src/runner.rs",
         "src/runner/session.rs",
         "src/util.rs"
       ],
@@ -2368,9 +2349,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1133,
+      "omitted": 1145,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 8
+      "sufficiency_blocking_gaps": 11
     },
     {
       "id": "read-span-redacts-github-token",
@@ -2386,7 +2367,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 58.8235294117647,
-      "latency_ms": 50.65225000726059,
+      "latency_ms": 64.35704097384587,
       "expected_paths": [
         "src/secrets.rs"
       ],
@@ -2418,7 +2399,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 9.433962264150942,
-      "latency_ms": 46.753917005844414,
+      "latency_ms": 43.528957990929484,
       "expected_paths": [
         "CONTEXT.md"
       ],
@@ -2457,7 +2438,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 11.494252873563218,
-      "latency_ms": 47.72324999794364,
+      "latency_ms": 44.58304098807275,
       "expected_paths": [
         "tests/auth_token_test.rs"
       ],
@@ -2489,7 +2470,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 13.793103448275861,
-      "latency_ms": 47.50720801530406,
+      "latency_ms": 43.91970799770206,
       "expected_paths": [
         "src/routes.rs",
         "src/auth/token.rs"
@@ -2526,7 +2507,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 6.172839506172839,
-      "latency_ms": 45.23270804202184,
+      "latency_ms": 43.4051250340417,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -2561,7 +2542,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.717472118959108,
-      "latency_ms": 45.97362503409386,
+      "latency_ms": 43.79333299584687,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -2600,7 +2581,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 4.5662100456621,
-      "latency_ms": 45.62895803246647,
+      "latency_ms": 43.79824997158721,
       "expected_paths": [
         "src/auth/token.rs"
       ],

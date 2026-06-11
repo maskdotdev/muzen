@@ -109,7 +109,11 @@ impl ReferenceGraph {
                     .entry(importer.clone())
                     .or_default()
                     .push(edge_index);
-                graph.edges_to.entry(to.clone()).or_default().push(edge_index);
+                graph
+                    .edges_to
+                    .entry(to.clone())
+                    .or_default()
+                    .push(edge_index);
                 graph.edges.push(ReferenceEdge {
                     from: importer.clone(),
                     to,
@@ -143,7 +147,11 @@ impl ReferenceGraph {
 /// Resolve a module specifier to the defining file within the indexed
 /// path set. Returns `None` for unresolvable specifiers (external
 /// packages, stdlib), which degrade to name matching.
-fn resolve_module(importer: &RepoPath, module: &str, paths: &BTreeSet<RepoPath>) -> Option<RepoPath> {
+fn resolve_module(
+    importer: &RepoPath,
+    module: &str,
+    paths: &BTreeSet<RepoPath>,
+) -> Option<RepoPath> {
     if module.starts_with("./") || module.starts_with("../") {
         return resolve_relative_specifier(importer, module, paths);
     }
@@ -274,10 +282,7 @@ fn resolve_rust_path(
 fn resolve_python_module(module: &str, paths: &BTreeSet<RepoPath>) -> Option<RepoPath> {
     let joined = module.replace('.', "/");
     try_paths(
-        [
-            format!("{joined}.py"),
-            format!("{joined}/__init__.py"),
-        ],
+        [format!("{joined}.py"), format!("{joined}/__init__.py")],
         paths,
     )
 }
@@ -317,7 +322,11 @@ pub fn co_change_stats(
         return stats;
     }
     let log = String::from_utf8_lossy(&output.stdout);
-    for (commit_index, block) in log.split('\u{1}').filter(|b| !b.trim().is_empty()).enumerate() {
+    for (commit_index, block) in log
+        .split('\u{1}')
+        .filter(|b| !b.trim().is_empty())
+        .enumerate()
+    {
         let files: Vec<&str> = block
             .lines()
             .map(str::trim)
@@ -511,8 +520,7 @@ fn same_module_siblings(graph: &ReferenceGraph, anchor: &RepoPath) -> Vec<RepoPa
         .iter()
         .filter(|path| {
             let text = path.display();
-            *path != anchor
-                && text.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("") == anchor_dir
+            *path != anchor && text.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("") == anchor_dir
         })
         .cloned()
         .collect()
@@ -532,10 +540,7 @@ mod tests {
         RepoPath::parse(text).unwrap()
     }
 
-    fn parsed(
-        definitions: &[&str],
-        statements: Vec<ImportStatement>,
-    ) -> ParsedSymbols {
+    fn parsed(definitions: &[&str], statements: Vec<ImportStatement>) -> ParsedSymbols {
         ParsedSymbols {
             definitions: definitions.iter().map(|s| s.to_string()).collect(),
             definition_ranges: BTreeMap::new(),
@@ -573,8 +578,14 @@ mod tests {
     fn resolves_ts_relative_specifiers_without_bare_name_collisions() {
         let mut files = BTreeMap::new();
         // Two modules define the same name; only the imported one connects.
-        files.insert(repo_path("src/a/load.ts"), parsed(&["loadUser"], Vec::new()));
-        files.insert(repo_path("src/b/load.ts"), parsed(&["loadUser"], Vec::new()));
+        files.insert(
+            repo_path("src/a/load.ts"),
+            parsed(&["loadUser"], Vec::new()),
+        );
+        files.insert(
+            repo_path("src/b/load.ts"),
+            parsed(&["loadUser"], Vec::new()),
+        );
         files.insert(
             repo_path("src/app.ts"),
             parsed(

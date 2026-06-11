@@ -72,6 +72,14 @@ pub(crate) fn evaluate_sufficiency(
     evidence: &[ContextEvidence],
     budget_exhausted: bool,
 ) -> ContextSufficiency {
+    // Skeleton-representation evidence (R7) elides bodies: it cannot
+    // satisfy enclosing-definition, caller, or test coverage. Coverage
+    // counts full content only; the budget_exhausted downgrade already
+    // accounts for packs that could not fit the full content.
+    let evidence: Vec<&ContextEvidence> = evidence
+        .iter()
+        .filter(|item| item.representation == super::ContextEvidenceRepresentation::FullContent)
+        .collect();
     let mut gaps: Vec<ContextSufficiencyGap> = Vec::new();
     let mut checked_hunks = 0usize;
     for (path_text, hunks) in &index.hunk_ranges {
