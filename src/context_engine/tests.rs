@@ -2169,3 +2169,169 @@ async fn skeleton_text_passes_redaction() {
         "the retained signature line carries the redaction marker"
     );
 }
+
+// ---- R9: incremental, persistent indexing ----
+
+fn derived_cache_repo() -> tempfile::TempDir {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("CONTEXT.md"), "# Context\n").unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/auth.rs"),
+        many_function_rust_file(12, 8),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/api.rs"),
+        "use crate::auth;\n\npub fn handle() {\n    auth::generated_0();\n}\n",
+    )
+    .unwrap();
+    repo
+}
+
+async fn index_with_cache(
+    repo: &std::path::Path,
+    cache_path: &std::path::Path,
+) -> (SnapshotContextEngine, Arc<RepoSnapshot>, ContextIndexReport) {
+    let snapshot = build_snapshot(repo, vec!["src/api.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0())
+        .with_derived_cache_file(cache_path);
+    let report = engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    (engine, snapshot, report)
+}
+
+#[tokio::test]
+async fn warm_reindex_recomputes_nothing_and_reproduces_the_index() {
+    let repo = derived_cache_repo();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("derived.json");
+
+    let (cold_engine, cold_snapshot, cold) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(cold.derived_cache_hits, 0);
+    assert!(cold.derived_cache_misses > 0, "cold build derives all files");
+
+    // A fresh engine process over the same checkout: every file's derived
+    // data comes from the durable cache, and the index is reproduced
+    // exactly.
+    let (warm_engine, warm_snapshot, warm) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(warm.derived_cache_misses, 0, "warm build derives nothing");
+    assert_eq!(warm.derived_cache_hits, cold.derived_cache_misses);
+    assert_eq!(warm.index_id, cold.index_id);
+
+    let cold_index = cold_engine.get_index(&cold_snapshot.snapshot_id).unwrap();
+    let warm_index = warm_engine.get_index(&warm_snapshot.snapshot_id).unwrap();
+    assert_eq!(warm_index.manifest_artifact, cold_index.manifest_artifact);
+    assert_eq!(warm_index.evidence, cold_index.evidence);
+    assert_eq!(warm_index.skeletons, cold_index.skeletons);
+}
+
+#[tokio::test]
+async fn one_file_change_recomputes_only_that_file() {
+    let repo = derived_cache_repo();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("derived.json");
+
+    let (_, _, cold) = index_with_cache(repo.path(), &cache_path).await;
+    std::fs::write(
+        repo.path().join("src/api.rs"),
+        "use crate::auth;\n\npub fn handle() {\n    auth::generated_1();\n}\n",
+    )
+    .unwrap();
+
+    let (_, _, warm) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(warm.derived_cache_misses, 1, "only the changed file pays");
+    assert_eq!(warm.derived_cache_hits, cold.derived_cache_misses - 1);
+}
+
+#[tokio::test]
+async fn derivation_version_bump_invalidates_and_rebuilds() {
+    let repo = derived_cache_repo();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("derived.json");
+
+    let (_, _, cold) = index_with_cache(repo.path(), &cache_path).await;
+    let stale = std::fs::read_to_string(&cache_path)
+        .unwrap()
+        .replace(&derived_version_tag(), "0.0.0/stale");
+    std::fs::write(&cache_path, stale).unwrap();
+
+    let (_, _, warm) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(warm.derived_cache_hits, 0, "stale-version entries never hit");
+    assert_eq!(warm.derived_cache_misses, cold.derived_cache_misses);
+    assert!(
+        !warm
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "derived_cache_recovered"),
+        "a version mismatch is clean invalidation, not corruption"
+    );
+}
+
+#[tokio::test]
+async fn corrupt_derived_cache_degrades_to_full_rebuild_with_warning() {
+    let repo = derived_cache_repo();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("derived.json");
+    std::fs::write(&cache_path, "{definitely not json").unwrap();
+
+    let (engine, snapshot, report) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(report.derived_cache_hits, 0);
+    assert!(report.derived_cache_misses > 0, "full rebuild");
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "derived_cache_recovered"));
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(index
+        .manifest_artifact
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "derived_cache_recovered"));
+
+    // The flush replaced the corrupt file: the next build runs warm.
+    let (_, _, warm) = index_with_cache(repo.path(), &cache_path).await;
+    assert_eq!(warm.derived_cache_misses, 0);
+}
+
+#[tokio::test]
+async fn warm_reindex_spends_nothing_on_embeddings() {
+    let repo = derived_cache_repo();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("derived.json");
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.semantic.mode = ContextSemanticMode::Local;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
+    config.semantic.max_embedding_inputs = 64;
+
+    let snapshot = build_snapshot(repo.path(), vec!["src/api.rs"]);
+    let cold_engine =
+        SnapshotContextEngine::new(config.clone()).with_derived_cache_file(&cache_path);
+    let cold = cold_engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), cold_engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(cold.embeddings_computed > 0);
+    assert_eq!(cold.embeddings_cached, 0);
+
+    let warm_engine = SnapshotContextEngine::new(config).with_derived_cache_file(&cache_path);
+    let warm = warm_engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), warm_engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(warm.embeddings_computed, 0, "warm embed work is zero");
+    assert_eq!(warm.embeddings_cached, cold.embeddings_computed);
+    let index = warm_engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(index.semantic_vectors.is_some());
+}

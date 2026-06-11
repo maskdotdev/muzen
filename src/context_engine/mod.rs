@@ -1,5 +1,6 @@
 mod chunking;
 mod config;
+mod derived;
 mod engine;
 mod evidence;
 mod graph;
@@ -20,6 +21,7 @@ mod tools;
 
 pub use chunking::*;
 pub use config::*;
+pub use derived::*;
 pub use engine::*;
 pub use evidence::*;
 pub use graph::*;

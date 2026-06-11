@@ -173,6 +173,11 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long, default_value_t = 512)]
     pub(crate) max_embedding_inputs: usize,
 
+    /// Directory for the durable derived-data cache (R9). Re-indexing
+    /// an unchanged repo recomputes nothing; only changed files pay.
+    #[arg(long)]
+    pub(crate) derived_cache_root: Option<PathBuf>,
+
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
 }
@@ -755,7 +760,10 @@ async fn index_context_snapshot(
     crate::context_engine::ContextManifestArtifact,
 )> {
     let snapshot = build_context_snapshot(args)?;
-    let engine = SnapshotContextEngine::new(context_engine_config(args)?);
+    let mut engine = SnapshotContextEngine::new(context_engine_config(args)?);
+    if let Some(root) = &args.derived_cache_root {
+        engine = engine.with_derived_cache_file(root.join("context-derived-cache.json"));
+    }
     engine
         .index_snapshot(
             ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),

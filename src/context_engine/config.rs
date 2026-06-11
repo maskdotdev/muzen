@@ -36,6 +36,9 @@ pub struct ContextEngineConfig {
     pub graph_max_candidates_per_anchor: usize,
     /// Commits of history walked for co-change mining (0 disables).
     pub co_change_commit_limit: usize,
+    /// Entry cap per section (files, vectors) of the durable derived-data
+    /// cache (R9); least-recently-used entries are pruned at flush.
+    pub derived_cache_max_entries: usize,
     /// Ranking weight for evidence overlapping changed lines.
     pub weight_changed_span: f32,
     /// Ranking weight for reference-graph proximity to the change;
@@ -76,6 +79,7 @@ impl ContextEngineConfig {
             graph_max_hops: 2,
             graph_max_candidates_per_anchor: 16,
             co_change_commit_limit: 500,
+            derived_cache_max_entries: 100_000,
             weight_changed_span: 0.25,
             weight_graph_proximity: 0.20,
             weight_co_change: 0.15,

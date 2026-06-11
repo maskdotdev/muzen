@@ -8,12 +8,14 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
 use tree_sitter::{Language, Node, Parser};
 
 use super::ContextRange;
 
 /// One retrieval-unit chunk of a file. Lines are 1-based and inclusive.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct FileChunk {
     pub start_line: u32,
     pub end_line: u32,
@@ -317,7 +319,8 @@ fn merge_symbol_paths(left: Option<String>, right: Option<String>) -> Option<Str
 /// fields, and imports retained; function bodies elided to `...`.
 /// Each retained line carries its original 1-based line number so the
 /// view stays citable.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct SkeletonView {
     pub text: String,
     pub token_estimate: usize,

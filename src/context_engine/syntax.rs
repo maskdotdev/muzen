@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use super::chunking::{language_for_path, parse_tree};
@@ -20,6 +21,13 @@ pub struct ContextSymbolGraph {
 impl ContextSymbolGraph {
     pub fn add_file(&mut self, path: RepoPath, content: &str) -> ParsedSymbols {
         let parsed = parse_symbols(&path.display(), content);
+        self.add_parsed(path, &parsed);
+        parsed
+    }
+
+    /// Register already-parsed symbols (R9: cached derived data) without
+    /// re-parsing the file.
+    pub fn add_parsed(&mut self, path: RepoPath, parsed: &ParsedSymbols) {
         if !parsed.definitions.is_empty() {
             self.definitions_by_file
                 .insert(path.clone(), parsed.definitions.clone());
@@ -27,7 +35,6 @@ impl ContextSymbolGraph {
         if !parsed.imports.is_empty() {
             self.imports_by_file.insert(path, parsed.imports.clone());
         }
-        parsed
     }
 
     pub fn file_definitions(&self, path: &RepoPath) -> impl Iterator<Item = &str> {
@@ -39,7 +46,8 @@ impl ContextSymbolGraph {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ParsedSymbols {
     pub definitions: Vec<String>,
     pub definition_ranges: BTreeMap<String, ContextRange>,
@@ -53,7 +61,8 @@ pub struct ParsedSymbols {
 /// `module` is the language-level specifier (`crate::auth::token`,
 /// `./api`, `auth.tokens`); `None` when the statement has no resolvable
 /// specifier.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportStatement {
     pub module: Option<String>,
     pub names: Vec<String>,
