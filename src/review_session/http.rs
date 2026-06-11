@@ -122,38 +122,38 @@ impl ReviewSseFrame {
 }
 
 impl Muzen {
-    pub fn review_events_response(
+    pub async fn review_events_response(
         &self,
         review_id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-        review_events_response(self.store.as_ref(), review_id, after)
+        review_events_response(self.store.as_ref(), review_id, after).await
     }
 
-    pub fn review_events_sse_response(
+    pub async fn review_events_sse_response(
         &self,
         review_id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-        review_events_sse_response(self.store.as_ref(), review_id, after)
+        review_events_sse_response(self.store.as_ref(), review_id, after).await
     }
 }
 
 impl MuzenWorkspace {
-    pub fn review_events_response(
+    pub async fn review_events_response(
         &self,
         review_id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-        review_events_response(self.store.as_ref(), review_id, after)
+        review_events_response(self.store.as_ref(), review_id, after).await
     }
 
-    pub fn review_events_sse_response(
+    pub async fn review_events_sse_response(
         &self,
         review_id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-        review_events_sse_response(self.store.as_ref(), review_id, after)
+        review_events_sse_response(self.store.as_ref(), review_id, after).await
     }
 }
 
@@ -173,21 +173,21 @@ struct ReviewEventsBody {
     events: Vec<ReviewEvent>,
 }
 
-fn review_events_response(
+async fn review_events_response(
     store: &dyn super::ReviewSessionStore,
     review_id: &ReviewSessionId,
     after: Option<&str>,
 ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-    let events = store.events_after(review_id, after)?;
+    let events = store.events_after(review_id, after).await?;
     ReviewHttpResponse::json(HTTP_STATUS_OK, &ReviewEventsBody { events })
 }
 
-fn review_events_sse_response(
+async fn review_events_sse_response(
     store: &dyn super::ReviewSessionStore,
     review_id: &ReviewSessionId,
     after: Option<&str>,
 ) -> Result<ReviewHttpResponse, ReviewSessionError> {
-    let events = store.events_after(review_id, after)?;
+    let events = store.events_after(review_id, after).await?;
     let stream = ReviewSseStream::from_events(&events)?;
     Ok(ReviewHttpResponse::event_stream(&stream))
 }

@@ -113,67 +113,78 @@ impl ReviewHttpRouter {
         }
     }
 
-    pub fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
-        match self.try_handle(&request) {
+    pub async fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
+        match self.try_handle(&request).await {
             Ok(response) => response,
             Err(error) => error.into_response(),
         }
     }
 
-    pub fn try_handle(
+    pub async fn try_handle(
         &self,
         request: &ReviewHttpRequest,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         let segments = path_segments(&request.path)?;
         let segment_refs = segments.iter().map(String::as_str).collect::<Vec<_>>();
         match segment_refs.as_slice() {
-            ["v1", "reviews"] => self.handle_reviews_collection(request),
-            ["v1", "reviews", review_id] => self.handle_review(request, review_id),
-            ["v1", "reviews", review_id, "result"] => self.handle_review_result(request, review_id),
-            ["v1", "reviews", review_id, "cancel"] => self.handle_cancel(request, review_id),
-            ["v1", "reviews", review_id, "events"] => self.handle_review_events(request, review_id),
+            ["v1", "reviews"] => self.handle_reviews_collection(request).await,
+            ["v1", "reviews", review_id] => self.handle_review(request, review_id).await,
+            ["v1", "reviews", review_id, "result"] => {
+                self.handle_review_result(request, review_id).await
+            }
+            ["v1", "reviews", review_id, "cancel"] => self.handle_cancel(request, review_id).await,
+            ["v1", "reviews", review_id, "events"] => {
+                self.handle_review_events(request, review_id).await
+            }
             ["v1", "reviews", review_id, "events", "stream"] => {
-                self.handle_review_event_stream(request, review_id)
+                self.handle_review_event_stream(request, review_id).await
             }
             ["v1", "reviews", review_id, "artifacts", "export"] => {
-                self.handle_artifact_export(request, review_id)
+                self.handle_artifact_export(request, review_id).await
             }
             ["v1", "reviews", review_id, "artifacts", artifact_id] => {
                 self.handle_artifact_read(request, review_id, artifact_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "reviews"] => {
                 self.handle_workspace_reviews_collection(request, workspace_id)
+                    .await
             }
-            ["v1", "webhooks", provider] => self.handle_webhook(request, None, provider),
+            ["v1", "webhooks", provider] => self.handle_webhook(request, None, provider).await,
             ["v1", "workspaces", workspace_id, "webhooks", provider] => {
                 self.handle_webhook(request, Some(workspace_id), provider)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "models"] => {
                 self.handle_model_profiles_collection(request, workspace_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "models", name] => {
-                self.handle_model_profile(request, workspace_id, name)
+                self.handle_model_profile(request, workspace_id, name).await
             }
             ["v1", "workspaces", workspace_id, "providers"] => {
                 self.handle_provider_profiles_collection(request, workspace_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "providers", name] => {
                 self.handle_provider_profile(request, workspace_id, name)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "context", "index"] => {
-                self.handle_context_index(request, workspace_id)
+                self.handle_context_index(request, workspace_id).await
             }
             ["v1", "workspaces", workspace_id, "context", "packs"] => {
-                self.handle_context_pack(request, workspace_id)
+                self.handle_context_pack(request, workspace_id).await
             }
             ["v1", "workspaces", workspace_id, "context", "query"] => {
-                self.handle_context_query(request, workspace_id)
+                self.handle_context_query(request, workspace_id).await
             }
             ["v1", "workspaces", workspace_id, "context", "feedback"] => {
-                self.handle_context_feedback(request, workspace_id)
+                self.handle_context_feedback(request, workspace_id).await
             }
             ["v1", "workspaces", workspace_id, "context", "learnings", "approve"] => {
                 self.handle_context_learning_approval(request, workspace_id)
+                    .await
             }
             _ => Err(ReviewHttpRouteError::NotFound(format!(
                 "no Muzen route matches {} {}",
@@ -182,7 +193,7 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn handle_reviews_collection(
+    async fn handle_reviews_collection(
         &self,
         request: &ReviewHttpRequest,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
@@ -190,7 +201,8 @@ impl ReviewHttpRouter {
         let body: CreateReviewBody = json_body(request)?;
         let review = self
             .muzen
-            .schedule_review_with_options(body.source, body.options)?;
+            .schedule_review_with_options(body.source, body.options)
+            .await?;
         response_json(
             HTTP_STATUS_ACCEPTED,
             &ReviewResponse {
@@ -199,7 +211,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_workspace_reviews_collection(
+    async fn handle_workspace_reviews_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -209,7 +221,8 @@ impl ReviewHttpRouter {
         let review = self
             .muzen
             .workspace(workspace_id)
-            .schedule_review_with_options(body.source, body.options)?;
+            .schedule_review_with_options(body.source, body.options)
+            .await?;
         response_json(
             HTTP_STATUS_ACCEPTED,
             &ReviewResponse {
@@ -218,7 +231,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_review(
+    async fn handle_review(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -227,26 +240,26 @@ impl ReviewHttpRouter {
         response_json(
             HTTP_STATUS_OK,
             &ReviewResponse {
-                review: self.review_snapshot(review_id)?,
+                review: self.review_snapshot(review_id).await?,
             },
         )
     }
 
-    fn handle_review_result(
+    async fn handle_review_result(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
         let id = ReviewSessionId::new(review_id)?;
-        let record = self.review_record(&id)?;
+        let record = self.review_record(&id).await?;
         let Some(result) = record.result else {
             return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
         };
         response_json(HTTP_STATUS_OK, &ReviewResultResponse { result })
     }
 
-    fn handle_cancel(
+    async fn handle_cancel(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -254,7 +267,7 @@ impl ReviewHttpRouter {
         require_method(request, "POST")?;
         let options = optional_json_body::<ReviewCancelOptions>(request)?;
         let id = ReviewSessionId::new(review_id)?;
-        let record = self.muzen.store.request_cancellation(&id, options)?;
+        let record = self.muzen.store.request_cancellation(&id, options).await?;
         response_json(
             HTTP_STATUS_OK,
             &ReviewResponse {
@@ -263,7 +276,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_review_events(
+    async fn handle_review_events(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -272,10 +285,11 @@ impl ReviewHttpRouter {
         let id = ReviewSessionId::new(review_id)?;
         Ok(self
             .muzen
-            .review_events_response(&id, request.query("after"))?)
+            .review_events_response(&id, request.query("after"))
+            .await?)
     }
 
-    fn handle_review_event_stream(
+    async fn handle_review_event_stream(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -284,10 +298,11 @@ impl ReviewHttpRouter {
         let id = ReviewSessionId::new(review_id)?;
         Ok(self
             .muzen
-            .review_events_sse_response(&id, request.query("after"))?)
+            .review_events_sse_response(&id, request.query("after"))
+            .await?)
     }
 
-    fn handle_artifact_read(
+    async fn handle_artifact_read(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -295,7 +310,7 @@ impl ReviewHttpRouter {
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
         let id = ReviewSessionId::new(review_id)?;
-        let review = super::ReviewSession::from_record(self.review_record(&id)?);
+        let review = super::ReviewSession::from_record(self.review_record(&id).await?);
         let artifact = review.read_artifact(
             artifact_id,
             ReviewArtifactReadOptions {
@@ -305,19 +320,19 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ReviewArtifactResponse { artifact })
     }
 
-    fn handle_artifact_export(
+    async fn handle_artifact_export(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let id = ReviewSessionId::new(review_id)?;
-        let review = super::ReviewSession::from_record(self.review_record(&id)?);
+        let review = super::ReviewSession::from_record(self.review_record(&id).await?);
         let export = review.export_artifacts(optional_json_body(request)?)?;
         response_json(HTTP_STATUS_OK, &export)
     }
 
-    fn handle_webhook(
+    async fn handle_webhook(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: Option<&str>,
@@ -332,18 +347,26 @@ impl ReviewHttpRouter {
         );
         let workspace = self.muzen.workspace(workspace_id.unwrap_or("default"));
         let delivery = match provider {
-            "github" => workspace.handle_github_webhook(
-                &headers,
-                &request.body,
-                self.options.github_webhook_secret.as_deref(),
-                WebhookReviewOptions::new(ReviewOptions::default()),
-            )?,
-            "gitlab" => workspace.handle_gitlab_webhook(
-                &headers,
-                &request.body,
-                self.options.gitlab_webhook_secret.as_deref(),
-                WebhookReviewOptions::new(ReviewOptions::default()),
-            )?,
+            "github" => {
+                workspace
+                    .handle_github_webhook(
+                        &headers,
+                        &request.body,
+                        self.options.github_webhook_secret.as_deref(),
+                        WebhookReviewOptions::new(ReviewOptions::default()),
+                    )
+                    .await?
+            }
+            "gitlab" => {
+                workspace
+                    .handle_gitlab_webhook(
+                        &headers,
+                        &request.body,
+                        self.options.gitlab_webhook_secret.as_deref(),
+                        WebhookReviewOptions::new(ReviewOptions::default()),
+                    )
+                    .await?
+            }
             _ => {
                 return Err(ReviewHttpRouteError::NotFound(format!(
                     "unsupported webhook provider `{provider}`"
@@ -353,17 +376,21 @@ impl ReviewHttpRouter {
         Ok(delivery.http_response()?)
     }
 
-    fn handle_model_profiles_collection(
+    async fn handle_model_profiles_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
-        let profiles = self.muzen.workspace(workspace_id).list_model_profiles()?;
+        let profiles = self
+            .muzen
+            .workspace(workspace_id)
+            .list_model_profiles()
+            .await?;
         response_json(HTTP_STATUS_OK, &ModelProfilesResponse { profiles })
     }
 
-    fn handle_model_profile(
+    async fn handle_model_profile(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -372,12 +399,13 @@ impl ReviewHttpRouter {
         let workspace = self.muzen.workspace(workspace_id);
         match request.method.as_str() {
             "PUT" => {
-                let profile =
-                    workspace.set_model_profile(name, json_body::<ModelProfileInput>(request)?)?;
+                let profile = workspace
+                    .set_model_profile(name, json_body::<ModelProfileInput>(request)?)
+                    .await?;
                 response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
             }
             "GET" => {
-                let Some(profile) = workspace.get_model_profile(name)? else {
+                let Some(profile) = workspace.get_model_profile(name).await? else {
                     return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
                 };
                 response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
@@ -389,7 +417,7 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn handle_provider_profiles_collection(
+    async fn handle_provider_profiles_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -398,11 +426,12 @@ impl ReviewHttpRouter {
         let profiles = self
             .muzen
             .workspace(workspace_id)
-            .list_provider_profiles()?;
+            .list_provider_profiles()
+            .await?;
         response_json(HTTP_STATUS_OK, &ProviderProfilesResponse { profiles })
     }
 
-    fn handle_provider_profile(
+    async fn handle_provider_profile(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -412,11 +441,12 @@ impl ReviewHttpRouter {
         match request.method.as_str() {
             "PUT" => {
                 let profile = workspace
-                    .set_provider_profile(name, json_body::<ProviderProfileInput>(request)?)?;
+                    .set_provider_profile(name, json_body::<ProviderProfileInput>(request)?)
+                    .await?;
                 response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
             }
             "GET" => {
-                let Some(profile) = workspace.get_provider_profile(name)? else {
+                let Some(profile) = workspace.get_provider_profile(name).await? else {
                     return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
                 };
                 response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
@@ -428,7 +458,7 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn handle_context_index(
+    async fn handle_context_index(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -439,7 +469,7 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ContextIndexResponse { manifest })
     }
 
-    fn handle_context_pack(
+    async fn handle_context_pack(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -468,7 +498,7 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ContextPackResponse { pack })
     }
 
-    fn handle_context_query(
+    async fn handle_context_query(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -500,7 +530,7 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ContextQueryResponse { result })
     }
 
-    fn handle_context_feedback(
+    async fn handle_context_feedback(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -526,7 +556,7 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ContextFeedbackResponse { receipt })
     }
 
-    fn handle_context_learning_approval(
+    async fn handle_context_learning_approval(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -615,21 +645,22 @@ impl ReviewHttpRouter {
             })
     }
 
-    fn review_snapshot(
+    async fn review_snapshot(
         &self,
         review_id: &str,
     ) -> Result<ReviewSessionSnapshot, ReviewHttpRouteError> {
         let id = ReviewSessionId::new(review_id)?;
-        Ok(super::ReviewSession::from_record(self.review_record(&id)?).refresh())
+        Ok(super::ReviewSession::from_record(self.review_record(&id).await?).refresh())
     }
 
-    fn review_record(
+    async fn review_record(
         &self,
         id: &ReviewSessionId,
     ) -> Result<super::ReviewSessionRecord, ReviewHttpRouteError> {
         self.muzen
             .store
-            .get(id)?
+            .get(id)
+            .await?
             .ok_or_else(|| ReviewHttpRouteError::NotFound(format!("unknown review session `{id}`")))
     }
 }

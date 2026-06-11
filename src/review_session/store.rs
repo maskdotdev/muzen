@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -9,9 +11,11 @@ use super::{
     ReviewSessionError, ReviewSessionId, ReviewSource, ReviewStatus,
 };
 
+mod libsql;
 mod memory;
 mod postgres;
 
+pub use libsql::{LibsqlReviewSessionStore, LibsqlWorkspaceProfileStore};
 pub use memory::InMemoryReviewSessionStore;
 pub use postgres::PostgresReviewSessionStore;
 
@@ -298,49 +302,53 @@ impl ReviewAttemptFailure {
     }
 }
 
+#[async_trait]
 pub trait ReviewSessionStore: Send + Sync {
-    fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError>;
+    async fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError>;
 
-    fn get(&self, id: &ReviewSessionId) -> Result<Option<ReviewSessionRecord>, ReviewSessionError>;
+    async fn get(
+        &self,
+        id: &ReviewSessionId,
+    ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError>;
 
-    fn get_by_dedupe_key(
+    async fn get_by_dedupe_key(
         &self,
         dedupe_key: &str,
     ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError>;
 
-    fn append_events(
+    async fn append_events(
         &self,
         id: &ReviewSessionId,
         events: Vec<ReviewEvent>,
     ) -> Result<(), ReviewSessionError>;
 
-    fn events_after(
+    async fn events_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<Vec<ReviewEvent>, ReviewSessionError>;
 
-    fn append_logs(
+    async fn append_logs(
         &self,
         id: &ReviewSessionId,
         logs: Vec<ReviewLogEntry>,
         redaction: ReviewLogRedactionPolicy,
     ) -> Result<(), ReviewSessionError>;
 
-    fn logs_after(
+    async fn logs_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError>;
 
-    fn write_result(
+    async fn write_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
         result: ReviewResult,
     ) -> Result<(), ReviewSessionError>;
 
-    fn write_execution_result(
+    async fn write_execution_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
@@ -350,28 +358,90 @@ pub trait ReviewSessionStore: Send + Sync {
         raw_artifacts: Vec<ReviewArtifact>,
     ) -> Result<ReviewSessionRecord, ReviewSessionError>;
 
-    fn request_cancellation(
+    async fn request_cancellation(
         &self,
         id: &ReviewSessionId,
         options: ReviewCancelOptions,
     ) -> Result<ReviewSessionRecord, ReviewSessionError>;
 
-    fn claim_ready(
+    async fn claim_ready(
         &self,
         options: ReviewWorkerClaimOptions,
     ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError>;
 
-    fn extend_lease(
+    async fn extend_lease(
         &self,
         id: &ReviewSessionId,
         options: ReviewLeaseExtension,
     ) -> Result<ReviewWorkerLease, ReviewSessionError>;
 
-    fn record_attempt_failure(
+    async fn record_attempt_failure(
         &self,
         id: &ReviewSessionId,
         failure: ReviewAttemptFailure,
     ) -> Result<ReviewSessionRecord, ReviewSessionError>;
+}
+
+pub const DEFAULT_MUZEN_STORE_URL: &str = "sqlite://.muzen/muzen.db";
+pub const MUZEN_STORE_URL_ENV: &str = "MUZEN_STORE_URL";
+
+pub struct MuzenStoreBundle {
+    pub session_store: std::sync::Arc<dyn ReviewSessionStore>,
+    pub profile_store: std::sync::Arc<dyn super::WorkspaceProfileStore>,
+}
+
+impl std::fmt::Debug for MuzenStoreBundle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MuzenStoreBundle")
+            .finish_non_exhaustive()
+    }
+}
+
+pub async fn stores_from_url(store_url: &str) -> Result<MuzenStoreBundle, ReviewSessionError> {
+    let store_url = store_url.trim();
+    if store_url == "memory://" {
+        return Ok(MuzenStoreBundle {
+            session_store: std::sync::Arc::new(InMemoryReviewSessionStore::default()),
+            profile_store: std::sync::Arc::new(super::InMemoryWorkspaceProfileStore::default()),
+        });
+    }
+    if let Some(path) = sqlite_path_from_url(store_url) {
+        let path = path?;
+        return Ok(MuzenStoreBundle {
+            session_store: std::sync::Arc::new(LibsqlReviewSessionStore::connect(&path).await?),
+            profile_store: std::sync::Arc::new(LibsqlWorkspaceProfileStore::connect(&path).await?),
+        });
+    }
+    if store_url.starts_with("postgres://") || store_url.starts_with("postgresql://") {
+        return Ok(MuzenStoreBundle {
+            session_store: std::sync::Arc::new(PostgresReviewSessionStore::connect(store_url)?),
+            profile_store: std::sync::Arc::new(super::PostgresWorkspaceProfileStore::connect(
+                store_url,
+            )?),
+        });
+    }
+    Err(ReviewSessionError::Store(format!(
+        "unsupported Muzen store URL `{store_url}`"
+    )))
+}
+
+pub fn sqlite_path_from_url(store_url: &str) -> Option<Result<PathBuf, ReviewSessionError>> {
+    let raw_path = store_url.strip_prefix("sqlite://")?;
+    if raw_path.trim().is_empty() {
+        return Some(Err(ReviewSessionError::Store(
+            "sqlite store URL must include a database path".to_string(),
+        )));
+    }
+    if raw_path.starts_with("libsql:")
+        || raw_path.starts_with("http:")
+        || raw_path.starts_with("https:")
+    {
+        return Some(Err(ReviewSessionError::Store(
+            "sqlite store URL only supports local file paths in v1".to_string(),
+        )));
+    }
+    Some(Ok(Path::new(raw_path).to_path_buf()))
 }
 
 #[derive(Debug, Default)]

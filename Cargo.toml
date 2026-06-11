@@ -17,6 +17,7 @@ futures = "0.3.31"
 hmac = "0.12.1"
 ignore = "0.4.25"
 libc = "0.2.177"
+libsql = { version = "0.9", default-features = false, features = ["core"] }
 memchr = "2.7.6"
 moka = { version = "0.12.11", features = ["future"] }
 num_cpus = "1.17.0"

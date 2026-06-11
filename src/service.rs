@@ -52,7 +52,11 @@ async fn handle_muzen_request(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    review_response_to_axum(router.handle(review_request_from_axum(method, uri, headers, body)))
+    review_response_to_axum(
+        router
+            .handle(review_request_from_axum(method, uri, headers, body))
+            .await,
+    )
 }
 
 fn review_request_from_axum(

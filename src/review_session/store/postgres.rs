@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use ::postgres::{Client, GenericClient, NoTls, Row};
+use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -74,8 +75,9 @@ impl PostgresReviewSessionStore {
     }
 }
 
+#[async_trait]
 impl ReviewSessionStore for PostgresReviewSessionStore {
-    fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
+    async fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
         let mut client = self.lock_client()?;
         let mut transaction = client.transaction().map_err(postgres_store_error)?;
         upsert_postgres_record(&mut transaction, &record)?;
@@ -83,12 +85,15 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(())
     }
 
-    fn get(&self, id: &ReviewSessionId) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
+    async fn get(
+        &self,
+        id: &ReviewSessionId,
+    ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
         let mut client = self.lock_client()?;
         postgres_record(&mut *client, id, false)
     }
 
-    fn get_by_dedupe_key(
+    async fn get_by_dedupe_key(
         &self,
         dedupe_key: &str,
     ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
@@ -105,7 +110,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
             .transpose()
     }
 
-    fn append_events(
+    async fn append_events(
         &self,
         id: &ReviewSessionId,
         events: Vec<ReviewEvent>,
@@ -120,7 +125,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(())
     }
 
-    fn events_after(
+    async fn events_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
@@ -130,7 +135,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         postgres_events_after(&mut *client, id, after)
     }
 
-    fn append_logs(
+    async fn append_logs(
         &self,
         id: &ReviewSessionId,
         logs: Vec<ReviewLogEntry>,
@@ -157,7 +162,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(())
     }
 
-    fn logs_after(
+    async fn logs_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
@@ -167,7 +172,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         postgres_logs_after(&mut *client, id, after)
     }
 
-    fn write_result(
+    async fn write_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
@@ -185,7 +190,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(())
     }
 
-    fn write_execution_result(
+    async fn write_execution_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
@@ -214,7 +219,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(record)
     }
 
-    fn request_cancellation(
+    async fn request_cancellation(
         &self,
         id: &ReviewSessionId,
         options: ReviewCancelOptions,
@@ -243,7 +248,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(record)
     }
 
-    fn claim_ready(
+    async fn claim_ready(
         &self,
         options: ReviewWorkerClaimOptions,
     ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError> {
@@ -328,7 +333,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(claims)
     }
 
-    fn extend_lease(
+    async fn extend_lease(
         &self,
         id: &ReviewSessionId,
         options: ReviewLeaseExtension,
@@ -366,7 +371,7 @@ impl ReviewSessionStore for PostgresReviewSessionStore {
         Ok(lease)
     }
 
-    fn record_attempt_failure(
+    async fn record_attempt_failure(
         &self,
         id: &ReviewSessionId,
         failure: ReviewAttemptFailure,

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 
@@ -118,39 +119,40 @@ impl ProviderProfile {
     }
 }
 
+#[async_trait]
 pub trait WorkspaceProfileStore: Send + Sync {
-    fn set_model_profile(
+    async fn set_model_profile(
         &self,
         workspace_id: &str,
         name: String,
         input: ModelProfileInput,
     ) -> Result<ModelProfile, ReviewSessionError>;
 
-    fn get_model_profile(
+    async fn get_model_profile(
         &self,
         workspace_id: &str,
         name: &str,
     ) -> Result<Option<ModelProfile>, ReviewSessionError>;
 
-    fn list_model_profiles(
+    async fn list_model_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ModelProfile>, ReviewSessionError>;
 
-    fn set_provider_profile(
+    async fn set_provider_profile(
         &self,
         workspace_id: &str,
         name: String,
         input: ProviderProfileInput,
     ) -> Result<ProviderProfile, ReviewSessionError>;
 
-    fn get_provider_profile(
+    async fn get_provider_profile(
         &self,
         workspace_id: &str,
         name: &str,
     ) -> Result<Option<ProviderProfile>, ReviewSessionError>;
 
-    fn list_provider_profiles(
+    async fn list_provider_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ProviderProfile>, ReviewSessionError>;
@@ -167,8 +169,9 @@ struct ProfileStoreState {
     providers: BTreeMap<(String, String), ProviderProfile>,
 }
 
+#[async_trait]
 impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
-    fn set_model_profile(
+    async fn set_model_profile(
         &self,
         workspace_id: &str,
         name: String,
@@ -203,7 +206,7 @@ impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
         Ok(profile)
     }
 
-    fn get_model_profile(
+    async fn get_model_profile(
         &self,
         workspace_id: &str,
         name: &str,
@@ -215,7 +218,7 @@ impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
             .cloned())
     }
 
-    fn list_model_profiles(
+    async fn list_model_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ModelProfile>, ReviewSessionError> {
@@ -228,7 +231,7 @@ impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
             .collect())
     }
 
-    fn set_provider_profile(
+    async fn set_provider_profile(
         &self,
         workspace_id: &str,
         name: String,
@@ -257,7 +260,7 @@ impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
         Ok(profile)
     }
 
-    fn get_provider_profile(
+    async fn get_provider_profile(
         &self,
         workspace_id: &str,
         name: &str,
@@ -269,7 +272,7 @@ impl WorkspaceProfileStore for InMemoryWorkspaceProfileStore {
             .cloned())
     }
 
-    fn list_provider_profiles(
+    async fn list_provider_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
@@ -330,8 +333,9 @@ impl PostgresWorkspaceProfileStore {
     }
 }
 
+#[async_trait]
 impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
-    fn set_model_profile(
+    async fn set_model_profile(
         &self,
         workspace_id: &str,
         name: String,
@@ -395,7 +399,7 @@ impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
         Ok(profile)
     }
 
-    fn get_model_profile(
+    async fn get_model_profile(
         &self,
         workspace_id: &str,
         name: &str,
@@ -412,7 +416,7 @@ impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
             .transpose()
     }
 
-    fn list_model_profiles(
+    async fn list_model_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ModelProfile>, ReviewSessionError> {
@@ -430,7 +434,7 @@ impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
             .collect()
     }
 
-    fn set_provider_profile(
+    async fn set_provider_profile(
         &self,
         workspace_id: &str,
         name: String,
@@ -488,7 +492,7 @@ impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
         Ok(profile)
     }
 
-    fn get_provider_profile(
+    async fn get_provider_profile(
         &self,
         workspace_id: &str,
         name: &str,
@@ -505,7 +509,7 @@ impl WorkspaceProfileStore for PostgresWorkspaceProfileStore {
             .transpose()
     }
 
-    fn list_provider_profiles(
+    async fn list_provider_profiles(
         &self,
         workspace_id: &str,
     ) -> Result<Vec<ProviderProfile>, ReviewSessionError> {
