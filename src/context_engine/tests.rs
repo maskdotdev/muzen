@@ -498,6 +498,130 @@ async fn local_semantic_mode_builds_vector_index_for_search() {
         .evidence
         .iter()
         .any(|evidence| evidence.path.as_ref().unwrap().display() == "lib.rs"));
+    let fusion = result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("fusion"))
+        .and_then(|fusion| fusion.as_array())
+        .expect("local semantic search reports fusion ranks");
+    assert!(fusion
+        .iter()
+        .any(|trace| trace.get("semanticRank").is_some() && trace.get("lexicalRank").is_some()));
+}
+
+#[tokio::test]
+async fn no_vector_search_is_pure_bm25_with_lexical_only_fusion_ranks() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repo.path().join("lib.rs"),
+        "pub fn authorize_request() -> bool { true }\npub fn unrelated() {}\n",
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(index.semantic_vectors.is_none());
+
+    let config = ContextEngineConfig::snapshot_v0();
+    let bm25 = index
+        .lexical
+        .search("authorizeRequest", 10, config.bm25_k1, config.bm25_b);
+    assert!(!bm25.is_empty());
+
+    let result = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::Correctness),
+                kind: ContextQueryKind::SearchText,
+                arguments: serde_json::json!({"query": "authorizeRequest"}),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let returned_ids = result
+        .evidence
+        .iter()
+        .map(|evidence| evidence.id.0.clone())
+        .collect::<Vec<_>>();
+    let bm25_ids = bm25
+        .iter()
+        .take(returned_ids.len())
+        .map(|(id, _score)| id.0.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(returned_ids, bm25_ids);
+    let fusion = result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("fusion"))
+        .and_then(|fusion| fusion.as_array())
+        .expect("search reports fusion ranks");
+    assert!(fusion
+        .iter()
+        .all(|trace| trace.get("semanticRank").is_none() && trace.get("lexicalRank").is_some()));
+}
+
+#[tokio::test]
+async fn fused_search_records_restricted_evidence_as_omission() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repo.path().join("lib.rs"),
+        "pub fn authorize_request() -> bool { true }\n",
+    )
+    .unwrap();
+    let snapshot = build_snapshot(repo.path(), vec!["lib.rs"]);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    let config = ContextEngineConfig::snapshot_v0();
+    let top = index
+        .lexical
+        .search("authorize_request", 1, config.bm25_k1, config.bm25_b)
+        .first()
+        .map(|(id, _score)| id.clone())
+        .expect("query matches evidence");
+    for evidence in &mut index.evidence {
+        if evidence.id == top {
+            evidence.sensitivity = ContextSensitivity::Restricted;
+        }
+    }
+
+    let outcome = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(outcome.evidence.iter().all(|evidence| evidence.id != top));
+    assert!(outcome
+        .omissions
+        .iter()
+        .any(|omission| omission.evidence_id == top.0 && omission.reason == "restricted"));
 }
 
 #[tokio::test]

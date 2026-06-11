@@ -27,6 +27,8 @@ pub struct ContextEngineConfig {
     pub bm25_k1: f32,
     /// BM25 document-length normalization constant.
     pub bm25_b: f32,
+    /// Reciprocal Rank Fusion constant: `score = sum 1 / (rrf_k + rank)`.
+    pub rrf_k: f32,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -53,6 +55,7 @@ impl ContextEngineConfig {
             max_chunks_per_file: 64,
             bm25_k1: 1.2,
             bm25_b: 0.75,
+            rrf_k: 60.0,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,
