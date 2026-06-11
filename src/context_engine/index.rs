@@ -10,10 +10,11 @@ use crate::runtime::contracts::{
 };
 use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
+use super::chunking::{chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, FileChunk};
 use super::{
     context_embedding_text, validate_embedding_batch, ContextEngineConfig, ContextEvidence,
-    ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRevision,
-    ContextScope, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
+    ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRange,
+    ContextRevision, ContextScope, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
     ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider, HostedEmbeddingProvider,
     InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
@@ -70,6 +71,8 @@ pub struct ContextLimits {
     pub max_evidence_items: usize,
     pub max_pack_tokens: usize,
     pub max_query_results: usize,
+    pub chunk_max_tokens: usize,
+    pub max_chunks_per_file: usize,
 }
 
 impl ContextLimits {
@@ -80,6 +83,8 @@ impl ContextLimits {
             max_evidence_items: config.max_evidence_items,
             max_pack_tokens: config.max_pack_tokens,
             max_query_results: config.max_query_results,
+            chunk_max_tokens: config.chunk_max_tokens,
+            max_chunks_per_file: config.max_chunks_per_file,
         }
     }
 }
@@ -144,6 +149,9 @@ pub enum ContextIndexSkipReason {
     BinaryFile,
     Unavailable,
     BudgetExceeded,
+    /// Some of the file's chunks were dropped to respect chunk or
+    /// evidence-count budgets.
+    ChunkBudgetExceeded,
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +186,7 @@ impl ContextIndex {
         let mut rule_count = 0usize;
         let diff_hunk_count = count_diff_hunks(&snapshot.diff.content);
 
+        let hunk_ranges = diff_hunk_ranges(&snapshot.diff.content);
         for file in &snapshot.manifest.files {
             if indexed_files >= request.limits.max_indexed_files
                 || indexed_bytes as usize >= request.limits.max_indexed_bytes
@@ -200,33 +209,65 @@ impl ContextIndex {
                     if kind == ContextEvidenceKind::RepositoryRule {
                         rule_count += 1;
                     }
-                    evidence.push(file_evidence(&snapshot, file, kind));
-                    if let Ok((bytes, _truncated)) =
-                        snapshot.read_bounded(file.file_id, request.limits.max_indexed_bytes)
-                    {
-                        if let Ok(content) = String::from_utf8(bytes) {
-                            let parsed_symbols =
-                                symbol_graph.add_file(file.rel_path.clone(), &content);
-                            if file.is_changed {
-                                for symbol in parsed_symbols.definitions.iter().take(
-                                    request
-                                        .limits
-                                        .max_evidence_items
-                                        .saturating_sub(evidence.len()),
-                                ) {
-                                    evidence.push(symbol_evidence(
-                                        &snapshot,
-                                        file,
-                                        symbol,
-                                        parsed_symbols.definition_ranges.get(symbol).copied(),
-                                    ));
-                                    if evidence.len() >= request.limits.max_evidence_items {
-                                        break;
-                                    }
+                    let file_hunks = hunk_ranges
+                        .get(&file.rel_path.display())
+                        .map(Vec::as_slice)
+                        .unwrap_or(&[]);
+                    let content = snapshot
+                        .read_bounded(file.file_id, request.limits.max_indexed_bytes)
+                        .ok()
+                        .and_then(|(bytes, _truncated)| String::from_utf8(bytes).ok());
+                    match content {
+                        Some(content) if chunked_kind(kind, &content) => {
+                            let chunks = chunk_file(
+                                &file.rel_path.display(),
+                                &content,
+                                request.limits.chunk_max_tokens,
+                            );
+                            let mut emitted = 0usize;
+                            let mut truncated = false;
+                            for chunk in &chunks {
+                                if emitted >= request.limits.max_chunks_per_file
+                                    || evidence.len() >= request.limits.max_evidence_items
+                                {
+                                    truncated = true;
+                                    break;
                                 }
+                                evidence
+                                    .push(chunk_evidence(&snapshot, file, kind, chunk, file_hunks));
+                                emitted += 1;
                             }
+                            if truncated {
+                                skips.push(ContextIndexSkip {
+                                    path: file.rel_path.clone(),
+                                    reason: ContextIndexSkipReason::ChunkBudgetExceeded,
+                                });
+                            }
+                            index_symbols(
+                                &snapshot,
+                                file,
+                                &content,
+                                file_hunks,
+                                &mut symbol_graph,
+                                &mut evidence,
+                                request.limits.max_evidence_items,
+                            );
                             file_contents.insert(file.rel_path.clone(), content);
                         }
+                        Some(content) => {
+                            evidence.push(file_evidence(&snapshot, file, kind));
+                            index_symbols(
+                                &snapshot,
+                                file,
+                                &content,
+                                file_hunks,
+                                &mut symbol_graph,
+                                &mut evidence,
+                                request.limits.max_evidence_items,
+                            );
+                            file_contents.insert(file.rel_path.clone(), content);
+                        }
+                        None => evidence.push(file_evidence(&snapshot, file, kind)),
                     }
                 }
                 SnapshotCaptureStatus::NotTextCandidate => skips.push(ContextIndexSkip {
@@ -258,6 +299,7 @@ impl ContextIndex {
                 range: None,
                 content_hash: Some(snapshot.diff.content_hash.clone()),
                 summary: Some("Review diff manifest".to_string()),
+                is_changed_span: true,
                 token_estimate: estimate_tokens(snapshot.diff.content.len()),
                 provenance: ContextProvenance {
                     provider: "snapshot_diff".to_string(),
@@ -387,10 +429,12 @@ async fn build_semantic_vectors(
                 .path
                 .as_ref()
                 .and_then(|path| file_contents.get(path))
-                .map(String::as_str);
+                .map(|content| {
+                    super::chunking::slice_evidence_lines(content, evidence.range.as_ref())
+                });
             EmbeddingInput {
                 id: evidence.id.0.clone(),
-                text: context_embedding_text(evidence, content),
+                text: context_embedding_text(evidence, content.as_deref()),
                 sensitivity: evidence.sensitivity,
             }
         })
@@ -455,6 +499,7 @@ fn cross_repo_contract_evidence(
             candidate.repository,
             concise_text(&candidate.summary)
         )),
+        is_changed_span: false,
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "cross_repo_provider".to_string(),
@@ -500,6 +545,7 @@ fn host_instruction_evidence(
         range: None,
         content_hash: Some(stable_id(&[text])),
         summary: Some(format!("host {}: {}", instruction.kind, concise_text(text))),
+        is_changed_span: false,
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "host_instruction".to_string(),
@@ -546,6 +592,7 @@ fn host_metadata_evidence(
         range: None,
         content_hash: Some(stable_id(&[&text])),
         summary: Some(format!("host metadata {key}: {}", concise_text(&text))),
+        is_changed_span: false,
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "host_metadata".to_string(),
@@ -606,11 +653,121 @@ fn concise_text(text: &str) -> String {
     output
 }
 
+/// Kinds whose retrieval unit is the AST chunk. Repository guidance is
+/// always a whole-file unit; configs and docs stay whole-file while small.
+fn chunked_kind(kind: ContextEvidenceKind, content: &str) -> bool {
+    const WHOLE_FILE_MAX_TOKENS: usize = 1_600;
+    match kind {
+        ContextEvidenceKind::FileSpan | ContextEvidenceKind::Test => true,
+        ContextEvidenceKind::Config | ContextEvidenceKind::Doc => {
+            estimate_tokens(content.len()) > WHOLE_FILE_MAX_TOKENS
+        }
+        _ => false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn index_symbols(
+    snapshot: &RepoSnapshot,
+    file: &FileMeta,
+    content: &str,
+    file_hunks: &[ContextRange],
+    symbol_graph: &mut ContextSymbolGraph,
+    evidence: &mut Vec<ContextEvidence>,
+    max_evidence_items: usize,
+) {
+    let parsed_symbols = symbol_graph.add_file(file.rel_path.clone(), content);
+    if !file.is_changed {
+        return;
+    }
+    for symbol in &parsed_symbols.definitions {
+        if evidence.len() >= max_evidence_items {
+            break;
+        }
+        let range = parsed_symbols.definition_ranges.get(symbol).copied();
+        let is_changed_span = range
+            .map(|range| file_hunks.iter().any(|hunk| range_overlaps(&range, hunk)))
+            .unwrap_or(file.is_changed);
+        evidence.push(symbol_evidence(
+            snapshot,
+            file,
+            symbol,
+            range,
+            is_changed_span,
+        ));
+    }
+}
+
+fn chunk_evidence(
+    snapshot: &RepoSnapshot,
+    file: &FileMeta,
+    kind: ContextEvidenceKind,
+    chunk: &FileChunk,
+    file_hunks: &[ContextRange],
+) -> ContextEvidence {
+    let content_hash = stable_id(&[&chunk.text]);
+    let range = chunk.range();
+    let is_changed_span = file_hunks.iter().any(|hunk| range_overlaps(&range, hunk));
+    ContextEvidence {
+        id: EvidenceId(stable_id(&[
+            &snapshot.snapshot_id.0,
+            "chunk",
+            &file.rel_path.display(),
+            &chunk.start_line.to_string(),
+            &content_hash,
+        ])),
+        kind,
+        source: ContextEvidenceSource::Snapshot,
+        trust: ContextTrust::Kernel,
+        sensitivity: ContextSensitivity::Private,
+        scope: ContextScope::Snapshot,
+        path: Some(file.rel_path.clone()),
+        revision: Some(ContextRevision::head()),
+        range: Some(range),
+        content_hash: Some(content_hash),
+        summary: Some(chunk_summary(file, kind, chunk)),
+        is_changed_span,
+        token_estimate: chunk.token_estimate(),
+        provenance: ContextProvenance {
+            provider: "snapshot_chunk_v1".to_string(),
+            query: None,
+            tool_call_id: None,
+            snapshot_id: Some(snapshot.snapshot_id.0.clone()),
+            original_url: None,
+        },
+        created_at_utc: None,
+        expires_at_utc: None,
+    }
+}
+
+fn chunk_summary(file: &FileMeta, kind: ContextEvidenceKind, chunk: &FileChunk) -> String {
+    let mut summary = match &chunk.symbol_path {
+        Some(symbol_path) => format!(
+            "{symbol_path} in {} (lines {}-{})",
+            file.rel_path.display(),
+            chunk.start_line,
+            chunk.end_line
+        ),
+        None => format!(
+            "{kind:?} chunk of {} (lines {}-{})",
+            file.rel_path.display(),
+            chunk.start_line,
+            chunk.end_line
+        ),
+    };
+    if let Some(doc_line) = chunk.doc_line() {
+        summary.push_str(": ");
+        summary.push_str(doc_line);
+    }
+    summary
+}
+
 fn symbol_evidence(
     snapshot: &RepoSnapshot,
     file: &FileMeta,
     symbol: &str,
     range: Option<super::ContextRange>,
+    is_changed_span: bool,
 ) -> ContextEvidence {
     ContextEvidence {
         id: EvidenceId(stable_id(&[
@@ -629,6 +786,7 @@ fn symbol_evidence(
         range,
         content_hash: file.content_hash.clone(),
         summary: Some(format!("symbol {symbol} in {}", file.rel_path.display())),
+        is_changed_span,
         token_estimate: estimate_tokens(symbol.len()),
         provenance: ContextProvenance {
             provider: "snapshot_symbol_graph_v1".to_string(),
@@ -668,6 +826,7 @@ fn file_evidence(
         range: None,
         content_hash: file.content_hash.clone(),
         summary: Some(file_summary(file, kind)),
+        is_changed_span: file.is_changed,
         token_estimate: estimate_tokens(file.size as usize),
         provenance: ContextProvenance {
             provider: "repo_snapshot".to_string(),
@@ -698,12 +857,7 @@ fn evidence_kind_for_file(file: &FileMeta) -> ContextEvidenceKind {
 }
 
 fn file_summary(file: &FileMeta, kind: ContextEvidenceKind) -> String {
-    let changed = if file.is_changed {
-        "changed"
-    } else {
-        "unchanged"
-    };
-    format!("{changed} {:?} file {}", kind, file.rel_path.display())
+    format!("{kind:?} file {}", file.rel_path.display())
 }
 
 fn is_repository_guidance(path: &str) -> bool {
@@ -727,8 +881,4 @@ fn is_config_path(lower: &str) -> bool {
 
 fn count_diff_hunks(diff: &str) -> usize {
     diff.lines().filter(|line| line.starts_with("@@")).count()
-}
-
-pub(crate) fn estimate_tokens(bytes_or_chars: usize) -> usize {
-    bytes_or_chars.div_ceil(4).max(1)
 }

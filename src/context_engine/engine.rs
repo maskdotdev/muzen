@@ -17,14 +17,14 @@ use super::{explain_selected_evidence, purpose_name, rank_for_purpose, score_for
 use super::{learning_is_expired, redact_context_content};
 use super::{path_stem, related_symbol_score, related_symbol_terms};
 use super::{
-    ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidenceKind,
-    ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport, ContextIndexRequest,
-    ContextIndexStore, ContextLearning, ContextLearningApproval, ContextLearningApprovalReceipt,
-    ContextLearningScope, ContextLearningSource, ContextLearningStatus, ContextOmissionReason,
-    ContextPack, ContextPackId, ContextPackRequest, ContextQuery, ContextQueryKind,
-    ContextQueryResult, ContextSufficiency, ContextSufficiencyStatus, FileContextLearningStore,
-    InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
-    CONTEXT_ENGINE_VERSION,
+    ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
+    ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
+    ContextIndexRequest, ContextIndexStore, ContextLearning, ContextLearningApproval,
+    ContextLearningApprovalReceipt, ContextLearningScope, ContextLearningSource,
+    ContextLearningStatus, ContextOmissionReason, ContextPack, ContextPackId, ContextPackRequest,
+    ContextQuery, ContextQueryKind, ContextQueryResult, ContextRange, ContextSufficiency,
+    ContextSufficiencyStatus, FileContextLearningStore, InMemoryContextIndexStore,
+    InMemoryContextLearningStore, OmittedContextCandidate, CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -537,10 +537,23 @@ impl ContextEngine for SnapshotContextEngine {
                 })?;
                 let snippet =
                     redact_context_content(&read_line_span(content, start_line, end_line)?);
+                let requested = ContextRange {
+                    start_line: start_line.try_into().unwrap_or(u32::MAX),
+                    end_line: end_line.try_into().unwrap_or(u32::MAX),
+                };
+                let by_path =
+                    |evidence: &&ContextEvidence| evidence.path.as_ref() == Some(&repo_path);
                 let evidence = index
                     .evidence
                     .iter()
-                    .find(|evidence| evidence.path.as_ref() == Some(&repo_path))
+                    .filter(by_path)
+                    .find(|evidence| {
+                        evidence.range.as_ref().is_some_and(|range| {
+                            range.start_line <= requested.end_line
+                                && requested.start_line <= range.end_line
+                        })
+                    })
+                    .or_else(|| index.evidence.iter().find(by_path))
                     .cloned()
                     .into_iter()
                     .collect::<Vec<_>>();

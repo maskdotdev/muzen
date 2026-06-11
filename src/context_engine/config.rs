@@ -18,6 +18,11 @@ pub struct ContextEngineConfig {
     pub max_evidence_items: usize,
     pub max_pack_tokens: usize,
     pub max_query_results: usize,
+    /// Token budget for one AST-aligned chunk (the retrieval unit).
+    pub chunk_max_tokens: usize,
+    /// Cap on chunk evidence per file; the remainder is recorded as a
+    /// `chunk_budget_exceeded` skip.
+    pub max_chunks_per_file: usize,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -40,6 +45,8 @@ impl ContextEngineConfig {
             max_evidence_items: 5_000,
             max_pack_tokens: 12_000,
             max_query_results: 120,
+            chunk_max_tokens: 400,
+            max_chunks_per_file: 64,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,

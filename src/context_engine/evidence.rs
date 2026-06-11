@@ -120,6 +120,10 @@ pub struct ContextEvidence {
     pub content_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// True when this evidence overlaps a diff hunk in the change under
+    /// review. Structured replacement for "changed" markers in summaries.
+    #[serde(default)]
+    pub is_changed_span: bool,
     pub token_estimate: usize,
     pub provenance: ContextProvenance,
     #[serde(default, skip_serializing_if = "Option::is_none")]

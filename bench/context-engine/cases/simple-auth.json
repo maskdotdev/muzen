@@ -34,13 +34,13 @@
           "kind": "symbol",
           "path": "src/auth/token.rs",
           "startLine": 1,
-          "endLine": 1
+          "endLine": 4
         },
         {
           "kind": "symbol",
           "path": "src/auth/token.rs",
           "startLine": 6,
-          "endLine": 6
+          "endLine": 11
         }
       ],
       "strict": true

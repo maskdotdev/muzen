@@ -54,6 +54,14 @@ pub(crate) fn search_evidence(
     evidence
         .iter()
         .filter(|evidence| {
+            let content = evidence
+                .path
+                .as_ref()
+                .and_then(|path| file_contents.get(path))
+                .map(|content| {
+                    super::chunking::slice_evidence_lines(content, evidence.range.as_ref())
+                })
+                .unwrap_or_default();
             let haystack = format!(
                 "{} {} {}",
                 evidence
@@ -62,12 +70,7 @@ pub(crate) fn search_evidence(
                     .map(|path| path.display())
                     .unwrap_or_default(),
                 evidence.summary.as_deref().unwrap_or(""),
-                evidence
-                    .path
-                    .as_ref()
-                    .and_then(|path| file_contents.get(path))
-                    .map(String::as_str)
-                    .unwrap_or("")
+                content
             )
             .to_ascii_lowercase();
             terms.iter().any(|term| haystack.contains(term))
@@ -100,8 +103,11 @@ pub(crate) async fn merge_semantic_search(
                 .path
                 .as_ref()
                 .and_then(|path| file_contents.get(path))
-                .map(String::as_str);
-            let candidate_text = context_embedding_text(candidate, content).to_ascii_lowercase();
+                .map(|content| {
+                    super::chunking::slice_evidence_lines(content, candidate.range.as_ref())
+                });
+            let candidate_text =
+                context_embedding_text(candidate, content.as_deref()).to_ascii_lowercase();
             if query
                 .split_whitespace()
                 .any(|term| candidate_text.contains(&term.to_ascii_lowercase()))
