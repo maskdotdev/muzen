@@ -3,10 +3,15 @@
 This directory holds the implementation plan for making the Context Engine a
 first-class Muzen primitive.
 
-Current artifact:
+Current artifacts:
 
 - `implementation-plan.md`: detailed design, module shape, rollout phases,
   tests, event/artifact contracts, and review checklist.
+- `sota-retrieval-plan.md`: follow-up plan that upgrades the retrieval core
+  to state-of-the-art quality (AST chunking, BM25, rank fusion,
+  change-rooted graph expansion, structural sufficiency, skeletons,
+  real embeddings, incremental indexing), gated phase-by-phase on an
+  expanded benchmark corpus.
 
 The short decision: build one deep core module inside Muzen that is used by
 review runs first, then expose standalone CLI, SDK, and HTTP adapters once the

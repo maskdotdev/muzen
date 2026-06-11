@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-d90e6f735c06",
+  "repoSource": {
+    "kind": "git",
+    "commit": "d90e6f735c069eda0969a440d3f40d94bcf7a4f5"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/http.rs"
+  ],
+  "description": "Mined pair: base d90e6f735c06 (feat: add review http response core) followed by dbb980d034b9 (feat: add local webhook runner facade).",
+  "minedFrom": {
+    "baseCommit": "d90e6f735c069eda0969a440d3f40d94bcf7a4f5",
+    "followUpCommit": "dbb980d034b9d12fb82817f57541f9e2e1eea00b"
+  },
+  "cases": [
+    {
+      "id": "mined-d90e6f735c06-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts",
+        "src/runner.rs",
+        "src/runner/protocol.rs",
+        "src/runner/schema.rs",
+        "src/runner/session.rs",
+        "src/runner/types.rs"
+      ]
+    }
+  ]
+}

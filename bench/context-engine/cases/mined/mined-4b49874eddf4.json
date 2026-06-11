@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-4b49874eddf4",
+  "repoSource": {
+    "kind": "git",
+    "commit": "4b49874eddf42dc1a2c60d7500af5353596803b6"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/session.rs",
+    "src/review_session/worker.rs"
+  ],
+  "description": "Mined pair: base 4b49874eddf4 (refactor: extract review session module) followed by 923af0ac59e7 (refactor: extract in-memory review store).",
+  "minedFrom": {
+    "baseCommit": "4b49874eddf42dc1a2c60d7500af5353596803b6",
+    "followUpCommit": "923af0ac59e748e437f72529b2ba0e0f7ad72eae"
+  },
+  "cases": [
+    {
+      "id": "mined-4b49874eddf4-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/store.rs"
+      ]
+    }
+  ]
+}

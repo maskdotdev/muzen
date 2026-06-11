@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-575d728bf3ae",
+  "repoSource": {
+    "kind": "git",
+    "commit": "575d728bf3ae064326ac765c35943a572f213262"
+  },
+  "changedFiles": [
+    "sdk/python/tests/test_protocol_contract.py",
+    "sdk/typescript/packages/muzen-sdk/src/protocol-contract.test.ts",
+    "src/runner.rs",
+    "src/runner/schema.rs",
+    "src/runner/types.rs"
+  ],
+  "description": "Mined pair: base 575d728bf3ae (refactor: add runner wire contract schema) followed by a011c3507ee0 (refactor: extract typescript remote adapter).",
+  "minedFrom": {
+    "baseCommit": "575d728bf3ae064326ac765c35943a572f213262",
+    "followUpCommit": "a011c3507ee0ed7e713613ff1b09306b3b69e47d"
+  },
+  "cases": [
+    {
+      "id": "mined-575d728bf3ae-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts"
+      ]
+    }
+  ]
+}

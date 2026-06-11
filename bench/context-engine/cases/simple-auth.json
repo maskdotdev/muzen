@@ -1,8 +1,13 @@
 {
-  "schemaVersion": "muzen.context-eval-case.v1",
+  "schemaVersion": "muzen.context-eval-case.v2",
   "name": "simple-auth",
-  "repo": "fixtures/context-engine/simple-auth",
-  "changedFiles": ["src/auth/token.rs"],
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/simple-auth"
+  },
+  "changedFiles": [
+    "src/auth/token.rs"
+  ],
   "description": "Small Rust auth fixture for smoke-testing deterministic snapshot retrieval.",
   "cases": [
     {
@@ -10,14 +15,20 @@
       "kind": "related-tests",
       "path": "src/auth/token.rs",
       "maxResults": 5,
-      "expectedPaths": ["tests/auth_token_test.rs"]
+      "expectedPaths": [
+        "tests/auth_token_test.rs"
+      ],
+      "strict": true
     },
     {
       "id": "auth-token-importers",
       "kind": "related-symbols",
       "path": "src/auth/token.rs",
       "maxResults": 10,
-      "expectedPaths": ["src/routes.rs", "src/auth/token.rs"],
+      "expectedPaths": [
+        "src/routes.rs",
+        "src/auth/token.rs"
+      ],
       "expectedRanges": [
         {
           "kind": "symbol",
@@ -31,14 +42,18 @@
           "startLine": 6,
           "endLine": 6
         }
-      ]
+      ],
+      "strict": true
     },
     {
       "id": "auth-token-text-search",
       "kind": "search-text",
       "query": "expires_at",
       "maxResults": 5,
-      "expectedPaths": ["src/auth/token.rs"]
+      "expectedPaths": [
+        "src/auth/token.rs"
+      ],
+      "strict": true
     },
     {
       "id": "auth-token-local-semantic-search",
@@ -47,7 +62,10 @@
       "maxResults": 5,
       "localSemantic": true,
       "maxEmbeddingInputs": 64,
-      "expectedPaths": ["src/auth/token.rs"]
+      "expectedPaths": [
+        "src/auth/token.rs"
+      ],
+      "strict": true
     }
   ]
 }

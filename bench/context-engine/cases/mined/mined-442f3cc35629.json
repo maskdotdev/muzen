@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-442f3cc35629",
+  "repoSource": {
+    "kind": "git",
+    "commit": "442f3cc35629a5face4afdb0e09b9b69835d954e"
+  },
+  "changedFiles": [
+    "src/context_engine/index.rs",
+    "src/context_engine/syntax.rs",
+    "src/context_engine/tests.rs"
+  ],
+  "description": "Mined pair: base 442f3cc35629 (feat: add context symbol ranges) followed by 3f9a33ad9796 (feat: add hosted context embeddings).",
+  "minedFrom": {
+    "baseCommit": "442f3cc35629a5face4afdb0e09b9b69835d954e",
+    "followUpCommit": "3f9a33ad97966015a2c7688defcdec6aa21861ca"
+  },
+  "cases": [
+    {
+      "id": "mined-442f3cc35629-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/python/muzen/local.py",
+        "sdk/python/muzen/remote.py",
+        "sdk/python/muzen/runner_mapping.py",
+        "sdk/python/muzen/types.py",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts",
+        "src/cli.rs",
+        "src/context_engine/config.rs",
+        "src/context_engine/engine.rs",
+        "src/context_engine/semantic.rs",
+        "src/runner/schema.rs"
+      ]
+    }
+  ]
+}

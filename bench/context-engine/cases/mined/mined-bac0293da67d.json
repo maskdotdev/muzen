@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-bac0293da67d",
+  "repoSource": {
+    "kind": "git",
+    "commit": "bac0293da67dab958a84c519b8e9010ad9a918d4"
+  },
+  "changedFiles": [
+    "src/review_session/options.rs",
+    "src/runner.rs",
+    "src/runner/execution.rs",
+    "src/runner/types.rs"
+  ],
+  "description": "Mined pair: base bac0293da67d (refactor(runner): remove test-only model flag from protocol) followed by 09932635efcc (test(review): drop adapter mapping and planner unit tests).",
+  "minedFrom": {
+    "baseCommit": "bac0293da67dab958a84c519b8e9010ad9a918d4",
+    "followUpCommit": "09932635efcccf5fdc3333c2b982f3cdd4a5762f"
+  },
+  "cases": [
+    {
+      "id": "mined-bac0293da67d-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/tests.rs",
+        "src/review_units.rs",
+        "src/runtime/planned_units.rs"
+      ]
+    }
+  ]
+}

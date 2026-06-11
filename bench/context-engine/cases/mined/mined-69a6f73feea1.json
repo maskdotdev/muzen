@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-69a6f73feea1",
+  "repoSource": {
+    "kind": "git",
+    "commit": "69a6f73feea1a09f1b94443ccc4beb047fa6eedc"
+  },
+  "changedFiles": [
+    "examples/tanstack-durable-review/src/App.tsx",
+    "examples/tanstack-durable-review/src/shared.ts"
+  ],
+  "description": "Mined pair: base 69a6f73feea1 (Fix durable demo browser SDK import) followed by b6d79284bc07 (feat: add review quality benchmark workflow).",
+  "minedFrom": {
+    "baseCommit": "69a6f73feea1a09f1b94443ccc4beb047fa6eedc",
+    "followUpCommit": "b6d79284bc07f0997456edb872539191736ddfab"
+  },
+  "cases": [
+    {
+      "id": "mined-69a6f73feea1-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "examples/tanstack-durable-review/src/server.ts",
+        "examples/tanstack-durable-review/src/server/store.ts",
+        "examples/tanstack-durable-review/src/server/worker.ts"
+      ]
+    }
+  ]
+}

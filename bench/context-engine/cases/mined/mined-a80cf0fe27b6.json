@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-a80cf0fe27b6",
+  "repoSource": {
+    "kind": "git",
+    "commit": "a80cf0fe27b6607e7409419b5e2fbaba66adc945"
+  },
+  "changedFiles": [
+    "src/review_session.rs",
+    "src/review_session/options.rs"
+  ],
+  "description": "Mined pair: base a80cf0fe27b6 (refactor: extract review options module) followed by 4b49874eddf4 (refactor: extract review session module).",
+  "minedFrom": {
+    "baseCommit": "a80cf0fe27b6607e7409419b5e2fbaba66adc945",
+    "followUpCommit": "4b49874eddf42dc1a2c60d7500af5353596803b6"
+  },
+  "cases": [
+    {
+      "id": "mined-a80cf0fe27b6-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/worker.rs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-70ec6a9e249e",
+  "repoSource": {
+    "kind": "git",
+    "commit": "70ec6a9e249eebea7487bd5ceeb2200bfa87ec3f"
+  },
+  "changedFiles": [
+    "src/context_engine/store.rs"
+  ],
+  "description": "Mined pair: base 70ec6a9e249e (feat: prune expired context learnings) followed by 0d556866a444 (feat: wire local semantic context index).",
+  "minedFrom": {
+    "baseCommit": "70ec6a9e249eebea7487bd5ceeb2200bfa87ec3f",
+    "followUpCommit": "0d556866a44439da452da74b62031fbba83e3469"
+  },
+  "cases": [
+    {
+      "id": "mined-70ec6a9e249e-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/context_engine/engine.rs",
+        "src/context_engine/index.rs",
+        "src/context_engine/semantic.rs",
+        "src/context_engine/tests.rs"
+      ]
+    }
+  ]
+}

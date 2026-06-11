@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8e8d4301e346",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8e8d4301e3467d49a244890e338b4bfdabd04974"
+  },
+  "changedFiles": [
+    "src/context_engine/engine.rs",
+    "src/context_engine/tests.rs"
+  ],
+  "description": "Mined pair: base 8e8d4301e346 (test: add context redaction evals) followed by 70ec6a9e249e (feat: prune expired context learnings).",
+  "minedFrom": {
+    "baseCommit": "8e8d4301e3467d49a244890e338b4bfdabd04974",
+    "followUpCommit": "70ec6a9e249eebea7487bd5ceeb2200bfa87ec3f"
+  },
+  "cases": [
+    {
+      "id": "mined-8e8d4301e346-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/context_engine/store.rs"
+      ]
+    }
+  ]
+}
