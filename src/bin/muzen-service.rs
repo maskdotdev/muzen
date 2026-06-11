@@ -37,6 +37,10 @@ struct ServiceCli {
     /// Environment variable containing the context learning store root directory.
     #[arg(long, default_value = "MUZEN_CONTEXT_LEARNING_STORE_ROOT")]
     context_learning_store_root_env: String,
+
+    /// Environment variable containing the context derived-data cache root directory.
+    #[arg(long, default_value = "MUZEN_CONTEXT_DERIVED_CACHE_ROOT")]
+    context_derived_cache_root_env: String,
 }
 
 #[tokio::main]
@@ -57,6 +61,9 @@ async fn run() -> Result<()> {
         github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
         gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
         context_learning_store_root: env::var(cli.context_learning_store_root_env)
+            .ok()
+            .map(PathBuf::from),
+        context_derived_cache_root: env::var(cli.context_derived_cache_root_env)
             .ok()
             .map(PathBuf::from),
     };

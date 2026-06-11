@@ -1,6 +1,6 @@
 {
   "schemaVersion": "muzen.context-eval-summary.v2",
-  "generatedAtUnixMs": 1781145967172,
+  "generatedAtUnixMs": 1781148789747,
   "caseCount": 46,
   "ok": true,
   "failures": [],
@@ -16,8 +16,8 @@
     "secretRedactionCorrectRate": 1.0,
     "promptInjectionResistanceRate": 1.0,
     "meanUsefulEvidencePer1kTokens": 2.443870355113379,
-    "meanLatencyMs": 370.0372037381622,
-    "maxLatencyMs": 663.4049579733983,
+    "meanLatencyMs": 93.08534782283697,
+    "maxLatencyMs": 163.53654203703627,
     "totalOmittedCandidates": 59926,
     "sufficiencyGapRecall": 1.0,
     "sufficiencySufficientWhenComplete": 1.0
@@ -37,7 +37,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 477.03266597818583,
+      "latency_ms": 107.19675000291318,
       "expected_paths": [
         "src/runtime/model.rs"
       ],
@@ -102,7 +102,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 663.4049579733983,
+      "latency_ms": 144.89650004543364,
       "expected_paths": [
         "src/context_engine/syntax.rs"
       ],
@@ -177,7 +177,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 492.155666986946,
+      "latency_ms": 100.86687497096136,
       "expected_paths": [
         "src/review_session/options.rs",
         "src/runner/execution.rs",
@@ -230,7 +230,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 416.15308402106166,
+      "latency_ms": 89.39079102128744,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server/store.ts",
         "examples/tanstack-durable-review/src/server/worker.ts"
@@ -289,7 +289,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 322.09591701393947,
+      "latency_ms": 69.17441700352356,
       "expected_paths": [
         "src/review_session.rs",
         "src/review_session/profiles.rs",
@@ -349,7 +349,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 475.16674996586516,
+      "latency_ms": 100.55541701149195,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -409,7 +409,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 622.8516250266694,
+      "latency_ms": 137.66912498977035,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/tests.rs"
@@ -459,7 +459,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5,
-      "latency_ms": 642.1345419948921,
+      "latency_ms": 143.1787500041537,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -521,7 +521,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 344.42170802503824,
+      "latency_ms": 82.83841598313302,
       "expected_paths": [
         "src/review_session/store.rs"
       ],
@@ -572,7 +572,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 497.9875829885714,
+      "latency_ms": 105.93191697262228,
       "expected_paths": [
         "src/runtime/dispatch.rs",
         "src/runtime/tools/authorization.rs",
@@ -634,7 +634,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 310.21391600370407,
+      "latency_ms": 69.19300003210083,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts"
@@ -681,7 +681,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 352.8429160360247,
+      "latency_ms": 77.93612498790026,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts"
       ],
@@ -740,7 +740,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 485.89729104423895,
+      "latency_ms": 102.36912500113249,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -818,7 +818,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 418.58275001868606,
+      "latency_ms": 84.87820799928159,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server.ts",
         "examples/tanstack-durable-review/src/server/store.ts",
@@ -876,7 +876,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 328.76420801039785,
+      "latency_ms": 75.21124999038875,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -942,7 +942,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 239.13233302300796,
+      "latency_ms": 59.8507079994306,
       "expected_paths": [
         "src/runner.rs"
       ],
@@ -1009,7 +1009,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 630.810999951791,
+      "latency_ms": 133.5066250176169,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
@@ -1061,7 +1061,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 296.94745904998854,
+      "latency_ms": 67.98429094487801,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
@@ -1115,7 +1115,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 257.220417028293,
+      "latency_ms": 62.480958993546665,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -1169,7 +1169,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 333.71516602346674,
+      "latency_ms": 121.42566702095792,
       "expected_paths": [
         "src/review_session/store.rs",
         "src/review_session/worker.rs"
@@ -1215,7 +1215,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 333.23929202742875,
+      "latency_ms": 149.8682500096038,
       "expected_paths": [
         "sdk/python/muzen/client.py",
         "sdk/python/tests/test_client.py",
@@ -1287,7 +1287,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 613.2149159675464,
+      "latency_ms": 163.53654203703627,
       "expected_paths": [
         "src/context_engine/store.rs"
       ],
@@ -1354,7 +1354,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 288.86833298020065,
+      "latency_ms": 77.49879197217524,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts"
       ],
@@ -1399,7 +1399,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 471.29470796789974,
+      "latency_ms": 121.97145796380937,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1479,7 +1479,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 336.34629199514166,
+      "latency_ms": 97.70066698547453,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1522,7 +1522,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 605.5795829743147,
+      "latency_ms": 152.87591697415337,
       "expected_paths": [
         "src/context_engine/store.rs",
         "src/context_engine/tests.rs"
@@ -1600,7 +1600,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 490.62225001398474,
+      "latency_ms": 108.61245798878372,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1672,7 +1672,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 333.73787498567253,
+      "latency_ms": 81.86091599054635,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1719,7 +1719,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 304.41995803266764,
+      "latency_ms": 78.45220901072025,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
@@ -1781,7 +1781,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 614.2288749688305,
+      "latency_ms": 136.23599999118596,
       "expected_paths": [
         "src/context_engine/index.rs",
         "src/context_engine/tests.rs"
@@ -1825,7 +1825,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 465.8227500040084,
+      "latency_ms": 100.79187498195097,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -1895,7 +1895,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 464.27333395695314,
+      "latency_ms": 104.53654098091647,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1959,7 +1959,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 647.5869590067305,
+      "latency_ms": 139.72358300816268,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -2039,7 +2039,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 338.29079201677814,
+      "latency_ms": 76.93774998188019,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -2082,7 +2082,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 305.90495897922665,
+      "latency_ms": 73.55570798972622,
       "expected_paths": [
         "src/review_session/http.rs",
         "src/runner.rs",
@@ -2148,7 +2148,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 261.99766696663573,
+      "latency_ms": 62.90383398300037,
       "expected_paths": [
         "src/review_session.rs"
       ],
@@ -2192,7 +2192,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 295.5311670084484,
+      "latency_ms": 66.69483403675258,
       "expected_paths": [
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/types.py",
@@ -2246,7 +2246,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 601.9263750058599,
+      "latency_ms": 147.06379198469222,
       "expected_paths": [
         "src/context_engine/semantic.rs"
       ],
@@ -2314,7 +2314,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 313.9078749809414,
+      "latency_ms": 83.73279200168326,
       "expected_paths": [
         "src/review_session/http.rs"
       ],
@@ -2367,7 +2367,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 58.8235294117647,
-      "latency_ms": 64.35704097384587,
+      "latency_ms": 44.35816599288955,
       "expected_paths": [
         "src/secrets.rs"
       ],
@@ -2399,7 +2399,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 9.433962264150942,
-      "latency_ms": 43.528957990929484,
+      "latency_ms": 42.37733402987942,
       "expected_paths": [
         "CONTEXT.md"
       ],
@@ -2438,7 +2438,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 11.494252873563218,
-      "latency_ms": 44.58304098807275,
+      "latency_ms": 44.30737503571436,
       "expected_paths": [
         "tests/auth_token_test.rs"
       ],
@@ -2470,7 +2470,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 13.793103448275861,
-      "latency_ms": 43.91970799770206,
+      "latency_ms": 54.86929096514359,
       "expected_paths": [
         "src/routes.rs",
         "src/auth/token.rs"
@@ -2507,7 +2507,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 6.172839506172839,
-      "latency_ms": 43.4051250340417,
+      "latency_ms": 44.76841597352177,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -2542,7 +2542,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.717472118959108,
-      "latency_ms": 43.79333299584687,
+      "latency_ms": 44.83304201858118,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -2581,7 +2581,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 4.5662100456621,
-      "latency_ms": 43.79824997158721,
+      "latency_ms": 45.32354196999222,
       "expected_paths": [
         "src/auth/token.rs"
       ],

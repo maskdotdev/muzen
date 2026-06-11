@@ -198,6 +198,11 @@ def run_context_case(
     else:
         command.append("query")
     command.extend(["--repo", str(repo)])
+    # Durable derived-data cache (R9): repeated invocations over the same
+    # checkout re-derive only what changed. Keyed per corpus checkout.
+    cache_root = CORPUS_CACHE / "derived" / repo.name
+    cache_root.mkdir(parents=True, exist_ok=True)
+    command.extend(["--derived-cache-root", str(cache_root)])
     for changed_file in case_file["changedFiles"]:
         command.extend(["--changed-file", changed_file])
     diff_path = materialize_diff(case_file["repoSource"])

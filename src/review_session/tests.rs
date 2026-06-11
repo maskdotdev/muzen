@@ -1351,6 +1351,7 @@ async fn review_http_router_persists_workspace_context_learnings() {
             github_webhook_secret: None,
             gitlab_webhook_secret: None,
             context_learning_store_root: Some(learning_root.path().to_path_buf()),
+            context_derived_cache_root: None,
         },
     );
     let source = json!({
@@ -1401,6 +1402,7 @@ async fn review_http_router_persists_workspace_context_learnings() {
             github_webhook_secret: None,
             gitlab_webhook_secret: None,
             context_learning_store_root: Some(learning_root.path().to_path_buf()),
+            context_derived_cache_root: None,
         },
     );
     let history_response = restarted
@@ -1530,6 +1532,7 @@ async fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
             github_webhook_secret: Some("secret".to_string()),
             gitlab_webhook_secret: None,
             context_learning_store_root: None,
+            context_derived_cache_root: None,
         },
     );
     let body = json!({

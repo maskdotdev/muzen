@@ -6,7 +6,7 @@
 //! `get_user_id` while exact identifier queries still rank the exact
 //! definition first (the full token is rarer than its subtokens).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::runtime::contracts::EvidenceId;
 
@@ -30,42 +30,77 @@ pub struct LexicalIndex {
 }
 
 impl LexicalIndex {
+    /// `cached_body_terms` maps evidence id to precomputed body term
+    /// counts (R9 derived cache); evidence absent from the map tokenizes
+    /// its body from file contents as before. Cached counts come from
+    /// `body_term_counts` over the identical text, so the index is the
+    /// same either way.
     pub fn build(
         evidence: &[ContextEvidence],
         file_contents: &BTreeMap<crate::runtime::contracts::RepoPath, String>,
+        cached_body_terms: &BTreeMap<String, BTreeMap<String, f32>>,
     ) -> Self {
         let mut index = Self::default();
+        // Terms intern to dense ids and postings group per id as docs
+        // stream by in ordinal order: no per-doc term map and no string
+        // sort. Occurrences of one term in one doc are summed in field
+        // order, matching what a per-doc frequency map would produce.
+        let mut term_ids: HashMap<String, u32> = HashMap::new();
+        let mut postings_by_term_id: Vec<Vec<(u32, f32)>> = Vec::new();
         for item in evidence {
             let ordinal = index.doc_ids.len() as u32;
-            let mut term_frequencies: BTreeMap<String, f32> = BTreeMap::new();
             let mut doc_length = 0.0f32;
-            let mut add_field = |text: &str, weight: f32| {
-                for token in code_tokens(text) {
-                    *term_frequencies.entry(token).or_default() += weight;
-                    doc_length += weight;
+            let mut add_term = |term: &str, weight: f32| {
+                let term_id = match term_ids.get(term) {
+                    Some(&term_id) => term_id,
+                    None => {
+                        let term_id = postings_by_term_id.len() as u32;
+                        term_ids.insert(term.to_string(), term_id);
+                        postings_by_term_id.push(Vec::new());
+                        term_id
+                    }
+                };
+                let list = &mut postings_by_term_id[term_id as usize];
+                match list.last_mut() {
+                    Some((last_ordinal, frequency)) if *last_ordinal == ordinal => {
+                        *frequency += weight;
+                    }
+                    _ => list.push((ordinal, weight)),
                 }
+                doc_length += weight;
             };
             if let Some(path) = &item.path {
-                add_field(&path.display(), PATH_FIELD_WEIGHT);
+                for token in code_tokens(&path.display()) {
+                    add_term(&token, PATH_FIELD_WEIGHT);
+                }
             }
             if let Some(summary) = &item.summary {
-                add_field(summary, SUMMARY_FIELD_WEIGHT);
+                for token in code_tokens(summary) {
+                    add_term(&token, SUMMARY_FIELD_WEIGHT);
+                }
             }
-            if let Some(content) = item.path.as_ref().and_then(|path| file_contents.get(path)) {
+            if let Some(terms) = cached_body_terms.get(&item.id.0) {
+                for (term, count) in terms {
+                    add_term(term, count * BODY_FIELD_WEIGHT);
+                }
+            } else if let Some(content) =
+                item.path.as_ref().and_then(|path| file_contents.get(path))
+            {
                 let body = slice_evidence_lines(content, item.range.as_ref());
-                add_field(&body, BODY_FIELD_WEIGHT);
+                for token in code_tokens(&body) {
+                    add_term(&token, BODY_FIELD_WEIGHT);
+                }
             }
-            if term_frequencies.is_empty() {
+            if doc_length == 0.0 {
                 continue;
             }
             index.doc_ids.push(item.id.clone());
             index.doc_lengths.push(doc_length);
-            for (term, frequency) in term_frequencies {
-                index
-                    .postings
-                    .entry(term)
-                    .or_default()
-                    .push((ordinal, frequency));
+        }
+        for (term, term_id) in term_ids {
+            let list = std::mem::take(&mut postings_by_term_id[term_id as usize]);
+            if !list.is_empty() {
+                index.postings.insert(term, list);
             }
         }
         let total: f32 = index.doc_lengths.iter().sum();
@@ -124,6 +159,16 @@ impl LexicalIndex {
         ranked.truncate(limit);
         ranked
     }
+}
+
+/// Term counts of one evidence body, the cacheable postings
+/// contribution (R9). Field weighting is applied at index build time.
+pub(crate) fn body_term_counts(text: &str) -> BTreeMap<String, f32> {
+    let mut counts: BTreeMap<String, f32> = BTreeMap::new();
+    for token in code_tokens(text) {
+        *counts.entry(token).or_default() += 1.0;
+    }
+    counts
 }
 
 /// Tokenize code-bearing text: whole identifiers plus their subtokens,
@@ -277,7 +322,7 @@ mod tests {
                 "pub fn handle_user_routes() { /* user pages */ }\n",
             ),
         ]);
-        let index = LexicalIndex::build(&docs, &files);
+        let index = LexicalIndex::build(&docs, &files, &BTreeMap::new());
         let ranked = index.search("getUserId", 10, K1, B);
         assert_eq!(ranked[0].0 .0, "ev_def");
     }
@@ -296,7 +341,7 @@ mod tests {
             ("src/token.rs", "pub fn validate_token() {}\n"),
             ("src/lib.rs", "pub fn validate() { let token = 1; }\n"),
         ]);
-        let index = LexicalIndex::build(&docs, &files);
+        let index = LexicalIndex::build(&docs, &files, &BTreeMap::new());
         let ranked = index.search("validate_token", 10, K1, B);
         assert_eq!(ranked[0].0 .0, "ev_exact");
     }
@@ -325,7 +370,7 @@ mod tests {
             .iter()
             .map(|(path, content)| (RepoPath::parse(path).unwrap(), content.clone()))
             .collect();
-        let index = LexicalIndex::build(&docs, &files);
+        let index = LexicalIndex::build(&docs, &files, &BTreeMap::new());
         let ranked = index.search("ERR_TOKEN_EXPIRED", 5, K1, B);
         assert_eq!(ranked[0].0 .0, "ev_rare");
     }
@@ -333,7 +378,11 @@ mod tests {
     #[test]
     fn empty_and_punctuation_queries_return_empty() {
         let docs = vec![evidence("ev", "src/lib.rs", "fn main in src/lib.rs")];
-        let index = LexicalIndex::build(&docs, &contents(&[("src/lib.rs", "fn main() {}\n")]));
+        let index = LexicalIndex::build(
+            &docs,
+            &contents(&[("src/lib.rs", "fn main() {}\n")]),
+            &BTreeMap::new(),
+        );
         assert!(index.search("", 10, K1, B).is_empty());
         assert!(index.search("?!,.;", 10, K1, B).is_empty());
     }
@@ -348,7 +397,7 @@ mod tests {
             ("src/twin_a.rs", "pub fn twin() {}\n"),
             ("src/twin_b.rs", "pub fn twin() {}\n"),
         ]);
-        let index = LexicalIndex::build(&docs, &files);
+        let index = LexicalIndex::build(&docs, &files, &BTreeMap::new());
         let first = index.search("twin helper", 10, K1, B);
         let second = index.search("twin helper", 10, K1, B);
         assert_eq!(first, second);

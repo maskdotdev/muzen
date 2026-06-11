@@ -91,6 +91,9 @@ pub struct ReviewHttpRouterOptions {
     pub github_webhook_secret: Option<String>,
     pub gitlab_webhook_secret: Option<String>,
     pub context_learning_store_root: Option<PathBuf>,
+    /// Root for per-workspace durable derived-data caches (R9): chunk,
+    /// skeleton, symbol, and embedding-vector reuse across re-indexes.
+    pub context_derived_cache_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -617,15 +620,23 @@ impl ReviewHttpRouter {
         workspace_id: &str,
         config: ContextEngineConfig,
     ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
-        if let Some(root) = &self.options.context_learning_store_root {
+        let mut engine = if let Some(root) = &self.options.context_learning_store_root {
             SnapshotContextEngine::with_learning_store_file(
                 config,
-                workspace_learning_store_path(root, workspace_id),
+                workspace_store_path(root, workspace_id, "context-learnings.json"),
             )
-            .map_err(context_runtime_error)
+            .map_err(context_runtime_error)?
         } else {
-            Ok(SnapshotContextEngine::new(config))
+            SnapshotContextEngine::new(config)
+        };
+        if let Some(root) = &self.options.context_derived_cache_root {
+            engine = engine.with_derived_cache_file(workspace_store_path(
+                root,
+                workspace_id,
+                "context-derived-cache.json",
+            ));
         }
+        Ok(engine)
     }
 
     fn context_engine_for_snapshot(
@@ -1056,7 +1067,7 @@ fn context_engine_key(workspace_id: &str, snapshot_id: &str) -> String {
     format!("{workspace_id}:{snapshot_id}")
 }
 
-fn workspace_learning_store_path(root: &std::path::Path, workspace_id: &str) -> PathBuf {
+fn workspace_store_path(root: &std::path::Path, workspace_id: &str, file_name: &str) -> PathBuf {
     let safe_workspace = workspace_id
         .chars()
         .map(|ch| {
@@ -1067,7 +1078,7 @@ fn workspace_learning_store_path(root: &std::path::Path, workspace_id: &str) -> 
             }
         })
         .collect::<String>();
-    root.join(safe_workspace).join("context-learnings.json")
+    root.join(safe_workspace).join(file_name)
 }
 
 fn percent_decode(input: &str, plus_as_space: bool) -> Result<String, ReviewHttpRouteError> {

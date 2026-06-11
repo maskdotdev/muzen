@@ -14,12 +14,13 @@ use super::{explain_selected_evidence, purpose_name, rank_for_purpose, score_for
 use super::{learning_is_expired, redact_context_content};
 use super::{path_stem, related_symbol_score, related_symbol_terms};
 use super::{
-    ContextBudgetUsage, ContextEngineConfig, ContextEngineMode, ContextEvidence,
-    ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport,
-    ContextIndexRequest, ContextIndexStore, ContextLearning, ContextLearningApproval,
-    ContextLearningApprovalReceipt, ContextLearningScope, ContextLearningSource,
-    ContextLearningStatus, ContextOmissionReason, ContextPack, ContextPackId, ContextPackRequest,
-    ContextQuery, ContextQueryKind, ContextQueryResult, ContextRange, FileContextLearningStore,
+    ContextBudgetUsage, ContextDerivedCache, ContextEngineConfig, ContextEngineMode,
+    ContextEvidence, ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex,
+    ContextIndexReport, ContextIndexRequest, ContextIndexStore, ContextLearning,
+    ContextLearningApproval, ContextLearningApprovalReceipt, ContextLearningScope,
+    ContextLearningSource, ContextLearningStatus, ContextOmissionReason, ContextPack,
+    ContextPackId, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryResult,
+    ContextRange, FileContextDerivedCache, FileContextLearningStore, InMemoryContextDerivedCache,
     InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
     CONTEXT_ENGINE_VERSION,
 };
@@ -128,6 +129,7 @@ pub struct SnapshotContextEngine {
     store: Arc<dyn ContextIndexStore>,
     packs: Arc<Mutex<BTreeMap<String, ContextPack>>>,
     learnings: Arc<dyn ContextLearningStore>,
+    derived_cache: Arc<dyn ContextDerivedCache>,
 }
 
 impl Clone for SnapshotContextEngine {
@@ -137,6 +139,7 @@ impl Clone for SnapshotContextEngine {
             store: Arc::clone(&self.store),
             packs: Arc::clone(&self.packs),
             learnings: Arc::clone(&self.learnings),
+            derived_cache: Arc::clone(&self.derived_cache),
         }
     }
 }
@@ -148,6 +151,7 @@ impl SnapshotContextEngine {
             store: Arc::new(InMemoryContextIndexStore::new()),
             packs: Arc::new(Mutex::new(BTreeMap::new())),
             learnings: Arc::new(InMemoryContextLearningStore::new()),
+            derived_cache: Arc::new(InMemoryContextDerivedCache::new()),
         }
     }
 
@@ -165,6 +169,7 @@ impl SnapshotContextEngine {
             store,
             packs: Arc::new(Mutex::new(BTreeMap::new())),
             learnings,
+            derived_cache: Arc::new(InMemoryContextDerivedCache::new()),
         }
     }
 
@@ -177,6 +182,21 @@ impl SnapshotContextEngine {
             Arc::new(InMemoryContextIndexStore::new()),
             Arc::new(FileContextLearningStore::open(path)?),
         ))
+    }
+
+    /// Replace the derived-data cache, e.g. with a durable file-backed
+    /// one (R9). Every index built by this engine reuses it.
+    pub fn with_derived_cache(mut self, cache: Arc<dyn ContextDerivedCache>) -> Self {
+        self.derived_cache = cache;
+        self
+    }
+
+    /// Attach a durable derived-data cache at `path` (R9). Unreadable
+    /// cache content degrades to a full rebuild with a warning on the
+    /// next index report.
+    pub fn with_derived_cache_file(self, path: impl AsRef<std::path::Path>) -> Self {
+        let max_entries = self.config.derived_cache_max_entries;
+        self.with_derived_cache(Arc::new(FileContextDerivedCache::open(path, max_entries)))
     }
 
     pub fn config_ref(&self) -> &ContextEngineConfig {
@@ -208,7 +228,7 @@ impl ContextEngine for SnapshotContextEngine {
 
     async fn index_snapshot(
         &self,
-        request: ContextIndexRequest,
+        mut request: ContextIndexRequest,
         cancel: CancellationToken,
     ) -> RuntimeResult<ContextIndexReport> {
         if cancel.is_cancelled() {
@@ -219,6 +239,7 @@ impl ContextEngine for SnapshotContextEngine {
                 "context engine is disabled".to_string(),
             ));
         }
+        request.derived_cache = Arc::clone(&self.derived_cache);
         let index = ContextIndex::build(request).await?;
         let report = index.report.clone();
         self.store.put_index(index)?;

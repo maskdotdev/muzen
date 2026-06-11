@@ -14,8 +14,12 @@ use super::chunking::{
     body_elision_map, chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, skeleton_view,
     FileChunk, SkeletonView,
 };
+use super::derived::{
+    derived_file_key, derived_vector_key, ContextDerivedCache, DerivedFileData,
+    InMemoryContextDerivedCache,
+};
 use super::graph::{co_change_stats, expand_from_changes, GraphCandidate, ReferenceGraph};
-use super::syntax::ParsedSymbols;
+use super::syntax::{parse_symbols, ParsedSymbols};
 use super::{
     context_embedding_text, redact_context_content, validate_embedding_batch, ContextEngineConfig,
     ContextEvidence, ContextEvidenceKind, ContextEvidenceRepresentation, ContextEvidenceSource,
@@ -40,6 +44,10 @@ pub struct ContextIndexRequest {
     pub include_host_context: bool,
     pub semantic: ContextSemanticConfig,
     pub limits: ContextLimits,
+    /// Content-hash keyed cache of per-file derived data and embedding
+    /// vectors (R9). The engine injects its own (possibly durable)
+    /// cache; standalone builds get a fresh in-memory one.
+    pub derived_cache: Arc<dyn ContextDerivedCache>,
 }
 
 impl ContextIndexRequest {
@@ -55,6 +63,7 @@ impl ContextIndexRequest {
             include_host_context: config.include_host_context,
             semantic: config.semantic.clone(),
             limits: ContextLimits::from_config(config),
+            derived_cache: Arc::new(InMemoryContextDerivedCache::new()),
         }
     }
 }
@@ -116,6 +125,15 @@ pub struct ContextIndexReport {
     pub diff_hunk_count: usize,
     pub evidence_count: usize,
     pub elapsed_ms: u64,
+    /// Files whose derived data (chunks, skeletons, symbols) came from
+    /// the content-hash cache (R9).
+    pub derived_cache_hits: usize,
+    /// Files whose derived data was recomputed this build.
+    pub derived_cache_misses: usize,
+    /// Embedding vectors computed by a provider this build.
+    pub embeddings_computed: usize,
+    /// Embedding vectors served from the content-hash cache.
+    pub embeddings_cached: usize,
     pub warnings: Vec<ContextIndexWarning>,
     pub artifacts: Vec<ArtifactId>,
 }
@@ -197,9 +215,13 @@ impl ContextIndex {
     pub async fn build(request: ContextIndexRequest) -> RuntimeResult<Self> {
         let started = std::time::Instant::now();
         let _review_plan = &request.review_plan;
-        let snapshot = request.snapshot;
+        let snapshot = Arc::clone(&request.snapshot);
+        let derived_cache = Arc::clone(&request.derived_cache);
+        let mut derived_cache_hits = 0usize;
+        let mut derived_cache_misses = 0usize;
         let mut evidence = Vec::new();
         let mut skeletons: BTreeMap<String, ContextEvidence> = BTreeMap::new();
+        let mut body_terms_by_id: BTreeMap<String, BTreeMap<String, f32>> = BTreeMap::new();
         let mut file_contents = BTreeMap::new();
         let mut symbol_graph = ContextSymbolGraph::default();
         let mut parsed_by_file: BTreeMap<RepoPath, ParsedSymbols> = BTreeMap::new();
@@ -243,66 +265,65 @@ impl ContextIndex {
                         .ok()
                         .and_then(|(bytes, _truncated)| String::from_utf8(bytes).ok());
                     match content {
-                        Some(content) if chunked_kind(kind, &content) => {
-                            let chunks = chunk_file(
-                                &file.rel_path.display(),
-                                &content,
-                                request.limits.chunk_max_tokens,
-                            );
-                            let elision = body_elision_map(&file.rel_path.display(), &content);
-                            let lines = content.lines().collect::<Vec<_>>();
-                            let mut emitted = 0usize;
-                            let mut truncated = false;
-                            for chunk in &chunks {
-                                if emitted >= request.limits.max_chunks_per_file
-                                    || evidence.len() >= request.limits.max_evidence_items
-                                {
-                                    truncated = true;
-                                    break;
-                                }
-                                let item = chunk_evidence(&snapshot, file, kind, chunk, file_hunks);
-                                if let Some(view) = elision
-                                    .as_deref()
-                                    .and_then(|elided| skeleton_view(&lines, chunk.range(), elided))
-                                {
-                                    skeletons.insert(
-                                        item.id.0.clone(),
-                                        skeleton_evidence(&snapshot, file, &item, &view),
-                                    );
-                                }
-                                evidence.push(item);
-                                emitted += 1;
-                            }
-                            if truncated {
-                                skips.push(ContextIndexSkip {
-                                    path: file.rel_path.clone(),
-                                    reason: ContextIndexSkipReason::ChunkBudgetExceeded,
-                                });
-                            }
-                            let parsed = index_symbols(
-                                &snapshot,
-                                file,
-                                &content,
-                                file_hunks,
-                                &mut symbol_graph,
-                                &mut evidence,
-                                request.limits.max_evidence_items,
-                            );
-                            parsed_by_file.insert(file.rel_path.clone(), parsed);
-                            file_contents.insert(file.rel_path.clone(), content);
-                        }
                         Some(content) => {
-                            evidence.push(file_evidence(&snapshot, file, kind, Some(&content)));
-                            let parsed = index_symbols(
-                                &snapshot,
+                            let chunked = chunked_kind(kind, &content);
+                            let derived = derived_for_file(
+                                derived_cache.as_ref(),
                                 file,
                                 &content,
+                                chunked,
+                                request.limits.chunk_max_tokens,
+                                &mut derived_cache_hits,
+                                &mut derived_cache_misses,
+                            );
+                            if chunked {
+                                let mut emitted = 0usize;
+                                let mut truncated = false;
+                                for ((chunk, view), terms) in derived
+                                    .chunks
+                                    .iter()
+                                    .zip(derived.skeletons.iter())
+                                    .zip(derived.chunk_terms.into_iter())
+                                {
+                                    if emitted >= request.limits.max_chunks_per_file
+                                        || evidence.len() >= request.limits.max_evidence_items
+                                    {
+                                        truncated = true;
+                                        break;
+                                    }
+                                    let item =
+                                        chunk_evidence(&snapshot, file, kind, chunk, file_hunks);
+                                    if let Some(view) = view {
+                                        skeletons.insert(
+                                            item.id.0.clone(),
+                                            skeleton_evidence(&snapshot, file, &item, view),
+                                        );
+                                    }
+                                    body_terms_by_id.insert(item.id.0.clone(), terms);
+                                    evidence.push(item);
+                                    emitted += 1;
+                                }
+                                if truncated {
+                                    skips.push(ContextIndexSkip {
+                                        path: file.rel_path.clone(),
+                                        reason: ContextIndexSkipReason::ChunkBudgetExceeded,
+                                    });
+                                }
+                            } else {
+                                let item = file_evidence(&snapshot, file, kind, Some(&content));
+                                body_terms_by_id.insert(item.id.0.clone(), derived.file_terms);
+                                evidence.push(item);
+                            }
+                            index_symbols(
+                                &snapshot,
+                                file,
+                                &derived.parsed,
                                 file_hunks,
                                 &mut symbol_graph,
                                 &mut evidence,
                                 request.limits.max_evidence_items,
                             );
-                            parsed_by_file.insert(file.rel_path.clone(), parsed);
+                            parsed_by_file.insert(file.rel_path.clone(), derived.parsed);
                             file_contents.insert(file.rel_path.clone(), content);
                         }
                         None => evidence.push(file_evidence(&snapshot, file, kind, None)),
@@ -425,9 +446,14 @@ impl ContextIndex {
             }
         }
 
-        let lexical = super::LexicalIndex::build(&evidence, &file_contents);
-        let semantic_vectors =
-            build_semantic_vectors(&request.semantic, &evidence, &file_contents).await?;
+        let lexical = super::LexicalIndex::build(&evidence, &file_contents, &body_terms_by_id);
+        let (semantic_vectors, embeddings_computed, embeddings_cached) = build_semantic_vectors(
+            &request.semantic,
+            &evidence,
+            &file_contents,
+            derived_cache.as_ref(),
+        )
+        .await?;
 
         let index_id = ContextIndexId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -445,6 +471,21 @@ impl ContextIndex {
                 path: None,
             });
         }
+        if derived_cache.recovered_from_corruption() {
+            warnings.push(ContextIndexWarning {
+                code: "derived_cache_recovered".to_string(),
+                message: "derived-data cache was unreadable; rebuilt all derived data from scratch"
+                    .to_string(),
+                path: None,
+            });
+        }
+        if let Err(error) = derived_cache.flush() {
+            warnings.push(ContextIndexWarning {
+                code: "derived_cache_flush_failed".to_string(),
+                message: format!("derived-data cache was not persisted: {error}"),
+                path: None,
+            });
+        }
         let report = ContextIndexReport {
             index_id: index_id.clone(),
             snapshot_id: snapshot.snapshot_id.clone(),
@@ -458,6 +499,10 @@ impl ContextIndex {
             diff_hunk_count,
             evidence_count: evidence.len(),
             elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            derived_cache_hits,
+            derived_cache_misses,
+            embeddings_computed,
+            embeddings_cached,
             warnings: warnings.clone(),
             artifacts: Vec::new(),
         };
@@ -500,13 +545,83 @@ impl ContextIndex {
     }
 }
 
+/// Fetch one file's derived data from the cache or recompute it. The
+/// derivation is a pure function of the key inputs (path, content hash,
+/// chunk budget) under the current derivation version, so cached and
+/// recomputed builds are indistinguishable.
+fn derived_for_file(
+    cache: &dyn ContextDerivedCache,
+    file: &FileMeta,
+    content: &str,
+    chunked: bool,
+    chunk_max_tokens: usize,
+    hits: &mut usize,
+    misses: &mut usize,
+) -> DerivedFileData {
+    let path = file.rel_path.display();
+    let content_hash = file
+        .content_hash
+        .clone()
+        .unwrap_or_else(|| stable_id(&[content]));
+    let key = derived_file_key(&path, &content_hash, chunk_max_tokens);
+    if let Some(data) = cache.get_file(&key) {
+        *hits += 1;
+        return data;
+    }
+    *misses += 1;
+    let data = compute_derived_file_data(&path, content, chunked, chunk_max_tokens);
+    cache.put_file(&key, data.clone());
+    data
+}
+
+fn compute_derived_file_data(
+    path: &str,
+    content: &str,
+    chunked: bool,
+    chunk_max_tokens: usize,
+) -> DerivedFileData {
+    use super::chunking::slice_evidence_lines;
+    use super::lexical::body_term_counts;
+    let (chunks, skeletons, chunk_terms, file_terms) = if chunked {
+        let chunks = chunk_file(path, content, chunk_max_tokens);
+        let elision = body_elision_map(path, content);
+        let lines = content.lines().collect::<Vec<_>>();
+        let skeletons = chunks
+            .iter()
+            .map(|chunk| {
+                elision
+                    .as_deref()
+                    .and_then(|elided| skeleton_view(&lines, chunk.range(), elided))
+            })
+            .collect();
+        // Token over the same slice the lexical index would take, so
+        // cached postings contributions are byte-identical to fresh ones.
+        let chunk_terms = chunks
+            .iter()
+            .map(|chunk| body_term_counts(&slice_evidence_lines(content, Some(&chunk.range()))))
+            .collect();
+        (chunks, skeletons, chunk_terms, BTreeMap::new())
+    } else {
+        let file_terms = body_term_counts(&slice_evidence_lines(content, None));
+        (Vec::new(), Vec::new(), Vec::new(), file_terms)
+    };
+    DerivedFileData {
+        chunks,
+        skeletons,
+        chunk_terms,
+        file_terms,
+        parsed: parse_symbols(path, content),
+    }
+}
+
 async fn build_semantic_vectors(
     semantic: &ContextSemanticConfig,
     evidence: &[ContextEvidence],
     file_contents: &BTreeMap<RepoPath, String>,
-) -> RuntimeResult<Option<InMemoryVectorIndex>> {
+    cache: &dyn ContextDerivedCache,
+) -> RuntimeResult<(Option<InMemoryVectorIndex>, usize, usize)> {
     if semantic.mode == ContextSemanticMode::NoVector {
-        return Ok(None);
+        return Ok((None, 0, 0));
     }
     let max_inputs = semantic.max_embedding_inputs.min(evidence.len());
     let inputs = evidence
@@ -534,29 +649,71 @@ async fn build_semantic_vectors(
         },
         &inputs,
     )?;
-    let vectors = match semantic.mode {
-        ContextSemanticMode::NoVector => Vec::new(),
-        ContextSemanticMode::Local => {
-            let provider = LocalHashEmbeddingProvider::new(256)?;
-            provider.embed(inputs.clone()).await?
-        }
-        ContextSemanticMode::Hosted => {
-            let provider = HostedEmbeddingProvider::from_config(semantic)?;
-            provider.embed(inputs.clone()).await?
-        }
+    // Vectors cache per (provider identity, embedded text): only inputs
+    // absent from the cache reach a provider, so warm re-index spends
+    // nothing on embeddings.
+    let provider_tag = match semantic.mode {
+        ContextSemanticMode::NoVector => unreachable!("handled above"),
+        ContextSemanticMode::Local => "local_hash_256".to_string(),
+        ContextSemanticMode::Hosted => format!(
+            "hosted:{}",
+            semantic.hosted_model.as_deref().unwrap_or("default")
+        ),
     };
-    let mut index = InMemoryVectorIndex::new();
-    if vectors.len() != inputs.len() {
-        return Err(RuntimeError::ProviderMessage {
-            status: None,
-            retryable: false,
-            message: "context embedding provider returned an unexpected vector count".to_string(),
-        });
+    let keys = inputs
+        .iter()
+        .map(|input| derived_vector_key(&provider_tag, &input.text))
+        .collect::<Vec<_>>();
+    let mut vectors = keys
+        .iter()
+        .map(|key| cache.get_vector(key))
+        .collect::<Vec<_>>();
+    let missing = vectors
+        .iter()
+        .enumerate()
+        .filter(|(_, vector)| vector.is_none())
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let embeddings_cached = inputs.len() - missing.len();
+    let embeddings_computed = missing.len();
+    if !missing.is_empty() {
+        let batch = missing
+            .iter()
+            .map(|&position| inputs[position].clone())
+            .collect::<Vec<_>>();
+        let computed = match semantic.mode {
+            ContextSemanticMode::NoVector => Vec::new(),
+            ContextSemanticMode::Local => {
+                let provider = LocalHashEmbeddingProvider::new(256)?;
+                provider.embed(batch).await?
+            }
+            ContextSemanticMode::Hosted => {
+                let provider = HostedEmbeddingProvider::from_config(semantic)?;
+                provider.embed(batch).await?
+            }
+        };
+        if computed.len() != missing.len() {
+            return Err(RuntimeError::ProviderMessage {
+                status: None,
+                retryable: false,
+                message: "context embedding provider returned an unexpected vector count"
+                    .to_string(),
+            });
+        }
+        for (&position, vector) in missing.iter().zip(computed) {
+            cache.put_vector(&keys[position], vector.values.clone());
+            vectors[position] = Some(vector.values);
+        }
     }
-    for (input, vector) in inputs.into_iter().zip(vectors) {
+    let mut index = InMemoryVectorIndex::new();
+    for (input, values) in inputs.into_iter().zip(vectors) {
+        // Cached values were normalized by the provider before storage.
+        let vector = super::EmbeddingVector {
+            values: values.expect("every vector is cached or computed"),
+        };
         index.put(input.id, vector)?;
     }
-    Ok(Some(index))
+    Ok((Some(index), embeddings_computed, embeddings_cached))
 }
 
 fn cross_repo_contract_evidence(
@@ -890,15 +1047,15 @@ fn build_relationships(
 fn index_symbols(
     snapshot: &RepoSnapshot,
     file: &FileMeta,
-    content: &str,
+    parsed_symbols: &ParsedSymbols,
     file_hunks: &[ContextRange],
     symbol_graph: &mut ContextSymbolGraph,
     evidence: &mut Vec<ContextEvidence>,
     max_evidence_items: usize,
-) -> ParsedSymbols {
-    let parsed_symbols = symbol_graph.add_file(file.rel_path.clone(), content);
+) {
+    symbol_graph.add_parsed(file.rel_path.clone(), parsed_symbols);
     if !file.is_changed {
-        return parsed_symbols;
+        return;
     }
     for symbol in &parsed_symbols.definitions {
         if evidence.len() >= max_evidence_items {
@@ -916,7 +1073,6 @@ fn index_symbols(
             is_changed_span,
         ));
     }
-    parsed_symbols
 }
 
 fn chunk_evidence(
