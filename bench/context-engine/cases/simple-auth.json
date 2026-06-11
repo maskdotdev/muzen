@@ -56,6 +56,16 @@
       "strict": true
     },
     {
+      "id": "auth-token-camelcase-search",
+      "kind": "search-text",
+      "query": "authorizeRequest",
+      "maxResults": 5,
+      "expectedPaths": [
+        "src/auth/token.rs"
+      ],
+      "strict": true
+    },
+    {
       "id": "auth-token-local-semantic-search",
       "kind": "search-text",
       "query": "user id token",

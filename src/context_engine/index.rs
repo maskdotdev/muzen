@@ -161,6 +161,7 @@ pub struct ContextIndex {
     pub manifest_hash: String,
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
+    pub lexical: super::LexicalIndex,
     pub symbol_graph: ContextSymbolGraph,
     pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
@@ -353,6 +354,7 @@ impl ContextIndex {
             }
         }
 
+        let lexical = super::LexicalIndex::build(&evidence, &file_contents);
         let semantic_vectors =
             build_semantic_vectors(&request.semantic, &evidence, &file_contents).await?;
 
@@ -401,6 +403,7 @@ impl ContextIndex {
             manifest_hash: snapshot.manifest_hash.clone(),
             evidence,
             file_contents,
+            lexical,
             symbol_graph,
             semantic: request.semantic,
             semantic_vectors,
