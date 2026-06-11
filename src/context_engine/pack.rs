@@ -4,8 +4,8 @@ use crate::contracts::Role;
 use crate::runtime::contracts::{EvidenceId, SessionId, SnapshotId};
 
 use super::{
-    semantic_score_for_purpose, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
-    ContextRelationship, ContextSufficiencyStatus, OmittedContextCandidate,
+    ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextRelationship,
+    ContextSufficiencyStatus, OmittedContextCandidate,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -177,13 +177,14 @@ pub(crate) fn score_for_purpose(
         (_, ContextEvidenceKind::FileSpan) => 0.2,
         _ => 0.05,
     };
+    let semantic_bonus = config.weight_semantic_change * signals.semantic_change_score;
     changed_bonus
         + graph_bonus
         + co_change_bonus
         + proximity_bonus
         + kind_bonus
         + token_efficiency_bonus(evidence.token_estimate)
-        + semantic_score_for_purpose(config, evidence, purpose)
+        + semantic_bonus
 }
 
 /// Explain a selection by citing the structural signals that scored it.
@@ -221,6 +222,12 @@ pub(crate) fn explain_selected_evidence(
     }
     if signals.path_proximity >= 0.5 && !evidence.is_changed_span {
         why.push("sits near the changed files in the directory tree".to_string());
+    }
+    if signals.semantic_change_score > 0.0 {
+        why.push(format!(
+            "semantically similar to the change (embedding similarity {:.2})",
+            signals.semantic_change_score
+        ));
     }
     match (purpose, evidence.kind) {
         (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => {

@@ -49,6 +49,10 @@ pub struct ContextEngineConfig {
     pub weight_co_change: f32,
     /// Ranking weight for directory proximity to changed files.
     pub weight_path_proximity: f32,
+    /// Ranking weight for embedding similarity to the change (R8);
+    /// applied to `ContextRankSignals::semantic_change_score`, which is
+    /// zero in no-vector mode.
+    pub weight_semantic_change: f32,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -84,6 +88,7 @@ impl ContextEngineConfig {
             weight_graph_proximity: 0.20,
             weight_co_change: 0.15,
             weight_path_proximity: 0.05,
+            weight_semantic_change: 0.10,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,
@@ -103,9 +108,16 @@ pub struct ContextSemanticConfig {
     pub hosted_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosted_credential_ref: Option<String>,
+    /// Directory holding `model.onnx`/`model_quantized.onnx` and
+    /// `tokenizer.json` for `LocalOnnx` mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_onnx_model_dir: Option<String>,
     #[serde(default)]
     pub allow_restricted_hosted_inputs: bool,
     pub max_embedding_inputs: usize,
+    /// Optional cross-encoder rerank stage over the fused candidates (R8).
+    #[serde(default)]
+    pub rerank: ContextRerankConfig,
 }
 
 impl Default for ContextSemanticConfig {
@@ -116,8 +128,55 @@ impl Default for ContextSemanticConfig {
             hosted_base_url: None,
             hosted_model: None,
             hosted_credential_ref: None,
+            local_onnx_model_dir: None,
             allow_restricted_hosted_inputs: false,
             max_embedding_inputs: 0,
+            rerank: ContextRerankConfig::default(),
+        }
+    }
+}
+
+/// Cross-encoder rerank stage over the fused top candidates (R8).
+///
+/// Speaks the Cohere-style `/rerank` contract
+/// (`{model, query, documents, top_n}` -> `{results: [{index,
+/// relevance_score}]}`), which Cohere, Jina, and self-hosted servers
+/// (vLLM, Infinity) all serve, so in-house rerankers plug in via
+/// `base_url` with no special mode. Reranking is always a network call:
+/// restricted evidence never reaches it unless
+/// `allow_restricted_hosted_inputs` is set, the same policy as hosted
+/// embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRerankConfig {
+    /// Off by default; rerank-off output is exactly the RRF fusion order.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Credential reference (`env:NAME`). Optional so in-house rerankers
+    /// behind trusted networks can run without auth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_ref: Option<String>,
+    /// Fused candidates sent to the reranker.
+    #[serde(default = "default_rerank_top_n")]
+    pub top_n: usize,
+}
+
+fn default_rerank_top_n() -> usize {
+    50
+}
+
+impl Default for ContextRerankConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: None,
+            model: None,
+            credential_ref: None,
+            top_n: default_rerank_top_n(),
         }
     }
 }
@@ -127,6 +186,9 @@ impl Default for ContextSemanticConfig {
 pub enum ContextSemanticMode {
     NoVector,
     Local,
+    /// Local transformer embeddings via ONNX Runtime (R8 evaluation
+    /// tier): real semantic quality with no data leaving the host.
+    LocalOnnx,
     Hosted,
 }
 
@@ -134,6 +196,7 @@ pub enum ContextSemanticMode {
 #[serde(rename_all = "snake_case")]
 pub enum ContextEmbeddingProviderKind {
     Local,
+    LocalOnnx,
     Hosted,
 }
 

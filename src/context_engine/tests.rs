@@ -2335,3 +2335,595 @@ async fn warm_reindex_spends_nothing_on_embeddings() {
     let index = warm_engine.get_index(&snapshot.snapshot_id).unwrap();
     assert!(index.semantic_vectors.is_some());
 }
+
+// ---- R8: real embeddings and optional reranking ----
+
+/// Loopback provider serving the OpenAI-compatible `/embeddings` and
+/// Cohere-style `/rerank` contracts. Embedding vectors are a
+/// deterministic hash of the input text; rerank scores reverse the
+/// offered document order so reordering is observable. Every request
+/// body is captured for policy assertions.
+struct LoopbackContextProviderServer {
+    base_url: String,
+    requests: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
+}
+
+impl LoopbackContextProviderServer {
+    fn spawn() -> Self {
+        use crate::tests::support::{http_content_length, read_http_request, split_http_body};
+        use std::io::Write as _;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let requests: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let request_bytes = read_http_request(&mut stream);
+                let (headers, body) = split_http_body(&request_bytes);
+                let content_length = http_content_length(headers);
+                let path = headers
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or_default()
+                    .to_string();
+                let request: serde_json::Value =
+                    serde_json::from_slice(&body[..content_length]).unwrap();
+                let response_body = if path.ends_with("/rerank") {
+                    let documents = request["documents"].as_array().unwrap();
+                    // Reverse the offered order: the last document gets
+                    // the highest relevance score.
+                    let results = documents
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| {
+                            serde_json::json!({
+                                "index": index,
+                                "relevance_score": index as f32,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    serde_json::json!({ "results": results })
+                } else {
+                    let inputs = request["input"].as_array().unwrap();
+                    let data = inputs
+                        .iter()
+                        .enumerate()
+                        .map(|(index, input)| {
+                            let text = input.as_str().unwrap_or_default();
+                            let seed = text
+                                .bytes()
+                                .fold(0u32, |hash, byte| hash.wrapping_mul(31) + u32::from(byte));
+                            let embedding = (0..4)
+                                .map(|dim| ((seed >> (dim * 8)) & 0xff) as f32 + 1.0)
+                                .collect::<Vec<_>>();
+                            serde_json::json!({ "index": index, "embedding": embedding })
+                        })
+                        .collect::<Vec<_>>();
+                    serde_json::json!({ "data": data })
+                };
+                captured.lock().unwrap().push((path, request));
+                let payload = serde_json::to_vec(&response_body).unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                )
+                .unwrap();
+                stream.write_all(&payload).unwrap();
+            }
+        });
+        Self { base_url, requests }
+    }
+
+    fn requests_for(&self, path_suffix: &str) -> Vec<serde_json::Value> {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(path, _)| path.ends_with(path_suffix))
+            .map(|(_, request)| request.clone())
+            .collect()
+    }
+}
+
+fn hosted_semantic_test_config(base_url: &str, model: &str) -> ContextEngineConfig {
+    std::env::set_var("MUZEN_TEST_CONTEXT_EMBED_KEY", "test-key");
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.semantic.mode = ContextSemanticMode::Hosted;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Hosted);
+    config.semantic.hosted_base_url = Some(base_url.to_string());
+    config.semantic.hosted_model = Some(model.to_string());
+    config.semantic.hosted_credential_ref = Some("env:MUZEN_TEST_CONTEXT_EMBED_KEY".to_string());
+    config.semantic.max_embedding_inputs = 64;
+    config
+}
+
+fn rerank_repo() -> tempfile::TempDir {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repo.path().join("alpha.rs"),
+        "pub fn authorize_request_alpha() -> bool { true }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("beta.rs"),
+        "pub fn authorize_request_beta() -> bool { false }\n",
+    )
+    .unwrap();
+    repo
+}
+
+#[tokio::test]
+async fn hosted_index_records_embedding_model_provenance() {
+    let server = LoopbackContextProviderServer::spawn();
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = hosted_semantic_test_config(&server.base_url, "test-embed-model");
+    let engine = SnapshotContextEngine::new(config);
+    let report = engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        report.semantic_provider.as_deref(),
+        Some("hosted:test-embed-model")
+    );
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert_eq!(
+        index.manifest_artifact.semantic_provider.as_deref(),
+        Some("hosted:test-embed-model")
+    );
+    assert!(index.semantic_vectors.is_some());
+    assert!(!server.requests_for("/embeddings").is_empty());
+}
+
+#[tokio::test]
+async fn rerank_disabled_output_is_unchanged_from_fusion_output() {
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = ContextEngineConfig::snapshot_v0();
+    let engine = SnapshotContextEngine::new(config.clone());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    let baseline = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+
+    // A fully configured but disabled rerank stage must not change a bit
+    // of the fusion output.
+    index.semantic.rerank = ContextRerankConfig {
+        enabled: false,
+        base_url: Some("http://127.0.0.1:9".to_string()),
+        model: Some("test-rerank-model".to_string()),
+        credential_ref: None,
+        top_n: 50,
+    };
+    let with_disabled_rerank = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert_eq!(with_disabled_rerank.evidence, baseline.evidence);
+    assert!(with_disabled_rerank
+        .fusion
+        .iter()
+        .all(|trace| trace.rerank_rank.is_none() && trace.rerank_score.is_none()));
+    assert!(with_disabled_rerank.degraded.is_empty());
+}
+
+#[tokio::test]
+async fn rerank_reorders_fused_candidates_and_records_ranks() {
+    let server = LoopbackContextProviderServer::spawn();
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = ContextEngineConfig::snapshot_v0();
+    let engine = SnapshotContextEngine::new(config.clone());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    let baseline = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(baseline.evidence.len() >= 2, "fixture yields fused candidates");
+
+    index.semantic.rerank = ContextRerankConfig {
+        enabled: true,
+        base_url: Some(server.base_url.clone()),
+        model: Some("test-rerank-model".to_string()),
+        credential_ref: None,
+        top_n: 50,
+    };
+    let reranked = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(reranked.degraded.is_empty());
+    // The loopback reranker reverses the fused order.
+    let baseline_ids: Vec<_> = baseline
+        .evidence
+        .iter()
+        .map(|evidence| evidence.id.clone())
+        .collect();
+    let reranked_ids: Vec<_> = reranked
+        .evidence
+        .iter()
+        .map(|evidence| evidence.id.clone())
+        .collect();
+    let mut reversed = baseline_ids.clone();
+    reversed.reverse();
+    assert_eq!(reranked_ids, reversed);
+    for (position, trace) in reranked.fusion.iter().enumerate() {
+        assert_eq!(trace.rerank_rank, Some(position + 1));
+        assert!(trace.rerank_score.is_some());
+    }
+    let rerank_requests = server.requests_for("/rerank");
+    assert_eq!(rerank_requests.len(), 1);
+    assert_eq!(
+        rerank_requests[0]["model"].as_str(),
+        Some("test-rerank-model")
+    );
+    assert_eq!(
+        rerank_requests[0]["documents"].as_array().unwrap().len(),
+        baseline.evidence.len()
+    );
+}
+
+#[tokio::test]
+async fn rerank_request_never_contains_restricted_evidence() {
+    let server = LoopbackContextProviderServer::spawn();
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = ContextEngineConfig::snapshot_v0();
+    let engine = SnapshotContextEngine::new(config.clone());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    // Every evidence item derived from alpha.rs is restricted: none of
+    // its text may reach the reranker through any evidence kind.
+    let mut restricted_ids = Vec::new();
+    for evidence in &mut index.evidence {
+        if evidence
+            .path
+            .as_ref()
+            .is_some_and(|path| path.display() == "alpha.rs")
+        {
+            evidence.sensitivity = ContextSensitivity::Restricted;
+            restricted_ids.push(evidence.id.clone());
+        }
+    }
+    assert!(!restricted_ids.is_empty(), "fixture yields alpha evidence");
+    index.semantic.rerank = ContextRerankConfig {
+        enabled: true,
+        base_url: Some(server.base_url.clone()),
+        model: None,
+        credential_ref: None,
+        top_n: 50,
+    };
+    let outcome = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(restricted_ids.iter().any(|restricted| outcome
+        .omissions
+        .iter()
+        .any(|omission| omission.evidence_id == restricted.0)));
+    for request in server.requests_for("/rerank") {
+        let serialized = serde_json::to_string(&request).unwrap();
+        assert!(
+            !serialized.contains("authorize_request_alpha"),
+            "restricted evidence text must never reach the reranker"
+        );
+    }
+}
+
+#[test]
+fn rerank_batch_rejects_restricted_without_opt_in() {
+    let candidates = vec![RerankCandidate {
+        id: "ev_restricted".to_string(),
+        text: "restricted".to_string(),
+        sensitivity: ContextSensitivity::Restricted,
+    }];
+    let error = validate_rerank_batch(false, &candidates).unwrap_err();
+    assert!(
+        matches!(error, RuntimeError::InvalidInput(message) if message.contains("restricted"))
+    );
+    validate_rerank_batch(true, &candidates).expect("explicit opt-in allows restricted inputs");
+}
+
+#[tokio::test]
+async fn embedding_provider_failure_degrades_index_to_lexical_with_warning() {
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    // Connection-refused port: a provider failure, not a config error.
+    let config = hosted_semantic_test_config("http://127.0.0.1:9", "test-embed-model");
+    let engine = SnapshotContextEngine::new(config.clone());
+    let report = engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "semantic_provider_failed"));
+    assert_eq!(report.semantic_provider, None);
+    assert_eq!(report.embeddings_computed, 0);
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(index.semantic_vectors.is_none());
+    let outcome = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !outcome.evidence.is_empty(),
+        "lexical retrieval still answers"
+    );
+}
+
+#[tokio::test]
+async fn query_embedding_failure_degrades_to_lexical_with_record() {
+    let server = LoopbackContextProviderServer::spawn();
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = hosted_semantic_test_config(&server.base_url, "test-embed-model");
+    let engine = SnapshotContextEngine::new(config.clone());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    assert!(index.semantic_vectors.is_some());
+    // The provider goes away between index build and query time.
+    index.semantic.hosted_base_url = Some("http://127.0.0.1:9".to_string());
+    let outcome = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !outcome.evidence.is_empty(),
+        "lexical retrieval still answers"
+    );
+    assert!(outcome
+        .degraded
+        .iter()
+        .any(|degradation| degradation.stage == "semantic"));
+}
+
+#[tokio::test]
+async fn rerank_provider_failure_degrades_to_fused_order_with_record() {
+    let repo = rerank_repo();
+    let snapshot = build_snapshot(repo.path(), vec!["alpha.rs"]);
+    let config = ContextEngineConfig::snapshot_v0();
+    let engine = SnapshotContextEngine::new(config.clone());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut index = (*engine.get_index(&snapshot.snapshot_id).unwrap()).clone();
+    let baseline = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    index.semantic.rerank = ContextRerankConfig {
+        enabled: true,
+        base_url: Some("http://127.0.0.1:9".to_string()),
+        model: None,
+        credential_ref: None,
+        top_n: 50,
+    };
+    let outcome = super::retrieval::fused_search(
+        &index,
+        "authorize_request",
+        10,
+        config.bm25_k1,
+        config.bm25_b,
+        config.rrf_k,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.evidence, baseline.evidence, "fused order is kept");
+    assert!(outcome
+        .degraded
+        .iter()
+        .any(|degradation| degradation.stage == "rerank"));
+}
+
+#[tokio::test]
+async fn semantic_change_signal_ranks_change_similar_evidence() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/auth.rs"),
+        "pub fn authorize_token_session(token: Token, session: Session) -> bool { true }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/auth_like.rs"),
+        "pub fn validate_token_session(token: Token, session: Session) -> bool { false }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/billing.rs"),
+        "pub fn compute_invoice_totals(rate: Decimal) -> Decimal { rate }\n",
+    )
+    .unwrap();
+    // A real hunk makes the auth.rs chunk a change anchor.
+    let diff = "diff --git a/src/auth.rs b/src/auth.rs\n--- a/src/auth.rs\n+++ b/src/auth.rs\n@@ -1,1 +1,1 @@\n+pub fn authorize_token_session(token: Token, session: Session) -> bool { true }\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/auth.rs"], diff);
+
+    // No-vector mode: the signal does not exist, ranking stays untouched.
+    let no_vector = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    no_vector
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), no_vector.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let no_vector_index = no_vector.get_index(&snapshot.snapshot_id).unwrap();
+    assert!(no_vector_index
+        .evidence
+        .iter()
+        .all(|evidence| evidence.signals.semantic_change_score == 0.0));
+
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.semantic.mode = ContextSemanticMode::Local;
+    config.semantic.provider = Some(ContextEmbeddingProviderKind::Local);
+    config.semantic.max_embedding_inputs = 64;
+    let engine = SnapshotContextEngine::new(config);
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let index = engine.get_index(&snapshot.snapshot_id).unwrap();
+    let score_for = |path: &str| {
+        index
+            .evidence
+            .iter()
+            .filter(|evidence| {
+                evidence
+                    .path
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.display() == path)
+            })
+            .map(|evidence| evidence.signals.semantic_change_score)
+            .fold(0.0f32, f32::max)
+    };
+    let similar = score_for("src/auth_like.rs");
+    let dissimilar = score_for("src/billing.rs");
+    assert!(
+        similar > dissimilar,
+        "token-overlapping evidence scores above unrelated evidence \
+         (similar {similar}, dissimilar {dissimilar})"
+    );
+    assert!(similar > 0.0);
+    // Changed spans are credited by weight_changed_span, not the
+    // semantic signal.
+    assert_eq!(score_for("src/auth.rs"), 0.0);
+}
+
+/// Real-model integration check for the local ONNX tier. Skipped unless
+/// `MUZEN_TEST_ONNX_MODEL_DIR` points at a directory with
+/// `model(.quantized)?.onnx` + `tokenizer.json`; the bench harness is
+/// the always-on quality gate for this provider.
+#[tokio::test]
+async fn local_onnx_provider_ranks_semantically_similar_code() {
+    let Some(model_dir) = std::env::var_os("MUZEN_TEST_ONNX_MODEL_DIR") else {
+        return;
+    };
+    let provider =
+        LocalOnnxEmbeddingProvider::shared(std::path::Path::new(&model_dir)).unwrap();
+    let input = |id: &str, text: &str| EmbeddingInput {
+        id: id.to_string(),
+        text: text.to_string(),
+        sensitivity: ContextSensitivity::Restricted,
+    };
+    let vectors = provider
+        .embed(vec![
+            input(
+                "auth",
+                "fn authorize_token(token: &str) -> bool { validate_session_token(token) }",
+            ),
+            input(
+                "billing",
+                "fn compute_invoice_total(items: &[LineItem]) -> Decimal { items.iter().map(|i| i.amount).sum() }",
+            ),
+        ])
+        .await
+        .unwrap();
+    let query = provider
+        .embed(vec![input("query", "session token authorization check")])
+        .await
+        .unwrap()
+        .remove(0);
+    let mut index = InMemoryVectorIndex::new();
+    index.put("auth".to_string(), vectors[0].clone()).unwrap();
+    index
+        .put("billing".to_string(), vectors[1].clone())
+        .unwrap();
+    let results = index.search(&query, 2).unwrap();
+    assert_eq!(results[0].0, "auth", "code-tuned embeddings rank the semantically related function first");
+    assert!(results[0].1 > results[1].1);
+}

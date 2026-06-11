@@ -598,6 +598,31 @@ Acceptance:
   gains over BM25+RRF; results committed to
   `bench/results-context-engine/`.
 
+Result (2026-06-11): shipped. Embeddings reach pack ranking through the
+`semantic_change_score` rank signal (similarity to the nearest change
+anchor, `weight_semantic_change` 0.10, swept against 0.15/0.20); the
+static semantic kind-bonus table is deleted. Live 46-case runs versus
+the deterministic baseline (recall@10 0.540, nDCG@10 0.469,
+recall@25 0.604, first-relevant rate 0.804):
+
+- Hosted `text-embedding-3-small`: recall@10 0.612, nDCG@10 0.515,
+  recall@25 0.649, precision 0.212, first-relevant rate 0.891, paired
+  tokens-to-first-relevant 2356 -> 1897, warm mean latency 174 ms.
+- Local ONNX `jina-embeddings-v2-base-code` (quantized): recall@10
+  0.597, nDCG@10 0.510, recall@25 0.658, precision 0.222,
+  first-relevant rate 0.891, warm mean latency 195 ms. Adopted as the
+  privacy-sensitive quality tier; cold indexing pays CPU inference
+  once per corpus, then the R9 vector cache holds.
+- Rerank stage ships off by default behind the Cohere-style `/rerank`
+  contract (Cohere, Jina, vLLM, Infinity, in-house servers; bearer
+  credential optional). Contract-tested against a loopback server;
+  no live cross-encoder acceptance yet for lack of a credentialed
+  endpoint.
+- Provider failures degrade: index build falls back to lexical-only
+  with a `semantic_provider_failed` warning; query-time embedding or
+  rerank failures keep lexical/fused results and record the
+  degradation in query data.
+
 ### Phase R9: Incremental, Persistent Indexing
 
 Intent:
@@ -716,7 +741,9 @@ Beyond per-phase tests:
 - For R6, does the iterative retrieval loop live in the reviewer kernel's
   session driver or in planned-units exploration requirements?
 - Local ONNX embedding runtime (R8): acceptable dependency weight, or
-  hosted-only for the quality tier?
+  hosted-only for the quality tier? Resolved 2026-06-11: adopted (`ort`
+  + `tokenizers`); the local tier matches hosted quality on the eval
+  corpus at equal warm latency with no data leaving the host.
 
 ## Review Checklist
 

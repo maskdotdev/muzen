@@ -7,8 +7,8 @@ use crate::runtime::contracts::{RuntimeError, RuntimeResult};
 use crate::util::resolve_credential_ref;
 
 use super::{
-    ContextEmbeddingProviderKind, ContextEngineConfig, ContextEvidence, ContextEvidenceKind,
-    ContextPackPurpose, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity,
+    ContextEmbeddingProviderKind, ContextEngineConfig, ContextEvidence, ContextSemanticConfig,
+    ContextSemanticMode, ContextSensitivity,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +72,46 @@ impl LocalHashEmbeddingProvider {
     }
 }
 
+/// Default hosted embedding model when none is configured.
+pub const DEFAULT_HOSTED_EMBEDDING_MODEL: &str = "text-embedding-3-small";
+
+/// Stable identity of the embedding provider behind a vector: provider
+/// kind plus the exact model id. Recorded in the index report/manifest as
+/// provenance and used as the embedding-cache key prefix, so switching
+/// models can never serve another model's vectors.
+pub fn semantic_provider_tag(semantic: &ContextSemanticConfig) -> Option<String> {
+    match semantic.mode {
+        ContextSemanticMode::NoVector => None,
+        ContextSemanticMode::Local => Some("local_hash_256".to_string()),
+        ContextSemanticMode::LocalOnnx => Some(format!(
+            "local_onnx:{}",
+            semantic
+                .local_onnx_model_dir
+                .as_deref()
+                .map(|dir| {
+                    std::path::Path::new(dir)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| dir.to_string())
+                })
+                .unwrap_or_else(|| "unconfigured".to_string())
+        )),
+        ContextSemanticMode::Hosted => Some(format!(
+            "hosted:{}",
+            semantic
+                .hosted_model
+                .as_deref()
+                .unwrap_or(DEFAULT_HOSTED_EMBEDDING_MODEL)
+        )),
+    }
+}
+
+/// Hosted embedding models cap tokens per input (8191 for OpenAI
+/// `text-embedding-3-*`); ~30KB of text stays inside that at the 4
+/// bytes/token estimate. The vector cache keys on the truncated text, so
+/// a cache key always describes exactly what was embedded.
+pub const MAX_EMBEDDING_TEXT_BYTES: usize = 30_000;
+
 pub fn context_embedding_text(evidence: &ContextEvidence, file_content: Option<&str>) -> String {
     let mut parts = Vec::new();
     if let Some(summary) = &evidence.summary {
@@ -83,7 +123,15 @@ pub fn context_embedding_text(evidence: &ContextEvidence, file_content: Option<&
     if let Some(content) = file_content {
         parts.push(content.to_string());
     }
-    parts.join("\n")
+    let mut text = parts.join("\n");
+    if text.len() > MAX_EMBEDDING_TEXT_BYTES {
+        let mut end = MAX_EMBEDDING_TEXT_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
 }
 
 #[async_trait]
@@ -132,7 +180,7 @@ impl HostedEmbeddingProvider {
             model: config
                 .hosted_model
                 .as_deref()
-                .unwrap_or("text-embedding-3-small")
+                .unwrap_or(DEFAULT_HOSTED_EMBEDDING_MODEL)
                 .to_string(),
             api_key,
         })
@@ -157,6 +205,11 @@ struct HostedEmbeddingData {
     index: usize,
 }
 
+/// Inputs per `/embeddings` request. Hosted providers cap both the input
+/// array (OpenAI: 2048) and tokens per request; 128 chunk-sized inputs
+/// stays far inside both.
+const HOSTED_EMBEDDING_REQUEST_BATCH: usize = 128;
+
 #[async_trait]
 impl EmbeddingProvider for HostedEmbeddingProvider {
     fn kind(&self) -> ContextEmbeddingProviderKind {
@@ -164,12 +217,22 @@ impl EmbeddingProvider for HostedEmbeddingProvider {
     }
 
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
+        let mut vectors = Vec::with_capacity(inputs.len());
+        for batch in inputs.chunks(HOSTED_EMBEDDING_REQUEST_BATCH) {
+            vectors.extend(self.embed_request(batch).await?);
+        }
+        Ok(vectors)
+    }
+}
+
+impl HostedEmbeddingProvider {
+    async fn embed_request(&self, inputs: &[EmbeddingInput]) -> RuntimeResult<Vec<EmbeddingVector>> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
         let request = HostedEmbeddingRequest {
             model: self.model.clone(),
-            input: inputs.into_iter().map(|input| input.text).collect(),
+            input: inputs.iter().map(|input| input.text.clone()).collect(),
             encoding_format: "float",
         };
         let response = self
@@ -221,6 +284,10 @@ pub struct InMemoryVectorIndex {
 impl InMemoryVectorIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn get(&self, id: &str) -> Option<&EmbeddingVector> {
+        self.vectors.get(id)
     }
 }
 
@@ -283,24 +350,9 @@ pub fn semantic_input_decision(
         {
             SemanticInputDecision::SkippedRestrictedHosted
         }
-        ContextSemanticMode::Local | ContextSemanticMode::Hosted => SemanticInputDecision::Allowed,
-    }
-}
-
-pub fn semantic_score_for_purpose(
-    config: &ContextEngineConfig,
-    evidence: &ContextEvidence,
-    purpose: ContextPackPurpose,
-) -> f32 {
-    if semantic_input_decision(config, evidence) != SemanticInputDecision::Allowed {
-        return 0.0;
-    }
-    match (purpose, evidence.kind) {
-        (ContextPackPurpose::Architecture, ContextEvidenceKind::CrossRepoContract) => 0.08,
-        (ContextPackPurpose::Architecture, ContextEvidenceKind::Doc) => 0.05,
-        (ContextPackPurpose::Tests, ContextEvidenceKind::Test) => 0.05,
-        (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => 0.04,
-        _ => 0.01,
+        ContextSemanticMode::Local
+        | ContextSemanticMode::LocalOnnx
+        | ContextSemanticMode::Hosted => SemanticInputDecision::Allowed,
     }
 }
 
@@ -341,7 +393,7 @@ fn stable_token_hash(token: &str) -> u64 {
     })
 }
 
-fn cosine_similarity(left: &EmbeddingVector, right: &EmbeddingVector) -> f32 {
+pub(crate) fn cosine_similarity(left: &EmbeddingVector, right: &EmbeddingVector) -> f32 {
     if left.values.len() != right.values.len() {
         return 0.0;
     }

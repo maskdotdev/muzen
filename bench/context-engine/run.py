@@ -107,6 +107,55 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write the run's metrics as the new baseline instead of gating.",
     )
+    parser.add_argument(
+        "--hosted-semantic",
+        action="store_true",
+        help=(
+            "Force hosted embeddings for every case (R8 acceptance). "
+            "Requires the embedding credential in the environment; the "
+            "regression gate still applies, so hosted must beat or match "
+            "the deterministic baseline."
+        ),
+    )
+    parser.add_argument(
+        "--hosted-embedding-model",
+        default="text-embedding-3-small",
+        help="Embedding model for --hosted-semantic runs.",
+    )
+    parser.add_argument(
+        "--hosted-embedding-base-url",
+        help="OpenAI-compatible embeddings endpoint for --hosted-semantic runs.",
+    )
+    parser.add_argument(
+        "--hosted-max-embedding-inputs",
+        type=int,
+        default=4096,
+        help="Embedding input cap for --hosted-semantic runs (covers all chunks).",
+    )
+    parser.add_argument(
+        "--local-onnx-model-dir",
+        type=Path,
+        help=(
+            "Force local ONNX transformer embeddings for every case (R8 "
+            "local-tier evaluation): a directory holding model.onnx/"
+            "model_quantized.onnx and tokenizer.json."
+        ),
+    )
+    parser.add_argument(
+        "--rerank-base-url",
+        help=(
+            "Enable the cross-encoder rerank stage against a Cohere-style "
+            "/rerank endpoint (Cohere, Jina, or an in-house server)."
+        ),
+    )
+    parser.add_argument(
+        "--rerank-model",
+        help="Rerank model id for --rerank-base-url runs.",
+    )
+    parser.add_argument(
+        "--rerank-credential-ref",
+        help="Credential reference (env:NAME) for the rerank endpoint.",
+    )
     return parser.parse_args()
 
 
@@ -188,10 +237,10 @@ def base_command(muzen_bin: Path | None) -> list[str]:
 
 
 def run_context_case(
-    case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path | None
+    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
 ) -> tuple[dict[str, Any], float]:
     repo = materialize_repo(case_file["repoSource"])
-    command = base_command(muzen_bin)
+    command = base_command(args.muzen_bin)
     command.append("context")
     if case.get("command") == "pack":
         command.append("pack")
@@ -208,7 +257,27 @@ def run_context_case(
     diff_path = materialize_diff(case_file["repoSource"])
     if diff_path is not None:
         command.extend(["--diff-file", str(diff_path)])
-    if case.get("localSemantic"):
+    if args.local_onnx_model_dir:
+        # Forced local ONNX mode (R8 local-tier evaluation) supersedes
+        # per-case semantic flags.
+        command.append("--local-onnx-semantic")
+        command.extend(["--onnx-model-dir", str(args.local_onnx_model_dir)])
+        command.extend(
+            ["--max-embedding-inputs", str(args.hosted_max_embedding_inputs)]
+        )
+    elif args.hosted_semantic:
+        # Forced hosted mode (R8 acceptance) supersedes per-case semantic
+        # flags: every case retrieves with real embeddings.
+        command.append("--hosted-semantic")
+        command.extend(
+            ["--max-embedding-inputs", str(args.hosted_max_embedding_inputs)]
+        )
+        command.extend(["--hosted-embedding-model", args.hosted_embedding_model])
+        if args.hosted_embedding_base_url:
+            command.extend(
+                ["--hosted-embedding-base-url", args.hosted_embedding_base_url]
+            )
+    elif case.get("localSemantic"):
         command.append("--local-semantic")
         command.extend(
             [
@@ -216,7 +285,7 @@ def run_context_case(
                 str(case.get("maxEmbeddingInputs", 512)),
             ]
         )
-    if case.get("hostedSemantic"):
+    elif case.get("hostedSemantic"):
         command.append("--hosted-semantic")
         command.extend(
             [
@@ -232,6 +301,12 @@ def run_context_case(
             command.extend(
                 ["--hosted-embedding-credential-ref", case["hostedEmbeddingCredentialRef"]]
             )
+    if args.rerank_base_url:
+        command.extend(["--rerank", "--rerank-base-url", args.rerank_base_url])
+        if args.rerank_model:
+            command.extend(["--rerank-model", args.rerank_model])
+        if args.rerank_credential_ref:
+            command.extend(["--rerank-credential-ref", args.rerank_credential_ref])
     if case.get("command") == "pack":
         command.extend(["--purpose", case.get("purpose", "general-review")])
         command.extend(["--max-tokens", str(case.get("maxTokens", 12000))])
@@ -291,8 +366,10 @@ def tokens_to_first_relevant(evidence: list[dict[str, Any]], expected: set[str])
     return None
 
 
-def score_case(case_file: dict[str, Any], case: dict[str, Any], muzen_bin: Path | None) -> CaseResult:
-    result, latency_ms = run_context_case(case_file, case, muzen_bin)
+def score_case(
+    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+) -> CaseResult:
+    result, latency_ms = run_context_case(case_file, case, args)
     evidence = result.get("evidence", [])
     expected_paths = list(dict.fromkeys(case["expectedPaths"]))
     retrieved_paths = [entry["path"] for entry in evidence if entry.get("path")]
@@ -520,7 +597,7 @@ def main() -> int:
     args = parse_args()
     case_files = load_case_files(args.cases_dir)
     results = [
-        score_case(case_file, case, args.muzen_bin)
+        score_case(case_file, case, args)
         for case_file in case_files
         for case in case_file["cases"]
     ]
