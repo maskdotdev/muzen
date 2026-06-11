@@ -425,9 +425,7 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
             contract_risk_units: summary.quality_diagnostics.contract_risk_units,
             contract_seed_count: summary.quality_diagnostics.contract_seed_count,
             contract_pack_count: summary.quality_diagnostics.contract_pack_count,
-            contract_evidence_failures: summary
-                .quality_diagnostics
-                .contract_evidence_failures,
+            contract_evidence_failures: summary.quality_diagnostics.contract_evidence_failures,
             candidate_findings: summary.quality_diagnostics.candidate_findings,
             rescued_candidates: summary.quality_diagnostics.rescued_candidates,
             rejected_candidates: summary.quality_diagnostics.rejected_candidates,

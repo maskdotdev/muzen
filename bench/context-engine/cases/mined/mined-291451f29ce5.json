@@ -3,7 +3,8 @@
   "name": "mined-291451f29ce5",
   "repoSource": {
     "kind": "git",
-    "commit": "291451f29ce568fe009367dbc575ba0d7824abd0"
+    "commit": "291451f29ce568fe009367dbc575ba0d7824abd0",
+    "origin": "self"
   },
   "changedFiles": [
     "src/runner.rs"

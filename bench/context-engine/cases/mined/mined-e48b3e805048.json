@@ -3,7 +3,8 @@
   "name": "mined-e48b3e805048",
   "repoSource": {
     "kind": "git",
-    "commit": "e48b3e805048a64da8f264b803085de631275de5"
+    "commit": "e48b3e805048a64da8f264b803085de631275de5",
+    "origin": "self"
   },
   "changedFiles": [
     "src/cli.rs"

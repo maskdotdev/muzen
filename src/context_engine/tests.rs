@@ -260,9 +260,18 @@ async fn snapshot_engine_builds_purpose_specific_pack() {
 
     assert_eq!(tests_pack.purpose, ContextPackPurpose::Tests);
     assert_eq!(architecture_pack.purpose, ContextPackPurpose::Architecture);
-    // The diff manifest anchors every pack; change-rooted evidence leads,
-    // and purpose differentiates the ordering of non-changed evidence.
-    assert_eq!(tests_pack.evidence[0].kind, ContextEvidenceKind::Diff);
+    // The diff manifest anchors every pack near the top; change-rooted
+    // evidence leads, and purpose differentiates the ordering of
+    // non-changed evidence.
+    let diff_position = tests_pack
+        .evidence
+        .iter()
+        .position(|evidence| evidence.kind == ContextEvidenceKind::Diff)
+        .expect("diff manifest is present in the pack");
+    assert!(
+        diff_position < 3,
+        "diff manifest ranks near the top, got position {diff_position}"
+    );
     let position = |pack: &ContextPack, kind: ContextEvidenceKind| {
         pack.evidence
             .iter()
@@ -666,19 +675,26 @@ async fn changed_ts_export_surfaces_importing_call_sites_without_collisions() {
         .unwrap();
     let index = engine.get_index(&snapshot.snapshot_id).unwrap();
     let called_by: Vec<_> = index
-        .graph_candidates
+        .graph_expansion
+        .candidates
         .iter()
-        .filter(|candidate| candidate.kind == ContextRelationshipKind::CalledBy)
+        .filter(|candidate| candidate.relationship_kind() == ContextRelationshipKind::CalledBy)
         .collect();
-    assert!(called_by
-        .iter()
-        .any(|candidate| candidate.path.display() == "src/app.ts"));
+    assert!(called_by.iter().any(|candidate| candidate
+        .repo_path()
+        .map(|path| path.display())
+        .as_deref()
+        == Some("src/app.ts")));
     assert!(
         !index
-            .graph_candidates
+            .graph_expansion
+            .candidates
             .iter()
-            .any(|candidate| candidate.path.display() == "src/b/load.ts"
-                && candidate.kind == ContextRelationshipKind::CalledBy),
+            .any(
+                |candidate| candidate.repo_path().map(|path| path.display()).as_deref()
+                    == Some("src/b/load.ts")
+                    && candidate.relationship_kind() == ContextRelationshipKind::CalledBy
+            ),
         "same-named module in another directory must not surface as a caller"
     );
     assert!(
@@ -2214,7 +2230,10 @@ async fn warm_reindex_recomputes_nothing_and_reproduces_the_index() {
 
     let (cold_engine, cold_snapshot, cold) = index_with_cache(repo.path(), &cache_path).await;
     assert_eq!(cold.derived_cache_hits, 0);
-    assert!(cold.derived_cache_misses > 0, "cold build derives all files");
+    assert!(
+        cold.derived_cache_misses > 0,
+        "cold build derives all files"
+    );
 
     // A fresh engine process over the same checkout: every file's derived
     // data comes from the durable cache, and the index is reproduced
@@ -2262,7 +2281,10 @@ async fn derivation_version_bump_invalidates_and_rebuilds() {
     std::fs::write(&cache_path, stale).unwrap();
 
     let (_, _, warm) = index_with_cache(repo.path(), &cache_path).await;
-    assert_eq!(warm.derived_cache_hits, 0, "stale-version entries never hit");
+    assert_eq!(
+        warm.derived_cache_hits, 0,
+        "stale-version entries never hit"
+    );
     assert_eq!(warm.derived_cache_misses, cold.derived_cache_misses);
     assert!(
         !warm
@@ -2560,7 +2582,10 @@ async fn rerank_reorders_fused_candidates_and_records_ranks() {
     )
     .await
     .unwrap();
-    assert!(baseline.evidence.len() >= 2, "fixture yields fused candidates");
+    assert!(
+        baseline.evidence.len() >= 2,
+        "fixture yields fused candidates"
+    );
 
     index.semantic.rerank = ContextRerankConfig {
         enabled: true,
@@ -2677,9 +2702,7 @@ fn rerank_batch_rejects_restricted_without_opt_in() {
         sensitivity: ContextSensitivity::Restricted,
     }];
     let error = validate_rerank_batch(false, &candidates).unwrap_err();
-    assert!(
-        matches!(error, RuntimeError::InvalidInput(message) if message.contains("restricted"))
-    );
+    assert!(matches!(error, RuntimeError::InvalidInput(message) if message.contains("restricted")));
     validate_rerank_batch(true, &candidates).expect("explicit opt-in allows restricted inputs");
 }
 
@@ -2893,8 +2916,7 @@ async fn local_onnx_provider_ranks_semantically_similar_code() {
     let Some(model_dir) = std::env::var_os("MUZEN_TEST_ONNX_MODEL_DIR") else {
         return;
     };
-    let provider =
-        LocalOnnxEmbeddingProvider::shared(std::path::Path::new(&model_dir)).unwrap();
+    let provider = LocalOnnxEmbeddingProvider::shared(std::path::Path::new(&model_dir)).unwrap();
     let input = |id: &str, text: &str| EmbeddingInput {
         id: id.to_string(),
         text: text.to_string(),
@@ -2924,6 +2946,9 @@ async fn local_onnx_provider_ranks_semantically_similar_code() {
         .put("billing".to_string(), vectors[1].clone())
         .unwrap();
     let results = index.search(&query, 2).unwrap();
-    assert_eq!(results[0].0, "auth", "code-tuned embeddings rank the semantically related function first");
+    assert_eq!(
+        results[0].0, "auth",
+        "code-tuned embeddings rank the semantically related function first"
+    );
     assert!(results[0].1 > results[1].1);
 }

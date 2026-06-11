@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-e24311e22317",
+  "repoSource": {
+    "kind": "git",
+    "commit": "e24311e22317f0801a28296a006f4835b25063e9",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/observability/ai-runs/route.test.ts",
+    "apps/web/src/app/api/observability/ai-runs/route.ts",
+    "apps/web/src/app/api/review/diff/route.post.test.ts",
+    "apps/web/src/app/api/review/diff/route.ts",
+    "apps/web/src/components/merge-request-diff/hooks/use-merge-request-ai-review.ts",
+    "apps/web/src/lib/review/flow-run.ts"
+  ],
+  "description": "Mined pair: base e24311e22317 (fix(review): fail closed ai-runs and dedupe unchanged diff runs) followed by c4699af7112b (feat(review): add postgres notify wakeups for review queue).",
+  "minedFrom": {
+    "baseCommit": "e24311e22317f0801a28296a006f4835b25063e9",
+    "followUpCommit": "c4699af7112bfa0ef5318de3178f15e8f2332acd"
+  },
+  "cases": [
+    {
+      "id": "mined-e24311e22317-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/api/review/diff/stream/route.test.ts",
+        "apps/web/src/app/api/review/diff/stream/route.ts",
+        "apps/web/src/lib/review/worker-runtime.test.ts",
+        "apps/web/src/lib/review/worker-runtime.ts"
+      ]
+    }
+  ]
+}

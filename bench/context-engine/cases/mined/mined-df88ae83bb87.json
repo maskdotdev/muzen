@@ -3,7 +3,8 @@
   "name": "mined-df88ae83bb87",
   "repoSource": {
     "kind": "git",
-    "commit": "df88ae83bb875e27db33d92e5f28832ef1435b37"
+    "commit": "df88ae83bb875e27db33d92e5f28832ef1435b37",
+    "origin": "self"
   },
   "changedFiles": [
     "src/runner/execution.rs"

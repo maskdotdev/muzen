@@ -3,7 +3,8 @@
   "name": "mined-efaa992c9223",
   "repoSource": {
     "kind": "git",
-    "commit": "efaa992c9223d356a4a8c3f3869b2eb01fe2ab18"
+    "commit": "efaa992c9223d356a4a8c3f3869b2eb01fe2ab18",
+    "origin": "self"
   },
   "changedFiles": [
     "sdk/typescript/packages/muzen-sdk/src/index.ts",

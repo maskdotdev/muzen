@@ -38,6 +38,14 @@ def parse_args() -> argparse.Namespace:
         default=Path("bench/context-engine/cases/mined"),
         help="Directory for mined case JSON files. Existing mined cases are replaced.",
     )
+    parser.add_argument(
+        "--origin",
+        default="self",
+        help=(
+            "Recorded clone source for mined cases: 'self' for this repository, "
+            "or a path/URL the harness can `git clone` (e.g. ~/code/argus-app)."
+        ),
+    )
     parser.add_argument("--max-cases", type=int, default=40)
     parser.add_argument(
         "--window",
@@ -98,12 +106,13 @@ def shares_area(base_files: list[str], follow_files: list[str]) -> bool:
 
 
 def mine(args: argparse.Namespace) -> list[dict]:
+    """Collect every qualifying pair, then stride-sample evenly across
+    history. Taking the first N would measure only the repository's
+    scaffolding era, where co-change and reference signals cannot exist."""
     shas = git(args.repo, "rev-list", "--no-merges", "--reverse", args.rev).split()
     diffs = {sha: (diff_files(args.repo, sha, "AM"), diff_files(args.repo, sha, "M")) for sha in shas}
     cases: list[dict] = []
     for index, base in enumerate(shas):
-        if len(cases) >= args.max_cases:
-            break
         base_files = diffs[base][0]
         if not 1 <= len(base_files) <= args.max_changed_files:
             continue
@@ -118,19 +127,27 @@ def mine(args: argparse.Namespace) -> list[dict]:
             ]
             if not 1 <= len(expected) <= args.max_expected_files:
                 continue
-            cases.append(build_case(args.repo, base, follow, base_files, expected))
+            cases.append(build_case(args.repo, args.origin, base, follow, base_files, expected))
             break
-    return cases
+    return stride_sample(cases, args.max_cases)
+
+
+def stride_sample(cases: list[dict], max_cases: int) -> list[dict]:
+    """Deterministic even sample preserving history order."""
+    if len(cases) <= max_cases:
+        return cases
+    step = len(cases) / max_cases
+    return [cases[int(i * step)] for i in range(max_cases)]
 
 
 def build_case(
-    repo: Path, base: str, follow: str, changed_files: list[str], expected: list[str]
+    repo: Path, origin: str, base: str, follow: str, changed_files: list[str], expected: list[str]
 ) -> dict:
     name = f"mined-{base[:12]}"
     return {
         "schemaVersion": CASE_SCHEMA_VERSION,
         "name": name,
-        "repoSource": {"kind": "git", "commit": base},
+        "repoSource": {"kind": "git", "commit": base, "origin": origin},
         "changedFiles": sorted(changed_files),
         "description": (
             f"Mined pair: base {base[:12]} ({subject(repo, base)}) followed by "

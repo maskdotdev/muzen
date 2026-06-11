@@ -42,7 +42,8 @@ impl ContractPackPlan {
         self.packs
             .iter()
             .filter(|pack| {
-                pack.primary_path == *path || pack.related_paths.iter().any(|related| related == path)
+                pack.primary_path == *path
+                    || pack.related_paths.iter().any(|related| related == path)
             })
             .collect()
     }
@@ -64,8 +65,7 @@ pub(crate) fn build_contract_pack_plan(
     }
     let added = added_lines_by_path(diff);
     let producers = producer_symbols(&added, &changed_paths);
-    let consumers =
-        consumer_paths_by_symbol(&added, &changed_paths, &producers, head_contents);
+    let consumers = consumer_paths_by_symbol(&added, &changed_paths, &producers, head_contents);
     let mut packs = Vec::new();
     for (symbol, producer_path) in producers {
         let Some(related) = consumers.get(&symbol) else {
@@ -346,11 +346,7 @@ fn credential_ownership_paths(added: &BTreeMap<String, Vec<String>>) -> Vec<Stri
             });
             let owner_fields = OWNERSHIP_FIELDS
                 .iter()
-                .filter(|field| {
-                    lines
-                        .iter()
-                        .any(|line| contains_identifier(line, field))
-                })
+                .filter(|field| lines.iter().any(|line| contains_identifier(line, field)))
                 .count();
             mentions_credential && persists && owner_fields >= 2
         })

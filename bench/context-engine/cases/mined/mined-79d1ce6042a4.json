@@ -3,7 +3,8 @@
   "name": "mined-79d1ce6042a4",
   "repoSource": {
     "kind": "git",
-    "commit": "79d1ce6042a405cc9f88b62ad8520e700645c310"
+    "commit": "79d1ce6042a405cc9f88b62ad8520e700645c310",
+    "origin": "self"
   },
   "changedFiles": [
     "sdk/python/muzen/__init__.py",

@@ -270,16 +270,16 @@ async fn rerank_fused_candidates(
     // Sort window positions by reranker score (descending); unscored
     // candidates and ties keep their fused order.
     let mut order: Vec<usize> = (0..window).collect();
-    order.sort_by(|&left, &right| {
-        match (score_by_position[left], score_by_position[right]) {
+    order.sort_by(
+        |&left, &right| match (score_by_position[left], score_by_position[right]) {
             (Some(left_score), Some(right_score)) => right_score
                 .total_cmp(&left_score)
                 .then_with(|| left.cmp(&right)),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => left.cmp(&right),
-        }
-    });
+        },
+    );
     let reordered_evidence = order
         .iter()
         .map(|&position| evidence[position].clone())

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8a81679096bc",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8a81679096bc946db495e48835db1826c37e4984",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-default-deps.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-engine.test.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-engine.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-prewarm.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-types.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-index-utils.ts",
+    "apps/web/src/features/gitlab/server/merge-request-auto-indexing.ts"
+  ],
+  "description": "Mined pair: base 8a81679096bc (refactor(web): move gitlab auto-index cluster into feature ownership) followed by 31a184dc56e8 (refactor(web): move gitlab job processing into feature ownership).",
+  "minedFrom": {
+    "baseCommit": "8a81679096bc946db495e48835db1826c37e4984",
+    "followUpCommit": "31a184dc56e8c383ca7cc6a379593b0c9de3980d"
+  },
+  "cases": [
+    {
+      "id": "mined-8a81679096bc-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/cleanup-internal-gitlab-jobs.ts",
+        "apps/web/src/features/gitlab/server/run-internal-gitlab-jobs.ts"
+      ]
+    }
+  ]
+}

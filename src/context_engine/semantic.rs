@@ -226,7 +226,10 @@ impl EmbeddingProvider for HostedEmbeddingProvider {
 }
 
 impl HostedEmbeddingProvider {
-    async fn embed_request(&self, inputs: &[EmbeddingInput]) -> RuntimeResult<Vec<EmbeddingVector>> {
+    async fn embed_request(
+        &self,
+        inputs: &[EmbeddingInput],
+    ) -> RuntimeResult<Vec<EmbeddingVector>> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }

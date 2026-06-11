@@ -394,16 +394,16 @@ impl ContextEngine for SnapshotContextEngine {
             ContextQueryKind::RelatedTests => {
                 let path = string_arg(&request.arguments, "path").unwrap_or_default();
                 let path_stem = path_stem(&path);
-                // Tests connected through the resolved reference graph rank
-                // above path-stem matches.
+                // Tests connected through the Context Graph's `Tests`
+                // edges rank above path-stem matches.
                 let graph_test_paths: std::collections::BTreeSet<_> =
                     crate::runtime::contracts::RepoPath::parse(&path)
                         .map(|query_path| {
                             index
                                 .graph
-                                .referencers(&query_path)
-                                .filter(|edge| super::is_test_path(&edge.from.display()))
-                                .map(|edge| edge.from.clone())
+                                .file_referencers(&query_path)
+                                .filter(|edge| edge.kind == super::graph::ContextEdgeKind::Tests)
+                                .filter_map(|edge| edge.from_path().cloned())
                                 .collect()
                         })
                         .unwrap_or_default();
@@ -712,10 +712,29 @@ impl ContextEngine for SnapshotContextEngine {
                     .evidence
                     .iter()
                     .map(|evidence| {
+                        // Graph paths are the source of explainability:
+                        // typed relationships carry the rendered Context
+                        // Graph path that connected this evidence to the
+                        // change.
+                        let graph_paths = pack
+                            .relationships
+                            .iter()
+                            .filter(|relationship| {
+                                relationship.from == evidence.id || relationship.to == evidence.id
+                            })
+                            .map(|relationship| {
+                                serde_json::json!({
+                                    "kind": relationship.kind,
+                                    "confidence": relationship.confidence,
+                                    "path": relationship.reason,
+                                })
+                            })
+                            .collect::<Vec<_>>();
                         serde_json::json!({
                             "evidenceId": evidence.id.0,
                             "score": score_for_purpose(evidence, pack.purpose, &self.config),
                             "why": explain_selected_evidence(evidence, pack.purpose),
+                            "graphPaths": graph_paths,
                         })
                     })
                     .collect::<Vec<_>>();

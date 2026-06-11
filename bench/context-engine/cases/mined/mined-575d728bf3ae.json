@@ -3,7 +3,8 @@
   "name": "mined-575d728bf3ae",
   "repoSource": {
     "kind": "git",
-    "commit": "575d728bf3ae064326ac765c35943a572f213262"
+    "commit": "575d728bf3ae064326ac765c35943a572f213262",
+    "origin": "self"
   },
   "changedFiles": [
     "sdk/python/tests/test_protocol_contract.py",

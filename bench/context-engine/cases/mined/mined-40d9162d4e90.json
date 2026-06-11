@@ -3,7 +3,8 @@
   "name": "mined-40d9162d4e90",
   "repoSource": {
     "kind": "git",
-    "commit": "40d9162d4e904bccd11fb9d4e317ac4ace4445d6"
+    "commit": "40d9162d4e904bccd11fb9d4e317ac4ace4445d6",
+    "origin": "self"
   },
   "changedFiles": [
     "src/context_engine/semantic.rs"

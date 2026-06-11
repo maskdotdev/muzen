@@ -1,4 +1,5 @@
-use super::{ContextEvidence, ContextEvidenceKind, ReferenceGraph};
+use super::graph::ContextEdgeKind;
+use super::{ContextEvidence, ContextEvidenceKind, ContextGraph};
 
 pub(crate) fn path_stem(path: &str) -> String {
     std::path::Path::new(path)
@@ -49,7 +50,7 @@ pub(crate) fn related_symbol_terms(
 pub(crate) fn related_symbol_score(
     evidence: &ContextEvidence,
     file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
-    graph: &ReferenceGraph,
+    graph: &ContextGraph,
     path: &str,
     terms: &[String],
 ) -> Option<usize> {
@@ -60,18 +61,26 @@ pub(crate) fn related_symbol_score(
     }
     let mut score = 0usize;
     if let Ok(query_path) = crate::runtime::contracts::RepoPath::parse(path) {
-        // Resolved reference edges outrank name-matched fallback edges.
+        let is_relationship = |kind: ContextEdgeKind| {
+            matches!(
+                kind,
+                ContextEdgeKind::Imports | ContextEdgeKind::References | ContextEdgeKind::Tests
+            )
+        };
+        // Resolver-backed edges outrank name-matched fallback edges.
         if let Some(edge) = graph
-            .referencers(&query_path)
-            .find(|edge| edge.from == *evidence_path)
+            .file_referencers(&query_path)
+            .filter(|edge| is_relationship(edge.kind))
+            .find(|edge| edge.from_path() == Some(evidence_path))
         {
-            score = score.saturating_add(if edge.resolved { 90 } else { 50 });
+            score = score.saturating_add(if edge.confidence >= 0.8 { 90 } else { 50 });
         }
         if let Some(edge) = graph
-            .references(&query_path)
-            .find(|edge| edge.to == *evidence_path)
+            .file_references(&query_path)
+            .filter(|edge| is_relationship(edge.kind))
+            .find(|edge| edge.to_path() == Some(evidence_path))
         {
-            score = score.saturating_add(if edge.resolved { 70 } else { 40 });
+            score = score.saturating_add(if edge.confidence >= 0.8 { 70 } else { 40 });
         }
     }
     let summary = evidence

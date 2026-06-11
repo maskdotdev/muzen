@@ -3,7 +3,8 @@
   "name": "mined-f65e0f56bfb7",
   "repoSource": {
     "kind": "git",
-    "commit": "f65e0f56bfb72f98308a20137b02a8c273cf8a9d"
+    "commit": "f65e0f56bfb72f98308a20137b02a8c273cf8a9d",
+    "origin": "self"
   },
   "changedFiles": [
     "src/context_engine/engine.rs",

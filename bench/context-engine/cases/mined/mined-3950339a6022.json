@@ -3,7 +3,8 @@
   "name": "mined-3950339a6022",
   "repoSource": {
     "kind": "git",
-    "commit": "3950339a60223f5b0edecc56d1e472e101172113"
+    "commit": "3950339a60223f5b0edecc56d1e472e101172113",
+    "origin": "self"
   },
   "changedFiles": [
     "examples/tanstack-durable-review/src/App.tsx",

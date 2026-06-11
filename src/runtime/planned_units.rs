@@ -16,8 +16,8 @@ use crate::contracts::{
 use crate::review_plan::ReviewPlanFileMode;
 use crate::review_plan::{build_review_plan, ReviewPlan};
 use crate::review_units::{build_review_unit_plan, PlannedReviewUnit, ReviewUnitOptions};
-use crate::runtime::contracts::*;
 use crate::runtime::contract_packs::{build_contract_pack_plan, ContractPack, ContractPackPlan};
+use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
@@ -912,20 +912,17 @@ impl PlannedReviewRuntime {
                 transcript.push(ConversationItem::AssistantToolCalls {
                     calls: chunk.to_vec(),
                 });
-                let results = ToolBatchRunner::new(
-                    self.policy.as_ref(),
-                    self.tools.as_ref(),
-                    &self.events,
-                )
-                .execute(
-                    scope.clone(),
-                    TurnId(u32::MAX - chunk_index as u32),
-                    chunk.to_vec(),
-                    &evidence,
-                    scope.budget.max_tool_calls,
-                    cancel.child_token(),
-                )
-                .await;
+                let results =
+                    ToolBatchRunner::new(self.policy.as_ref(), self.tools.as_ref(), &self.events)
+                        .execute(
+                            scope.clone(),
+                            TurnId(u32::MAX - chunk_index as u32),
+                            chunk.to_vec(),
+                            &evidence,
+                            scope.budget.max_tool_calls,
+                            cancel.child_token(),
+                        )
+                        .await;
                 file_evidence.observe_results(&results, &self.tools.artifacts);
                 ToolResultEffectProcessor::new(
                     self.policy.as_ref(),
@@ -2288,7 +2285,6 @@ impl FileEvidenceTracker {
                 .any(|seed| contains_token(query, seed))
         })
     }
-
 }
 
 fn result_path(result: &ToolResultEnvelope) -> Option<String> {
@@ -3615,15 +3611,16 @@ fn validate_candidate_finding(
         return Err("contract_missing_behavior_comparison".to_string());
     }
     if is_query_or_filter_scope_finding_text(&finding_text) {
-        let predicate_names_changed_token = added_tokens
-            .get(&candidate.path)
-            .is_some_and(|tokens_by_line| {
-                tokens_by_line.iter().any(|(_, tokens)| {
-                    tokens
-                        .iter()
-                        .any(|token| contains_token(&candidate.predicate, token))
-                })
-            });
+        let predicate_names_changed_token =
+            added_tokens
+                .get(&candidate.path)
+                .is_some_and(|tokens_by_line| {
+                    tokens_by_line.iter().any(|(_, tokens)| {
+                        tokens
+                            .iter()
+                            .any(|token| contains_token(&candidate.predicate, token))
+                    })
+                });
         if candidate.predicate.is_empty() || !predicate_names_changed_token {
             return Err("query_scope_missing_predicate".to_string());
         }
@@ -3738,9 +3735,16 @@ fn is_contract_sensitive_finding_text(text: &str) -> bool {
 
 fn is_query_or_filter_scope_finding_text(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
-    ["query", "filter", "deletemany", "updatemany", "findmany", "cleanup"]
-        .iter()
-        .any(|needle| normalized.contains(needle))
+    [
+        "query",
+        "filter",
+        "deletemany",
+        "updatemany",
+        "findmany",
+        "cleanup",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn evidence_refs_for_candidate(
@@ -4837,7 +4841,10 @@ mod tests {
         let EvidenceLocationV1::SinglePath { path } = &report.findings[0].file_refs[0] else {
             panic!("single path finding");
         };
-        assert_eq!(path, "packages/app-store/googlecalendar/lib/CalendarService.ts");
+        assert_eq!(
+            path,
+            "packages/app-store/googlecalendar/lib/CalendarService.ts"
+        );
         assert!(report.findings[0].file_refs.iter().any(|location| {
             matches!(
                 location,
@@ -5112,14 +5119,17 @@ mod tests {
         ]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let pack_plan = build_contract_pack_plan(&review_plan, snapshot.diff.content.as_str(), &BTreeMap::new());
+        let pack_plan = build_contract_pack_plan(
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            &BTreeMap::new(),
+        );
         let unit = unit_plan
             .units
             .iter()
             .find(|unit| {
                 unit.file_paths.iter().any(|path| {
-                    path.display()
-                        == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+                    path.display() == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
                 })
             })
             .expect("unit");
@@ -5329,14 +5339,17 @@ mod tests {
         ]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let pack_plan = build_contract_pack_plan(&review_plan, snapshot.diff.content.as_str(), &BTreeMap::new());
+        let pack_plan = build_contract_pack_plan(
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            &BTreeMap::new(),
+        );
         let unit = unit_plan
             .units
             .iter()
             .find(|unit| {
                 unit.file_paths.iter().any(|path| {
-                    path.display()
-                        == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+                    path.display() == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
                 })
             })
             .expect("unit");

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-25115673a242",
+  "repoSource": {
+    "kind": "git",
+    "commit": "25115673a2422f9c70d8524acbbfdd82f4c22f7a",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/components/diff/toolbar.tsx"
+  ],
+  "description": "Mined pair: base 25115673a242 (fix(review): enable single-comment AI review navigation) followed by 07d31d561959 (feat(review): add review chat with MCP code tools).",
+  "minedFrom": {
+    "baseCommit": "25115673a2422f9c70d8524acbbfdd82f4c22f7a",
+    "followUpCommit": "07d31d561959944d374401ad71b27f4f91181e23"
+  },
+  "cases": [
+    {
+      "id": "mined-25115673a242-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/components/site-header.tsx",
+        "apps/web/src/features/review/components/diff/panel.tsx"
+      ]
+    }
+  ]
+}

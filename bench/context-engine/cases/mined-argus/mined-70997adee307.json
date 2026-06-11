@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-70997adee307",
+  "repoSource": {
+    "kind": "git",
+    "commit": "70997adee307b1ffbb46f03f87d67634abc298b1",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/components/code-graph-trace-panel.tsx"
+  ],
+  "description": "Mined pair: base 70997adee307 (fix(web): include trace callback dependencies) followed by 3ddbe1281238 (fix(web): restore error binding for repo connect failure).",
+  "minedFrom": {
+    "baseCommit": "70997adee307b1ffbb46f03f87d67634abc298b1",
+    "followUpCommit": "3ddbe1281238b9585b13fe957b8efc5fa92064d0"
+  },
+  "cases": [
+    {
+      "id": "mined-70997adee307-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/components/app-sidebar.tsx"
+      ]
+    }
+  ]
+}

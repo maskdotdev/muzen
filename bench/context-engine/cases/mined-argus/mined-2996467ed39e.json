@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-2996467ed39e",
+  "repoSource": {
+    "kind": "git",
+    "commit": "2996467ed39ed7ca5e48362b0cf3508af5d0a1ae",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/admin/users/route.test.ts",
+    "apps/web/src/app/api/ai/settings/route.test.ts",
+    "apps/web/src/app/api/mcp/keys/route.test.ts"
+  ],
+  "description": "Mined pair: base 2996467ed39e (test(web): trim route test collaborator assertions) followed by 5e6fab62ecce (test(web): slim route test harnesses).",
+  "minedFrom": {
+    "baseCommit": "2996467ed39ed7ca5e48362b0cf3508af5d0a1ae",
+    "followUpCommit": "5e6fab62ecceee5433d9291c31e33ab1cae0b462"
+  },
+  "cases": [
+    {
+      "id": "mined-2996467ed39e-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts",
+        "apps/web/src/app/api/onboarding/track/route.test.ts",
+        "apps/web/src/app/api/review/comment-publish/route.test.ts"
+      ]
+    }
+  ]
+}

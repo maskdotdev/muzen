@@ -1,15 +1,15 @@
 {
   "schemaVersion": "muzen.context-eval-baseline.v1",
-  "caseCount": 46,
+  "caseCount": 86,
   "metrics": {
-    "meanRecall": 0.6037792521488174,
-    "meanPrecision": 0.19326275457989014,
-    "meanRecallAt5": 0.4436429512516469,
-    "meanRecallAt10": 0.5396833239224543,
-    "meanRecallAt25": 0.6037792521488174,
-    "meanNdcgAt10": 0.46893567308425094,
-    "firstRelevantRate": 0.8043478260869565,
-    "meanTokensToFirstRelevant": 2356.4054054054054,
-    "meanUsefulEvidencePer1kTokens": 2.443870355113379
+    "meanRecall": 0.4765692640692641,
+    "meanPrecision": 0.12613292046060562,
+    "meanRecallAt5": 0.3211798214705191,
+    "meanRecallAt10": 0.4097272559481862,
+    "meanRecallAt25": 0.4765692640692641,
+    "meanNdcgAt10": 0.3382688096519925,
+    "firstRelevantRate": 0.6627906976744186,
+    "meanTokensToFirstRelevant": 2415.1403508771928,
+    "meanUsefulEvidencePer1kTokens": 1.3401324477164924
   }
 }

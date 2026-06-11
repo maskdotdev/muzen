@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7a8363b77014",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7a8363b77014f4551bd8a99a4c4d1d359599c8bb",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/ai/test/route.ts",
+    "apps/web/src/app/api/command-palette/chat/route.ts",
+    "apps/web/src/app/api/review/description/request-input.ts",
+    "apps/web/src/app/api/review/diff/request-input.ts",
+    "apps/web/src/lib/http/private-host.ts"
+  ],
+  "description": "Mined pair: base 7a8363b77014 (fix(api): harden private-host validation for AI provider URLs) followed by 2ca1914a7a57 (test(api): add IPv6 private-host URL regression coverage).",
+  "minedFrom": {
+    "baseCommit": "7a8363b77014f4551bd8a99a4c4d1d359599c8bb",
+    "followUpCommit": "2ca1914a7a57559057717379b5fd5796f749f0ed"
+  },
+  "cases": [
+    {
+      "id": "mined-7a8363b77014-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/api/ai/test/route.test.ts",
+        "apps/web/src/app/api/command-palette/chat/route.test.ts",
+        "apps/web/src/app/api/review/description/route.test.ts",
+        "apps/web/src/app/api/review/diff/route.test.ts"
+      ]
+    }
+  ]
+}

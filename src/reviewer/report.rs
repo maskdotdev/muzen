@@ -67,9 +67,7 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
             merge_provider_health(merged.provider_health, summary.provider_health);
         merged.snapshot_metrics.extend(summary.snapshot_metrics);
         merge_model_metrics(&mut merged.model_metrics, summary.model_metrics);
-        merged
-            .quality_diagnostics
-            .add(summary.quality_diagnostics);
+        merged.quality_diagnostics.add(summary.quality_diagnostics);
         merged
             .completion_diagnostics
             .extend(summary.completion_diagnostics);

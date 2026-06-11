@@ -3,7 +3,8 @@
   "name": "mined-7d3f09386239",
   "repoSource": {
     "kind": "git",
-    "commit": "7d3f09386239ee6ae680b2179d34b80bbf6f9979"
+    "commit": "7d3f09386239ee6ae680b2179d34b80bbf6f9979",
+    "origin": "self"
   },
   "changedFiles": [
     "src/review_session.rs",

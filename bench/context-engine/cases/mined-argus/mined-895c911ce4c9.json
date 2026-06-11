@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-895c911ce4c9",
+  "repoSource": {
+    "kind": "git",
+    "commit": "895c911ce4c90d0fc5468ec78c6f0e28c77203d2",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "packages/services/indexer/src/main.ts",
+    "packages/services/web/src/indexer-runtime.ts"
+  ],
+  "description": "Mined pair: base 895c911ce4c9 (refactor(indexer): use stable web runtime facade module) followed by 5f83d6c096fe (refactor(indexer): consume service-web runtime via package export).",
+  "minedFrom": {
+    "baseCommit": "895c911ce4c90d0fc5468ec78c6f0e28c77203d2",
+    "followUpCommit": "5f83d6c096fe1679d3ffdbf19b00f1996d15049a"
+  },
+  "cases": [
+    {
+      "id": "mined-895c911ce4c9-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "packages/services/indexer/src/main.test.ts"
+      ]
+    }
+  ]
+}

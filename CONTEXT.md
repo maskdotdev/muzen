@@ -36,6 +36,11 @@ implementation plans.
   diff hunk, file span, rule, test, host issue, historical finding, or tool
   output. Evidence records carry trust, sensitivity, source, and content hash
   metadata.
+- **Context Graph**: Deterministic, bounded, explainable graph of
+  review-relevant relationships between repository artifacts. It connects
+  files, chunks, symbols, tests, configuration, contracts, and other context
+  nodes with typed, weighted, provenance-carrying edges. It is not a perfect
+  semantic model of program behavior.
 - **Context Pack**: Durable, session-specific compiled artifact containing the
   evidence selected for a review purpose, the evidence relationships, the
   omitted candidates, budget usage, and a sufficiency assessment.

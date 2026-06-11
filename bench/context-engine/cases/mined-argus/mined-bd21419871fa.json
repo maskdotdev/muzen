@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-bd21419871fa",
+  "repoSource": {
+    "kind": "git",
+    "commit": "bd21419871fa2110941f7ee493eaa349a3602b1a",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/app/layout.tsx",
+    "src/app/page.tsx",
+    "src/components/app-shell.tsx"
+  ],
+  "description": "Mined pair: base bd21419871fa (Refactor root layout to host shared app shell) followed by 2a612fa8e5ee (fix schema user export and sidebar style typing).",
+  "minedFrom": {
+    "baseCommit": "bd21419871fa2110941f7ee493eaa349a3602b1a",
+    "followUpCommit": "2a612fa8e5ee4e41d62945db7a91bac08bcccf75"
+  },
+  "cases": [
+    {
+      "id": "mined-bd21419871fa-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/lib/db/schema/auth/index.ts"
+      ]
+    }
+  ]
+}

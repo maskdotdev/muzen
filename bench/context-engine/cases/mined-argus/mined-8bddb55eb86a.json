@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8bddb55eb86a",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8bddb55eb86a3006416f9839ca62e7c6147202f9",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/lazy-diffs-only-viewer.tsx",
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+    "apps/web/src/components/app-shell.tsx",
+    "apps/web/src/components/app-sidebar-right-slot.tsx",
+    "apps/web/src/components/app-sidebar-right.tsx",
+    "apps/web/src/components/site-header.tsx"
+  ],
+  "description": "Mined pair: base 8bddb55eb86a (feat(web): add collapsible right sidebar with Overview, Issues, and Chat tabs) followed by c8dc5ff222d1 (refactor(settings): use sidebar flow for single repo connect).",
+  "minedFrom": {
+    "baseCommit": "8bddb55eb86a3006416f9839ca62e7c6147202f9",
+    "followUpCommit": "c8dc5ff222d1371c340d1b7d3e12acdd11227c44"
+  },
+  "cases": [
+    {
+      "id": "mined-8bddb55eb86a-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(settings)/settings/page-client.tsx",
+        "apps/web/src/components/app-sidebar.tsx",
+        "apps/web/src/components/app-sidebar/types.ts",
+        "apps/web/src/features/settings/components/gitlab-tab.tsx",
+        "apps/web/src/features/settings/hooks/use-gitlab-settings.ts",
+        "apps/web/src/features/settings/model/settings.shared.ts"
+      ]
+    }
+  ]
+}
