@@ -37,7 +37,8 @@ work, but the surface is still settling.
 - TypeScript and Python SDK previews over a shared runner protocol
 - Durable review sessions with events, results, artifacts, logs, cancellation,
   retries, leases, and worker claims
-- In-memory stores for local dev, Postgres-backed stores for real deployments
+- Durable libSQL-backed SQLite stores by default, with explicit Postgres and
+  in-memory store modes
 - Workspace-scoped model and provider profiles with secret references (no raw
   credentials)
 - GitHub and GitLab webhook verification, source mapping, and queued scheduling
@@ -49,7 +50,7 @@ work, but the surface is still settling.
 
 **Still hardening:**
 
-- Postgres integration CI for environments with `DATABASE_URL`
+- Postgres integration CI for environments with `MUZEN_POSTGRES_TEST_URL`
 - Live GitHub/GitLab provider smoke tests where tokens and network access are
   available
 - Migration from local inline execution to durable service-bound SDK execution
@@ -103,14 +104,17 @@ More examples:
 
 ## Run the Service
 
-`muzen-service` exposes the full HTTP API from RFC 0001. Point it at Postgres
-for durable storage, or omit `DATABASE_URL` to run with in-memory stores.
+`muzen-service` exposes the full HTTP API from RFC 0001. It uses
+`sqlite://.muzen/muzen.db` for durable local storage by default. Override that
+with `--store-url` or `MUZEN_STORE_URL` to use `postgres://`, `postgresql://`,
+`sqlite://`, or explicit non-durable `memory://` storage.
 Production deployments should read
 [`docs/production-operations.md`](docs/production-operations.md), especially
 the notes on external HTTP API authentication and preview schema resets.
 
 ```sh
-DATABASE_URL=postgres://...
+# Optional; this is the default when omitted.
+MUZEN_STORE_URL=sqlite://.muzen/muzen.db
 GITHUB_WEBHOOK_SECRET=...
 GITLAB_WEBHOOK_TOKEN=...
 cargo run --bin muzen-service -- --bind 127.0.0.1:7341
@@ -211,7 +215,7 @@ TypeScript SDK       Python SDK
         |           |             |             |
         +-----------+-------------+-------------+
                                     |
-                      in-memory stores or Postgres
+                      SQLite, Postgres, or memory stores
 
 Remote clients use HTTP instead:
 

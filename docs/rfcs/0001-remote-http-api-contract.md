@@ -21,9 +21,10 @@ the production session/profile stores.
 
 The repository also ships an Axum adapter and `muzen-service` binary. The
 service binds the core router to a real HTTP listener and resolves webhook
-secrets from environment variables. When `DATABASE_URL` is set, it uses
-Postgres-backed session and workspace profile stores; otherwise it uses
-in-memory stores for local preview.
+secrets from environment variables. Storage is selected with `--store-url` or
+`MUZEN_STORE_URL`; the default is durable local SQLite at
+`sqlite://.muzen/muzen.db`. Supported preview schemes are `sqlite://`,
+`postgres://`, `postgresql://`, and explicit non-durable `memory://`.
 
 ## Create Review
 

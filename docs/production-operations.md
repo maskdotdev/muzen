@@ -6,23 +6,33 @@ network controls are provided explicitly by the operator.
 
 ## Storage
 
-Set `DATABASE_URL` to use Postgres-backed review sessions and workspace
-profiles:
+`muzen-service` uses `sqlite://.muzen/muzen.db` by default. Relative SQLite
+paths resolve from the service working directory, and parent directories are
+created on startup.
 
 ```sh
-DATABASE_URL=postgres://...
 cargo run --bin muzen-service -- --bind 127.0.0.1:7341
 ```
 
-If `DATABASE_URL` is absent, `muzen-service` starts with in-memory stores. That
-mode is for local development only; review sessions, profiles, logs, events,
-and artifacts disappear when the process exits.
+Use `MUZEN_STORE_URL` or `--store-url` to choose a store explicitly:
 
-The service runs its Postgres schema setup on startup. During the preview
-period, Review Session storage uses a versioned fresh-reset migration strategy:
-old preview schemas may be replaced when the expected schema version changes.
-Do not point preview builds at a database whose data must be preserved without
-first taking a backup.
+```sh
+MUZEN_STORE_URL=postgres://...
+cargo run --bin muzen-service -- --bind 127.0.0.1:7341
+
+cargo run --bin muzen-service -- --store-url memory://
+```
+
+Supported preview schemes are `sqlite://`, `postgres://`, `postgresql://`, and
+`memory://`. The `memory://` mode is explicitly non-durable and intended for
+development or tests only; review sessions, profiles, logs, events, and
+artifacts disappear when the process exits.
+
+The service runs store schema setup on startup. During the preview period,
+Review Session storage uses a versioned fresh-reset migration strategy: old
+preview schemas may be replaced when the expected schema version changes. Do
+not point preview builds at a store whose data must be preserved without first
+taking a backup.
 
 ## Authentication
 
@@ -62,9 +72,11 @@ policy.
 
 ## Backup And Retention
 
-Back up the Postgres database before deploying a new preview build. The
-database contains review state, event history, logs, artifacts, retry state,
-leases, workspace model profiles, and workspace provider profiles.
+Back up the configured durable store before deploying a new preview build. For
+`sqlite://` stores, stop the service or take a consistent filesystem snapshot of
+the database path. For Postgres stores, back up the database. The store contains
+review state, event history, logs, artifacts, retry state, leases, workspace
+model profiles, and workspace provider profiles.
 
 Muzen does not currently provide automatic retention or compaction for review
 sessions, logs, events, or artifacts. Add external retention jobs before using
@@ -76,13 +88,14 @@ The current service host relies on the process supervisor for startup,
 shutdown, restart, and health policy. Run it under a supervisor that can restart
 failed processes and drain traffic before termination.
 
-There is no dedicated health endpoint yet. Use process-level checks and, for
-Postgres deployments, database connectivity checks at the platform layer.
+There is no dedicated health endpoint yet. Use process-level checks and
+platform checks for the configured store, such as SQLite path write access or
+Postgres database connectivity.
 
 ## Known Hardening Gaps
 
 - General HTTP API auth is external to Muzen.
-- Postgres integration and provider smoke tests should be run in deployment CI.
+- Store integration and provider smoke tests should be run in deployment CI.
 - Live GitHub/GitLab materialization depends on configured provider credentials
   and network access.
 - Preview schema migrations may reset older Review Session tables.
