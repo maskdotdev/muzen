@@ -144,6 +144,11 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long = "changed-file", required = true)]
     pub(crate) changed_files: Vec<PathBuf>,
 
+    /// Unified diff for the change under review. Hunks anchor changed-span
+    /// detection, graph expansion, and sufficiency coverage.
+    #[arg(long = "diff-file")]
+    pub(crate) diff_file: Option<PathBuf>,
+
     #[arg(long, default_value_t = 200)]
     pub(crate) max_file_kb: usize,
 
@@ -785,6 +790,14 @@ fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConf
 }
 
 fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot>> {
+    let inline_diff = args
+        .diff_file
+        .as_ref()
+        .map(|path| {
+            fs::read_to_string(path)
+                .with_context(|| format!("failed to read diff file {}", path.display()))
+        })
+        .transpose()?;
     let changed_files = args
         .changed_files
         .iter()
@@ -808,7 +821,7 @@ fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot
         merge_base_revision_id: None,
         changed_files_manifest_ref: None,
         diff_manifest_ref: None,
-        inline_diff: None,
+        inline_diff,
         snapshot_mode: SnapshotMode::WorktreeHead,
         rename_detection: RenameDetection::None,
         changed_files,

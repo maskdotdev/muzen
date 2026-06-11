@@ -22,8 +22,8 @@ use super::{
     ContextIndexRequest, ContextIndexStore, ContextLearning, ContextLearningApproval,
     ContextLearningApprovalReceipt, ContextLearningScope, ContextLearningSource,
     ContextLearningStatus, ContextOmissionReason, ContextPack, ContextPackId, ContextPackRequest,
-    ContextQuery, ContextQueryKind, ContextQueryResult, ContextRange, ContextSufficiency,
-    ContextSufficiencyStatus, FileContextLearningStore, InMemoryContextIndexStore,
+    ContextQuery, ContextQueryKind, ContextQueryResult, ContextRange, FileContextLearningStore,
+    InMemoryContextIndexStore,
     InMemoryContextLearningStore, OmittedContextCandidate, CONTEXT_ENGINE_VERSION,
 };
 
@@ -271,6 +271,12 @@ impl ContextEngine for SnapshotContextEngine {
             })
             .cloned()
             .collect();
+        // Pack sufficiency comes from the same per-hunk coverage logic as
+        // the sufficiency_check query, so the two can never disagree.
+        let budget_exhausted = omitted_candidates
+            .iter()
+            .any(|candidate| candidate.reason == ContextOmissionReason::BudgetExhausted);
+        let sufficiency = super::evaluate_sufficiency(&index, &selected, budget_exhausted);
         let pack_id = ContextPackId(stable_id(&[
             &request.snapshot_id.0,
             request
@@ -295,7 +301,7 @@ impl ContextEngine for SnapshotContextEngine {
                 max_tokens: request.max_tokens,
                 used_tokens,
             },
-            sufficiency: ContextSufficiency::probably_sufficient(),
+            sufficiency,
             compiler_version: CONTEXT_ENGINE_VERSION.to_string(),
             created_at_utc: unix_timestamp_string(),
         };
@@ -620,20 +626,12 @@ impl ContextEngine for SnapshotContextEngine {
                 })
             }
             ContextQueryKind::SufficiencyCheck => {
-                let status = if request.current_evidence.is_empty() {
-                    ContextSufficiencyStatus::Insufficient
-                } else {
-                    ContextSufficiencyStatus::ProbablySufficient
-                };
-                let missing = if status == ContextSufficiencyStatus::Insufficient {
-                    vec!["primary source evidence".to_string()]
-                } else {
-                    Vec::new()
-                };
+                let evidence = evidence_by_id(&index.evidence, &request.current_evidence);
+                let sufficiency = super::evaluate_sufficiency(&index, &evidence, false);
                 Ok(ContextQueryResult {
                     kind: request.kind,
-                    evidence: evidence_by_id(&index.evidence, &request.current_evidence),
-                    sufficiency: Some(ContextSufficiency { status, missing }),
+                    evidence,
+                    sufficiency: Some(sufficiency),
                     data: None,
                     omitted: 0,
                 })

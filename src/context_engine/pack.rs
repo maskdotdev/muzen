@@ -62,11 +62,14 @@ pub struct ContextBudgetUsage {
     pub used_tokens: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextSufficiency {
     pub status: ContextSufficiencyStatus,
     pub missing: Vec<String>,
+    /// Per-hunk coverage gaps with ready-to-run queries (R6).
+    #[serde(default)]
+    pub gaps: Vec<super::ContextSufficiencyGap>,
 }
 
 impl ContextSufficiency {
@@ -74,6 +77,7 @@ impl ContextSufficiency {
         Self {
             status: ContextSufficiencyStatus::ProbablySufficient,
             missing: Vec::new(),
+            gaps: Vec::new(),
         }
     }
 }
