@@ -10,7 +10,7 @@ use crate::runtime::contracts::{stable_id, RuntimeError, RuntimeResult, Snapshot
 use super::unix_timestamp_string;
 use super::ContextLearningStore;
 use super::{
-    evidence_by_id, merge_semantic_search, read_line_span, search_evidence, string_arg, trust_rank,
+    evidence_by_id, fused_search, read_line_span, string_arg, trust_rank,
     usize_arg,
 };
 use super::{explain_selected_evidence, purpose_name, rank_for_purpose, score_for_purpose};
@@ -308,28 +308,24 @@ impl ContextEngine for SnapshotContextEngine {
         match request.kind {
             ContextQueryKind::SearchText => {
                 let query = string_arg(&request.arguments, "query")?;
-                let matches = search_evidence(
+                let outcome = fused_search(
                     &index,
                     &query,
                     limit,
                     self.config.bm25_k1,
                     self.config.bm25_b,
-                );
-                let matches = merge_semantic_search(
-                    matches,
-                    &index.evidence,
-                    &index.file_contents,
-                    &index.semantic,
-                    index.semantic_vectors.as_ref(),
-                    &query,
-                    limit,
+                    self.config.rrf_k,
                 )
                 .await?;
+                let data = Some(serde_json::json!({
+                    "fusion": outcome.fusion,
+                    "fusionOmissions": outcome.omissions,
+                }));
                 Ok(ContextQueryResult {
                     kind: request.kind,
-                    evidence: matches,
+                    evidence: outcome.evidence,
                     sufficiency: None,
-                    data: None,
+                    data,
                     omitted: index.evidence.len().saturating_sub(limit),
                 })
             }
