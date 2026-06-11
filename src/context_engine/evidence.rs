@@ -101,7 +101,26 @@ pub struct ContextProvenance {
     pub original_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// Structural ranking signals (R5), computed in an index post-pass once
+/// the reference graph and co-change history exist. Typed inputs to
+/// `score_for_purpose`; never parsed from display strings.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRankSignals {
+    /// Hops from the nearest change anchor in the reference graph:
+    /// 0 = overlaps changed lines, 1 = same file or direct reference,
+    /// 2 = two hops out. `None` = unconnected to the change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_distance: Option<u8>,
+    /// Recency-decayed co-change weight with the review's changed files.
+    #[serde(default)]
+    pub co_change_score: f32,
+    /// Directory proximity to the nearest changed file, in [0, 1].
+    #[serde(default)]
+    pub path_proximity: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextEvidence {
     pub id: EvidenceId,
@@ -124,6 +143,8 @@ pub struct ContextEvidence {
     /// review. Structured replacement for "changed" markers in summaries.
     #[serde(default)]
     pub is_changed_span: bool,
+    #[serde(default)]
+    pub signals: ContextRankSignals,
     pub token_estimate: usize,
     pub provenance: ContextProvenance,
     #[serde(default, skip_serializing_if = "Option::is_none")]

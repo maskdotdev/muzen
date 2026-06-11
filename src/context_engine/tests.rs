@@ -43,6 +43,7 @@ fn context_contracts_serde_round_trip() {
         content_hash: Some("hash".to_string()),
         summary: Some("summary".to_string()),
         is_changed_span: false,
+        signals: ContextRankSignals::default(),
         token_estimate: 10,
         provenance: ContextProvenance {
             provider: "test".to_string(),
@@ -75,6 +76,7 @@ fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
         content_hash: None,
         summary: Some("restricted evidence".to_string()),
         is_changed_span: false,
+        signals: ContextRankSignals::default(),
         token_estimate: 4,
         provenance: ContextProvenance {
             provider: "test".to_string(),
@@ -254,19 +256,24 @@ async fn snapshot_engine_builds_purpose_specific_pack() {
 
     assert_eq!(tests_pack.purpose, ContextPackPurpose::Tests);
     assert_eq!(architecture_pack.purpose, ContextPackPurpose::Architecture);
-    // The diff manifest anchors every pack; purpose-specific evidence must
-    // lead among the remaining candidates.
+    // The diff manifest anchors every pack; change-rooted evidence leads,
+    // and purpose differentiates the ordering of non-changed evidence.
     assert_eq!(tests_pack.evidence[0].kind, ContextEvidenceKind::Diff);
-    let first_non_diff = |pack: &ContextPack| {
+    let position = |pack: &ContextPack, kind: ContextEvidenceKind| {
         pack.evidence
             .iter()
-            .find(|evidence| evidence.kind != ContextEvidenceKind::Diff)
-            .map(|evidence| evidence.kind)
+            .position(|evidence| evidence.kind == kind)
+            .unwrap_or(usize::MAX)
     };
-    assert_eq!(first_non_diff(&tests_pack), Some(ContextEvidenceKind::Test));
-    assert_eq!(
-        first_non_diff(&architecture_pack),
-        Some(ContextEvidenceKind::RepositoryRule)
+    assert!(
+        position(&tests_pack, ContextEvidenceKind::Test)
+            < position(&tests_pack, ContextEvidenceKind::RepositoryRule),
+        "tests purpose ranks tests above repository guidance"
+    );
+    assert!(
+        position(&architecture_pack, ContextEvidenceKind::RepositoryRule)
+            < position(&architecture_pack, ContextEvidenceKind::Test),
+        "architecture purpose ranks repository guidance above tests"
     );
 
     let explanation = engine

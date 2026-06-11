@@ -36,6 +36,16 @@ pub struct ContextEngineConfig {
     pub graph_max_candidates_per_anchor: usize,
     /// Commits of history walked for co-change mining (0 disables).
     pub co_change_commit_limit: usize,
+    /// Ranking weight for evidence overlapping changed lines.
+    pub weight_changed_span: f32,
+    /// Ranking weight for reference-graph proximity to the change;
+    /// applied as `weight / graph_distance` for distance >= 1.
+    pub weight_graph_proximity: f32,
+    /// Ranking weight for co-change history; applied to the saturating
+    /// normalization `score / (1 + score)`.
+    pub weight_co_change: f32,
+    /// Ranking weight for directory proximity to changed files.
+    pub weight_path_proximity: f32,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -66,6 +76,10 @@ impl ContextEngineConfig {
             graph_max_hops: 2,
             graph_max_candidates_per_anchor: 16,
             co_change_commit_limit: 500,
+            weight_changed_span: 0.25,
+            weight_graph_proximity: 0.20,
+            weight_co_change: 0.15,
+            weight_path_proximity: 0.05,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,

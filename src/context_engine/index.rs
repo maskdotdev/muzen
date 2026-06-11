@@ -16,8 +16,9 @@ use super::syntax::ParsedSymbols;
 use super::{
     context_embedding_text, validate_embedding_batch, ContextEngineConfig, ContextEvidence,
     ContextEvidenceKind, ContextEvidenceSource, ContextIndexId, ContextProvenance, ContextRange,
-    ContextRelationship, ContextRevision, ContextScope, ContextSemanticConfig, ContextSemanticMode,
-    ContextSensitivity, ContextSymbolGraph, ContextTrust, EmbeddingInput, EmbeddingProvider,
+    ContextRankSignals, ContextRelationship, ContextRevision, ContextScope, ContextSemanticConfig,
+    ContextSemanticMode, ContextSensitivity, ContextSymbolGraph, ContextTrust, EmbeddingInput,
+    EmbeddingProvider,
     HostedEmbeddingProvider, InMemoryVectorIndex, LocalHashEmbeddingProvider, VectorIndex,
 };
 
@@ -315,6 +316,7 @@ impl ContextIndex {
                 content_hash: Some(snapshot.diff.content_hash.clone()),
                 summary: Some("Review diff manifest".to_string()),
                 is_changed_span: true,
+                signals: ContextRankSignals::default(),
                 token_estimate: estimate_tokens(snapshot.diff.content.len()),
                 provenance: ContextProvenance {
                     provider: "snapshot_diff".to_string(),
@@ -390,6 +392,7 @@ impl ContextIndex {
             request.limits.graph_max_candidates_per_anchor,
         );
         let relationships = build_relationships(&evidence, &graph_candidates);
+        apply_rank_signals(&mut evidence, &graph, &graph_candidates, &changed_paths);
 
         let lexical = super::LexicalIndex::build(&evidence, &file_contents);
         let semantic_vectors =
@@ -552,6 +555,7 @@ fn cross_repo_contract_evidence(
             concise_text(&candidate.summary)
         )),
         is_changed_span: false,
+        signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "cross_repo_provider".to_string(),
@@ -598,6 +602,7 @@ fn host_instruction_evidence(
         content_hash: Some(stable_id(&[text])),
         summary: Some(format!("host {}: {}", instruction.kind, concise_text(text))),
         is_changed_span: false,
+        signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "host_instruction".to_string(),
@@ -645,6 +650,7 @@ fn host_metadata_evidence(
         content_hash: Some(stable_id(&[&text])),
         summary: Some(format!("host metadata {key}: {}", concise_text(&text))),
         is_changed_span: false,
+        signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(text.len()),
         provenance: ContextProvenance {
             provider: "host_metadata".to_string(),
@@ -716,6 +722,74 @@ fn chunked_kind(kind: ContextEvidenceKind, content: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Fill structural ranking signals (R5) on every evidence item once the
+/// reference graph, expansion candidates, and co-change stats exist.
+fn apply_rank_signals(
+    evidence: &mut [ContextEvidence],
+    graph: &ReferenceGraph,
+    candidates: &[GraphCandidate],
+    changed: &BTreeSet<RepoPath>,
+) {
+    let mut min_hop: BTreeMap<&RepoPath, u8> = BTreeMap::new();
+    for candidate in candidates {
+        let entry = min_hop.entry(&candidate.path).or_insert(candidate.hop);
+        *entry = (*entry).min(candidate.hop);
+    }
+    for item in evidence {
+        let Some(path) = item.path.clone() else {
+            // Pathless evidence (diff manifest, host context): the diff
+            // itself is the change anchor.
+            item.signals.graph_distance = item.is_changed_span.then_some(0);
+            continue;
+        };
+        item.signals.graph_distance = if item.is_changed_span {
+            Some(0)
+        } else if changed.contains(&path) {
+            // Unchanged span in a changed file: adjacent to the change.
+            Some(1)
+        } else {
+            min_hop.get(&path).copied()
+        };
+        item.signals.co_change_score = graph
+            .co_change
+            .get(&path)
+            .map(|stat| stat.weight)
+            .unwrap_or(0.0);
+        item.signals.path_proximity = path_proximity(&path, changed);
+    }
+}
+
+/// Directory proximity to the nearest changed file: shared directory
+/// prefix depth over the deeper of the two paths, in [0, 1].
+fn path_proximity(path: &RepoPath, changed: &BTreeSet<RepoPath>) -> f32 {
+    changed
+        .iter()
+        .map(|other| shared_dir_ratio(&path.display(), &other.display()))
+        .fold(0.0, f32::max)
+}
+
+fn shared_dir_ratio(left: &str, right: &str) -> f32 {
+    let dirs = |text: &str| -> Vec<String> {
+        match text.rsplit_once('/') {
+            Some((dir, _file)) => dir.split('/').map(str::to_string).collect(),
+            None => Vec::new(),
+        }
+    };
+    let left_dirs = dirs(left);
+    let right_dirs = dirs(right);
+    let deepest = left_dirs.len().max(right_dirs.len());
+    if deepest == 0 {
+        // Both files sit in the repository root.
+        return 1.0;
+    }
+    let shared = left_dirs
+        .iter()
+        .zip(right_dirs.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    shared as f32 / deepest as f32
 }
 
 /// Map graph expansion candidates and changed chunks to typed,
@@ -835,6 +909,7 @@ fn chunk_evidence(
         content_hash: Some(content_hash),
         summary: Some(chunk_summary(file, kind, chunk)),
         is_changed_span,
+        signals: ContextRankSignals::default(),
         token_estimate: chunk.token_estimate(),
         provenance: ContextProvenance {
             provider: "snapshot_chunk_v1".to_string(),
@@ -895,6 +970,7 @@ fn symbol_evidence(
         content_hash: file.content_hash.clone(),
         summary: Some(format!("symbol {symbol} in {}", file.rel_path.display())),
         is_changed_span,
+        signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(symbol.len()),
         provenance: ContextProvenance {
             provider: "snapshot_symbol_graph_v1".to_string(),
@@ -935,6 +1011,7 @@ fn file_evidence(
         content_hash: file.content_hash.clone(),
         summary: Some(file_summary(file, kind)),
         is_changed_span: file.is_changed,
+        signals: ContextRankSignals::default(),
         token_estimate: estimate_tokens(file.size as usize),
         provenance: ContextProvenance {
             provider: "repo_snapshot".to_string(),
