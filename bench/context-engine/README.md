@@ -72,6 +72,8 @@ for each case in `bench/context-engine/cases/`, computes recall, precision,
 token efficiency, omissions, redaction correctness, prompt-injection trust
 checks, expected range coverage, and latency, then writes
 `bench/results-context-engine/context-engine-summary.json`.
+Summaries include `runMetadata` with the evaluated binary, binary mtime, git
+head, git dirty flag, and whether local binary freshness was checked.
 Weak-case diagnostics include candidate-present missed omissions and the
 selected tail candidates with score, rank index, representation, and token
 estimate, plus graph paths for tail evidence connected by pack relationships,

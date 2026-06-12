@@ -536,6 +536,37 @@ def validate_muzen_binary_freshness(muzen_bin: Path) -> None:
         )
 
 
+def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "muzenBin": str(args.muzen_bin),
+        "muzenBinMtimeUnixMs": int(args.muzen_bin.stat().st_mtime * 1000)
+        if args.muzen_bin.exists()
+        else None,
+        "defaultBinaryFreshnessChecked": args.muzen_bin.resolve()
+        == default_muzen_binary().resolve(),
+    }
+    head = git_output(["rev-parse", "HEAD"])
+    if head:
+        metadata["gitHead"] = head
+    dirty = git_output(["status", "--porcelain"])
+    if dirty is not None:
+        metadata["gitDirty"] = bool(dirty.strip())
+    return metadata
+
+
+def git_output(args: list[str]) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(ROOT), *args],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
 def base_command(muzen_bin: Path) -> list[str]:
     return [str(muzen_bin)]
 
@@ -1425,6 +1456,7 @@ def main() -> int:
     validate_case_selection_mode(args, case_selection)
 
     summary = run_suite(case_files, args)
+    summary["runMetadata"] = eval_run_metadata(args)
     if case_selection:
         summary["caseSelection"] = case_selection
     args.output.parent.mkdir(parents=True, exist_ok=True)

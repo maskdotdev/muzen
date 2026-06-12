@@ -806,6 +806,37 @@ class ParallelSuiteTest(unittest.TestCase):
                 run.default_muzen_binary = original_default
                 run.muzen_build_input_paths = original_inputs
 
+    def test_eval_run_metadata_records_binary_and_git_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "target" / "debug" / "muzen"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("bin")
+            run.os.utime(binary, (20, 20))
+            args = type("Args", (), {"muzen_bin": binary})()
+            original_default = run.default_muzen_binary
+            original_git_output = run.git_output
+
+            def fake_git_output(command):
+                if command == ["rev-parse", "HEAD"]:
+                    return "abc123"
+                if command == ["status", "--porcelain"]:
+                    return " M src/lib.rs"
+                return None
+
+            try:
+                run.default_muzen_binary = lambda: binary
+                run.git_output = fake_git_output
+                metadata = run.eval_run_metadata(args)
+            finally:
+                run.default_muzen_binary = original_default
+                run.git_output = original_git_output
+
+        self.assertEqual(metadata["muzenBin"], str(binary))
+        self.assertEqual(metadata["muzenBinMtimeUnixMs"], 20_000)
+        self.assertTrue(metadata["defaultBinaryFreshnessChecked"])
+        self.assertEqual(metadata["gitHead"], "abc123")
+        self.assertTrue(metadata["gitDirty"])
+
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
             {
