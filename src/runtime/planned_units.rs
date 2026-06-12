@@ -27,6 +27,7 @@ use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::{ConcurrentArtifactStore, ToolEngine};
+use crate::runtime::transcript::enforce_prompt_budget;
 
 pub(crate) struct PlannedReviewRuntime {
     pub(crate) snapshot: Arc<RepoSnapshot>,
@@ -352,6 +353,7 @@ impl PlannedReviewRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
+            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),

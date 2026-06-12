@@ -244,6 +244,28 @@ async fn anthropic_message_from_stream(
 /// System turns become the top-level `system` string; assistant tool calls
 /// become `tool_use` content blocks and tool results become `tool_result`
 /// blocks in user turns, which is the Messages API's transcript shape.
+/// Marks the newest tool_result block with a cache breakpoint. Tool results
+/// are appended once and serialized identically on every later turn, so the
+/// prefix up to this block stays byte-stable and the provider extends the
+/// cache across turns instead of recomputing the whole transcript. String
+/// messages are left alone: converting only the latest one to block form
+/// would change its serialization on the next turn and break prefix matching.
+fn mark_latest_tool_result_cache_breakpoint(messages: &mut [Value]) {
+    for message in messages.iter_mut().rev() {
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        if let Some(block) = blocks
+            .iter_mut()
+            .rev()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        {
+            block["cache_control"] = json!({ "type": "ephemeral" });
+            return;
+        }
+    }
+}
+
 fn anthropic_request_body(
     profile: &ModelProfileRefV1,
     reviewer_policy: &ReviewerPolicy,
@@ -300,6 +322,7 @@ fn anthropic_request_body(
         }
     }
 
+    mark_latest_tool_result_cache_breakpoint(&mut messages);
     let tools = anthropic_tools(
         reviewer_policy,
         tool_registry,
@@ -312,7 +335,12 @@ fn anthropic_request_body(
         "messages": messages,
     });
     if !system.is_empty() {
-        body["system"] = json!(system.join("\n\n"));
+        // Block form so the stable system prompt can carry a cache breakpoint.
+        body["system"] = json!([{
+            "type": "text",
+            "text": system.join("\n\n"),
+            "cache_control": { "type": "ephemeral" },
+        }]);
     }
     // The Messages API rejects tool_choice without tools, so the text-only
     // final turn (capabilities cleared) omits both.
@@ -620,7 +648,12 @@ mod tests {
 
         assert_eq!(body["model"], "claude-opus-4-8");
         assert_eq!(body["max_tokens"], 1_024);
-        assert_eq!(body["system"], "Be terse.\n\nCite evidence.");
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["text"], "Be terse.\n\nCite evidence.");
+        assert_eq!(
+            body["system"][0]["cache_control"],
+            json!({ "type": "ephemeral" })
+        );
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
 
@@ -639,6 +672,11 @@ mod tests {
         assert_eq!(tool_result["tool_use_id"], "call-1");
         assert_eq!(tool_result["is_error"], true);
         assert!(tool_result["content"].is_string());
+        assert_eq!(
+            tool_result["cache_control"],
+            json!({ "type": "ephemeral" }),
+            "newest tool result must carry the moving cache breakpoint"
+        );
         assert_eq!(messages[3]["role"], "assistant");
         assert_eq!(messages[3]["content"], "Done.");
 
@@ -653,6 +691,76 @@ mod tests {
         assert_eq!(
             body["tool_choice"],
             json!({ "type": "auto", "disable_parallel_tool_use": true })
+        );
+    }
+
+    #[test]
+    fn cache_breakpoint_moves_to_newest_tool_result_only() {
+        let (registry, internal_tool, _) = aliased_registry();
+        let policy = ReviewerPolicy::new();
+        let scope = test_scope();
+        let transcript = vec![
+            ConversationItem::User {
+                content: "Start".to_string(),
+            },
+            ConversationItem::AssistantToolCalls {
+                calls: vec![ModelToolCall {
+                    call_id: ToolCallId("call-1".to_string()),
+                    index: 0,
+                    name: internal_tool.clone(),
+                    raw_arguments: r#"{"value":"a"}"#.to_string(),
+                }],
+            },
+            ConversationItem::ToolResult {
+                call_id: ToolCallId("call-1".to_string()),
+                name: internal_tool.clone(),
+                content: tool_result_envelope(true, "call-1"),
+            },
+            ConversationItem::AssistantToolCalls {
+                calls: vec![ModelToolCall {
+                    call_id: ToolCallId("call-2".to_string()),
+                    index: 0,
+                    name: internal_tool.clone(),
+                    raw_arguments: r#"{"value":"b"}"#.to_string(),
+                }],
+            },
+            ConversationItem::ToolResult {
+                call_id: ToolCallId("call-2".to_string()),
+                name: internal_tool,
+                content: tool_result_envelope(true, "call-2"),
+            },
+            ConversationItem::User {
+                content: "Continue.".to_string(),
+            },
+        ];
+
+        let body = anthropic_request_body(
+            &anthropic_profile(ToolCallingMode::Auto),
+            &policy,
+            &registry,
+            &scope,
+            &transcript,
+        )
+        .expect("request body");
+
+        let messages = body["messages"].as_array().expect("messages");
+        let older = &messages[2]["content"][0];
+        assert_eq!(older["type"], "tool_result");
+        assert!(
+            older.get("cache_control").is_none(),
+            "older tool results must keep byte-stable serialization"
+        );
+        let newest = &messages[4]["content"][0];
+        assert_eq!(newest["type"], "tool_result");
+        assert_eq!(newest["cache_control"], json!({ "type": "ephemeral" }));
+        assert!(
+            messages[5].get("content").expect("content").is_string(),
+            "trailing user instruction stays in string form"
+        );
+        let tool_use = &messages[3]["content"][0];
+        assert!(
+            tool_use.get("cache_control").is_none(),
+            "tool_use blocks never carry the breakpoint"
         );
     }
 
