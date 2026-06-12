@@ -313,8 +313,8 @@ impl ContextGraph {
         }
 
         // ---- Test-convention edges: stem-matching test files for
-        // changed files, so sufficiency never recreates stem logic.
-        build_test_convention_edges(&mut graph, &input, &provenance);
+        // source files, so retrieval and sufficiency never recreate stem logic.
+        build_test_convention_edges(&mut graph, &provenance);
 
         graph
     }
@@ -676,50 +676,52 @@ fn emit_reference_edges(
     }
 }
 
-/// Stem-convention test edges for changed files: `foo.test.ts`,
-/// `foo_test.rs`, `test_foo.py` style names test `foo.*`. Matching is
-/// exact on the normalized stem -- substring matching would flood a
-/// repository full of `index.ts` or `route.ts` files with false test
-/// edges. A match anywhere in the tree is accepted only when unique;
-/// otherwise the test must live near the changed file.
+/// Stem-convention test edges: `foo.test.ts`, `foo_test.rs`,
+/// `test_foo.py` style names test `foo.*`. Matching is exact on the
+/// normalized stem -- substring matching would flood a repository full
+/// of `index.ts` or `route.ts` files with false test edges. A match
+/// anywhere in the tree is accepted only when unique; otherwise the test
+/// must live near the source file.
 fn build_test_convention_edges(
     graph: &mut ContextGraph,
-    input: &ContextGraphBuildInput,
     provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
 ) {
-    let test_paths: Vec<RepoPath> = graph
+    let mut tests_by_stem: BTreeMap<String, Vec<RepoPath>> = BTreeMap::new();
+    for path in graph
         .file_paths
         .iter()
         .filter(|path| is_test_path(&path.display()))
-        .cloned()
-        .collect();
-    for changed in input.changed_paths {
-        if !graph.file_paths.contains(changed) || is_test_path(&changed.display()) {
+    {
+        let stem = normalized_test_stem(&path.display());
+        if !stem.is_empty() {
+            tests_by_stem.entry(stem).or_default().push(path.clone());
+        }
+    }
+    let source_paths: Vec<RepoPath> = graph.file_paths.iter().cloned().collect();
+    for source in source_paths {
+        if is_test_path(&source.display()) {
             continue;
         }
-        let stem = path_stem(&changed.display());
+        let stem = path_stem(&source.display());
         if stem.is_empty() {
             continue;
         }
-        let matches: Vec<&RepoPath> = test_paths
-            .iter()
-            .filter(|test_path| {
-                *test_path != changed && normalized_test_stem(&test_path.display()) == stem
-            })
-            .collect();
+        let Some(matches) = tests_by_stem.get(&stem) else {
+            continue;
+        };
         let unique = matches.len() == 1;
         for test_path in matches {
-            if !unique && !is_near(test_path, changed) {
+            if !unique && !is_near(test_path, &source) {
                 continue;
             }
             let from = ContextNodeId::File {
                 path: test_path.clone(),
             };
             let to = ContextNodeId::File {
-                path: changed.clone(),
+                path: source.clone(),
             };
             let already_tested = graph
-                .file_referencers(changed)
+                .file_referencers(&source)
                 .any(|edge| edge.kind == ContextEdgeKind::Tests && edge.from == from);
             if already_tested {
                 continue;
@@ -734,7 +736,7 @@ fn build_test_convention_edges(
                 reason: format!(
                     "{} matches test naming convention for {}",
                     test_path.display(),
-                    changed.display()
+                    source.display()
                 ),
                 provenance: provenance(ContextGraphSource::TestConvention, detail),
             });

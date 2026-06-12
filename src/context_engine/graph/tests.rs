@@ -989,6 +989,40 @@ fn terminal_lateral_candidates_emit_their_direct_tests() {
 }
 
 #[test]
+fn terminal_lateral_candidates_emit_convention_tests_without_imports() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("src/feature/request.ts"),
+        parsed(&["parseRequest"], Vec::new()),
+    );
+    files.insert(
+        repo_path("src/feature/route.ts"),
+        parsed(&["handler"], Vec::new()),
+    );
+    files.insert(
+        repo_path("src/feature/__tests__/route.test.ts"),
+        parsed(&["routeWorks"], Vec::new()),
+    );
+
+    let graph = GraphSpec::new(&files)
+        .with_changed(&["src/feature/request.ts"])
+        .build();
+    let expansion = graph.expand(default_request());
+    let test_candidate = expansion.candidates.iter().find(|candidate| {
+        candidate.repo_path() == Some(&repo_path("src/feature/__tests__/route.test.ts"))
+    });
+
+    assert!(
+        test_candidate.is_some_and(|candidate| candidate
+            .path
+            .steps
+            .iter()
+            .any(|step| step.kind == ContextEdgeKind::Tests)),
+        "convention tests of a same-module candidate should surface without imports"
+    );
+}
+
+#[test]
 fn large_file_contributes_its_referencing_chunk_not_all_chunks() {
     let mut files = BTreeMap::new();
     files.insert(
@@ -1056,6 +1090,27 @@ fn stem_convention_tests_surface_without_imports() {
     assert_eq!(
         test_edges[0].provenance.source,
         ContextGraphSource::TestConvention
+    );
+}
+
+#[test]
+fn changed_test_reaches_source_by_stem_convention_without_imports() {
+    let mut files = BTreeMap::new();
+    files.insert(repo_path("src/widget.ts"), parsed(&["widget"], Vec::new()));
+    files.insert(
+        repo_path("src/widget.test.ts"),
+        parsed(&["widgetTest"], Vec::new()),
+    );
+    let graph = GraphSpec::new(&files)
+        .with_changed(&["src/widget.test.ts"])
+        .build();
+    let expansion = graph.expand(default_request());
+    assert!(
+        expansion.candidates.iter().any(|candidate| {
+            candidate.relationship_kind() == ContextRelationshipKind::Tests
+                && candidate.repo_path() == Some(&repo_path("src/widget.ts"))
+        }),
+        "test-convention edges should work when the changed file is the test"
     );
 }
 
