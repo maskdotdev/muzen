@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::bench::bench_job;
 use crate::context_engine::{
     explain_selected_evidence, ContextEmbeddingProviderKind, ContextEngine, ContextEngineConfig,
-    ContextIndexRequest, ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind,
-    ContextQueryLimits, ContextSemanticMode, SnapshotContextEngine,
+    ContextGraphDebugExport, ContextIndex, ContextIndexRequest, ContextPackPurpose,
+    ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits, ContextSemanticMode,
+    SnapshotContextEngine,
 };
 use crate::contracts::*;
 use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
@@ -135,6 +136,8 @@ pub(crate) enum ContextCommand {
     Query(ContextQueryArgs),
     /// Explain why evidence was included or omitted in a context pack JSON file.
     Explain(ContextExplainArgs),
+    /// Export bounded Context Graph debug JSON for a local snapshot.
+    GraphDebug(ContextGraphDebugArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -239,6 +242,12 @@ pub(crate) struct ContextPackArgs {
 
     #[arg(long, default_value_t = 12_000)]
     pub(crate) max_tokens: usize,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct ContextGraphDebugArgs {
+    #[command(flatten)]
+    pub(crate) snapshot: ContextSnapshotArgs,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -709,12 +718,13 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
     runtime.block_on(async move {
         match args.command {
             ContextCommand::Index(args) => {
-                let (_engine, _snapshot, manifest) = index_context_snapshot(&args).await?;
+                let (_engine, _snapshot, _index, manifest) = index_context_snapshot(&args).await?;
                 write_context_output(args.output.as_ref(), &manifest)?;
                 Ok(0)
             }
             ContextCommand::Pack(args) => {
-                let (engine, snapshot, _manifest) = index_context_snapshot(&args.snapshot).await?;
+                let (engine, snapshot, _index, _manifest) =
+                    index_context_snapshot(&args.snapshot).await?;
                 let pack = engine
                     .build_pack(
                         ContextPackRequest {
@@ -731,8 +741,17 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
                 write_context_output(args.snapshot.output.as_ref(), &pack)?;
                 Ok(0)
             }
+            ContextCommand::GraphDebug(args) => {
+                let (_engine, _snapshot, index, _manifest) =
+                    index_context_snapshot(&args.snapshot).await?;
+                let export =
+                    ContextGraphDebugExport::collect(&index.graph, &index.graph_expansion);
+                write_context_output(args.snapshot.output.as_ref(), &export)?;
+                Ok(0)
+            }
             ContextCommand::Query(args) => {
-                let (engine, snapshot, _manifest) = index_context_snapshot(&args.snapshot).await?;
+                let (engine, snapshot, _index, _manifest) =
+                    index_context_snapshot(&args.snapshot).await?;
                 let arguments = match args.kind {
                     ContextQueryKindArg::SearchText => {
                         serde_json::json!({"query": args.query.unwrap_or_default()})
@@ -838,6 +857,7 @@ async fn index_context_snapshot(
 ) -> Result<(
     SnapshotContextEngine,
     Arc<RepoSnapshot>,
+    Arc<ContextIndex>,
     crate::context_engine::ContextManifestArtifact,
 )> {
     let snapshot = build_context_snapshot(args)?;
@@ -855,7 +875,12 @@ async fn index_context_snapshot(
     let index = engine
         .get_index(&snapshot.snapshot_id)
         .ok_or_else(|| anyhow::anyhow!("context index was not stored"))?;
-    Ok((engine, snapshot, index.manifest_artifact.clone()))
+    Ok((
+        engine,
+        snapshot,
+        Arc::clone(&index),
+        index.manifest_artifact.clone(),
+    ))
 }
 
 fn context_index_request(
@@ -3025,6 +3050,35 @@ mod context_cli_tests {
         assert_eq!(
             config.weight_path_proximity,
             ContextEngineConfig::snapshot_v0().weight_path_proximity
+        );
+    }
+
+    #[test]
+    fn context_graph_debug_command_uses_snapshot_args() {
+        let cli = Cli::try_parse_from([
+            "muzen",
+            "context",
+            "graph-debug",
+            "--changed-file",
+            "src/lib.rs",
+            "--output",
+            "graph-debug.json",
+        ])
+        .expect("valid graph debug command");
+        let Command::Context(context) = cli.command else {
+            panic!("expected context command");
+        };
+        let ContextCommand::GraphDebug(debug) = context.command else {
+            panic!("expected context graph-debug command");
+        };
+
+        assert_eq!(
+            debug.snapshot.changed_files,
+            vec![PathBuf::from("src/lib.rs")]
+        );
+        assert_eq!(
+            debug.snapshot.output.as_deref(),
+            Some(Path::new("graph-debug.json"))
         );
     }
 
