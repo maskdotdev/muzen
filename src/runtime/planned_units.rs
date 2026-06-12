@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use serde::Deserialize;
 use serde_json::json;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
@@ -34,11 +36,18 @@ pub(crate) struct PlannedReviewRuntime {
     pub(crate) review_revision_id: String,
     pub(crate) events: RuntimeEventDispatcher,
     pub(crate) session_templates: Vec<SessionScope>,
+    /// Bounds concurrently active sessions. Shared across shards of one run
+    /// so multi-snapshot runs cannot multiply max_active_sessions.
+    pub(crate) active_sessions: Arc<Semaphore>,
+}
+
+pub(crate) fn session_semaphore(limits: &RuntimeLimits) -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(limits.max_active_sessions.max(1)))
 }
 
 impl PlannedReviewRuntime {
     pub(crate) async fn run_with_cancel(
-        &self,
+        self: Arc<Self>,
         cancel: CancellationToken,
     ) -> PlannedReviewRunReport {
         let started = Instant::now();
@@ -46,6 +55,8 @@ impl PlannedReviewRuntime {
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
         let contract_risk =
             build_contract_risk_plan(&review_plan, self.snapshot.diff.content.as_str());
+        let review_plan = Arc::new(review_plan);
+        let contract_risk = Arc::new(contract_risk);
         self.events.emit_legacy(EventRecord::new(
             EventLevel::Info,
             EventType::ToolCallCompleted,
@@ -67,21 +78,48 @@ impl PlannedReviewRuntime {
         let mut tokens = TokenUsage::default();
         let mut completion_diagnostics = Vec::new();
         let mut candidate_findings = Vec::new();
-        let mut file_reviews = skipped_file_reviews(&review_plan);
+        let mut file_reviews = skipped_file_reviews(review_plan.as_ref());
 
-        for unit in &unit_plan.units {
-            if cancel.is_cancelled() {
-                completion_diagnostics.push(unit_diagnostic(unit, false, "cancelled"));
-                continue;
+        // Units run concurrently, bounded by max_active_sessions. Reports are
+        // re-ordered by unit index before aggregation so findings, file
+        // reviews, and synthesis input stay deterministic regardless of
+        // completion order.
+        let active = Arc::clone(&self.active_sessions);
+        let mut joins = JoinSet::new();
+        for (index, unit) in unit_plan.units.iter().enumerate() {
+            let runtime = Arc::clone(&self);
+            let review_plan = Arc::clone(&review_plan);
+            let contract_risk = Arc::clone(&contract_risk);
+            let active = Arc::clone(&active);
+            let unit = unit.clone();
+            let cancel = cancel.child_token();
+            joins.spawn(async move {
+                let Ok(_permit) = active.acquire_owned().await else {
+                    return (
+                        index,
+                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
+                    );
+                };
+                if cancel.is_cancelled() {
+                    return (
+                        index,
+                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
+                    );
+                }
+                let report = runtime
+                    .run_unit(review_plan.as_ref(), contract_risk.as_ref(), unit, cancel)
+                    .await;
+                (index, report)
+            });
+        }
+        let mut unit_reports = Vec::with_capacity(unit_plan.units.len());
+        while let Some(result) = joins.join_next().await {
+            if let Ok(indexed) = result {
+                unit_reports.push(indexed);
             }
-            let report = self
-                .run_unit(
-                    &review_plan,
-                    &contract_risk,
-                    unit.clone(),
-                    cancel.child_token(),
-                )
-                .await;
+        }
+        unit_reports.sort_by_key(|(index, _)| *index);
+        for (_, report) in unit_reports {
             if report.completed {
                 completed_sessions += 1;
             }
@@ -97,9 +135,9 @@ impl PlannedReviewRuntime {
         {
             let synthesis_report = self
                 .run_final_synthesis_pass(
-                    &review_plan,
+                    review_plan.as_ref(),
                     &unit_plan.units,
-                    &contract_risk,
+                    contract_risk.as_ref(),
                     &file_reviews,
                     &candidate_findings,
                     cancel.child_token(),
@@ -112,9 +150,9 @@ impl PlannedReviewRuntime {
             completion_diagnostics.push(synthesis_report.completion_diagnostic);
         }
         let synthesis = synthesize_findings(
-            &review_plan,
+            review_plan.as_ref(),
             &unit_plan.units,
-            &contract_risk,
+            contract_risk.as_ref(),
             self.snapshot.diff.content.as_str(),
             candidate_findings,
             &self.tools.artifacts,
@@ -2600,7 +2638,7 @@ const GENERIC_CODE_TOKENS: &[&str] = &[
     "this", "that", "item", "items", "value", "values",
 ];
 
-fn record_usage(
+pub(crate) fn record_usage(
     tokens: &mut TokenUsage,
     model_metrics: &mut ModelMetricsSnapshot,
     model: &dyn crate::runtime::model::ConcurrentModelClient,
@@ -2620,7 +2658,7 @@ fn record_usage(
     }
 }
 
-fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &ModelMetricsSnapshot) {
+pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &ModelMetricsSnapshot) {
     target.calls += report.calls;
     target.successes += report.successes;
     target.errors += report.errors;
@@ -2700,7 +2738,7 @@ fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
     failures
 }
 
-fn elapsed_ms(started: Instant) -> u64 {
+pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
 }
 
@@ -3541,8 +3579,9 @@ mod tests {
     ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
         let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
+        let active_sessions = session_semaphore(&limits);
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = PlannedReviewRuntime {
+        let runtime = Arc::new(PlannedReviewRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceBackedModel {
                 mode,
@@ -3553,9 +3592,128 @@ mod tests {
             review_revision_id: "head".to_string(),
             events: RuntimeEventDispatcher::new(None, None),
             session_templates,
-        };
+            active_sessions,
+        });
 
         runtime.run_with_cancel(CancellationToken::new()).await
+    }
+
+    /// Reads every file in its unit on the first turn, then returns clean
+    /// verdicts, while recording how many model calls overlap in time.
+    struct ConcurrencyProbeModel {
+        in_flight: Arc<std::sync::atomic::AtomicUsize>,
+        max_in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl crate::runtime::model::ConcurrentModelClient for ConcurrencyProbeModel {
+        async fn complete(
+            &self,
+            scope: &SessionScope,
+            transcript: &[ConversationItem],
+            _turn_id: TurnId,
+            _cancel: CancellationToken,
+        ) -> RuntimeResult<ModelTurn> {
+            use std::sync::atomic::Ordering;
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+
+            let unit_files: Vec<String> = scope
+                .instructions
+                .iter()
+                .find(|instruction| instruction.kind == "changed_file_batch")
+                .map(|instruction| {
+                    instruction
+                        .text
+                        .lines()
+                        .filter_map(|line| line.split_once(". ").map(|(_, path)| path.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let first_turn = !transcript
+                .iter()
+                .any(|item| matches!(item, ConversationItem::AssistantToolCalls { .. }));
+            if first_turn {
+                let calls = unit_files
+                    .iter()
+                    .enumerate()
+                    .map(|(index, path)| ModelToolCall {
+                        call_id: ToolCallId(format!("{}-read-{index}", scope.id.0)),
+                        index,
+                        name: ToolId::from(ToolName::ReadHeadFile),
+                        raw_arguments: json!({ "path": path }).to_string(),
+                    })
+                    .collect();
+                return Ok(ModelTurn::ToolCalls {
+                    calls,
+                    usage: TokenUsage::default(),
+                });
+            }
+            Ok(ModelTurn::Text {
+                content: json!({
+                    "summary": "clean",
+                    "fileVerdicts": unit_files
+                        .iter()
+                        .map(|path| json!({ "path": path, "verdict": "clean" }))
+                        .collect::<Vec<_>>(),
+                    "findings": []
+                })
+                .to_string(),
+                usage: TokenUsage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planned_units_execute_concurrently_up_to_max_active_sessions() {
+        let files: Vec<(String, String)> = (0..12)
+            .map(|index| {
+                (
+                    format!("src/file_{index}.rs"),
+                    format!("fn handler_{index}() -> usize {{ {index} }}"),
+                )
+            })
+            .collect();
+        let snapshot = build_owned_test_snapshot(files);
+        let limits = Arc::new(RuntimeLimits::standard(4, 64 * 1024, 20));
+        let active_sessions = session_semaphore(&limits);
+        let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
+        let in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let max_in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runtime = Arc::new(PlannedReviewRuntime {
+            snapshot,
+            model_router: Arc::new(StaticModelRouter::new(Arc::new(ConcurrencyProbeModel {
+                in_flight: Arc::clone(&in_flight),
+                max_in_flight: Arc::clone(&max_in_flight),
+            }))),
+            tools,
+            policy: Arc::new(ReviewerPolicy::new()),
+            limits,
+            review_revision_id: "head".to_string(),
+            events: RuntimeEventDispatcher::new(None, None),
+            session_templates: Vec::new(),
+            active_sessions,
+        });
+
+        let report = runtime.run_with_cancel(CancellationToken::new()).await;
+
+        assert!(
+            report.metrics.sessions >= 2,
+            "expected multiple planned units, got {}",
+            report.metrics.sessions
+        );
+        assert_eq!(
+            report.metrics.completed_sessions, report.metrics.sessions,
+            "all units should complete cleanly: {:?}",
+            report.metrics.completion_diagnostics
+        );
+        let observed = max_in_flight.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            observed >= 2,
+            "expected overlapping model calls across units, max in-flight was {observed}"
+        );
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {

@@ -294,6 +294,44 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
     }
 }
 
+/// Direct-session mock: gathers search evidence on the first turn, then
+/// answers with a session-specific text output.
+#[derive(Debug)]
+pub struct DirectSessionEchoModel {
+    pub query: String,
+}
+
+#[async_trait]
+impl crate::reviewer::model::ReviewModel for DirectSessionEchoModel {
+    async fn complete_review(
+        &self,
+        request: crate::reviewer::model::ReviewModelRequest,
+        _cancel: crate::reviewer::adapters::Cancellation,
+    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
+    {
+        let usage = TokenUsage {
+            input_tokens: request.transcript_item_count() as u64,
+            output_tokens: 1,
+            total_tokens: request.transcript_item_count() as u64 + 1,
+        };
+        if request.tool_result_count() == 0 {
+            return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
+                usage,
+                calls: vec![reviewer_call(
+                    &request,
+                    "search",
+                    "search_text",
+                    serde_json::json!({ "query": self.query }),
+                )],
+            });
+        }
+        Ok(crate::reviewer::model::ReviewModelTurn::Text {
+            usage,
+            content: format!("answer:{}", request.session_id),
+        })
+    }
+}
+
 #[async_trait]
 impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
     async fn complete_review(

@@ -2,6 +2,71 @@ use super::prelude::*;
 use super::support::*;
 
 #[test]
+fn public_facade_runs_direct_agent_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("README.md"), "needle\n").unwrap();
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
+        temp.path().to_path_buf(),
+        crate::reviewer::snapshots::ChangeSpec::local(
+            "change-1",
+            "head-1",
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
+        ),
+    )
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let sessions = (0..3)
+        .map(|index| {
+            crate::reviewer::spec::ReviewSessionSpec::review_read_only(
+                format!("agent-{index}"),
+                crate::contracts::Role::Generalist,
+                format!("Answer task {index} using repository evidence."),
+                public_budget(),
+            )
+        })
+        .collect();
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
+        "swarm-run",
+        snapshot,
+        sessions,
+        crate::reviewer::spec::ReviewRunLimits::standard(3, 64 * 1024, 20),
+    )
+    .with_mode(crate::reviewer::spec::RunMode::DirectSessions);
+    let run = crate::reviewer::run::Run::builder(spec)
+        .review_model(Arc::new(DirectSessionEchoModel {
+            query: "needle".to_string(),
+        }))
+        .build()
+        .unwrap();
+    let tokio = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let report = tokio.block_on(run.execute());
+
+    assert_eq!(report.run_id, "swarm-run");
+    assert_eq!(report.summary.status, "completed");
+    assert_eq!(report.summary.sessions, 3);
+    assert_eq!(report.summary.completed_sessions, 3);
+    assert_eq!(report.summary.findings, 0);
+    assert!(report.summary.tool_calls >= 3, "each session searched");
+    assert_eq!(report.session_outputs.len(), 3);
+    for (index, output) in report.session_outputs.iter().enumerate() {
+        assert_eq!(output.session_id, format!("agent-{index}"));
+        assert!(output.completed, "session {index} should complete");
+        assert_eq!(output.status, "done");
+        assert_eq!(
+            output.output.as_deref(),
+            Some(format!("answer:agent-{index}").as_str())
+        );
+    }
+}
+
+#[test]
 fn public_reviewer_facade_runs_mock_review() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "needle\n").unwrap();
@@ -911,6 +976,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
         snapshots: vec![first_snapshot, second_snapshot],
         sessions,
         limits: crate::reviewer::spec::ReviewRunLimits::standard(2, 64 * 1024, 20),
+        mode: crate::reviewer::spec::RunMode::default(),
     };
     let events = Arc::new(crate::reviewer::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer::run::Run::builder(spec)
