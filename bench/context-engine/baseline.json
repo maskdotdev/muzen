@@ -2,40 +2,40 @@
   "schemaVersion": "muzen.context-eval-baseline.v1",
   "caseCount": 89,
   "metrics": {
-    "meanRecall": 0.8119169220292817,
-    "meanPrecision": 0.07983322530307659,
+    "meanRecall": 0.8175348995573715,
+    "meanPrecision": 0.07978510044925842,
     "meanRecallAt5": 0.366840961784782,
     "meanRecallAt10": 0.5393177359469494,
     "meanRecallAt25": 0.6654822705384503,
     "meanNdcgAt10": 0.3844033932941857,
     "meanCandidateRecall": 0.9934456928838952,
-    "candidatePresentMissRate": 0.24734982332155478,
-    "candidatePresentMissCaseRate": 0.33707865168539325,
-    "meanCandidatePresentMissRate": 0.18152877085461355,
+    "candidatePresentMissRate": 0.24381625441696114,
+    "candidatePresentMissCaseRate": 0.3258426966292135,
+    "meanCandidatePresentMissRate": 0.17591079332652368,
     "sufficiencyInsufficientWhenIncomplete": 1.0,
     "firstRelevantRate": 0.9325842696629213,
     "meanTokensToFirstRelevant": 1615.0602409638554,
-    "meanUsefulEvidencePer1kTokens": 1.5583869467244225
+    "meanUsefulEvidencePer1kTokens": 1.5593261159686072
   },
   "cohorts": {
     "byKind": {
       "pack": {
         "caseCount": 83,
         "metrics": {
-          "meanRecall": 0.798320554947061,
-          "meanPrecision": 0.040423578939443566,
+          "meanRecall": 0.8043446513326032,
+          "meanPrecision": 0.040371975180530116,
           "meanRecallAt5": 0.32107042890175425,
           "meanRecallAt10": 0.506015403605765,
           "meanRecallAt25": 0.6413002659990612,
           "meanNdcgAt10": 0.3399024337732835,
           "meanCandidateRecall": 0.9929718875502008,
-          "candidatePresentMissRate": 0.2527075812274368,
-          "candidatePresentMissCaseRate": 0.3614457831325301,
-          "meanCandidatePresentMissRate": 0.19465133260313983,
+          "candidatePresentMissRate": 0.2490974729241877,
+          "candidatePresentMissCaseRate": 0.3493975903614458,
+          "meanCandidatePresentMissRate": 0.18862723621759767,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 0.927710843373494,
           "meanTokensToFirstRelevant": 1736.987012987013,
-          "meanUsefulEvidencePer1kTokens": 0.48348229944669613
+          "meanUsefulEvidencePer1kTokens": 0.4844893604434723
         }
       },
       "read-span": {
@@ -119,20 +119,20 @@
       "external": {
         "caseCount": 40,
         "metrics": {
-          "meanRecall": 0.6031547619047619,
-          "meanPrecision": 0.018088740648450858,
+          "meanRecall": 0.6156547619047619,
+          "meanPrecision": 0.018010808152627473,
           "meanRecallAt5": 0.19652777777777777,
           "meanRecallAt10": 0.36659722222222224,
           "meanRecallAt25": 0.46722222222222226,
           "meanNdcgAt10": 0.22727548721157415,
           "meanCandidateRecall": 0.9916666666666666,
-          "candidatePresentMissRate": 0.47794117647058826,
-          "candidatePresentMissCaseRate": 0.675,
-          "meanCandidatePresentMissRate": 0.3885119047619048,
+          "candidatePresentMissRate": 0.47058823529411764,
+          "candidatePresentMissCaseRate": 0.65,
+          "meanCandidatePresentMissRate": 0.37601190476190477,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 0.85,
           "meanTokensToFirstRelevant": 2537.794117647059,
-          "meanUsefulEvidencePer1kTokens": 0.14583993504414605
+          "meanUsefulEvidencePer1kTokens": 0.1479375866555746
         }
       },
       "fixture": {
@@ -158,7 +158,7 @@
         "caseCount": 39,
         "metrics": {
           "meanRecall": 0.9778055278055279,
-          "meanPrecision": 0.042535388546372024,
+          "meanPrecision": 0.042505495926964815,
           "meanRecallAt5": 0.4048137048137048,
           "meanRecallAt10": 0.5983433233433234,
           "meanRecallAt25": 0.7830521330521331,
@@ -170,7 +170,7 @@
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 1.0,
           "meanTokensToFirstRelevant": 1203.0,
-          "meanUsefulEvidencePer1kTokens": 0.27567756291726037
+          "meanUsefulEvidencePer1kTokens": 0.2756693577448317
         }
       }
     },
@@ -216,20 +216,20 @@
       "mined_followup": {
         "caseCount": 79,
         "metrics": {
-          "meanRecall": 0.7881089374760261,
-          "meanPrecision": 0.03015733897780434,
+          "meanRecall": 0.7944380514000767,
+          "meanPrecision": 0.030103122370338315,
           "meanRecallAt5": 0.29935247593475445,
           "meanRecallAt10": 0.4810035253073227,
           "meanRecallAt25": 0.6231382541509124,
           "meanNdcgAt10": 0.31920421678537386,
           "meanCandidateRecall": 0.9926160337552743,
-          "candidatePresentMissRate": 0.25830258302583026,
-          "candidatePresentMissCaseRate": 0.379746835443038,
-          "meanCandidatePresentMissRate": 0.20450709627924818,
+          "candidatePresentMissRate": 0.25461254612546125,
+          "candidatePresentMissCaseRate": 0.3670886075949367,
+          "meanCandidatePresentMissRate": 0.19817798235519754,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 0.9240506329113924,
           "meanTokensToFirstRelevant": 1824.6849315068494,
-          "meanUsefulEvidencePer1kTokens": 0.20993699184226577
+          "meanUsefulEvidencePer1kTokens": 0.2109950432692585
         }
       }
     },
@@ -237,20 +237,20 @@
       "False": {
         "caseCount": 79,
         "metrics": {
-          "meanRecall": 0.7881089374760261,
-          "meanPrecision": 0.03015733897780434,
+          "meanRecall": 0.7944380514000767,
+          "meanPrecision": 0.030103122370338315,
           "meanRecallAt5": 0.29935247593475445,
           "meanRecallAt10": 0.4810035253073227,
           "meanRecallAt25": 0.6231382541509124,
           "meanNdcgAt10": 0.31920421678537386,
           "meanCandidateRecall": 0.9926160337552743,
-          "candidatePresentMissRate": 0.25830258302583026,
-          "candidatePresentMissCaseRate": 0.379746835443038,
-          "meanCandidatePresentMissRate": 0.20450709627924818,
+          "candidatePresentMissRate": 0.25461254612546125,
+          "candidatePresentMissCaseRate": 0.3670886075949367,
+          "meanCandidatePresentMissRate": 0.19817798235519754,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 0.9240506329113924,
           "meanTokensToFirstRelevant": 1824.6849315068494,
-          "meanUsefulEvidencePer1kTokens": 0.20993699184226577
+          "meanUsefulEvidencePer1kTokens": 0.2109950432692585
         }
       },
       "True": {

@@ -16,10 +16,10 @@ Overall:
 - nDCG@10: `0.3844`
 - recall@25: `0.6655`
 - candidate recall: `0.9934`
-- candidate-present miss rate: `0.2473`
+- candidate-present miss rate: `0.2438`
 - first relevant rate: `0.9326`
 - tokens to first relevant: `1615`
-- useful evidence per 1k tokens: `1.5584`
+- useful evidence per 1k tokens: `1.5593`
 - sufficiency insufficient when incomplete: `1.0`
 
 External corpus:
@@ -28,10 +28,10 @@ External corpus:
 - nDCG@10: `0.2273`
 - recall@25: `0.4672`
 - candidate recall: `0.9917`
-- candidate-present miss rate: `0.4779`
+- candidate-present miss rate: `0.4706`
 - first relevant rate: `0.8500`
 - tokens to first relevant: `2538`
-- useful evidence per 1k tokens: `0.1458`
+- useful evidence per 1k tokens: `0.1479`
 
 This shape matters: indexing usually finds ground truth, but pack order and budget still fail too often, especially outside this repo.
 
@@ -39,7 +39,7 @@ Truth-source split:
 
 - curated: 2 cases, recall@10 `1.0000`, nDCG@10 `0.4974`, candidate-present miss `0.0000`, tokens to first relevant `217`
 - fixture: 8 cases, recall@10 `1.0000`, nDCG@10 `1.0000`, candidate-present miss `0.0000`, tokens to first relevant `52`
-- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2583`, tokens to first relevant `1825`
+- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2546`, tokens to first relevant `1825`
 
 This split is now part of the gate. Fixture/security cases prove basic behavior stays intact, curated strict cases prove causal behavior without future labels, and mined follow-up cases remain the hard stress set that cannot be averaged away.
 
@@ -49,10 +49,10 @@ Source: `bench/results-context-engine/context-engine-ablation-summary.json`. Eac
 
 | Disabled signal | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
 | --- | ---: | ---: | ---: | ---: |
-| graph | `-0.0984` | `-0.0814` | `+0.0671` | `+543` |
+| graph | `-0.0984` | `-0.0814` | `+0.0707` | `+548` |
 | co-change | `-0.0658` | `-0.0592` | `+0.0707` | `+339` |
-| test coverage | `-0.0415` | `-0.0335` | `+0.0071` | `+470` |
-| lexical change | `-0.0238` | `-0.0008` | `+0.0141` | `-79` |
+| test coverage | `-0.0415` | `-0.0335` | `+0.0071` | `+472` |
+| lexical change | `-0.0238` | `-0.0008` | `+0.0106` | `+22` |
 | path proximity | `-0.0147` | `-0.0040` | `+0.0106` | `+85` |
 | semantic change | `+0.0000` | `+0.0000` | `+0.0000` | `+0` |
 
@@ -73,6 +73,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Strict curated fixture `curated-python-billing` now proves Python import graph facts retrieve a changed settlement module, API caller, and API test under a 3.5k pack budget despite unrelated payment/API/test distractors.
 - Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Proof run: 89 cases with `--jobs 6` passed in `31.4s` wall time after baseline refresh.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
+- The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
 
 ## Main Gaps
 
@@ -114,6 +115,7 @@ Recent rejected experiments:
 - Token efficiency bonus bump: tokens to first relevant improved `1650 -> 1607`, but recall@25/self and external present-miss regressed.
 - Compact full-content reserve cap `200`: no quality gain; tokens to first relevant worsened to `1730`, and external tokens to first relevant failed gate at `2745`.
 - Broad budget-repair swapping: fixed one self case but introduced one external candidate-present miss and failed external present-miss gate (`0.4779 -> 0.4853`); narrowed to low-confidence-tail evictions only.
+- Broad skeleton-tail swapping: improved candidate-present miss `0.2473 -> 0.2403`, but external tokens to first relevant regressed `2538 -> 2790` and self candidate-present misses worsened. A score-margin-only version still failed (`external ttfr 2779`, self miss regressions). Final retained rule requires new path coverage plus score margin.
 
 ## Next Work To Reach Great
 
