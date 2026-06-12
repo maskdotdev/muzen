@@ -436,6 +436,12 @@
           "name": "heartbeat",
           "required": false,
           "type": "RunHeartbeatConfigParams"
+        },
+        {
+          "default": "null",
+          "name": "mode",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "RunStartParams",
@@ -1424,9 +1430,42 @@
           "name": "metadata",
           "required": false,
           "type": "json"
+        },
+        {
+          "default": "[]",
+          "name": "sessionOutputs",
+          "required": false,
+          "type": "RunnerSessionOutput[]"
         }
       ],
       "name": "RunnerRunResult",
+      "shape": "object"
+    },
+    {
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "completed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "default": "null",
+          "name": "output",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "RunnerSessionOutput",
       "shape": "object"
     },
     {
