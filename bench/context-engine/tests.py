@@ -506,6 +506,12 @@ def case_result(
         trusted_forbidden_paths=[],
         missing_expected_ranges=[],
         token_estimate=10,
+        selected_token_breakdown={
+            "byRepresentation": {"full_content": {"count": 1, "tokens": 10}},
+            "byKind": {"file_span": {"count": 1, "tokens": 10}},
+            "changedTokens": 0,
+            "topPathsByTokens": [{"path": "src/a.rs", "tokens": 10}],
+        },
         omitted=0,
         sufficiency_status=sufficiency_status,
         sufficiency_blocking_gaps=0,
@@ -557,6 +563,15 @@ class SummaryProofTest(unittest.TestCase):
                         "representation": "full_content",
                     }
                 ],
+                "selected_token_breakdown": {
+                    "byRepresentation": {
+                        "full_content": {"count": 2, "tokens": 900},
+                        "skeleton": {"count": 3, "tokens": 120},
+                    },
+                    "byKind": {"file_span": {"count": 5, "tokens": 1020}},
+                    "changedTokens": 300,
+                    "topPathsByTokens": [{"path": "src/tail.rs", "tokens": 300}],
+                },
             }
         )
         summary = run.summarize([good, weak])
@@ -603,6 +618,16 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(
             ranked_causes["candidatePresentOmittedCases"][0]["path"], "src/a.rs"
         )
+        budget_pressure = summary["diagnostics"]["selectionBudgetPressure"]
+        self.assertEqual(budget_pressure["candidatePresentMissCasesWithSkeletons"], 1)
+        self.assertEqual(
+            budget_pressure["meanCandidatePresentMissOmissionTokens"], 100
+        )
+        self.assertEqual(
+            budget_pressure["candidatePresentMissCasesWithSkeletonsSample"][0]["id"],
+            "weak",
+        )
+        self.assertIn("selectedTokenBreakdown", summary["weakCases"][0])
 
     def test_summary_separates_strict_and_probable_sufficiency(self):
         sufficient = case_result("sufficient", sufficiency_status="sufficient")

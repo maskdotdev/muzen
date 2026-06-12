@@ -151,6 +151,7 @@ class CaseResult:
     trusted_forbidden_paths: list[str]
     missing_expected_ranges: list[dict[str, Any]]
     token_estimate: int
+    selected_token_breakdown: dict[str, Any]
     omitted: int
     sufficiency_status: str | None
     sufficiency_blocking_gaps: int
@@ -959,6 +960,42 @@ def tokens_to_first_relevant(evidence: list[dict[str, Any]], expected: set[str])
     return None
 
 
+def selected_token_breakdown_for_evidence(evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    by_representation: dict[str, dict[str, int]] = {}
+    by_kind: dict[str, dict[str, int]] = {}
+    changed_tokens = 0
+    path_tokens: dict[str, int] = {}
+    for entry in evidence:
+        if not isinstance(entry, dict):
+            continue
+        tokens = int(entry.get("tokenEstimate", 0) or 0)
+        representation = str(entry.get("representation") or "full_content")
+        kind = str(entry.get("kind") or "unknown")
+        by_representation.setdefault(representation, {"count": 0, "tokens": 0})
+        by_representation[representation]["count"] += 1
+        by_representation[representation]["tokens"] += tokens
+        by_kind.setdefault(kind, {"count": 0, "tokens": 0})
+        by_kind[kind]["count"] += 1
+        by_kind[kind]["tokens"] += tokens
+        if entry.get("isChangedSpan"):
+            changed_tokens += tokens
+        path = entry.get("path")
+        if isinstance(path, str) and path:
+            path_tokens[path] = path_tokens.get(path, 0) + tokens
+    top_paths = [
+        {"path": path, "tokens": tokens}
+        for path, tokens in sorted(
+            path_tokens.items(), key=lambda item: (-item[1], item[0])
+        )[:8]
+    ]
+    return {
+        "byRepresentation": dict(sorted(by_representation.items())),
+        "byKind": dict(sorted(by_kind.items())),
+        "changedTokens": changed_tokens,
+        "topPathsByTokens": top_paths,
+    }
+
+
 def first_relevant_rank(retrieved: list[str], expected: set[str]) -> int | None:
     for index, path in enumerate(retrieved, start=1):
         if path in expected:
@@ -988,6 +1025,7 @@ def score_case(
     missed_paths = sorted(expected_set - retrieved_set)
     unexpected_paths = sorted(retrieved_set - expected_set)
     token_estimate = sum(int(entry.get("tokenEstimate", 0)) for entry in evidence)
+    selected_token_breakdown = selected_token_breakdown_for_evidence(evidence)
     useful_per_1k = (hit_count / token_estimate * 1000) if token_estimate else 0.0
     serialized_result = json.dumps(result, sort_keys=True)
     forbidden_content_hits = [
@@ -1140,6 +1178,7 @@ def score_case(
         trusted_forbidden_paths=trusted_forbidden_paths,
         missing_expected_ranges=missing_expected_ranges,
         token_estimate=token_estimate,
+        selected_token_breakdown=selected_token_breakdown,
         omitted=len(omitted) if isinstance(omitted, list) else int(omitted),
         sufficiency_status=sufficiency.get("status"),
         sufficiency_blocking_gaps=sufficiency_blocking_gaps,
@@ -1526,6 +1565,7 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             "candidatePresentMissedPaths": result.candidate_present_missed_paths,
             "candidatePresentMissedOmissions": result.candidate_present_missed_omissions,
             "selectedTailCandidates": result.selected_tail_candidates,
+            "selectedTokenBreakdown": result.selected_token_breakdown,
             "missedPaths": result.missed_paths,
             "sufficiencyStatus": result.sufficiency_status,
         }
@@ -1808,6 +1848,70 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
     }
 
 
+def selection_budget_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
+    full_tokens: list[int] = []
+    skeleton_tokens: list[int] = []
+    changed_tokens: list[int] = []
+    miss_omission_tokens: list[int] = []
+    miss_cases_with_skeletons = []
+    high_skeleton_cases = []
+
+    for result in results:
+        breakdown = result.selected_token_breakdown
+        by_representation = breakdown.get("byRepresentation", {})
+        full = int(by_representation.get("full_content", {}).get("tokens", 0))
+        skeleton = int(by_representation.get("skeleton", {}).get("tokens", 0))
+        changed = int(breakdown.get("changedTokens", 0))
+        full_tokens.append(full)
+        skeleton_tokens.append(skeleton)
+        changed_tokens.append(changed)
+        if skeleton:
+            high_skeleton_cases.append(
+                {
+                    "id": result.id,
+                    "sourceGroup": result.source_group,
+                    "truthSource": result.truth_source,
+                    "kind": result.kind,
+                    "selectedFullContentTokens": full,
+                    "selectedSkeletonTokens": skeleton,
+                    "candidatePresentMissCount": len(
+                        result.candidate_present_missed_paths
+                    ),
+                    "recallAt25": result.recall_at_25,
+                }
+            )
+        if result.candidate_present_missed_paths and skeleton:
+            miss_cases_with_skeletons.append(high_skeleton_cases[-1])
+        for omission in result.candidate_present_missed_omissions:
+            token_estimate = omission.get("tokenEstimate")
+            if isinstance(token_estimate, int):
+                miss_omission_tokens.append(token_estimate)
+
+    high_skeleton_cases.sort(
+        key=lambda case: (
+            -case["selectedSkeletonTokens"],
+            -case["candidatePresentMissCount"],
+            case["id"],
+        )
+    )
+    miss_cases_with_skeletons.sort(
+        key=lambda case: (
+            -case["candidatePresentMissCount"],
+            -case["selectedSkeletonTokens"],
+            case["id"],
+        )
+    )
+    return {
+        "meanSelectedFullContentTokens": mean_number(full_tokens),
+        "meanSelectedSkeletonTokens": mean_number(skeleton_tokens),
+        "meanSelectedChangedTokens": mean_number(changed_tokens),
+        "meanCandidatePresentMissOmissionTokens": mean_number(miss_omission_tokens),
+        "candidatePresentMissCasesWithSkeletons": len(miss_cases_with_skeletons),
+        "highSkeletonTokenCases": high_skeleton_cases[:limit],
+        "candidatePresentMissCasesWithSkeletonsSample": miss_cases_with_skeletons[:limit],
+    }
+
+
 def ranked_miss_causes(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
     selected_after_25: list[dict[str, Any]] = []
     omitted_candidate_paths: list[tuple[CaseResult, str]] = []
@@ -2003,6 +2107,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         "slowCases": slow_cases(results),
         "diagnostics": {
             "omissionPressure": omission_pressure(results),
+            "selectionBudgetPressure": selection_budget_pressure(results),
             "rankedMissCauses": ranked_miss_causes(results),
             "falseSufficientCases": false_sufficient_cases(results),
             "sufficiencyCalibration": sufficiency_calibration(results),
@@ -2027,6 +2132,7 @@ def attach_performance(
         "cliSnapshotBuildMs": 0.0,
         "cliIndexBuildMs": 0.0,
         "cliActionMs": 0.0,
+        "cliOutputSerializationMs": 0.0,
     }
     for case in summary.get("cases", []):
         case_performance = case.get("performance") or {}
@@ -2047,6 +2153,9 @@ def attach_performance(
             cli_performance.get("indexBuildMs") or 0.0
         )
         phase_totals["cliActionMs"] += float(cli_performance.get("actionMs") or 0.0)
+        phase_totals["cliOutputSerializationMs"] += float(
+            cli_performance.get("outputSerializationMs") or 0.0
+        )
     summary["performance"] = {
         "wallClockMs": elapsed_ms,
         "meanWallClockMsPerCase": elapsed_ms / case_count if case_count else None,
