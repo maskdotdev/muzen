@@ -1256,9 +1256,11 @@ class ParallelSuiteTest(unittest.TestCase):
         original_cpu_count = run.os.cpu_count
         try:
             run.os.cpu_count = lambda: 12
-            self.assertEqual(run.default_eval_jobs(), 4)
+            self.assertEqual(run.default_eval_jobs(), 24)
+            run.os.cpu_count = lambda: 20
+            self.assertEqual(run.default_eval_jobs(), 32)
             run.os.cpu_count = lambda: 2
-            self.assertEqual(run.default_eval_jobs(), 2)
+            self.assertEqual(run.default_eval_jobs(), 4)
             run.os.cpu_count = lambda: None
             self.assertEqual(run.default_eval_jobs(), 1)
         finally:
