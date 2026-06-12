@@ -2155,6 +2155,40 @@ async fn index_emits_chunk_evidence_with_changed_span_flags() {
 }
 
 #[tokio::test]
+async fn index_emits_summary_evidence_for_large_text_files() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(repo.path().join("src/lib.rs"), "pub fn changed() {}\n").unwrap();
+    std::fs::write(
+        repo.path().join("src/large.rs"),
+        many_function_rust_file(600, 20),
+    )
+    .unwrap();
+    std::fs::write(repo.path().join("bun.lock"), "package = x\n".repeat(30_000)).unwrap();
+    let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,1 +1,2 @@\n pub fn changed() {}\n+pub fn added() {}\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/lib.rs"], diff);
+    let index = ContextIndex::build(ContextIndexRequest::for_snapshot(
+        snapshot,
+        &ContextEngineConfig::snapshot_v0(),
+    ))
+    .await
+    .unwrap();
+
+    assert!(
+        index.evidence.iter().any(|evidence| {
+            evidence.path.as_ref().map(|path| path.display()) == Some("src/large.rs".to_string())
+        }),
+        "large text files need bounded evidence so graph candidates can project"
+    );
+    assert!(!index.skips.iter().any(|skip| {
+        skip.path.display() == "src/large.rs" && skip.reason == ContextIndexSkipReason::BinaryFile
+    }));
+    assert!(!index.evidence.iter().any(|evidence| {
+        evidence.path.as_ref().map(|path| path.display()) == Some("bun.lock".to_string())
+    }));
+}
+
+#[tokio::test]
 async fn chunk_evidence_ids_are_stable_across_index_runs() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(repo.path().join("src")).unwrap();

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::repo::is_textish;
 use crate::review_plan::ReviewPlan;
 use crate::runtime::contracts::{
     stable_id, ArtifactId, EvidenceId, RepoPath, RuntimeError, RuntimeResult, SessionInstruction,
@@ -313,10 +314,25 @@ impl ContextIndex {
                         }),
                     }
                 }
-                SnapshotCaptureStatus::NotTextCandidate => skips.push(ContextIndexSkip {
-                    path: file.rel_path.clone(),
-                    reason: ContextIndexSkipReason::BinaryFile,
-                }),
+                SnapshotCaptureStatus::NotTextCandidate => {
+                    if should_emit_uncaptured_text_summary(file) {
+                        let kind = evidence_kind_for_file(file);
+                        if kind == ContextEvidenceKind::RepositoryRule {
+                            rule_count += 1;
+                        }
+                        prepared.push(PreparedFile {
+                            meta_index,
+                            kind,
+                            chunked: false,
+                            derived: None,
+                        });
+                    } else {
+                        skips.push(ContextIndexSkip {
+                            path: file.rel_path.clone(),
+                            reason: ContextIndexSkipReason::BinaryFile,
+                        });
+                    }
+                }
                 SnapshotCaptureStatus::SkippedMemoryLimit
                 | SnapshotCaptureStatus::SkippedUnreadable => skips.push(ContextIndexSkip {
                     path: file.rel_path.clone(),
@@ -1722,6 +1738,26 @@ fn evidence_kind_for_file(file: &FileMeta) -> ContextEvidenceKind {
     } else {
         ContextEvidenceKind::FileSpan
     }
+}
+
+fn should_emit_uncaptured_text_summary(file: &FileMeta) -> bool {
+    if !is_textish(file.rel_path.as_path()) {
+        return false;
+    }
+    let lower = file.rel_path.display().to_ascii_lowercase();
+    let Some(name) = lower.rsplit('/').next() else {
+        return true;
+    };
+    !matches!(
+        name,
+        "bun.lock"
+            | "cargo.lock"
+            | "gemfile.lock"
+            | "package-lock.json"
+            | "pnpm-lock.yaml"
+            | "poetry.lock"
+            | "yarn.lock"
+    ) && !name.ends_with(".lock")
 }
 
 fn file_summary(file: &FileMeta, kind: ContextEvidenceKind) -> String {
