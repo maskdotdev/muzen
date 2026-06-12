@@ -86,6 +86,9 @@ Sufficiency metrics distinguish strict proof from conservative coverage:
 `sufficiencySufficientWhenComplete` only counts packs that report `sufficient`,
 while `sufficiencyNotInsufficientWhenComplete` includes `probably_sufficient`
 packs that covered ground truth without a full proof.
+If a run ever reports false sufficiency, `diagnostics.falseSufficientCases`
+lists the affected cases with missed paths and candidate-generation/omission
+classification so proof regressions are actionable.
 Add `--include-graph-debug` on focused diagnostic runs when you need to
 separate raw graph coverage misses from rank/packing misses. The runner invokes
 the public `muzen context graph-debug` CLI for each case, so the summary reports

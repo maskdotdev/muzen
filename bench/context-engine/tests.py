@@ -918,16 +918,34 @@ class SummaryProofTest(unittest.TestCase):
         )
 
     def test_false_sufficient_is_a_failure(self):
-        result = case_result(
-            "false-sufficient",
-            missed_paths=["src/a.rs"],
-            sufficiency_status="sufficient",
-            false_sufficient=True,
+        result = run.CaseResult(
+            **{
+                **case_result(
+                    "false-sufficient",
+                    missed_paths=["src/a.rs"],
+                    sufficiency_status="sufficient",
+                    false_sufficient=True,
+                ).__dict__,
+                "candidate_missed_paths": ["src/a.rs"],
+                "candidate_present_missed_paths": ["src/b.rs"],
+                "candidate_present_missed_omissions": [
+                    {"path": "src/b.rs", "reason": "budget_exhausted"}
+                ],
+            }
         )
         summary = run.summarize([result])
         self.assertFalse(summary["ok"])
         self.assertEqual(summary["failures"], ["false-sufficient"])
         self.assertEqual(summary["metrics"]["sufficiencyFalseSufficientCount"], 1)
+        diagnostic = summary["diagnostics"]["falseSufficientCases"][0]
+        self.assertEqual(diagnostic["id"], "false-sufficient")
+        self.assertEqual(diagnostic["missedPaths"], ["src/a.rs"])
+        self.assertEqual(diagnostic["candidateMissedPaths"], ["src/a.rs"])
+        self.assertEqual(diagnostic["candidatePresentMissedPaths"], ["src/b.rs"])
+        self.assertEqual(
+            diagnostic["candidatePresentMissedOmissions"][0]["reason"],
+            "budget_exhausted",
+        )
 
 
 class CaseSelectionTest(unittest.TestCase):
