@@ -1920,6 +1920,13 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
     rank_values: list[int] = []
     score_values: list[float] = []
     token_values: list[int] = []
+    signal_values: dict[str, list[float]] = {
+        "coChangeScore": [],
+        "pathProximity": [],
+        "lexicalChangeScore": [],
+        "semanticChangeScore": [],
+    }
+    graph_distance_counts: dict[str, int] = {}
     for omission in omissions:
         reason = omission.get("reason")
         if isinstance(reason, str):
@@ -1937,6 +1944,19 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
         token_estimate = omission.get("tokenEstimate")
         if isinstance(token_estimate, int):
             token_values.append(token_estimate)
+        signals = omission.get("signals")
+        if isinstance(signals, dict):
+            graph_distance = signals.get("graphDistance")
+            graph_distance_key = (
+                str(graph_distance) if isinstance(graph_distance, int) else "none"
+            )
+            graph_distance_counts[graph_distance_key] = (
+                graph_distance_counts.get(graph_distance_key, 0) + 1
+            )
+            for signal_name, values in signal_values.items():
+                value = signals.get(signal_name)
+                if isinstance(value, int | float):
+                    values.append(float(value))
 
     score_beats_tail_cases.sort(key=lambda case: (-case["margin"], case["id"]))
     full_repair_shortfall_cases.sort(
@@ -1957,6 +1977,17 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
             "medianRankIndex": percentile_number(rank_values, 0.5),
             "p90RankIndex": percentile_number(rank_values, 0.9),
             "meanTokenEstimate": mean_number(token_values),
+            "signals": {
+                "graphDistanceCounts": dict(sorted(graph_distance_counts.items())),
+                "meanCoChangeScore": mean_number(signal_values["coChangeScore"]),
+                "meanPathProximity": mean_number(signal_values["pathProximity"]),
+                "meanLexicalChangeScore": mean_number(
+                    signal_values["lexicalChangeScore"]
+                ),
+                "meanSemanticChangeScore": mean_number(
+                    signal_values["semanticChangeScore"]
+                ),
+            },
             "scoreBeatsSelectedTailCaseCount": len(score_beats_tail_cases),
             "scoreBeatsSelectedTailCases": score_beats_tail_cases[:limit],
             "fullRepairShortfallCaseCount": len(full_repair_shortfall_cases),
