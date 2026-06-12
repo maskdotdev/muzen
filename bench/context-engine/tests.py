@@ -511,6 +511,8 @@ def case_result(
         sufficiency_blocking_gaps=0,
         sufficiency_false_sufficient=false_sufficient,
         graph_debug=graph_debug,
+        cli_performance=None,
+        performance={},
     )
 
 
@@ -744,6 +746,67 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(summary["performance"]["meanWallClockMsPerCase"], 2000.0)
         self.assertEqual(summary["performance"]["casesPerSecond"], 0.5)
         self.assertEqual(summary["performance"]["jobs"], 2)
+        self.assertEqual(summary["performance"]["phaseTotals"]["scoringMs"], 0.0)
+
+    def test_repo_cache_root_is_per_materialized_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original_corpus_cache = run.CORPUS_CACHE
+            try:
+                run.CORPUS_CACHE = Path(tmp)
+                first = run.cache_root_for_repo(Path(tmp) / ("a" * 12))
+                second = run.cache_root_for_repo(Path(tmp) / ("b" * 12))
+            finally:
+                run.CORPUS_CACHE = original_corpus_cache
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.name, "a" * 12)
+        self.assertEqual(second.name, "b" * 12)
+
+    def test_materialize_repo_uses_origin_mirror_and_commit_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            origin = tmp_path / "origin"
+            origin.mkdir()
+            corpus = tmp_path / "corpus"
+            source = {
+                "kind": "git",
+                "origin": str(origin),
+                "commit": "a" * 40,
+            }
+            calls = []
+            original_corpus_cache = run.CORPUS_CACHE
+            original_subprocess_run = run.subprocess.run
+
+            def fake_run(command, **_kwargs):
+                calls.append(command)
+                if command[:3] == ["git", "clone", "--quiet"]:
+                    Path(command[-1]).mkdir(parents=True)
+                if "worktree" in command and "add" in command:
+                    target = Path(command[-2])
+                    target.mkdir(parents=True)
+                    (target / ".git").write_text("gitdir: mirror/worktrees/a\n")
+                return subprocess.CompletedProcess(command, 0)
+
+            try:
+                run.CORPUS_CACHE = corpus
+                run.subprocess.run = fake_run
+                target = run.materialize_repo(source)
+                second = run.materialize_repo(
+                    {**source, "commit": "b" * 40}
+                )
+            finally:
+                run.CORPUS_CACHE = original_corpus_cache
+                run.subprocess.run = original_subprocess_run
+
+            clone_calls = [call for call in calls if call[:4] == ["git", "clone", "--quiet", "--mirror"]]
+            fetch_calls = [call for call in calls if "fetch" in call]
+            worktree_calls = [call for call in calls if "worktree" in call and "add" in call]
+
+            self.assertEqual(len(clone_calls), 1)
+            self.assertEqual(len(fetch_calls), 1)
+            self.assertEqual(len(worktree_calls), 2)
+            self.assertEqual(target, corpus / ("a" * 12))
+            self.assertEqual(second, corpus / ("b" * 12))
 
     def test_selected_tail_details_join_scores_to_evidence(self):
         result = {
@@ -1366,26 +1429,27 @@ class ParallelSuiteTest(unittest.TestCase):
         ]
         args = type("Args", (), {"jobs": 3})()
         original_prepare = run.prepare_corpus
-        original_score = run.score_case
+        original_score_group = run.score_case_group
         prepared = []
 
         def fake_prepare(files):
             prepared.extend(file["repoSource"]["path"] for file in files)
 
-        def fake_score(case_file, case, args):
-            if case["id"] == "slow":
+        def fake_score_group(case_file, cases, args):
+            case_ids = [case["id"] for case in cases]
+            if "slow" in case_ids:
                 time.sleep(0.03)
-            elif case["id"] == "middle":
+            elif "middle" in case_ids:
                 time.sleep(0.01)
-            return case_result(case["id"])
+            return [case_result(case_id) for case_id in case_ids]
 
         try:
             run.prepare_corpus = fake_prepare
-            run.score_case = fake_score
+            run.score_case_group = fake_score_group
             summary = run.run_suite(case_files, args)
         finally:
             run.prepare_corpus = original_prepare
-            run.score_case = original_score
+            run.score_case_group = original_score_group
 
         self.assertEqual(prepared, ["fixtures/a", "fixtures/b"])
         self.assertEqual(

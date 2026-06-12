@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
@@ -93,6 +94,26 @@ _DERIVED_CACHE_LOCKS: dict[str, threading.Lock] = {}
 
 
 @dataclass(frozen=True)
+class CaseTimings:
+    corpus_prep_ms: float = 0.0
+    lock_wait_ms: float = 0.0
+    subprocess_ms: float = 0.0
+    json_parse_ms: float = 0.0
+    scoring_ms: float = 0.0
+    graph_debug_ms: float = 0.0
+
+    def to_json(self) -> dict[str, float]:
+        return {
+            "corpusPrepMs": self.corpus_prep_ms,
+            "lockWaitMs": self.lock_wait_ms,
+            "subprocessMs": self.subprocess_ms,
+            "jsonParseMs": self.json_parse_ms,
+            "scoringMs": self.scoring_ms,
+            "graphDebugMs": self.graph_debug_ms,
+        }
+
+
+@dataclass(frozen=True)
 class CaseResult:
     id: str
     case_set: str
@@ -135,6 +156,8 @@ class CaseResult:
     sufficiency_blocking_gaps: int
     sufficiency_false_sufficient: bool
     graph_debug: dict[str, Any] | None
+    cli_performance: dict[str, Any] | None
+    performance: dict[str, float]
 
 
 def parse_args() -> argparse.Namespace:
@@ -392,8 +415,13 @@ def resolve_origin(source: dict[str, Any]) -> str:
 
 
 def materialize_repo(source: dict[str, Any]) -> Path:
-    """Clone (not archive) so the checkout keeps .git: the engine mines
-    co-change signal from the pinned commit's history (R4)."""
+    """Materialize a checkout with .git access for history mining.
+
+    Git corpus sources use one bare mirror per origin plus detached worktrees
+    per pinned commit. This keeps cold setup from recloning the same history
+    for every mined case while preserving the .git metadata co-change mining
+    needs.
+    """
     if source["kind"] == "fixture":
         return ROOT / source["path"]
     commit = source["commit"]
@@ -403,15 +431,56 @@ def materialize_repo(source: dict[str, Any]) -> Path:
     if target.exists():
         # Pre-R4 archive materialization without history: rebuild.
         shutil.rmtree(target)
-    subprocess.run(
-        ["git", "clone", "--quiet", "--no-checkout", resolve_origin(source), str(target)],
-        check=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(target), "checkout", "--quiet", "--detach", commit],
-        check=True,
-    )
+    mirror = mirror_repo_for_source(source)
+    add_worktree(mirror, target, commit)
     return target
+
+
+def mirror_repo_for_source(source: dict[str, Any]) -> Path:
+    origin = resolve_origin(source)
+    label = "self" if source.get("origin") == "self" else safe_cache_label(origin)
+    digest = hashlib.sha256(f"git:origin:{origin}".encode("utf-8")).hexdigest()[:16]
+    mirror = CORPUS_CACHE / "mirrors" / f"{label}-{digest}.git"
+    if mirror.exists():
+        subprocess.run(
+            ["git", "--git-dir", str(mirror), "fetch", "--quiet", "--prune"],
+            check=True,
+        )
+        return mirror
+    mirror.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "clone", "--quiet", "--mirror", origin, str(mirror)],
+        check=True,
+    )
+    return mirror
+
+
+def safe_cache_label(value: str) -> str:
+    label = "".join(char if char.isalnum() else "-" for char in value.lower())
+    label = "-".join(part for part in label.split("-") if part)
+    return label[:48] or "repo"
+
+
+def add_worktree(mirror: Path, target: Path, commit: str) -> None:
+    command = [
+        "git",
+        "--git-dir",
+        str(mirror),
+        "worktree",
+        "add",
+        "--quiet",
+        "--detach",
+        str(target),
+        commit,
+    ]
+    completed = subprocess.run(command, check=False)
+    if completed.returncode == 0:
+        return
+    subprocess.run(
+        ["git", "--git-dir", str(mirror), "worktree", "prune"],
+        check=True,
+    )
+    subprocess.run(command, check=True)
 
 
 def materialize_diff(source: dict[str, Any]) -> Path | None:
@@ -710,8 +779,10 @@ def append_host_context_args(
 
 def run_context_case(
     case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
-) -> tuple[dict[str, Any], float]:
+) -> tuple[dict[str, Any], float, CaseTimings]:
+    corpus_started = time.perf_counter()
     repo = materialize_repo(case_file["repoSource"])
+    corpus_prep_ms = (time.perf_counter() - corpus_started) * 1000
     command = base_command(args.muzen_bin)
     command.append("context")
     if case.get("command") == "pack":
@@ -719,7 +790,8 @@ def run_context_case(
     else:
         command.append("query")
     # Durable derived-data cache (R9): repeated invocations over the same
-    # checkout re-derive only what changed. Keyed per corpus checkout.
+    # checkout re-derive only what changed. Keyed per corpus checkout so
+    # independent commits still run concurrently.
     cache_root = cache_root_for_repo(repo)
     cache_lock = derived_cache_lock(cache_root)
     append_common_context_args(command, case_file, case, args, repo, cache_root)
@@ -742,8 +814,10 @@ def run_context_case(
         host_tmp_path = Path(host_tmp.name)
         append_host_context_args(command, case_file, case, host_tmp_path)
 
+        lock_started = time.perf_counter()
         with cache_lock:
-            started = time.perf_counter()
+            lock_wait_ms = (time.perf_counter() - lock_started) * 1000
+            subprocess_started = time.perf_counter()
             completed = subprocess.run(
                 command,
                 cwd=ROOT,
@@ -752,21 +826,33 @@ def run_context_case(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+            subprocess_ms = (time.perf_counter() - subprocess_started) * 1000
     finally:
         host_tmp.cleanup()
-    latency_ms = (time.perf_counter() - started) * 1000
+    latency_ms = lock_wait_ms + subprocess_ms
     if completed.returncode != 0:
         raise SystemExit(
             f"context case failed for {case['id']} with code {completed.returncode}\n"
             f"stderr:\n{completed.stderr}"
         )
-    return json.loads(completed.stdout), latency_ms
+    parse_started = time.perf_counter()
+    result = json.loads(completed.stdout)
+    json_parse_ms = (time.perf_counter() - parse_started) * 1000
+    timings = CaseTimings(
+        corpus_prep_ms=corpus_prep_ms,
+        lock_wait_ms=lock_wait_ms,
+        subprocess_ms=subprocess_ms,
+        json_parse_ms=json_parse_ms,
+    )
+    return result, latency_ms, timings
 
 
 def run_context_graph_debug(
     case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
-) -> tuple[dict[str, Any], float]:
+) -> tuple[dict[str, Any], float, CaseTimings]:
+    corpus_started = time.perf_counter()
     repo = materialize_repo(case_file["repoSource"])
+    corpus_prep_ms = (time.perf_counter() - corpus_started) * 1000
     command = base_command(args.muzen_bin)
     command.extend(["context", "graph-debug"])
     cache_root = cache_root_for_repo(repo)
@@ -776,8 +862,10 @@ def run_context_graph_debug(
     host_tmp = tempfile.TemporaryDirectory(prefix="muzen-context-host-")
     try:
         append_host_context_args(command, case_file, case, Path(host_tmp.name))
+        lock_started = time.perf_counter()
         with cache_lock:
-            started = time.perf_counter()
+            lock_wait_ms = (time.perf_counter() - lock_started) * 1000
+            subprocess_started = time.perf_counter()
             completed = subprocess.run(
                 command,
                 cwd=ROOT,
@@ -786,21 +874,31 @@ def run_context_graph_debug(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+            subprocess_ms = (time.perf_counter() - subprocess_started) * 1000
     finally:
         host_tmp.cleanup()
-    latency_ms = (time.perf_counter() - started) * 1000
+    latency_ms = lock_wait_ms + subprocess_ms
     if completed.returncode != 0:
         raise SystemExit(
             f"context graph-debug failed for {case['id']} with code {completed.returncode}\n"
             f"stderr:\n{completed.stderr}"
         )
+    parse_started = time.perf_counter()
     export = json.loads(completed.stdout)
+    json_parse_ms = (time.perf_counter() - parse_started) * 1000
     if export.get("schemaVersion") != GRAPH_DEBUG_SCHEMA_VERSION:
         raise SystemExit(
             f"context graph-debug for {case['id']} returned unsupported "
             f"schemaVersion {export.get('schemaVersion')!r}"
         )
-    return export, latency_ms
+    timings = CaseTimings(
+        corpus_prep_ms=corpus_prep_ms,
+        lock_wait_ms=lock_wait_ms,
+        subprocess_ms=subprocess_ms,
+        json_parse_ms=json_parse_ms,
+        graph_debug_ms=latency_ms + json_parse_ms,
+    )
+    return export, latency_ms, timings
 
 
 def derived_cache_lock(cache_root: Path) -> threading.Lock:
@@ -869,9 +967,17 @@ def first_relevant_rank(retrieved: list[str], expected: set[str]) -> int | None:
 
 
 def score_case(
-    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+    case_file: dict[str, Any],
+    case: dict[str, Any],
+    args: argparse.Namespace,
+    precomputed_result: tuple[dict[str, Any], float, CaseTimings] | None = None,
+    precomputed_graph_debug: tuple[dict[str, Any], float, CaseTimings] | None = None,
 ) -> CaseResult:
-    result, latency_ms = run_context_case(case_file, case, args)
+    scoring_started = time.perf_counter()
+    if precomputed_result is None:
+        result, latency_ms, timings = run_context_case(case_file, case, args)
+    else:
+        result, latency_ms, timings = precomputed_result
     evidence = result.get("evidence", [])
     expected_paths = list(dict.fromkeys(case["expectedPaths"]))
     retrieved_paths = [entry["path"] for entry in evidence if entry.get("path")]
@@ -964,8 +1070,14 @@ def score_case(
     )
     selected_tail_candidates = selected_tail_details(result, evidence)
     graph_debug = None
+    graph_timings = CaseTimings()
     if getattr(args, "include_graph_debug", False):
-        graph_export, graph_latency_ms = run_context_graph_debug(case_file, case, args)
+        if precomputed_graph_debug is None:
+            graph_export, graph_latency_ms, graph_timings = run_context_graph_debug(
+                case_file, case, args
+            )
+        else:
+            graph_export, graph_latency_ms, graph_timings = precomputed_graph_debug
         graph_debug = graph_debug_diagnostic(
             graph_export,
             candidate_expected,
@@ -981,6 +1093,16 @@ def score_case(
         bool(missed_paths) or bool(missing_expected_ranges)
     )
     source = case_file["repoSource"]
+    scoring_ms = (time.perf_counter() - scoring_started) * 1000
+    cli_performance = result.get("performance")
+    performance = CaseTimings(
+        corpus_prep_ms=timings.corpus_prep_ms + graph_timings.corpus_prep_ms,
+        lock_wait_ms=timings.lock_wait_ms + graph_timings.lock_wait_ms,
+        subprocess_ms=timings.subprocess_ms + graph_timings.subprocess_ms,
+        json_parse_ms=timings.json_parse_ms + graph_timings.json_parse_ms,
+        scoring_ms=scoring_ms,
+        graph_debug_ms=graph_timings.graph_debug_ms,
+    ).to_json()
     return CaseResult(
         id=case["id"],
         case_set=case_file.get("name", case["id"]),
@@ -1023,6 +1145,8 @@ def score_case(
         sufficiency_blocking_gaps=sufficiency_blocking_gaps,
         sufficiency_false_sufficient=false_sufficient,
         graph_debug=graph_debug,
+        cli_performance=cli_performance if isinstance(cli_performance, dict) else None,
+        performance=performance,
     )
 
 
@@ -1889,15 +2013,46 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
 
 
 def attach_performance(
-    summary: dict[str, Any], *, elapsed_ms: float, jobs: int
+    summary: dict[str, Any], *, elapsed_ms: float, jobs: int, corpus_prep_ms: float = 0.0
 ) -> dict[str, Any]:
     case_count = int(summary.get("caseCount") or 0)
     elapsed_seconds = elapsed_ms / 1000.0
+    phase_totals = {
+        "corpusPrepMs": corpus_prep_ms,
+        "lockWaitMs": 0.0,
+        "subprocessMs": 0.0,
+        "jsonParseMs": 0.0,
+        "scoringMs": 0.0,
+        "graphDebugMs": 0.0,
+        "cliSnapshotBuildMs": 0.0,
+        "cliIndexBuildMs": 0.0,
+        "cliActionMs": 0.0,
+    }
+    for case in summary.get("cases", []):
+        case_performance = case.get("performance") or {}
+        for key in (
+            "corpusPrepMs",
+            "lockWaitMs",
+            "subprocessMs",
+            "jsonParseMs",
+            "scoringMs",
+            "graphDebugMs",
+        ):
+            phase_totals[key] += float(case_performance.get(key) or 0.0)
+        cli_performance = case.get("cli_performance") or {}
+        phase_totals["cliSnapshotBuildMs"] += float(
+            cli_performance.get("snapshotBuildMs") or 0.0
+        )
+        phase_totals["cliIndexBuildMs"] += float(
+            cli_performance.get("indexBuildMs") or 0.0
+        )
+        phase_totals["cliActionMs"] += float(cli_performance.get("actionMs") or 0.0)
     summary["performance"] = {
         "wallClockMs": elapsed_ms,
         "meanWallClockMsPerCase": elapsed_ms / case_count if case_count else None,
         "casesPerSecond": case_count / elapsed_seconds if elapsed_seconds > 0 else None,
         "jobs": jobs,
+        "phaseTotals": phase_totals,
     }
     return summary
 
@@ -2039,40 +2194,286 @@ def write_baseline(summary: dict[str, Any], baseline_path: Path) -> None:
     baseline_path.write_text(json.dumps(baseline, indent=2) + "\n")
 
 
+def run_context_eval_batch(
+    case_file: dict[str, Any],
+    cases: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> list[CaseResult]:
+    corpus_started = time.perf_counter()
+    repo = materialize_repo(case_file["repoSource"])
+    diff_path = materialize_diff(case_file["repoSource"])
+    corpus_prep_ms = (time.perf_counter() - corpus_started) * 1000
+    cache_root = cache_root_for_repo(repo)
+    cache_lock = derived_cache_lock(cache_root)
+    batch_doc = context_eval_batch_document(
+        case_file, cases, args, repo, diff_path, cache_root
+    )
+    host_tmp = tempfile.TemporaryDirectory(prefix="muzen-context-eval-batch-")
+    try:
+        batch_path = Path(host_tmp.name) / "cases.json"
+        batch_path.write_text(json.dumps(batch_doc, sort_keys=True))
+        command = [
+            *base_command(args.muzen_bin),
+            "context",
+            "eval-batch",
+            "--cases",
+            str(batch_path),
+        ]
+        lock_started = time.perf_counter()
+        with cache_lock:
+            lock_wait_ms = (time.perf_counter() - lock_started) * 1000
+            subprocess_started = time.perf_counter()
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess_ms = (time.perf_counter() - subprocess_started) * 1000
+    finally:
+        host_tmp.cleanup()
+    if completed.returncode != 0:
+        ids = ", ".join(case["id"] for case in cases)
+        raise SystemExit(
+            f"context eval-batch failed for {ids} with code {completed.returncode}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    parse_started = time.perf_counter()
+    batch_result = json.loads(completed.stdout)
+    json_parse_ms = (time.perf_counter() - parse_started) * 1000
+    if batch_result.get("schemaVersion") != "muzen.context-eval-batch.v1":
+        raise SystemExit(
+            "context eval-batch returned unsupported schemaVersion "
+            f"{batch_result.get('schemaVersion')!r}"
+        )
+    outputs_by_id = {entry["id"]: entry for entry in batch_result.get("cases", [])}
+    if set(outputs_by_id) != {case["id"] for case in cases}:
+        raise SystemExit("context eval-batch result ids did not match requested cases")
+    divisor = max(1, len(cases))
+    graph_count = max(1, sum(1 for case in cases if getattr(args, "include_graph_debug", False)))
+    batch_perf = batch_result.get("performance") or {}
+    results = []
+    for case in cases:
+        output = outputs_by_id[case["id"]]
+        result = output["result"]
+        cli_performance = result.get("performance") or output.get("performance") or {}
+        latency_ms = (
+            float(cli_performance.get("snapshotBuildMs") or 0.0)
+            + float(cli_performance.get("indexBuildMs") or 0.0)
+            + float(cli_performance.get("actionMs") or 0.0)
+        )
+        timings = CaseTimings(
+            corpus_prep_ms=corpus_prep_ms / divisor,
+            lock_wait_ms=lock_wait_ms / divisor,
+            subprocess_ms=subprocess_ms / divisor,
+            json_parse_ms=json_parse_ms / divisor,
+        )
+        graph_export = output.get("graphDebug")
+        graph_tuple = None
+        if getattr(args, "include_graph_debug", False) and graph_export is not None:
+            graph_ms = float(batch_perf.get("graphDebugMs") or 0.0) / graph_count
+            graph_tuple = (
+                graph_export,
+                graph_ms,
+                CaseTimings(graph_debug_ms=graph_ms),
+            )
+        results.append(
+            score_case(
+                case_file,
+                case,
+                args,
+                precomputed_result=(result, latency_ms, timings),
+                precomputed_graph_debug=graph_tuple,
+            )
+        )
+    return results
+
+
+def context_eval_batch_document(
+    case_file: dict[str, Any],
+    cases: list[dict[str, Any]],
+    args: argparse.Namespace,
+    repo: Path,
+    diff_path: Path | None,
+    cache_root: Path,
+) -> dict[str, Any]:
+    first_case = cases[0]
+    snapshot = {
+        "repo": str(repo),
+        "changedFiles": [str(path) for path in case_file.get("changedFiles", [])],
+        "diffFile": str(diff_path) if diff_path is not None else None,
+        "derivedCacheRoot": str(cache_root),
+        "hostMetadata": merged_host_metadata(case_file, first_case),
+        "hostInstructions": merged_host_instructions(case_file, first_case),
+        "ablateContextSignals": list(getattr(args, "ablate_context_signal", []) or []),
+    }
+    apply_batch_semantic_config(snapshot, first_case, args)
+    apply_batch_rerank_config(snapshot, args)
+    return {
+        "schemaVersion": "muzen.context-eval-batch.v1",
+        "snapshot": {key: value for key, value in snapshot.items() if value is not None},
+        "cases": [context_eval_batch_case(case, args) for case in cases],
+    }
+
+
+def context_eval_batch_case(case: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "id": case["id"],
+        "command": "pack" if case.get("command") == "pack" else "query",
+        "includeGraphDebug": bool(getattr(args, "include_graph_debug", False)),
+    }
+    if case.get("command") == "pack":
+        item["purpose"] = case.get("purpose", "general-review")
+        item["maxTokens"] = case.get("maxTokens", 12000)
+    else:
+        item["kind"] = case.get("kind", "search-text")
+        item["maxResults"] = case.get("maxResults", 20)
+        for key in ("path", "query", "startLine", "endLine"):
+            if key in case:
+                item[key] = case[key]
+    return item
+
+
+def apply_batch_semantic_config(
+    snapshot: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+) -> None:
+    local_onnx_model_dir = getattr(args, "local_onnx_model_dir", None)
+    if local_onnx_model_dir:
+        snapshot["localOnnxSemantic"] = True
+        snapshot["onnxModelDir"] = str(local_onnx_model_dir)
+        snapshot["maxEmbeddingInputs"] = getattr(args, "hosted_max_embedding_inputs", 4096)
+    elif getattr(args, "hosted_semantic", False):
+        snapshot["hostedSemantic"] = True
+        snapshot["maxEmbeddingInputs"] = getattr(args, "hosted_max_embedding_inputs", 4096)
+        snapshot["hostedEmbeddingModel"] = getattr(args, "hosted_embedding_model", None)
+        hosted_embedding_base_url = getattr(args, "hosted_embedding_base_url", None)
+        if hosted_embedding_base_url:
+            snapshot["hostedEmbeddingBaseUrl"] = hosted_embedding_base_url
+    elif case.get("localSemantic"):
+        snapshot["localSemantic"] = True
+        snapshot["maxEmbeddingInputs"] = case.get("maxEmbeddingInputs", 512)
+    elif case.get("hostedSemantic"):
+        snapshot["hostedSemantic"] = True
+        snapshot["maxEmbeddingInputs"] = case.get("maxEmbeddingInputs", 512)
+        for source_key, target_key in (
+            ("hostedEmbeddingBaseUrl", "hostedEmbeddingBaseUrl"),
+            ("hostedEmbeddingModel", "hostedEmbeddingModel"),
+            ("hostedEmbeddingCredentialRef", "hostedEmbeddingCredentialRef"),
+        ):
+            if case.get(source_key):
+                snapshot[target_key] = case[source_key]
+
+
+def apply_batch_rerank_config(snapshot: dict[str, Any], args: argparse.Namespace) -> None:
+    rerank_base_url = getattr(args, "rerank_base_url", None)
+    if not rerank_base_url:
+        return
+    snapshot["rerank"] = True
+    snapshot["rerankBaseUrl"] = rerank_base_url
+    rerank_model = getattr(args, "rerank_model", None)
+    if rerank_model:
+        snapshot["rerankModel"] = rerank_model
+    rerank_credential_ref = getattr(args, "rerank_credential_ref", None)
+    if rerank_credential_ref:
+        snapshot["rerankCredentialRef"] = rerank_credential_ref
+
+
+def context_eval_batch_key(
+    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+) -> str:
+    key = {
+        "repoSource": case_file["repoSource"],
+        "changedFiles": case_file.get("changedFiles", []),
+        "hostMetadata": merged_host_metadata(case_file, case),
+        "hostInstructions": merged_host_instructions(case_file, case),
+        "semantic": {
+            "forcedHosted": bool(getattr(args, "hosted_semantic", False)),
+            "forcedLocalOnnx": str(getattr(args, "local_onnx_model_dir", "") or ""),
+            "caseLocal": bool(case.get("localSemantic")),
+            "caseHosted": bool(case.get("hostedSemantic")),
+            "maxEmbeddingInputs": case.get("maxEmbeddingInputs"),
+            "hostedEmbeddingBaseUrl": case.get("hostedEmbeddingBaseUrl"),
+            "hostedEmbeddingModel": case.get("hostedEmbeddingModel"),
+            "hostedEmbeddingCredentialRef": case.get("hostedEmbeddingCredentialRef"),
+        },
+        "rerank": {
+            "baseUrl": getattr(args, "rerank_base_url", None),
+            "model": getattr(args, "rerank_model", None),
+            "credentialRef": getattr(args, "rerank_credential_ref", None),
+        },
+        "ablations": list(getattr(args, "ablate_context_signal", []) or []),
+    }
+    return json.dumps(key, sort_keys=True)
+
+
+def score_case_group(
+    case_file: dict[str, Any], cases: list[dict[str, Any]], args: argparse.Namespace
+) -> list[CaseResult]:
+    if not cases:
+        return []
+    return run_context_eval_batch(case_file, cases, args)
+
+
+def score_case_files(case_files: list[dict[str, Any]], args: argparse.Namespace) -> list[CaseResult]:
+    indexed_groups: list[tuple[int, dict[str, Any], list[dict[str, Any]]]] = []
+    order = 0
+    for case_file in case_files:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        group_order: list[str] = []
+        for case in case_file["cases"]:
+            key = context_eval_batch_key(case_file, case, args)
+            if key not in groups:
+                groups[key] = []
+                group_order.append(key)
+            groups[key].append(case)
+        for key in group_order:
+            indexed_groups.append((order, case_file, groups[key]))
+            order += len(groups[key])
+
+    results_by_order: dict[int, list[CaseResult]] = {}
+    if getattr(args, "jobs", 1) <= 1:
+        for index, case_file, cases in indexed_groups:
+            results_by_order[index] = score_case_group(case_file, cases, args)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {
+                pool.submit(score_case_group, case_file, cases, args): index
+                for index, case_file, cases in indexed_groups
+            }
+            for future in concurrent.futures.as_completed(futures):
+                index = futures[future]
+                try:
+                    results_by_order[index] = future.result()
+                except BaseException:
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+    results: list[CaseResult] = []
+    for index in sorted(results_by_order):
+        results.extend(results_by_order[index])
+    return results
+
+
 def run_suite(case_files: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
-    tasks = [
-        (case_file, case)
-        for case_file in case_files
-        for case in case_file["cases"]
-    ]
-    if getattr(args, "jobs", 1) <= 1:
-        results = [score_case(case_file, case, args) for case_file, case in tasks]
-        summary = summarize(results)
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        return attach_performance(summary, elapsed_ms=elapsed_ms, jobs=getattr(args, "jobs", 1))
-
+    corpus_prep_ms = 0.0
+    corpus_started = time.perf_counter()
     prepare_corpus(case_files)
-    results: list[CaseResult | None] = [None] * len(tasks)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = {
-            pool.submit(score_case, case_file, case, args): index
-            for index, (case_file, case) in enumerate(tasks)
-        }
-        for future in concurrent.futures.as_completed(futures):
-            index = futures[future]
-            try:
-                results[index] = future.result()
-            except BaseException:
-                for pending in futures:
-                    pending.cancel()
-                raise
-    completed_results = [result for result in results if result is not None]
-    if len(completed_results) != len(tasks):
-        raise SystemExit("parallel context eval finished without every case result")
+    corpus_prep_ms = (time.perf_counter() - corpus_started) * 1000
+    completed_results = score_case_files(case_files, args)
+    expected_count = sum(len(case_file["cases"]) for case_file in case_files)
+    if len(completed_results) != expected_count:
+        raise SystemExit("context eval finished without every case result")
     summary = summarize(completed_results)
     elapsed_ms = (time.perf_counter() - started) * 1000
-    return attach_performance(summary, elapsed_ms=elapsed_ms, jobs=getattr(args, "jobs", 1))
+    return attach_performance(
+        summary,
+        elapsed_ms=elapsed_ms,
+        jobs=getattr(args, "jobs", 1),
+        corpus_prep_ms=corpus_prep_ms,
+    )
 
 
 def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval") -> None:
