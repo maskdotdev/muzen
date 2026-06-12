@@ -1148,6 +1148,16 @@ async fn explain_pack_includes_graph_paths_for_omitted_candidates() {
             .is_some_and(|path| path.display() == "src/caller.ts")),
         "caller full content should be omitted or downgraded under the small pack budget"
     );
+    assert!(
+        pack.omitted_candidates.iter().any(|candidate| {
+            candidate
+                .path
+                .as_ref()
+                .is_some_and(|path| path.display() == "src/caller.ts")
+                && !candidate.graph_paths.is_empty()
+        }),
+        "pack omitted candidates should carry graph paths without requiring a separate explain query"
+    );
 
     let explanation = engine
         .query(
