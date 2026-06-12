@@ -1710,6 +1710,22 @@ class SummaryCompareTest(unittest.TestCase):
         self.assertEqual(deltas[0].name, "meanRecallAt10")
         self.assertAlmostEqual(deltas[0].delta, 0.1)
         self.assertAlmostEqual(deltas[1].delta, -0.05)
+        self.assertEqual(deltas[0].status, "improved")
+        self.assertEqual(deltas[1].status, "regressed")
+
+    def test_metric_delta_status_respects_lower_is_better_metrics(self):
+        self.assertEqual(
+            compare.MetricDelta("candidatePresentMissRate", 0.3, 0.2).status,
+            "improved",
+        )
+        self.assertEqual(
+            compare.MetricDelta("meanTokensToFirstRelevant", 100, 120).status,
+            "regressed",
+        )
+        self.assertEqual(
+            compare.MetricDelta("meanLatencyMs", None, 12.0).status,
+            "unknown",
+        )
 
     def test_cohort_metric_deltas_compare_common_cohorts(self):
         baseline = {
@@ -1749,8 +1765,10 @@ class SummaryCompareTest(unittest.TestCase):
         self.assertEqual(rows[0].cohort, "external")
         self.assertEqual(rows[0].metric, "candidatePresentMissRate")
         self.assertAlmostEqual(rows[0].delta, -0.05)
+        self.assertEqual(rows[0].status, "improved")
         self.assertEqual(rows[1].metric, "meanRecallAt10")
         self.assertAlmostEqual(rows[1].delta, 0.1)
+        self.assertEqual(rows[1].status, "improved")
 
     def test_case_deltas_include_present_miss_delta(self):
         baseline = {

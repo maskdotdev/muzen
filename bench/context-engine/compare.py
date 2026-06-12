@@ -40,6 +40,16 @@ CASE_FIELDS = [
 
 COHORT_GROUPS = ["byKind", "bySourceGroup", "byTruthSource"]
 
+LOWER_IS_BETTER_PREFIXES = (
+    "candidatePresentMiss",
+    "meanCandidatePresentMiss",
+    "meanTokensToFirstRelevant",
+    "meanLatencyMs",
+    "maxLatencyMs",
+    "totalOmittedCandidates",
+    "sufficiencyFalseSufficientCount",
+)
+
 
 @dataclass(frozen=True)
 class MetricDelta:
@@ -52,6 +62,10 @@ class MetricDelta:
         if self.baseline is None or self.candidate is None:
             return None
         return self.candidate - self.baseline
+
+    @property
+    def status(self) -> str:
+        return delta_status(self.name, self.delta)
 
 
 @dataclass(frozen=True)
@@ -76,6 +90,10 @@ class CohortDelta:
         if self.baseline is None or self.candidate is None:
             return None
         return self.candidate - self.baseline
+
+    @property
+    def status(self) -> str:
+        return delta_status(self.metric, self.delta)
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,6 +213,19 @@ def value_delta(base: Any, candidate: Any) -> float | int | None:
     return 0 if base == candidate else None
 
 
+def lower_is_better(metric: str) -> bool:
+    return metric.startswith(LOWER_IS_BETTER_PREFIXES)
+
+
+def delta_status(metric: str, delta: float | int | None) -> str:
+    if delta is None:
+        return "unknown"
+    if delta == 0:
+        return "flat"
+    improved = delta < 0 if lower_is_better(metric) else delta > 0
+    return "improved" if improved else "regressed"
+
+
 def format_number(value: Any) -> str:
     if value is None:
         return "None"
@@ -205,13 +236,17 @@ def format_number(value: Any) -> str:
 
 def print_metric_deltas(rows: list[MetricDelta]) -> None:
     print("Metric deltas")
-    print(f"{'metric':36} {'baseline':>12} {'candidate':>12} {'delta':>12}")
+    print(
+        f"{'metric':36} {'baseline':>12} {'candidate':>12} "
+        f"{'delta':>12} {'status':>10}"
+    )
     for row in rows:
         print(
             f"{row.name:36} "
             f"{format_number(row.baseline):>12} "
             f"{format_number(row.candidate):>12} "
-            f"{format_number(row.delta):>12}"
+            f"{format_number(row.delta):>12} "
+            f"{row.status:>10}"
         )
 
 
@@ -257,7 +292,7 @@ def print_cohort_deltas(rows: list[CohortDelta]) -> None:
     print("Cohort metric deltas")
     print(
         f"{'group':14} {'cohort':16} {'metric':36} "
-        f"{'baseline':>12} {'candidate':>12} {'delta':>12}"
+        f"{'baseline':>12} {'candidate':>12} {'delta':>12} {'status':>10}"
     )
     for row in rows:
         print(
@@ -266,7 +301,8 @@ def print_cohort_deltas(rows: list[CohortDelta]) -> None:
             f"{row.metric:36} "
             f"{format_number(row.baseline):>12} "
             f"{format_number(row.candidate):>12} "
-            f"{format_number(row.delta):>12}"
+            f"{format_number(row.delta):>12} "
+            f"{row.status:>10}"
         )
 
 
