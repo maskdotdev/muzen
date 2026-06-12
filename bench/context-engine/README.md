@@ -31,6 +31,9 @@ When `--muzen-bin` is omitted, the runner builds `muzen` once with
 `cargo build --bin muzen` and reuses `target/debug/muzen` for every case.
 By default the runner uses bounded CPU parallelism (`min(cpu_count, 4)`) for
 independent cases; pass `--jobs 1` when debugging serialized output.
+When `--muzen-bin target/debug/muzen` is provided explicitly, the runner
+rejects stale local binaries older than the Rust build inputs, so a passing
+gate cannot accidentally prove a previous implementation.
 
 For iteration, build once and run focused diagnostic cases:
 
