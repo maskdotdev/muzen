@@ -184,6 +184,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--release",
+        action="store_true",
+        help=(
+            "When --muzen-bin is omitted, build and run target/release/muzen "
+            "instead of target/debug/muzen."
+        ),
+    )
+    parser.add_argument(
         "--baseline",
         type=Path,
         default=DEFAULT_BASELINE,
@@ -583,9 +591,10 @@ def validate_case_selection_mode(
         raise SystemExit("filtered diagnostic runs cannot write the regression baseline")
 
 
-def default_muzen_binary() -> Path:
+def default_muzen_binary(release: bool = False) -> Path:
     suffix = ".exe" if sys.platform == "win32" else ""
-    return ROOT / "target" / "debug" / f"muzen{suffix}"
+    profile = "release" if release else "debug"
+    return ROOT / "target" / profile / f"muzen{suffix}"
 
 
 def muzen_build_input_paths(root: Path = ROOT) -> list[Path]:
@@ -596,15 +605,18 @@ def muzen_build_input_paths(root: Path = ROOT) -> list[Path]:
     return [path for path in paths if path.exists()]
 
 
-def resolve_muzen_bin(muzen_bin: Path | None) -> Path:
+def resolve_muzen_bin(muzen_bin: Path | None, release: bool = False) -> Path:
     if muzen_bin:
         return muzen_bin
-    subprocess.run(["cargo", "build", "--quiet", "--bin", "muzen"], cwd=ROOT, check=True)
-    return default_muzen_binary()
+    command = ["cargo", "build", "--quiet", "--bin", "muzen"]
+    if release:
+        command.append("--release")
+    subprocess.run(command, cwd=ROOT, check=True)
+    return default_muzen_binary(release)
 
 
-def validate_muzen_binary_freshness(muzen_bin: Path) -> None:
-    default_binary = default_muzen_binary().resolve()
+def validate_muzen_binary_freshness(muzen_bin: Path, release: bool = False) -> None:
+    default_binary = default_muzen_binary(release).resolve()
     if muzen_bin.resolve() != default_binary:
         return
     if not muzen_bin.exists():
@@ -622,9 +634,13 @@ def validate_muzen_binary_freshness(muzen_bin: Path) -> None:
             newest_display = newest_input
         raise SystemExit(
             f"{muzen_bin} is older than {newest_display}; "
-            "run `cargo build --bin muzen` or omit --muzen-bin so the eval "
-            "runner builds the binary once."
+            f"run `cargo build --bin muzen{profile_build_arg(release)}` or "
+            "omit --muzen-bin so the eval runner builds the binary once."
         )
+
+
+def profile_build_arg(release: bool) -> str:
+    return " --release" if release else ""
 
 
 def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
@@ -640,7 +656,8 @@ def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
         if args.muzen_bin.exists()
         else None,
         "defaultBinaryFreshnessChecked": args.muzen_bin.resolve()
-        == default_muzen_binary().resolve(),
+        == default_muzen_binary(getattr(args, "release", False)).resolve(),
+        "buildProfile": "release" if getattr(args, "release", False) else "debug",
         "semantic": {
             "forcedTier": forced_semantic_tier,
             "hostedEmbeddingModel": getattr(args, "hosted_embedding_model", None),
@@ -2728,8 +2745,8 @@ def run_ablation_report(
 
 def main() -> int:
     args = parse_args()
-    args.muzen_bin = resolve_muzen_bin(args.muzen_bin)
-    validate_muzen_binary_freshness(args.muzen_bin)
+    args.muzen_bin = resolve_muzen_bin(args.muzen_bin, args.release)
+    validate_muzen_binary_freshness(args.muzen_bin, args.release)
     case_files = load_case_files(args.cases_dir)
     case_files, case_selection = select_case_files(case_files, args)
     validate_case_selection_mode(args, case_selection)
