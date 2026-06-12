@@ -261,7 +261,9 @@ mod tests {
             .iter()
             .find(|value| value.get("id") == Some(&json!(1)))
             .expect("start response");
-        let message = response["error"]["message"].as_str().expect("error message");
+        let message = response["error"]["message"]
+            .as_str()
+            .expect("error message");
         assert!(
             message.contains("unsupported run mode swarm"),
             "unexpected error message: {message}"

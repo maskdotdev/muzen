@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod prelude;
 #[cfg(test)]
-mod support;
+pub(crate) mod support;
 
 #[cfg(test)]
 mod artifacts;

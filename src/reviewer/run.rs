@@ -261,10 +261,8 @@ impl Run {
                         snapshot_id: snapshot_id.clone(),
                     });
                 }
-                let events = RuntimeEventDispatcher::new(
-                    shard_event_sink.clone(),
-                    legacy_event_emitter,
-                );
+                let events =
+                    RuntimeEventDispatcher::new(shard_event_sink.clone(), legacy_event_emitter);
                 let tools = Arc::clone(&shard.tools);
                 let outcome = match mode {
                     RunMode::PlannedReview => {

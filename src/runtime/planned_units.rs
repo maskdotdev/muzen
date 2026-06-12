@@ -22,6 +22,7 @@ use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
+use crate::runtime::model_retry::complete_model_turn;
 use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tool_batch::ToolBatchRunner;
@@ -320,34 +321,30 @@ impl PlannedReviewRuntime {
             } else {
                 scope.clone()
             };
-            let turn = match tokio::time::timeout(
-                std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
-                model.complete(&model_scope, &transcript, turn_id, cancel.child_token()),
+            let outcome = complete_model_turn(
+                &*model,
+                &self.policy,
+                &self.events,
+                &self.limits,
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                &cancel,
             )
-            .await
-            {
-                Ok(Ok(turn)) => turn,
-                Ok(Err(error)) => {
-                    self.events.emit_planned_runtime(
-                        self.policy
-                            .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
-                    );
-                    break;
+            .await;
+            model_calls += outcome.attempts;
+            model_metrics.calls += outcome.attempts;
+            let turn = match outcome.result {
+                Ok(turn) => {
+                    model_metrics.errors += outcome.attempts - 1;
+                    turn
                 }
                 Err(_) => {
-                    self.events
-                        .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
-                            &scope,
-                            turn_id,
-                            1,
-                            false,
-                            &RuntimeError::Timeout,
-                        ));
+                    model_metrics.errors += outcome.attempts;
                     break;
                 }
             };
-            model_calls += 1;
-            model_metrics.calls += 1;
             model_metrics.successes += 1;
             model_metrics.latency_ms += elapsed_ms(model_started);
             model_metrics.max_latency_ms =
@@ -536,44 +533,33 @@ impl PlannedReviewRuntime {
                 .plan_model_started_runtime_event(&scope, turn_id),
         );
         let model_started = Instant::now();
-        let turn = match tokio::time::timeout(
-            std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
-            model.complete(
-                &final_response_scope(&scope),
-                &transcript,
-                turn_id,
-                cancel.child_token(),
-            ),
+        let outcome = complete_model_turn(
+            &*model,
+            &self.policy,
+            &self.events,
+            &self.limits,
+            &scope,
+            &final_response_scope(&scope),
+            &transcript,
+            turn_id,
+            &cancel,
         )
-        .await
-        {
-            Ok(Ok(turn)) => turn,
-            Ok(Err(error)) => {
-                self.events.emit_planned_runtime(
-                    self.policy
-                        .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
-                );
-                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
-                    false,
-                    "model_failed",
-                    0,
-                ));
+        .await;
+        model_metrics.calls += outcome.attempts;
+        let turn = match outcome.result {
+            Ok(turn) => {
+                model_metrics.errors += outcome.attempts - 1;
+                turn
             }
-            Err(_) => {
-                self.events
-                    .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
-                        &scope,
-                        turn_id,
-                        1,
-                        false,
-                        &RuntimeError::Timeout,
-                    ));
-                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
-                    false, "timeout", 0,
-                ));
+            Err(error) => {
+                model_metrics.errors += outcome.attempts;
+                let summary = match error {
+                    RuntimeError::Timeout => "timeout",
+                    _ => "model_failed",
+                };
+                return FinalSynthesisReport::empty(final_synthesis_diagnostic(false, summary, 0));
             }
         };
-        model_metrics.calls += 1;
         model_metrics.successes += 1;
         model_metrics.latency_ms += elapsed_ms(model_started);
         model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
@@ -595,7 +581,7 @@ impl PlannedReviewRuntime {
                     existing_candidates,
                 );
                 FinalSynthesisReport {
-                    model_calls: 1,
+                    model_calls: outcome.attempts,
                     model_metrics,
                     tokens,
                     verified_candidate_findings: verified.candidates,
@@ -622,7 +608,7 @@ impl PlannedReviewRuntime {
                         calls.len(),
                     ));
                 FinalSynthesisReport {
-                    model_calls: 1,
+                    model_calls: outcome.attempts,
                     model_metrics,
                     tokens,
                     verified_candidate_findings: Vec::new(),

@@ -38,12 +38,25 @@ struct InteractiveTransportReader<R> {
     line: String,
 }
 
-type TransportRead = std::result::Result<JsonRpcFrame, String>;
+/// A malformed line must not kill the session: the reader reports it as a
+/// recoverable event so the session can answer with a JSON-RPC parse error
+/// and keep reading. Only I/O errors tear the transport down.
+pub(crate) enum TransportEvent {
+    Frame(JsonRpcFrame),
+    ParseError(String),
+}
+
+type TransportRead = std::result::Result<TransportEvent, String>;
 
 #[derive(Default)]
 struct CallbackRoutes {
     waiters: BTreeMap<String, mpsc::Sender<JsonRpcResponse>>,
     early_responses: BTreeMap<String, Vec<JsonRpcResponse>>,
+    /// Set when the read side is gone (EOF or I/O error). Callback requests
+    /// can never be answered after that, so waits must fail instead of
+    /// blocking forever — otherwise draining in-flight runs on EOF would
+    /// deadlock on callback-model sessions.
+    closed: bool,
 }
 
 impl<R, W> InteractiveTransport<R, W>
@@ -62,11 +75,16 @@ where
             };
             loop {
                 match reader.read_frame() {
-                    Ok(Some(frame)) => {
+                    Ok(Some(TransportEvent::Frame(frame))) => {
                         if route_callback_response(&reader_callbacks, &frame) {
                             continue;
                         }
-                        if incoming_tx.send(Ok(frame)).is_err() {
+                        if incoming_tx.send(Ok(TransportEvent::Frame(frame))).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Some(event)) => {
+                        if incoming_tx.send(Ok(event)).is_err() {
                             break;
                         }
                     }
@@ -77,6 +95,11 @@ where
                     }
                 }
             }
+            let mut callbacks = reader_callbacks
+                .lock()
+                .expect("runner callback routes poisoned");
+            callbacks.closed = true;
+            callbacks.waiters.clear();
         });
         Self {
             incoming: Mutex::new(incoming_rx),
@@ -87,10 +110,10 @@ where
         }
     }
 
-    pub(crate) fn read_frame(&self) -> Result<Option<JsonRpcFrame>> {
+    pub(crate) fn read_frame(&self) -> Result<Option<TransportEvent>> {
         let incoming = self.incoming.lock().expect("runner stdio lock poisoned");
         match incoming.recv() {
-            Ok(Ok(frame)) => Ok(Some(frame)),
+            Ok(Ok(event)) => Ok(Some(event)),
             Ok(Err(error)) => anyhow::bail!("{error}"),
             Err(_) => Ok(None),
         }
@@ -155,7 +178,7 @@ impl<R> InteractiveTransportReader<R>
 where
     R: BufRead,
 {
-    fn read_frame(&mut self) -> Result<Option<JsonRpcFrame>> {
+    fn read_frame(&mut self) -> Result<Option<TransportEvent>> {
         loop {
             self.line.clear();
             let bytes = self
@@ -168,7 +191,10 @@ where
             if self.line.trim().is_empty() {
                 continue;
             }
-            return parse_jsonrpc_frame(self.line.trim_end()).map(Some);
+            return Ok(Some(match parse_jsonrpc_frame(self.line.trim_end()) {
+                Ok(frame) => TransportEvent::Frame(frame),
+                Err(error) => TransportEvent::ParseError(error.to_string()),
+            }));
         }
     }
 }
@@ -208,6 +234,9 @@ fn wait_for_callback_response(
         }
         return Some(response);
     }
+    if callbacks.closed {
+        return None;
+    }
     let (response_tx, response_rx) = mpsc::channel();
     callbacks.waiters.insert(key.to_string(), response_tx);
     drop(callbacks);
@@ -243,4 +272,42 @@ fn write_request<W: Write>(writer: &mut W, id: &Value, method: &str, params: Val
         .flush()
         .context("failed to flush runner callback request")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_request_fails_after_reader_eof_instead_of_hanging() {
+        let transport = InteractiveTransport::new(std::io::Cursor::new(Vec::new()), Vec::new());
+        assert!(
+            transport.read_frame().expect("transport read").is_none(),
+            "empty stdin reads as EOF"
+        );
+        let error = transport
+            .request("model.complete", json!({}))
+            .expect_err("callback request after EOF must fail");
+        assert!(error.to_string().contains("model.complete"));
+    }
+
+    #[test]
+    fn malformed_line_surfaces_as_recoverable_parse_error() {
+        let input = b"{\"this is not json\n{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\n".to_vec();
+        let transport = InteractiveTransport::new(std::io::Cursor::new(input), Vec::new());
+        match transport.read_frame().expect("transport read") {
+            Some(TransportEvent::ParseError(message)) => {
+                assert!(message.contains("invalid JSON-RPC frame"));
+            }
+            other => panic!("expected parse error, got {:?}", other.is_some()),
+        }
+        match transport.read_frame().expect("transport read") {
+            Some(TransportEvent::Frame(JsonRpcFrame::Notification)) => {}
+            other => panic!(
+                "stream continues past parse error, got {:?}",
+                other.is_some()
+            ),
+        }
+        assert!(transport.read_frame().expect("transport read").is_none());
+    }
 }

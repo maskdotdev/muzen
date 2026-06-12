@@ -925,3 +925,81 @@ pub fn write_test_json<T: serde::Serialize>(path: &Path, value: &T) {
     bytes.push(b'\n');
     fs::write(path, bytes).unwrap();
 }
+
+/// Chaos-injecting direct-session model: every session fails a deterministic
+/// number of attempts (cycling through 429, 529-style overload, and timeout
+/// flavors) before answering, so a swarm only completes if the retry layer
+/// absorbs the failures.
+#[derive(Debug, Default)]
+pub struct ChaosDirectSessionModel {
+    attempts: std::sync::Mutex<std::collections::HashMap<String, usize>>,
+}
+
+impl ChaosDirectSessionModel {
+    pub fn total_calls(&self) -> usize {
+        self.attempts
+            .lock()
+            .expect("chaos attempts poisoned")
+            .values()
+            .sum()
+    }
+
+    pub fn failures_before_success(session_index: usize) -> usize {
+        match session_index % 3 {
+            1 => 2,
+            _ => 1,
+        }
+    }
+
+    fn chaos_error(session_index: usize) -> RuntimeError {
+        match session_index % 3 {
+            0 => RuntimeError::Provider {
+                status: Some(429),
+                retryable: true,
+            },
+            1 => RuntimeError::ProviderMessage {
+                status: Some(529),
+                retryable: true,
+                message: "overloaded_error".to_string(),
+            },
+            _ => RuntimeError::Timeout,
+        }
+    }
+
+    fn session_index(session_id: &str) -> usize {
+        session_id
+            .rsplit('-')
+            .next()
+            .and_then(|suffix| suffix.parse().ok())
+            .expect("chaos session ids end in an index")
+    }
+}
+
+#[async_trait]
+impl crate::reviewer::model::ReviewModel for ChaosDirectSessionModel {
+    async fn complete_review(
+        &self,
+        request: crate::reviewer::model::ReviewModelRequest,
+        _cancel: crate::reviewer::adapters::Cancellation,
+    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
+    {
+        let attempt = {
+            let mut attempts = self.attempts.lock().expect("chaos attempts poisoned");
+            let attempt = attempts.entry(request.session_id.clone()).or_insert(0);
+            *attempt += 1;
+            *attempt
+        };
+        let session_index = Self::session_index(&request.session_id);
+        if attempt <= Self::failures_before_success(session_index) {
+            return Err(Self::chaos_error(session_index));
+        }
+        Ok(crate::reviewer::model::ReviewModelTurn::Text {
+            usage: TokenUsage {
+                input_tokens: 2,
+                output_tokens: 1,
+                total_tokens: 3,
+            },
+            content: format!("answer:{}", request.session_id),
+        })
+    }
+}

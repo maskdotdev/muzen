@@ -14,5 +14,5 @@
       "@muzen/sdk": ["../../sdk/typescript/packages/muzen-sdk/src/index.ts"]
     }
   },
-  "include": ["basic-review/**/*.ts", "events/**/*.ts"]
+  "include": ["basic-review/**/*.ts", "events/**/*.ts", "swarm/**/*.ts"]
 }

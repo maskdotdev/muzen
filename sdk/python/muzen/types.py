@@ -12,6 +12,9 @@ ReviewStatus = Literal[
     "cancelled",
 ]
 
+SwarmAgentStatus = Literal["done", "failed", "cancelled", "partial"]
+SwarmRunStatus = Literal["completed", "partial", "failed", "cancelled"]
+
 ReviewConclusion = Literal["approved", "commented", "changes_requested"]
 
 ReviewRole = Literal[
@@ -121,7 +124,23 @@ class OpenAIReviewModelSpec:
     top_p: Optional[float] = None
 
 
-ReviewModelSpec = OpenAIReviewModelSpec
+@dataclass(frozen=True)
+class AnthropicReviewModelSpec:
+    kind: Literal["provider"]
+    provider: Literal["anthropic"]
+    model: str
+    credential: ReviewModelCredential = field(
+        default_factory=lambda: ReviewModelCredential(env="ANTHROPIC_API_KEY")
+    )
+    base_url: Optional[str] = None
+    api_protocol: Literal["messages"] = "messages"
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+
+
+ReviewModelSpec = Union[OpenAIReviewModelSpec, AnthropicReviewModelSpec]
 
 
 @dataclass(frozen=True)
@@ -187,6 +206,27 @@ class ReviewOptions:
     tools: List["ReviewTool"] = field(default_factory=list)
     sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
+
+
+@dataclass(frozen=True)
+class SwarmAgent:
+    id: str
+    objective: str
+    instructions: List["ReviewInstruction"] = field(default_factory=list)
+    model: Optional[ReviewModelSpec] = None
+    tool_grants: List[str] = field(default_factory=list)
+    budget: Optional[ReviewAgentBudget] = None
+
+
+@dataclass(frozen=True)
+class SwarmOptions:
+    agents: List[SwarmAgent]
+    repo: str
+    files: List[str] = field(default_factory=list)
+    model: Optional[ReviewModelSpec] = None
+    tools: List["ReviewTool"] = field(default_factory=list)
+    limits: Optional[ReviewLimits] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -287,6 +327,34 @@ class ReviewResult:
     summary: str
     findings: List[ReviewFinding]
     coverage: ReviewCoverage
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SwarmAgentOutput:
+    agent_id: str
+    status: SwarmAgentStatus
+    completed: bool
+    output: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SwarmUsage:
+    agents: int
+    completed_agents: int
+    model_calls: int
+    tool_calls: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
+@dataclass(frozen=True)
+class SwarmResult:
+    run_id: str
+    status: SwarmRunStatus
+    outputs: List[SwarmAgentOutput]
+    usage: SwarmUsage
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
