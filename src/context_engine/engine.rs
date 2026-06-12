@@ -217,7 +217,13 @@ impl std::fmt::Debug for SnapshotContextEngine {
     }
 }
 
-fn pack_path_selection_limit(purpose: ContextPackPurpose) -> Option<usize> {
+fn pack_path_selection_limit(
+    purpose: ContextPackPurpose,
+    enable_pack_path_diversity: bool,
+) -> Option<usize> {
+    if !enable_pack_path_diversity {
+        return None;
+    }
     match purpose {
         ContextPackPurpose::GeneralReview
         | ContextPackPurpose::Correctness
@@ -229,8 +235,9 @@ fn pack_path_selection_limit(purpose: ContextPackPurpose) -> Option<usize> {
 fn pack_evidence_path_selection_limit(
     purpose: ContextPackPurpose,
     evidence: &ContextEvidence,
+    enable_pack_path_diversity: bool,
 ) -> Option<usize> {
-    let limit = pack_path_selection_limit(purpose)?;
+    let limit = pack_path_selection_limit(purpose, enable_pack_path_diversity)?;
     if evidence.kind == ContextEvidenceKind::Test {
         Some(1)
     } else {
@@ -257,8 +264,9 @@ fn repeated_path_should_wait_for_first_pass(
     selected_by_path: &BTreeMap<String, usize>,
     purpose: ContextPackPurpose,
     evidence: &ContextEvidence,
+    enable_pack_path_diversity: bool,
 ) -> bool {
-    pack_evidence_path_selection_limit(purpose, evidence).is_some()
+    pack_evidence_path_selection_limit(purpose, evidence, enable_pack_path_diversity).is_some()
         && pack_selection_limit_applies(evidence)
         && evidence
             .path
@@ -273,7 +281,10 @@ fn pack_selection_limit_applies(evidence: &ContextEvidence) -> bool {
         && evidence.representation == ContextEvidenceRepresentation::FullContent
 }
 
-fn skeleton_reserve_tokens(max_tokens: usize) -> usize {
+fn skeleton_reserve_tokens(max_tokens: usize, enable_skeleton_reserve: bool) -> usize {
+    if !enable_skeleton_reserve {
+        return 0;
+    }
     if max_tokens < 4_000 {
         0
     } else {
@@ -281,9 +292,13 @@ fn skeleton_reserve_tokens(max_tokens: usize) -> usize {
     }
 }
 
-fn full_content_budget_limit(max_tokens: usize, evidence: &ContextEvidence) -> usize {
+fn full_content_budget_limit(
+    max_tokens: usize,
+    evidence: &ContextEvidence,
+    enable_skeleton_reserve: bool,
+) -> usize {
     if pack_selection_limit_applies(evidence) {
-        max_tokens.saturating_sub(skeleton_reserve_tokens(max_tokens))
+        max_tokens.saturating_sub(skeleton_reserve_tokens(max_tokens, enable_skeleton_reserve))
     } else {
         max_tokens
     }
@@ -350,6 +365,8 @@ fn omitted_candidate(
 fn select_ranked_pack_candidate(
     purpose: ContextPackPurpose,
     max_tokens: usize,
+    enable_pack_path_diversity: bool,
+    enable_skeleton_reserve: bool,
     skeletons: &BTreeMap<String, ContextEvidence>,
     used_tokens: &mut usize,
     selected: &mut Vec<SelectedPackCandidate>,
@@ -361,7 +378,7 @@ fn select_ranked_pack_candidate(
     let score = candidate.score;
     let rank_index = candidate.rank_index;
     let evidence = candidate.evidence;
-    if pack_evidence_path_selection_limit(purpose, &evidence)
+    if pack_evidence_path_selection_limit(purpose, &evidence, enable_pack_path_diversity)
         .is_some_and(|limit| path_selection_limit_exceeded(selected_by_path, &evidence, limit))
     {
         omitted_candidates.push(omitted_candidate(
@@ -372,7 +389,8 @@ fn select_ranked_pack_candidate(
         ));
         return;
     }
-    let full_content_limit = full_content_budget_limit(max_tokens, &evidence);
+    let full_content_limit =
+        full_content_budget_limit(max_tokens, &evidence, enable_skeleton_reserve);
     if used_tokens.saturating_add(evidence.token_estimate) <= full_content_limit {
         *used_tokens = used_tokens.saturating_add(evidence.token_estimate);
         record_selected_path(selected_by_path, &evidence);
@@ -433,6 +451,8 @@ fn pack_repair_skeleton_min_score_margin() -> f32 {
 fn repair_budget_exhausted_pack_candidates(
     purpose: ContextPackPurpose,
     max_tokens: usize,
+    enable_pack_path_diversity: bool,
+    enable_skeleton_reserve: bool,
     used_tokens: &mut usize,
     selected: &mut Vec<SelectedPackCandidate>,
     omitted_candidates: &mut Vec<OmittedContextCandidate>,
@@ -455,12 +475,18 @@ fn repair_budget_exhausted_pack_candidates(
         {
             continue;
         }
-        if pack_evidence_path_selection_limit(purpose, &candidate.evidence).is_some_and(|limit| {
+        if pack_evidence_path_selection_limit(
+            purpose,
+            &candidate.evidence,
+            enable_pack_path_diversity,
+        )
+        .is_some_and(|limit| {
             path_selection_limit_exceeded(selected_by_path, &candidate.evidence, limit)
         }) {
             continue;
         }
-        let full_content_limit = full_content_budget_limit(max_tokens, &candidate.evidence);
+        let full_content_limit =
+            full_content_budget_limit(max_tokens, &candidate.evidence, enable_skeleton_reserve);
         let current_full_tokens = selected_full_content_tokens(selected);
         if current_full_tokens.saturating_add(candidate.evidence.token_estimate)
             <= full_content_limit
@@ -718,8 +744,12 @@ mod pack_selection_tests {
         record_selected_path(&mut selected_by_path, &second);
 
         assert_eq!(
-            pack_path_selection_limit(ContextPackPurpose::GeneralReview),
+            pack_path_selection_limit(ContextPackPurpose::GeneralReview, true),
             Some(2)
+        );
+        assert_eq!(
+            pack_path_selection_limit(ContextPackPurpose::GeneralReview, false),
+            None
         );
         assert!(path_selection_limit_exceeded(&selected_by_path, &third, 2));
     }
@@ -732,7 +762,7 @@ mod pack_selection_tests {
         record_selected_path(&mut selected_by_path, &first);
 
         assert_eq!(
-            pack_evidence_path_selection_limit(ContextPackPurpose::GeneralReview, &second),
+            pack_evidence_path_selection_limit(ContextPackPurpose::GeneralReview, &second, true),
             Some(1)
         );
         assert!(path_selection_limit_exceeded(&selected_by_path, &second, 1));
@@ -776,17 +806,26 @@ mod pack_selection_tests {
         assert!(repeated_path_should_wait_for_first_pass(
             &selected_by_path,
             ContextPackPurpose::GeneralReview,
-            &repeated
+            &repeated,
+            true
         ));
         assert!(!repeated_path_should_wait_for_first_pass(
             &selected_by_path,
             ContextPackPurpose::GeneralReview,
-            &other
+            &repeated,
+            false
         ));
         assert!(!repeated_path_should_wait_for_first_pass(
             &selected_by_path,
             ContextPackPurpose::GeneralReview,
-            &diff
+            &other,
+            true
+        ));
+        assert!(!repeated_path_should_wait_for_first_pass(
+            &selected_by_path,
+            ContextPackPurpose::GeneralReview,
+            &diff,
+            true
         ));
     }
 
@@ -796,10 +835,12 @@ mod pack_selection_tests {
         let mut changed = evidence("changed", ContextEvidenceKind::FileSpan, "src/feature.ts");
         changed.is_changed_span = true;
 
-        assert_eq!(skeleton_reserve_tokens(12_000), 2_400);
-        assert_eq!(skeleton_reserve_tokens(3_999), 0);
-        assert_eq!(full_content_budget_limit(12_000, &full), 9_600);
-        assert_eq!(full_content_budget_limit(12_000, &changed), 12_000);
+        assert_eq!(skeleton_reserve_tokens(12_000, true), 2_400);
+        assert_eq!(skeleton_reserve_tokens(12_000, false), 0);
+        assert_eq!(skeleton_reserve_tokens(3_999, true), 0);
+        assert_eq!(full_content_budget_limit(12_000, &full, true), 9_600);
+        assert_eq!(full_content_budget_limit(12_000, &full, false), 12_000);
+        assert_eq!(full_content_budget_limit(12_000, &changed, true), 12_000);
     }
 
     #[test]
@@ -845,6 +886,8 @@ mod pack_selection_tests {
         repair_budget_exhausted_pack_candidates(
             ContextPackPurpose::GeneralReview,
             200,
+            true,
+            true,
             &mut used_tokens,
             &mut selected,
             &mut omitted_candidates,
@@ -910,6 +953,8 @@ mod pack_selection_tests {
         repair_budget_exhausted_pack_candidates(
             ContextPackPurpose::GeneralReview,
             200,
+            true,
+            true,
             &mut used_tokens,
             &mut selected,
             &mut omitted_candidates,
@@ -994,6 +1039,8 @@ mod pack_selection_tests {
         repair_budget_exhausted_pack_candidates(
             ContextPackPurpose::GeneralReview,
             360,
+            true,
+            true,
             &mut used_tokens,
             &mut selected,
             &mut omitted_candidates,
@@ -1065,6 +1112,8 @@ mod pack_selection_tests {
         repair_budget_exhausted_pack_candidates(
             ContextPackPurpose::GeneralReview,
             300,
+            true,
+            true,
             &mut used_tokens,
             &mut selected,
             &mut omitted_candidates,
@@ -1149,6 +1198,7 @@ impl ContextEngine for SnapshotContextEngine {
                 &selected_by_path,
                 request.purpose,
                 &candidate.evidence,
+                self.config.enable_pack_path_diversity,
             ) {
                 deferred_repeated_paths.push(candidate);
                 continue;
@@ -1156,6 +1206,8 @@ impl ContextEngine for SnapshotContextEngine {
             select_ranked_pack_candidate(
                 request.purpose,
                 request.max_tokens,
+                self.config.enable_pack_path_diversity,
+                self.config.enable_skeleton_reserve,
                 &index.skeletons,
                 &mut used_tokens,
                 &mut selected,
@@ -1169,6 +1221,8 @@ impl ContextEngine for SnapshotContextEngine {
             select_ranked_pack_candidate(
                 request.purpose,
                 request.max_tokens,
+                self.config.enable_pack_path_diversity,
+                self.config.enable_skeleton_reserve,
                 &index.skeletons,
                 &mut used_tokens,
                 &mut selected,
@@ -1182,6 +1236,8 @@ impl ContextEngine for SnapshotContextEngine {
             repair_budget_exhausted_pack_candidates(
                 request.purpose,
                 request.max_tokens,
+                self.config.enable_pack_path_diversity,
+                self.config.enable_skeleton_reserve,
                 &mut used_tokens,
                 &mut selected,
                 &mut omitted_candidates,
