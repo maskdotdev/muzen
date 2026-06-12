@@ -899,7 +899,21 @@ class ParallelSuiteTest(unittest.TestCase):
             binary.parent.mkdir(parents=True)
             binary.write_text("bin")
             run.os.utime(binary, (20, 20))
-            args = type("Args", (), {"muzen_bin": binary})()
+            args = type(
+                "Args",
+                (),
+                {
+                    "muzen_bin": binary,
+                    "hosted_semantic": True,
+                    "hosted_embedding_model": "text-embedding-3-small",
+                    "hosted_embedding_base_url": "https://embeddings.example/v1",
+                    "hosted_max_embedding_inputs": 4096,
+                    "local_onnx_model_dir": None,
+                    "rerank_base_url": "https://rerank.example",
+                    "rerank_model": "rerank-v1",
+                    "ablate_context_signal": ["pack-repair"],
+                },
+            )()
             original_default = run.default_muzen_binary
             original_git_output = run.git_output
 
@@ -923,6 +937,48 @@ class ParallelSuiteTest(unittest.TestCase):
         self.assertTrue(metadata["defaultBinaryFreshnessChecked"])
         self.assertEqual(metadata["gitHead"], "abc123")
         self.assertTrue(metadata["gitDirty"])
+        self.assertEqual(metadata["semantic"]["forcedTier"], "hosted")
+        self.assertEqual(
+            metadata["semantic"]["hostedEmbeddingModel"], "text-embedding-3-small"
+        )
+        self.assertEqual(
+            metadata["semantic"]["hostedEmbeddingBaseUrl"],
+            "https://embeddings.example/v1",
+        )
+        self.assertEqual(metadata["semantic"]["hostedMaxEmbeddingInputs"], 4096)
+        self.assertIsNone(metadata["semantic"]["localOnnxModelDir"])
+        self.assertTrue(metadata["rerank"]["enabled"])
+        self.assertEqual(metadata["rerank"]["baseUrl"], "https://rerank.example")
+        self.assertEqual(metadata["rerank"]["model"], "rerank-v1")
+        self.assertEqual(metadata["ablateContextSignals"], ["pack-repair"])
+
+    def test_eval_run_metadata_records_local_onnx_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "muzen"
+            binary.write_text("bin")
+            model_dir = Path(tmp) / "model"
+            model_dir.mkdir()
+            args = type(
+                "Args",
+                (),
+                {
+                    "muzen_bin": binary,
+                    "hosted_semantic": False,
+                    "hosted_embedding_model": "text-embedding-3-small",
+                    "hosted_embedding_base_url": None,
+                    "hosted_max_embedding_inputs": 512,
+                    "local_onnx_model_dir": model_dir,
+                    "rerank_base_url": None,
+                    "rerank_model": None,
+                    "ablate_context_signal": [],
+                },
+            )()
+
+            metadata = run.eval_run_metadata(args)
+
+        self.assertEqual(metadata["semantic"]["forcedTier"], "local_onnx")
+        self.assertEqual(metadata["semantic"]["localOnnxModelDir"], str(model_dir))
+        self.assertFalse(metadata["rerank"]["enabled"])
 
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
