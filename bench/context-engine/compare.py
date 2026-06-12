@@ -139,6 +139,11 @@ def parse_args() -> argparse.Namespace:
         "--kind",
         help="Restrict case deltas to one case kind, e.g. pack.",
     )
+    parser.add_argument(
+        "--case-status",
+        choices=["improved", "regressed", "mixed"],
+        help="Restrict changed case rows by status.",
+    )
     return parser.parse_args()
 
 
@@ -164,6 +169,7 @@ def case_deltas(
     candidate: dict[str, Any],
     *,
     kind: str | None = None,
+    status: str | None = None,
 ) -> list[CaseDelta]:
     baseline_cases = {
         case["id"]: case
@@ -186,17 +192,25 @@ def case_deltas(
         miss_delta = len(candidate_case.get("candidate_present_missed_paths", [])) - len(
             base_case.get("candidate_present_missed_paths", [])
         )
-        if any(delta is not None and delta != 0 for delta in deltas.values()) or miss_delta:
-            rows.append(
-                CaseDelta(
-                    case_id=case_id,
-                    source_group=base_case.get("source_group"),
-                    truth_source=base_case.get("truth_source"),
-                    deltas=deltas,
-                    candidate_present_miss_delta=miss_delta,
-                )
-            )
+        has_case_delta = any(delta is not None and delta != 0 for delta in deltas.values())
+        if not has_case_delta and not miss_delta:
+            continue
+        row = CaseDelta(
+            case_id=case_id,
+            source_group=base_case.get("source_group"),
+            truth_source=base_case.get("truth_source"),
+            deltas=deltas,
+            candidate_present_miss_delta=miss_delta,
+        )
+        if status is None or case_status_matches(row, status):
+            rows.append(row)
     return rows
+
+
+def case_status_matches(row: CaseDelta, status: str) -> bool:
+    if status == "mixed":
+        return row.status.startswith("mixed(")
+    return row.status == status
 
 
 def cohort_metric_deltas(
@@ -353,7 +367,10 @@ def main() -> int:
     print_scope_warning(baseline, candidate)
     print_metric_deltas(metric_deltas(baseline, candidate))
     print_cohort_deltas(cohort_metric_deltas(baseline, candidate))
-    print_case_deltas(case_deltas(baseline, candidate, kind=args.kind), args.case_limit)
+    print_case_deltas(
+        case_deltas(baseline, candidate, kind=args.kind, status=args.case_status),
+        args.case_limit,
+    )
     return 0
 
 

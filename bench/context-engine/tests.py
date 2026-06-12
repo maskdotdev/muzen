@@ -1830,6 +1830,89 @@ class SummaryCompareTest(unittest.TestCase):
 
         self.assertEqual(row.status, "mixed(+2/-2)")
 
+    def test_case_deltas_can_filter_by_status(self):
+        baseline = {
+            "cases": [
+                {
+                    "id": "improved",
+                    "kind": "pack",
+                    "recall_at_10": 0.0,
+                    "recall_at_25": 0.0,
+                    "ndcg_at_10": 0.0,
+                    "first_relevant_rank": 10,
+                    "tokens_to_first_relevant": 1000,
+                    "candidate_present_missed_paths": ["src/a.rs"],
+                },
+                {
+                    "id": "regressed",
+                    "kind": "pack",
+                    "recall_at_10": 1.0,
+                    "recall_at_25": 1.0,
+                    "ndcg_at_10": 1.0,
+                    "first_relevant_rank": 1,
+                    "tokens_to_first_relevant": 100,
+                    "candidate_present_missed_paths": [],
+                },
+                {
+                    "id": "mixed",
+                    "kind": "pack",
+                    "recall_at_10": 0.5,
+                    "recall_at_25": 0.5,
+                    "ndcg_at_10": 0.5,
+                    "first_relevant_rank": 5,
+                    "tokens_to_first_relevant": 500,
+                    "candidate_present_missed_paths": [],
+                },
+            ]
+        }
+        candidate = {
+            "cases": [
+                {
+                    "id": "improved",
+                    "kind": "pack",
+                    "recall_at_10": 0.5,
+                    "recall_at_25": 0.5,
+                    "ndcg_at_10": 0.5,
+                    "first_relevant_rank": 2,
+                    "tokens_to_first_relevant": 200,
+                    "candidate_present_missed_paths": [],
+                },
+                {
+                    "id": "regressed",
+                    "kind": "pack",
+                    "recall_at_10": 0.0,
+                    "recall_at_25": 0.0,
+                    "ndcg_at_10": 0.0,
+                    "first_relevant_rank": 4,
+                    "tokens_to_first_relevant": 400,
+                    "candidate_present_missed_paths": ["src/b.rs"],
+                },
+                {
+                    "id": "mixed",
+                    "kind": "pack",
+                    "recall_at_10": 0.6,
+                    "recall_at_25": 0.5,
+                    "ndcg_at_10": 0.5,
+                    "first_relevant_rank": 8,
+                    "tokens_to_first_relevant": 300,
+                    "candidate_present_missed_paths": [],
+                },
+            ]
+        }
+
+        self.assertEqual(
+            [row.case_id for row in compare.case_deltas(baseline, candidate, status="improved")],
+            ["improved"],
+        )
+        self.assertEqual(
+            [row.case_id for row in compare.case_deltas(baseline, candidate, status="regressed")],
+            ["regressed"],
+        )
+        self.assertEqual(
+            [row.case_id for row in compare.case_deltas(baseline, candidate, status="mixed")],
+            ["mixed"],
+        )
+
 
 class MinerDeterminismTest(unittest.TestCase):
     def test_miner_is_deterministic_for_pinned_rev(self):
