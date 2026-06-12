@@ -1656,10 +1656,13 @@ impl ContextEngine for SnapshotContextEngine {
                             .collect::<Vec<_>>();
                         serde_json::json!({
                             "evidenceId": evidence.id.0,
+                            "kind": evidence.kind,
+                            "path": evidence.path.as_ref().map(|path| path.display()),
                             "score": selected_candidate
                                 .map(|candidate| candidate.score)
                                 .unwrap_or_else(|| score_for_purpose(evidence, pack.purpose, &self.config)),
                             "rankIndex": selected_candidate.map(|candidate| candidate.rank_index),
+                            "tokenEstimate": evidence.token_estimate,
                             "why": explain_selected_evidence(evidence, pack.purpose),
                             "graphPaths": graph_paths,
                         })
@@ -1671,8 +1674,11 @@ impl ContextEngine for SnapshotContextEngine {
                         .map(|candidate| {
                             serde_json::json!({
                                 "evidenceId": candidate.evidence_id.0,
+                                "kind": candidate.kind,
+                                "path": candidate.path.as_ref().map(|path| path.display()),
                                 "score": candidate.score,
                                 "rankIndex": candidate.rank_index,
+                                "tokenEstimate": candidate.token_estimate,
                                 "reason": candidate.reason,
                             })
                         })
