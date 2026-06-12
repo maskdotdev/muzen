@@ -1048,6 +1048,15 @@ pub struct RuntimeLimits {
     pub max_model_concurrency_per_key: usize,
     #[serde(default = "default_max_model_turn_ms")]
     pub max_model_turn_ms: u64,
+    /// Total attempts per model turn, including the first; `max_model_turn_ms`
+    /// bounds each attempt separately, so a turn's worst-case wall time is
+    /// `attempts * max_model_turn_ms` plus backoff.
+    #[serde(default = "default_model_retry_max_attempts")]
+    pub model_retry_max_attempts: usize,
+    #[serde(default = "default_model_retry_base_delay_ms")]
+    pub model_retry_base_delay_ms: u64,
+    #[serde(default = "default_model_retry_max_delay_ms")]
+    pub model_retry_max_delay_ms: u64,
     pub max_tool_calls_per_turn: usize,
     pub max_tool_parallelism_per_session: usize,
     pub max_tool_provider_concurrency_per_provider: usize,
@@ -1075,6 +1084,9 @@ impl RuntimeLimits {
             max_model_concurrency_global: 16,
             max_model_concurrency_per_key: 4,
             max_model_turn_ms: default_max_model_turn_ms(),
+            model_retry_max_attempts: default_model_retry_max_attempts(),
+            model_retry_base_delay_ms: default_model_retry_base_delay_ms(),
+            model_retry_max_delay_ms: default_model_retry_max_delay_ms(),
             max_tool_calls_per_turn: 4,
             max_tool_parallelism_per_session: 2,
             max_tool_provider_concurrency_per_provider: 8,
@@ -1097,6 +1109,18 @@ impl RuntimeLimits {
 
 fn default_max_model_turn_ms() -> u64 {
     180_000
+}
+
+fn default_model_retry_max_attempts() -> usize {
+    3
+}
+
+fn default_model_retry_base_delay_ms() -> u64 {
+    500
+}
+
+fn default_model_retry_max_delay_ms() -> u64 {
+    10_000
 }
 
 fn default_max_tool_output_bytes() -> usize {
