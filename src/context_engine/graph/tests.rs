@@ -289,6 +289,39 @@ fn resolves_python_modules() {
     assert_eq!(importer_paths(&graph, "auth/tokens.py").len(), 1);
 }
 
+#[test]
+fn graph_debug_export_reports_bounded_expansion_state() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("src/app.ts"),
+        parsed(&["main"], vec![import("./db", &["getDb"])]),
+    );
+    files.insert(repo_path("src/db.ts"), parsed(&["getDb"], Vec::new()));
+    let graph = GraphSpec::new(&files).with_changed(&["src/app.ts"]).build();
+    let expansion = graph.expand(default_request());
+    let export = ContextGraphDebugExport::collect_bounded(
+        &graph,
+        &expansion,
+        ContextGraphDebugLimits {
+            max_nodes: 1,
+            max_edges: 1,
+            max_candidates: 1,
+            max_omissions: 1,
+        },
+    );
+
+    assert_eq!(export.schema_version, GRAPH_DEBUG_SCHEMA_VERSION);
+    assert!(export.node_count > export.nodes.len());
+    assert!(export.edge_count > export.edges.len());
+    assert!(!export.changed_anchors.is_empty());
+    assert!(export
+        .edge_confidence_by_kind
+        .contains_key(&ContextEdgeKind::Imports));
+    assert!(export.candidates.iter().any(|candidate| {
+        candidate.path.as_deref() == Some("src/db.ts") && !candidate.steps.is_empty()
+    }));
+}
+
 // ---- tsconfig aliases and barrels --------------------------------------
 
 #[test]

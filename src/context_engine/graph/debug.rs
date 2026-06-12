@@ -259,10 +259,7 @@ impl ContextGraphDebugExport {
             snapshot_id: graph.snapshot_id.0.clone(),
             node_count,
             edge_count,
-            changed_anchors: graph
-                .changed_anchors()
-                .map(|anchor| anchor.key())
-                .collect(),
+            changed_anchors: graph.changed_anchors().map(|anchor| anchor.key()).collect(),
             truncated_nodes: node_count.saturating_sub(nodes.len()),
             nodes,
             truncated_edges: edge_count.saturating_sub(edges.len()),

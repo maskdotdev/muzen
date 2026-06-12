@@ -12,6 +12,7 @@
 //! compiler-grade edge precision.
 
 mod build;
+mod debug;
 mod expand;
 mod model;
 
@@ -19,6 +20,11 @@ mod model;
 mod tests;
 
 pub use build::ContextGraphBuildInput;
+pub use debug::{
+    ContextGraphConfidenceSummary, ContextGraphDebugCandidate, ContextGraphDebugEdge,
+    ContextGraphDebugExport, ContextGraphDebugLimits, ContextGraphDebugNode,
+    ContextGraphDebugOmission, ContextGraphDebugPathStep, GRAPH_DEBUG_SCHEMA_VERSION,
+};
 pub use expand::{
     ContextGraphCandidate, ContextGraphExpansion, ContextGraphExpansionPurpose,
     ContextGraphExpansionRequest, ContextGraphOmission, ContextGraphOmissionReason,
