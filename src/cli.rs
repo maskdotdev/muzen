@@ -340,6 +340,8 @@ pub(crate) enum ContextSignalAblationArg {
     PackRepair,
     PackPathDiversity,
     SkeletonReserve,
+    RankDiversity,
+    TokenEfficiency,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -962,6 +964,12 @@ fn apply_context_signal_ablation(
         }
         ContextSignalAblationArg::SkeletonReserve => {
             config.enable_skeleton_reserve = false;
+        }
+        ContextSignalAblationArg::RankDiversity => {
+            config.enable_rank_diversity = false;
+        }
+        ContextSignalAblationArg::TokenEfficiency => {
+            config.enable_token_efficiency_bonus = false;
         }
     }
 }
@@ -2989,6 +2997,10 @@ mod context_cli_tests {
             "pack-path-diversity",
             "--ablate-context-signal",
             "skeleton-reserve",
+            "--ablate-context-signal",
+            "rank-diversity",
+            "--ablate-context-signal",
+            "token-efficiency",
         ])
         .expect("valid context command");
         let Command::Context(context) = cli.command else {
@@ -3008,6 +3020,8 @@ mod context_cli_tests {
         assert!(!config.enable_pack_repair);
         assert!(!config.enable_pack_path_diversity);
         assert!(!config.enable_skeleton_reserve);
+        assert!(!config.enable_rank_diversity);
+        assert!(!config.enable_token_efficiency_bonus);
         assert_eq!(
             config.weight_path_proximity,
             ContextEngineConfig::snapshot_v0().weight_path_proximity
@@ -3028,5 +3042,7 @@ mod context_cli_tests {
         assert!(config.enable_pack_repair);
         assert!(config.enable_pack_path_diversity);
         assert!(config.enable_skeleton_reserve);
+        assert!(config.enable_rank_diversity);
+        assert!(config.enable_token_efficiency_bonus);
     }
 }

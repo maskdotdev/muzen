@@ -45,7 +45,7 @@ This split is now part of the gate. Fixture/security cases prove basic behavior 
 
 Signal and optimizer ablations:
 
-Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pack-repair row from `/tmp/context-pack-repair-ablation-report.json`; optimizer rows from `/tmp/context-optimizer-ablation-report.json`. Each row disables one signal or optimizer component through the same public CLI with `--ablate-context-signal`.
+Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pack-repair row from `/tmp/context-pack-repair-ablation-report.json`; optimizer rows from `/tmp/context-optimizer-ablation-report.json` and `/tmp/context-rank-token-ablation-report.json`. Each row disables one signal or optimizer component through the same public CLI with `--ablate-context-signal`.
 
 | Disabled component | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
 | --- | ---: | ---: | ---: | ---: |
@@ -54,12 +54,14 @@ Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pac
 | test coverage | `-0.0410` | `-0.0331` | `+0.0070` | `+467` |
 | lexical change | `-0.0236` | `-0.0008` | `+0.0105` | `+22` |
 | path proximity | `-0.0146` | `-0.0040` | `+0.0140` | `+84` |
+| rank diversity | `-0.0458` | `-0.0200` | `+0.0383` | `+268` |
 | pack path diversity | `+0.0000` | `+0.0000` | `+0.0488` | `+102` |
 | skeleton reserve | `+0.0000` | `+0.0000` | `+0.0209` | `+92` |
 | pack repair | `+0.0000` | `+0.0000` | `+0.0035` | `+0` |
+| token efficiency | `+0.0288` | `+0.0172` | `+0.0279` | `+70` |
 | semantic change | `+0.0000` | `+0.0000` | `+0.0000` | `+0` |
 
-This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Pack path diversity and skeleton reserve measurably reduce budget omissions and earlier useful context without changing top-rank metrics. Pack repair measurably reduces budget omissions without changing rank metrics. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
+This proves graph and co-change are carrying real retrieval value across repos. Rank diversity carries rank quality, omission pressure, and early usefulness. Test coverage is valuable for rank/order but not candidate-present misses. Pack path diversity and skeleton reserve measurably reduce budget omissions and earlier useful context without changing top-rank metrics. Pack repair measurably reduces budget omissions without changing rank metrics. Token efficiency is mixed: disabling it improves recall/nDCG, but it worsens omission pressure and tokens-to-first-relevant enough that removal fails the gate. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
 
 ## What Is Already Strong
 
@@ -93,7 +95,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Context Graph now includes source-backed Next App Router layout edges from ancestor `layout.*` files to changed `app/**/{page,route,...}.*` leaves. The edge is scoped to changed app-route leaves and capped at four ancestor layouts, which reduced candidate-present miss `0.2404 -> 0.2334` and external candidate-present miss `0.4706 -> 0.4559` with recall/nDCG/tokens unchanged.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
-- Public optimizer ablations now cover pack path diversity and skeleton reserve, not just pack repair. Latest full public-CLI proof: disabling pack path diversity worsened candidate-present miss `+0.0488` and tokens-to-first-relevant `+102`; disabling skeleton reserve worsened candidate-present miss `+0.0209` and tokens-to-first-relevant `+92`, with recall@10/nDCG unchanged.
+- Public optimizer ablations now cover rank diversity, pack path diversity, skeleton reserve, pack repair, and token efficiency. Latest full public-CLI proof: disabling rank diversity regressed recall@10 `-0.0458`, nDCG@10 `-0.0200`, candidate-present miss `+0.0383`, and tokens-to-first-relevant `+268`; disabling pack path diversity worsened candidate-present miss `+0.0488` and tokens-to-first-relevant `+102`; disabling skeleton reserve worsened candidate-present miss `+0.0209` and tokens-to-first-relevant `+92`; disabling token efficiency improved recall/nDCG but worsened candidate-present miss `+0.0279` and tokens-to-first-relevant `+70`.
 
 ## Main Gaps
 
@@ -102,7 +104,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 3. **Strict causal labels.** Four curated strict causal cases now exist across TypeScript, Python, Rust, and doc-to-code contract links, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
 4. **Framework context.** Next App Router layout edges now cover one strong framework contract. Route/app-shell/shared-store relationships still need source-backed facts; previous broad path-convention attempts added noise.
 5. **Semantic default proof.** Real embeddings improve metrics, but default deterministic path remains no-vector. Need a clear quality-tier story: no-vector baseline, local ONNX private tier, hosted/rerank best tier.
-6. **Optimizer proof.** Signal ablations identify useful inputs, and public optimizer ablations now cover path diversity, skeleton reserve, and repair. Need remaining optimizer ablations for pure greedy rank and bounded token utility.
+6. **Optimizer proof.** Signal ablations identify useful inputs, and public optimizer ablations now cover rank diversity, path diversity, skeleton reserve, repair, and token efficiency. Need remaining proof for true bounded allocation versus greedy selection.
 
 ## Proof Standard
 
@@ -144,6 +146,7 @@ Recent rejected experiments:
 - Test-coverage weight `0.30 -> 0.35`: rank stayed mostly flat, present-miss rates worsened.
 - Test-density frontier `6 -> 3`: exact `*-pack` diagnostics improved nDCG@10 slightly (`0.329 -> 0.331`) but regressed recall@25 (`0.632 -> 0.626`) and candidate-present miss (`0.252 -> 0.259`), so broad test coverage remains first-class.
 - Token efficiency bonus bump: tokens to first relevant improved `1650 -> 1607`, but recall@25/self and external present-miss regressed.
+- Token efficiency downscale: halving the bonus improved recall@10 (`0.549 -> 0.571`) and nDCG@10 (`0.388 -> 0.398`), but failed omission gates with candidate-present miss `0.254`, mined-follow-up miss `0.269`, and self present-miss `0.089`, so the current stronger budget-efficiency bias stays.
 - Compact full-content reserve cap `200`: no quality gain; tokens to first relevant worsened to `1730`, and external tokens to first relevant failed gate at `2745`.
 - Broad budget-repair swapping: fixed one self case but introduced one external candidate-present miss and failed external present-miss gate (`0.4779 -> 0.4853`); narrowed to low-confidence-tail evictions only.
 - Broad skeleton-tail swapping: improved candidate-present miss `0.2473 -> 0.2403`, but external tokens to first relevant regressed `2538 -> 2790` and self candidate-present misses worsened. A score-margin-only version still failed (`external ttfr 2779`, self miss regressions). Final retained rule requires new path coverage plus score margin.

@@ -59,6 +59,8 @@ CONTEXT_SIGNAL_ABLATIONS = (
     "pack-repair",
     "pack-path-diversity",
     "skeleton-reserve",
+    "rank-diversity",
+    "token-efficiency",
 )
 GATED_METRICS = (
     "meanRecallAt5",
