@@ -184,7 +184,7 @@ impl PlannedReviewRuntime {
             &self.tools.artifacts,
             &self.review_revision_id,
         );
-        let findings = synthesis.findings;
+        let mut findings = synthesis.findings;
         for finding in &findings {
             self.events.emit_runtime_with_context(
                 RuntimeEventContext {
@@ -199,6 +199,18 @@ impl PlannedReviewRuntime {
                     tool_call_id: ToolCallId(format!("{}-synthesis", finding.id)),
                 },
             );
+        }
+        if should_run_review_quality_enhancements(&self.session_templates)
+            && !cancel.is_cancelled()
+            && !findings.is_empty()
+        {
+            let challenge_report = self
+                .run_finding_challenge_pass(&mut findings, cancel.child_token())
+                .await;
+            model_calls += challenge_report.model_calls;
+            add_model_metrics(&mut model_metrics, &challenge_report.model_metrics);
+            tokens.add(challenge_report.tokens);
+            completion_diagnostics.push(challenge_report.completion_diagnostic);
         }
         reconcile_file_reviews_with_findings(&mut file_reviews, &findings);
         completion_diagnostics.push(SessionCompletionDiagnostic {
@@ -227,7 +239,9 @@ impl PlannedReviewRuntime {
         let review_sessions = completion_diagnostics
             .iter()
             .filter(|diagnostic| {
-                diagnostic.session_id != "synthesis" && diagnostic.session_id != "final-synthesis"
+                diagnostic.session_id != "synthesis"
+                    && diagnostic.session_id != "final-synthesis"
+                    && diagnostic.session_id != "finding-challenge"
             })
             .count();
         let mut metrics = ConcurrentRunReport {
@@ -642,6 +656,109 @@ impl PlannedReviewRuntime {
                     tokens,
                     verified_candidate_findings: Vec::new(),
                     completion_diagnostic: final_synthesis_diagnostic(
+                        false,
+                        "unexpected_tool_calls",
+                        0,
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Adversarial verification over validated findings: a single budgeted
+    /// challenger session attempts to refute each finding against the diff
+    /// evidence. Refuted findings stay in the report for audit but are
+    /// suppressed from publication and excluded from file-verdict
+    /// reconciliation.
+    async fn run_finding_challenge_pass(
+        &self,
+        findings: &mut [FindingV1],
+        cancel: CancellationToken,
+    ) -> FindingChallengeReport {
+        let scope =
+            finding_challenge_scope(&self.snapshot.snapshot_id, self.session_templates.first());
+        let model = match self.model_router.client_for(&scope).await {
+            Ok(model) => model,
+            Err(error) => {
+                self.events
+                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+                return FindingChallengeReport::empty(finding_challenge_diagnostic(
+                    false,
+                    "model_router_failed",
+                    0,
+                ));
+            }
+        };
+        let transcript =
+            finding_challenge_transcript(findings, self.snapshot.diff.content.as_str());
+        let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut tokens = TokenUsage::default();
+        let turn_id = TurnId(0);
+        self.events.emit_planned_runtime(
+            self.policy
+                .plan_model_started_runtime_event(&scope, turn_id),
+        );
+        let model_started = Instant::now();
+        let outcome = complete_model_turn(
+            &*model,
+            &self.policy,
+            &self.events,
+            &self.limits,
+            &scope,
+            &final_response_scope(&scope),
+            &transcript,
+            turn_id,
+            &cancel,
+        )
+        .await;
+        model_metrics.calls += outcome.attempts;
+        let turn = match outcome.result {
+            Ok(turn) => {
+                model_metrics.errors += outcome.attempts - 1;
+                turn
+            }
+            Err(error) => {
+                model_metrics.errors += outcome.attempts;
+                let summary = match error {
+                    RuntimeError::Timeout => "timeout",
+                    _ => "model_failed",
+                };
+                return FindingChallengeReport::empty(finding_challenge_diagnostic(
+                    false, summary, 0,
+                ));
+            }
+        };
+        model_metrics.successes += 1;
+        model_metrics.latency_ms += elapsed_ms(model_started);
+        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+        match turn {
+            ModelTurn::Text { content, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events.emit_planned_runtime(
+                    self.policy
+                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                );
+                let refuted = apply_challenge_verdicts(findings, &content, &scope.id.0);
+                FindingChallengeReport {
+                    model_calls: outcome.attempts,
+                    model_metrics,
+                    tokens,
+                    completion_diagnostic: finding_challenge_diagnostic(true, "done", refuted),
+                }
+            }
+            ModelTurn::ToolCalls { calls, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events
+                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
+                        &scope,
+                        turn_id,
+                        calls.len(),
+                    ));
+                FindingChallengeReport {
+                    model_calls: outcome.attempts,
+                    model_metrics,
+                    tokens,
+                    completion_diagnostic: finding_challenge_diagnostic(
                         false,
                         "unexpected_tool_calls",
                         0,
@@ -1383,6 +1500,24 @@ struct FinalSynthesisReport {
     completion_diagnostic: SessionCompletionDiagnostic,
 }
 
+struct FindingChallengeReport {
+    model_calls: usize,
+    model_metrics: ModelMetricsSnapshot,
+    tokens: TokenUsage,
+    completion_diagnostic: SessionCompletionDiagnostic,
+}
+
+impl FindingChallengeReport {
+    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
+        Self {
+            model_calls: 0,
+            model_metrics: ModelMetricsSnapshot::default(),
+            tokens: TokenUsage::default(),
+            completion_diagnostic,
+        }
+    }
+}
+
 impl PlannedReviewUnitReport {
     fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
         Self {
@@ -1684,6 +1819,143 @@ fn final_synthesis_scope(
         "Synthesize final cross-file review findings from gathered review evidence.".to_string();
     scope.instructions = Vec::new();
     scope
+}
+
+fn finding_challenge_scope(
+    snapshot_id: &SnapshotId,
+    template: Option<&SessionScope>,
+) -> SessionScope {
+    let mut scope = unit_scope(
+        &PlannedReviewUnit {
+            id: "finding-challenge".to_string(),
+            file_paths: Vec::new(),
+            score_min: 0,
+            score_max: 0,
+            estimated_bytes: 0,
+            file_count: 0,
+            requires_further_split: false,
+        },
+        snapshot_id,
+        template,
+        0,
+    );
+    scope.id = SessionId("finding-challenge".to_string());
+    scope.role = Role::Validator;
+    scope.objective =
+        "Adversarially verify validated review findings against diff evidence.".to_string();
+    scope.instructions = Vec::new();
+    scope
+}
+
+fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<ConversationItem> {
+    let listed = findings
+        .iter()
+        .enumerate()
+        .map(|(index, finding)| {
+            let path = match finding.file_refs.first() {
+                Some(EvidenceLocationV1::SinglePath { path }) => path.as_str(),
+                _ => "unknown",
+            };
+            let lines = finding
+                .location_line_range
+                .as_ref()
+                .map(|range| format!("{}-{}", range.start_line, range.end_line))
+                .unwrap_or_else(|| "unknown".to_string());
+            format!(
+                "{index}. path={path} lines={lines} discoveredBy={} title={} claim={}",
+                finding.discovered_by.len(),
+                finding.title,
+                finding.claim
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    vec![
+        ConversationItem::System {
+            content: "You are an adversarial verifier for code review findings. For each numbered finding, attempt to refute it using only the provided diff evidence: check that the claimed defect is real, is anchored to changed lines, and is not a misreading of the code. Return strict JSON with key verdicts: a list of {index, verdict, reason} objects where verdict is one of confirmed, refuted, uncertain. Use refuted only when the diff evidence contradicts the claim or cannot support it; use uncertain when the evidence is incomplete. Cover every finding index.".to_string(),
+        },
+        ConversationItem::User {
+            content: format!(
+                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nReturn JSON now with key verdicts covering every finding index.",
+                diff_excerpt(diff, 120_000)
+            ),
+        },
+    ]
+}
+
+#[derive(Default, Deserialize)]
+struct StructuredChallengeResult {
+    #[serde(default)]
+    verdicts: Vec<StructuredChallengeVerdict>,
+}
+
+#[derive(Deserialize)]
+struct StructuredChallengeVerdict {
+    index: usize,
+    verdict: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    reason: String,
+}
+
+/// Applies challenger verdicts to findings and returns how many were refuted.
+/// Unknown indices and verdict strings are ignored, so a malformed response
+/// degrades to "no adjudication" instead of corrupting findings.
+fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenger: &str) -> usize {
+    let trimmed = content.trim();
+    let result = serde_json::from_str::<StructuredChallengeResult>(trimmed)
+        .or_else(|_| {
+            let Some(start) = trimmed.find('{') else {
+                return Ok(StructuredChallengeResult::default());
+            };
+            let Some(end) = trimmed.rfind('}') else {
+                return Ok(StructuredChallengeResult::default());
+            };
+            serde_json::from_str(&trimmed[start..=end])
+        })
+        .unwrap_or_default();
+    let mut refuted_count = 0usize;
+    for verdict in result.verdicts {
+        let Some(finding) = findings.get_mut(verdict.index) else {
+            continue;
+        };
+        match verdict.verdict.as_str() {
+            "refuted" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.validation_status = ValidationStatus::Challenged;
+                finding.report_status = ReportStatus::Suppressed;
+                finding.publishability = FindingPublishability::NotPublishable;
+                finding.confidence = REFUTED_CONFIDENCE;
+                refuted_count += 1;
+            }
+            "confirmed" => {
+                finding.confidence =
+                    (finding.confidence + CONFIRMED_CONFIDENCE_BOOST).min(MAX_CONFIDENCE);
+            }
+            _ => {}
+        }
+    }
+    refuted_count
+}
+
+fn finding_challenge_diagnostic(
+    completed: bool,
+    status: &str,
+    refuted_count: usize,
+) -> SessionCompletionDiagnostic {
+    SessionCompletionDiagnostic {
+        session_id: "finding-challenge".to_string(),
+        completed,
+        completion_kind: Some("structured_finding_challenge".to_string()),
+        completion_summary: Some(format!("{status} refutedFindings={refuted_count}")),
+        saw_diff: true,
+        saw_file: false,
+        saw_search: false,
+        model_calls: usize::from(completed),
+        tool_counts: ToolCounts::default(),
+    }
 }
 
 fn final_synthesis_transcript(
@@ -2324,6 +2596,9 @@ fn synthesize_findings(
             }
         }
     }
+    for finding in &mut findings {
+        finding.confidence = agreement_confidence(finding.discovered_by.len());
+    }
     SynthesisOutcome {
         findings,
         candidate_count,
@@ -2553,6 +2828,25 @@ fn normalize_finding_text(value: &str) -> String {
         .join(" ")
 }
 
+/// Baseline confidence for a single-discoverer validated finding; matches the
+/// fixed score findings carried before agreement-derived confidence existed.
+const BASE_CONFIDENCE: f32 = 0.72;
+/// Confidence earned per additional independent discovering session.
+const AGREEMENT_CONFIDENCE_STEP: f32 = 0.07;
+/// Agreement alone cannot push confidence past this; only the adversarial
+/// challenge pass confirms beyond it.
+const AGREEMENT_CONFIDENCE_CEILING: f32 = 0.93;
+/// Confidence assigned to findings the challenge pass refuted.
+const REFUTED_CONFIDENCE: f32 = 0.25;
+/// Confidence added when the challenge pass confirms a finding.
+const CONFIRMED_CONFIDENCE_BOOST: f32 = 0.07;
+const MAX_CONFIDENCE: f32 = 0.95;
+
+fn agreement_confidence(discoverers: usize) -> f32 {
+    let extra = discoverers.saturating_sub(1) as f32;
+    (BASE_CONFIDENCE + extra * AGREEMENT_CONFIDENCE_STEP).min(AGREEMENT_CONFIDENCE_CEILING)
+}
+
 fn merge_finding(existing: &mut FindingV1, duplicate: FindingV1) {
     for evidence in duplicate.evidence {
         if !existing
@@ -2572,6 +2866,12 @@ fn merge_finding(existing: &mut FindingV1, duplicate: FindingV1) {
 
 fn reconcile_file_reviews_with_findings(file_reviews: &mut [FileReviewV1], findings: &[FindingV1]) {
     for finding in findings {
+        if matches!(
+            finding.publishability,
+            FindingPublishability::NotPublishable
+        ) {
+            continue;
+        }
         let Some(EvidenceLocationV1::SinglePath { path }) = finding.file_refs.first() else {
             continue;
         };
@@ -2871,6 +3171,7 @@ mod tests {
         NeedsFiveTurns,
         AssertFinalTurnHasNoTools,
         FinalSynthesisFinding,
+        ChallengeRefutesFinding,
     }
 
     #[async_trait]
@@ -2901,6 +3202,23 @@ mod tests {
                 };
                 return Ok(ModelTurn::Text {
                     content: content.to_string(),
+                    usage: TokenUsage::default(),
+                });
+            }
+            if scope.id.0 == "finding-challenge" {
+                let verdict = match self.mode {
+                    TestModelMode::ChallengeRefutesFinding => "refuted",
+                    _ => "confirmed",
+                };
+                return Ok(ModelTurn::Text {
+                    content: json!({
+                        "verdicts": [{
+                            "index": 0,
+                            "verdict": verdict,
+                            "reason": "deterministic test verdict"
+                        }]
+                    })
+                    .to_string(),
                     usage: TokenUsage::default(),
                 });
             }
@@ -2974,7 +3292,7 @@ mod tests {
                     raw_arguments: "{}".to_string(),
                 }];
                 match self.mode {
-                    TestModelMode::AssignedFinding => {
+                    TestModelMode::AssignedFinding | TestModelMode::ChallengeRefutesFinding => {
                         calls.push(ModelToolCall {
                             call_id: ToolCallId(format!("{}-read-auth", scope.id.0)),
                             index: 1,
@@ -3077,7 +3395,7 @@ mod tests {
                 });
             }
             let content = match self.mode {
-                TestModelMode::AssignedFinding => json!({
+                TestModelMode::AssignedFinding | TestModelMode::ChallengeRefutesFinding => json!({
                     "summary": "found one issue",
                     "fileVerdicts": [{
                         "path": "src/auth.rs",
@@ -3289,7 +3607,8 @@ mod tests {
 
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 3);
+        // unit (2) + final synthesis (1) + finding challenge (1)
+        assert_eq!(report.metrics.model_calls, 4);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -3301,6 +3620,89 @@ mod tests {
             .completion_diagnostics
             .iter()
             .any(|diagnostic| diagnostic.session_id == "final-synthesis" && diagnostic.completed));
+    }
+
+    #[tokio::test]
+    async fn challenge_pass_suppresses_refuted_findings() {
+        let report = run_test_review_with_quality_budget(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::ChallengeRefutesFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1, "refuted findings stay for audit");
+        let finding = &report.findings[0];
+        assert_eq!(finding.challenged_by, vec!["finding-challenge".to_string()]);
+        assert!(matches!(
+            finding.validation_status,
+            ValidationStatus::Challenged
+        ));
+        assert!(matches!(finding.report_status, ReportStatus::Suppressed));
+        assert!(matches!(
+            finding.publishability,
+            FindingPublishability::NotPublishable
+        ));
+        assert!((finding.confidence - REFUTED_CONFIDENCE).abs() < 1e-6);
+        assert_eq!(report.metrics.publishable_findings, 0);
+        let auth_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "src/auth.rs")
+            .expect("auth review");
+        assert_eq!(
+            auth_review.verdict, "clean",
+            "refuted finding must not flip the file verdict"
+        );
+        assert!(report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.session_id == "finding-challenge"
+                && diagnostic.completed
+                && diagnostic
+                    .completion_summary
+                    .as_deref()
+                    .is_some_and(|summary| summary.contains("refutedFindings=1"))));
+    }
+
+    #[tokio::test]
+    async fn challenge_pass_confirms_findings_and_boosts_confidence() {
+        let report = run_test_review_with_quality_budget(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::AssignedFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1);
+        let finding = &report.findings[0];
+        assert!(finding.challenged_by.is_empty());
+        assert!(matches!(
+            finding.publishability,
+            FindingPublishability::Publishable
+        ));
+        let expected = BASE_CONFIDENCE + CONFIRMED_CONFIDENCE_BOOST;
+        assert!(
+            (finding.confidence - expected).abs() < 1e-6,
+            "confirmed single-discoverer finding should score {expected}, got {}",
+            finding.confidence
+        );
+        assert_eq!(report.metrics.publishable_findings, 1);
+        let auth_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "src/auth.rs")
+            .expect("auth review");
+        assert_eq!(auth_review.verdict, "issue_found");
+    }
+
+    #[test]
+    fn agreement_confidence_scales_with_discoverers_and_caps() {
+        assert!((agreement_confidence(1) - BASE_CONFIDENCE).abs() < 1e-6);
+        assert!(agreement_confidence(2) > agreement_confidence(1));
+        assert!(agreement_confidence(3) > agreement_confidence(2));
+        assert!(agreement_confidence(50) <= AGREEMENT_CONFIDENCE_CEILING);
     }
 
     #[test]
@@ -3976,6 +4378,12 @@ mod tests {
             .discovered_by
             .iter()
             .any(|id| id.ends_with("#security")));
+        assert!(
+            finding.confidence > BASE_CONFIDENCE,
+            "independent agreement must outrank a single discoverer: {}",
+            finding.confidence
+        );
+        assert!(finding.confidence <= AGREEMENT_CONFIDENCE_CEILING);
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {
