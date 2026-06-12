@@ -491,6 +491,8 @@ def case_result(
         useful_evidence_per_1k_tokens=1.0,
         latency_ms=1.0,
         expected_paths=["src/a.rs"],
+        candidate_expected_paths=["src/a.rs"],
+        ranked_retrieved_paths=["src/a.rs"],
         candidate_expected_count=1,
         retrieved_paths=["src/a.rs"],
         candidate_missed_paths=[],
@@ -528,6 +530,7 @@ class SummaryProofTest(unittest.TestCase):
                 "recall_at_25": 0.0,
                 "ndcg_at_10": 0.0,
                 "tokens_to_first_relevant": None,
+                "ranked_retrieved_paths": ["src/tail.rs"],
                 "candidate_present_missed_paths": ["src/a.rs"],
                 "candidate_present_missed_omissions": [
                     {
@@ -590,6 +593,14 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(pressure["meanTokenEstimate"], 100)
         self.assertEqual(pressure["scoreBeatsSelectedTailCaseCount"], 1)
         self.assertEqual(pressure["scoreBeatsSelectedTailCases"][0]["id"], "weak")
+        ranked_causes = summary["diagnostics"]["rankedMissCauses"]
+        self.assertEqual(ranked_causes["top25MissedPathCount"], 1)
+        self.assertEqual(ranked_causes["selectedAfter25Count"], 0)
+        self.assertEqual(ranked_causes["candidatePresentOmittedCount"], 1)
+        self.assertEqual(ranked_causes["candidateAbsentCount"], 0)
+        self.assertEqual(
+            ranked_causes["candidatePresentOmittedCases"][0]["path"], "src/a.rs"
+        )
 
     def test_summary_reports_slowest_cases(self):
         fast = case_result("fast")
@@ -611,6 +622,42 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(summary["slowCases"][0]["tokenEstimate"], 1200)
         self.assertEqual(summary["slowCases"][0]["omitted"], 17)
         self.assertEqual(summary["slowCases"][0]["candidatePresentMissCount"], 1)
+
+    def test_ranked_miss_causes_separate_late_selected_and_absent_paths(self):
+        late_paths = [f"src/noise_{index}.rs" for index in range(25)] + [
+            "src/late.rs"
+        ]
+        late = run.CaseResult(
+            **{
+                **case_result("late").__dict__,
+                "expected_paths": ["src/late.rs"],
+                "candidate_expected_paths": ["src/late.rs"],
+                "ranked_retrieved_paths": late_paths,
+                "retrieved_paths": late_paths,
+                "recall_at_25": 0.0,
+            }
+        )
+        absent = run.CaseResult(
+            **{
+                **case_result("absent").__dict__,
+                "expected_paths": ["src/absent.rs"],
+                "candidate_expected_paths": ["src/absent.rs"],
+                "ranked_retrieved_paths": ["src/other.rs"],
+                "retrieved_paths": ["src/other.rs"],
+                "candidate_missed_paths": ["src/absent.rs"],
+                "recall_at_25": 0.0,
+            }
+        )
+
+        causes = run.ranked_miss_causes([late, absent])
+
+        self.assertEqual(causes["top25MissedPathCount"], 2)
+        self.assertEqual(causes["selectedAfter25Count"], 1)
+        self.assertEqual(causes["selectedAfter25Cases"][0]["path"], "src/late.rs")
+        self.assertEqual(causes["selectedAfter25Cases"][0]["rank"], 26)
+        self.assertEqual(causes["candidatePresentOmittedCount"], 0)
+        self.assertEqual(causes["candidateAbsentCount"], 1)
+        self.assertEqual(causes["candidateAbsentCases"][0]["path"], "src/absent.rs")
 
     def test_summary_performance_block_reports_wall_clock_throughput(self):
         summary = run.summarize([case_result("a"), case_result("b")])

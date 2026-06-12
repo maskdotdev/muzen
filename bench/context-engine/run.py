@@ -115,6 +115,8 @@ class CaseResult:
     useful_evidence_per_1k_tokens: float
     latency_ms: float
     expected_paths: list[str]
+    candidate_expected_paths: list[str]
+    ranked_retrieved_paths: list[str]
     candidate_expected_count: int
     retrieved_paths: list[str]
     candidate_missed_paths: list[str]
@@ -920,6 +922,7 @@ def score_case(
         first_relevant_path_rank = first_relevant_rank(eval_retrieved, eval_expected)
         first_relevant_tokens = tokens_to_first_relevant(eval_evidence, eval_expected)
         candidate_expected = eval_expected
+        ranked_retrieved = eval_retrieved
     else:
         # Every expected path is itself a changed file (fixture invariant
         # cases): grade against the full sets.
@@ -930,6 +933,7 @@ def score_case(
         first_relevant_path_rank = first_relevant_rank(retrieved_unique, expected_set)
         first_relevant_tokens = tokens_to_first_relevant(evidence, expected_set)
         candidate_expected = expected_set
+        ranked_retrieved = retrieved_unique
     omitted_paths = (
         [
             candidate["path"]
@@ -999,6 +1003,8 @@ def score_case(
         useful_evidence_per_1k_tokens=useful_per_1k,
         latency_ms=latency_ms,
         expected_paths=expected_paths,
+        candidate_expected_paths=sorted(candidate_expected),
+        ranked_retrieved_paths=ranked_retrieved,
         candidate_expected_count=len(candidate_expected),
         retrieved_paths=retrieved_unique,
         candidate_missed_paths=candidate_missed_paths,
@@ -1642,6 +1648,72 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
     }
 
 
+def ranked_miss_causes(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
+    selected_after_25: list[dict[str, Any]] = []
+    omitted_candidate_paths: list[tuple[CaseResult, str]] = []
+    absent_candidate_paths: list[tuple[CaseResult, str]] = []
+
+    for result in results:
+        expected = set(result.candidate_expected_paths)
+        if not expected:
+            continue
+        top_25 = set(result.ranked_retrieved_paths[:25])
+        missed_top_25 = sorted(expected - top_25)
+        if not missed_top_25:
+            continue
+        rank_by_path = {
+            path: index
+            for index, path in enumerate(result.ranked_retrieved_paths, start=1)
+        }
+        for path in missed_top_25:
+            rank = rank_by_path.get(path)
+            if rank is not None:
+                selected_after_25.append(
+                    {
+                        "id": result.id,
+                        "sourceGroup": result.source_group,
+                        "truthSource": result.truth_source,
+                        "path": path,
+                        "rank": rank,
+                    }
+                )
+            elif path in result.candidate_present_missed_paths:
+                omitted_candidate_paths.append((result, path))
+            elif path in result.candidate_missed_paths:
+                absent_candidate_paths.append((result, path))
+            else:
+                absent_candidate_paths.append((result, path))
+
+    selected_after_25.sort(key=lambda item: (-item["rank"], item["id"], item["path"]))
+    omitted_candidate_paths.sort(key=lambda item: (item[0].id, item[1]))
+    absent_candidate_paths.sort(key=lambda item: (item[0].id, item[1]))
+
+    def sample_path_cases(items: list[tuple[CaseResult, str]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": result.id,
+                "sourceGroup": result.source_group,
+                "truthSource": result.truth_source,
+                "path": path,
+            }
+            for result, path in items[:limit]
+        ]
+
+    return {
+        "top25MissedPathCount": (
+            len(selected_after_25)
+            + len(omitted_candidate_paths)
+            + len(absent_candidate_paths)
+        ),
+        "selectedAfter25Count": len(selected_after_25),
+        "candidatePresentOmittedCount": len(omitted_candidate_paths),
+        "candidateAbsentCount": len(absent_candidate_paths),
+        "selectedAfter25Cases": selected_after_25[:limit],
+        "candidatePresentOmittedCases": sample_path_cases(omitted_candidate_paths),
+        "candidateAbsentCases": sample_path_cases(absent_candidate_paths),
+    }
+
+
 def summarize(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
     failures = sorted(
@@ -1671,6 +1743,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         "slowCases": slow_cases(results),
         "diagnostics": {
             "omissionPressure": omission_pressure(results),
+            "rankedMissCauses": ranked_miss_causes(results),
             "graphCoverage": graph_coverage(results),
         },
         "cases": [result.__dict__ for result in results],

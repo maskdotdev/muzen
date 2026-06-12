@@ -79,6 +79,9 @@ Weak-case diagnostics include candidate-present missed omissions and the
 selected tail candidates with score, rank index, representation, and token
 estimate, plus graph paths for tail evidence connected by pack relationships,
 so pack-selection tradeoffs can be inspected directly.
+`diagnostics.rankedMissCauses` aggregates expected paths that miss top-25 into
+`selectedAfter25`, `candidatePresentOmitted`, and `candidateAbsent` buckets, so
+rank noise, pack budget pressure, and candidate-generation gaps stay separate.
 Add `--include-graph-debug` on focused diagnostic runs when you need to
 separate raw graph coverage misses from rank/packing misses. The runner invokes
 the public `muzen context graph-debug` CLI for each case, so the summary reports
