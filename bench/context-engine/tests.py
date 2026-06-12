@@ -1177,6 +1177,28 @@ class ParallelSuiteTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["cwd"], run.ROOT)
         self.assertTrue(calls[0][1]["check"])
 
+    def test_release_muzen_binary_builds_once(self):
+        original_run = run.subprocess.run
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        try:
+            run.subprocess.run = fake_run
+            resolved = run.resolve_muzen_bin(None, release=True)
+        finally:
+            run.subprocess.run = original_run
+
+        self.assertEqual(resolved, run.default_muzen_binary(release=True))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0][0], ["cargo", "build", "--quiet", "--bin", "muzen", "--release"]
+        )
+        self.assertEqual(calls[0][1]["cwd"], run.ROOT)
+        self.assertTrue(calls[0][1]["check"])
+
     def test_default_muzen_binary_rejects_stale_local_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1192,7 +1214,7 @@ class ParallelSuiteTest(unittest.TestCase):
             original_inputs = run.muzen_build_input_paths
 
             try:
-                run.default_muzen_binary = lambda: binary
+                run.default_muzen_binary = lambda release=False: binary
                 run.muzen_build_input_paths = lambda: [source]
                 with self.assertRaises(SystemExit) as raised:
                     run.validate_muzen_binary_freshness(binary)
@@ -1217,7 +1239,7 @@ class ParallelSuiteTest(unittest.TestCase):
             original_inputs = run.muzen_build_input_paths
 
             try:
-                run.default_muzen_binary = lambda: binary
+                run.default_muzen_binary = lambda release=False: binary
                 run.muzen_build_input_paths = lambda: [source]
                 run.validate_muzen_binary_freshness(binary)
             finally:
@@ -1241,7 +1263,7 @@ class ParallelSuiteTest(unittest.TestCase):
             original_inputs = run.muzen_build_input_paths
 
             try:
-                run.default_muzen_binary = lambda: default_binary
+                run.default_muzen_binary = lambda release=False: default_binary
                 run.muzen_build_input_paths = lambda: [source]
                 run.validate_muzen_binary_freshness(custom_binary)
             finally:
@@ -1280,7 +1302,7 @@ class ParallelSuiteTest(unittest.TestCase):
                 return None
 
             try:
-                run.default_muzen_binary = lambda: binary
+                run.default_muzen_binary = lambda release=False: binary
                 run.git_output = fake_git_output
                 metadata = run.eval_run_metadata(args)
             finally:
@@ -1290,6 +1312,7 @@ class ParallelSuiteTest(unittest.TestCase):
         self.assertEqual(metadata["muzenBin"], str(binary))
         self.assertEqual(metadata["muzenBinMtimeUnixMs"], 20_000)
         self.assertTrue(metadata["defaultBinaryFreshnessChecked"])
+        self.assertEqual(metadata["buildProfile"], "debug")
         self.assertEqual(metadata["gitHead"], "abc123")
         self.assertTrue(metadata["gitDirty"])
         self.assertEqual(metadata["semantic"]["forcedTier"], "hosted")
