@@ -62,6 +62,11 @@ pub struct ContextEngineConfig {
     /// that initially lost budget. Public eval ablations can disable this to
     /// measure optimizer value.
     pub enable_pack_repair: bool,
+    /// Enable path-diverse pack compilation: first-ranked item per path gets
+    /// a chance before repeated chunks consume budget.
+    pub enable_pack_path_diversity: bool,
+    /// Reserve a bounded slice of large pack budgets for skeleton fallbacks.
+    pub enable_skeleton_reserve: bool,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -101,6 +106,8 @@ impl ContextEngineConfig {
             weight_test_coverage: 0.30,
             weight_semantic_change: 0.10,
             enable_pack_repair: true,
+            enable_pack_path_diversity: true,
+            enable_skeleton_reserve: true,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,

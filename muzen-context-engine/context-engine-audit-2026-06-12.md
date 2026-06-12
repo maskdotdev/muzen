@@ -43,21 +43,23 @@ Truth-source split:
 
 This split is now part of the gate. Fixture/security cases prove basic behavior stays intact, curated strict cases prove causal behavior without future labels, and mined follow-up cases remain the hard stress set that cannot be averaged away.
 
-Signal ablations:
+Signal and optimizer ablations:
 
-Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pack-repair row from `/tmp/context-pack-repair-ablation-report.json`. Each row disables one signal through the same public CLI with `--ablate-context-signal`.
+Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pack-repair row from `/tmp/context-pack-repair-ablation-report.json`; optimizer rows from `/tmp/context-optimizer-ablation-report.json`. Each row disables one signal or optimizer component through the same public CLI with `--ablate-context-signal`.
 
-| Disabled signal | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
+| Disabled component | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
 | --- | ---: | ---: | ---: | ---: |
 | graph | `-0.1028` | `-0.0833` | `+0.0702` | `+541` |
 | co-change | `-0.0651` | `-0.0586` | `+0.0702` | `+335` |
 | test coverage | `-0.0410` | `-0.0331` | `+0.0070` | `+467` |
 | lexical change | `-0.0236` | `-0.0008` | `+0.0105` | `+22` |
 | path proximity | `-0.0146` | `-0.0040` | `+0.0140` | `+84` |
+| pack path diversity | `+0.0000` | `+0.0000` | `+0.0488` | `+102` |
+| skeleton reserve | `+0.0000` | `+0.0000` | `+0.0209` | `+92` |
 | pack repair | `+0.0000` | `+0.0000` | `+0.0035` | `+0` |
 | semantic change | `+0.0000` | `+0.0000` | `+0.0000` | `+0` |
 
-This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Pack repair measurably reduces budget omissions without changing rank metrics. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
+This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Pack path diversity and skeleton reserve measurably reduce budget omissions and earlier useful context without changing top-rank metrics. Pack repair measurably reduces budget omissions without changing rank metrics. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
 
 ## What Is Already Strong
 
@@ -91,6 +93,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Context Graph now includes source-backed Next App Router layout edges from ancestor `layout.*` files to changed `app/**/{page,route,...}.*` leaves. The edge is scoped to changed app-route leaves and capped at four ancestor layouts, which reduced candidate-present miss `0.2404 -> 0.2334` and external candidate-present miss `0.4706 -> 0.4559` with recall/nDCG/tokens unchanged.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
+- Public optimizer ablations now cover pack path diversity and skeleton reserve, not just pack repair. Latest full public-CLI proof: disabling pack path diversity worsened candidate-present miss `+0.0488` and tokens-to-first-relevant `+102`; disabling skeleton reserve worsened candidate-present miss `+0.0209` and tokens-to-first-relevant `+92`, with recall@10/nDCG unchanged.
 
 ## Main Gaps
 
@@ -99,7 +102,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 3. **Strict causal labels.** Four curated strict causal cases now exist across TypeScript, Python, Rust, and doc-to-code contract links, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
 4. **Framework context.** Next App Router layout edges now cover one strong framework contract. Route/app-shell/shared-store relationships still need source-backed facts; previous broad path-convention attempts added noise.
 5. **Semantic default proof.** Real embeddings improve metrics, but default deterministic path remains no-vector. Need a clear quality-tier story: no-vector baseline, local ONNX private tier, hosted/rerank best tier.
-6. **Optimizer proof.** Signal ablations identify useful inputs, but not best allocation. Need optimizer ablations: greedy rank, path-diverse greedy, skeleton reserve, and bounded token utility.
+6. **Optimizer proof.** Signal ablations identify useful inputs, and public optimizer ablations now cover path diversity, skeleton reserve, and repair. Need remaining optimizer ablations for pure greedy rank and bounded token utility.
 
 ## Proof Standard
 
@@ -125,7 +128,7 @@ The eval gate now tracks:
 - selected-tail score/rank/token/graph-path diagnostics for weak cases
 - aggregate omission-pressure diagnostics
 - semantic/rerank/ablation run metadata
-- public CLI signal and pack-repair ablations for proof runs
+- public CLI signal and optimizer ablations for proof runs
 - summary-to-summary metric and case-delta comparison for diagnostic artifacts
 
 Recent rejected experiments:

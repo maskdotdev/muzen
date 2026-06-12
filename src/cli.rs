@@ -338,6 +338,8 @@ pub(crate) enum ContextSignalAblationArg {
     TestCoverage,
     SemanticChange,
     PackRepair,
+    PackPathDiversity,
+    SkeletonReserve,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -954,6 +956,12 @@ fn apply_context_signal_ablation(
         }
         ContextSignalAblationArg::PackRepair => {
             config.enable_pack_repair = false;
+        }
+        ContextSignalAblationArg::PackPathDiversity => {
+            config.enable_pack_path_diversity = false;
+        }
+        ContextSignalAblationArg::SkeletonReserve => {
+            config.enable_skeleton_reserve = false;
         }
     }
 }
@@ -2977,6 +2985,10 @@ mod context_cli_tests {
             "co-change",
             "--ablate-context-signal",
             "pack-repair",
+            "--ablate-context-signal",
+            "pack-path-diversity",
+            "--ablate-context-signal",
+            "skeleton-reserve",
         ])
         .expect("valid context command");
         let Command::Context(context) = cli.command else {
@@ -2994,6 +3006,8 @@ mod context_cli_tests {
         assert_eq!(config.co_change_commit_limit, 0);
         assert_eq!(config.weight_co_change, 0.0);
         assert!(!config.enable_pack_repair);
+        assert!(!config.enable_pack_path_diversity);
+        assert!(!config.enable_skeleton_reserve);
         assert_eq!(
             config.weight_path_proximity,
             ContextEngineConfig::snapshot_v0().weight_path_proximity
@@ -3012,5 +3026,7 @@ mod context_cli_tests {
             ContextEngineConfig::snapshot_v0().weight_test_coverage
         );
         assert!(config.enable_pack_repair);
+        assert!(config.enable_pack_path_diversity);
+        assert!(config.enable_skeleton_reserve);
     }
 }

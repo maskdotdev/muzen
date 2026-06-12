@@ -19,8 +19,8 @@ Case files use schema `muzen.context-eval-case.v2`:
 
 A committed baseline (`baseline.json`) gates ranking regressions: the run
 fails when gated quality metrics drop more than `--tolerance` below it. Optional
-ablation reports rerun the same public CLI with one context signal disabled and
-write metric deltas without using hidden harness hooks.
+ablation reports rerun the same public CLI with one context signal or optimizer
+component disabled and write metric deltas without using hidden harness hooks.
 """
 
 from __future__ import annotations
@@ -57,6 +57,8 @@ CONTEXT_SIGNAL_ABLATIONS = (
     "test-coverage",
     "semantic-change",
     "pack-repair",
+    "pack-path-diversity",
+    "skeleton-reserve",
 )
 GATED_METRICS = (
     "meanRecallAt5",
@@ -251,7 +253,7 @@ def parse_args() -> argparse.Namespace:
         choices=CONTEXT_SIGNAL_ABLATIONS,
         default=[],
         help=(
-            "Pass through one public context signal ablation to the muzen CLI. "
+            "Pass through one public context signal or optimizer ablation to the muzen CLI. "
             "Repeatable; intended for single-variant debugging."
         ),
     )
@@ -260,8 +262,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help=(
             "Write an ablation report by rerunning variants with one context "
-            "signal disabled. Variants are reported as deltas and are not "
-            "regression-gated."
+            "signal or optimizer component disabled. Variants are reported as "
+            "deltas and are not regression-gated."
         ),
     )
     parser.add_argument(
@@ -269,8 +271,8 @@ def parse_args() -> argparse.Namespace:
         action="append",
         choices=CONTEXT_SIGNAL_ABLATIONS,
         help=(
-            "Signal to include in --ablation-report. Repeatable; defaults to "
-            "all supported signals."
+            "Signal or optimizer component to include in --ablation-report. "
+            "Repeatable; defaults to all supported ablations."
         ),
     )
     return parser.parse_args()
