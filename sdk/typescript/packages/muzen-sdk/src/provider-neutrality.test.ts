@@ -85,7 +85,7 @@ const providerNeutralContractFiles = [
   "src/runner/schema.rs",
   "src/runner/execution.rs",
   "src/runtime/contracts.rs",
-  "src/runtime/policy.rs",
+  "src/runtime/policy/mod.rs",
 ];
 
 const forbiddenCoreTerms = [

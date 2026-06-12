@@ -5,7 +5,7 @@ from typing import List, Optional
 from .errors import MuzenUnsupportedFeatureError
 from .local import Client
 from .remote import RemoteClient, RemoteTransport
-from .runner_mapping import _to_runner_start_params
+from .runner_mapping import _to_runner_start_params, _to_swarm_start_params
 
 
 async def create_muzen(
@@ -38,6 +38,7 @@ __all__ = [
     "RemoteClient",
     "RemoteTransport",
     "_to_runner_start_params",
+    "_to_swarm_start_params",
     "create_muzen",
     "create_muzen_client",
 ]

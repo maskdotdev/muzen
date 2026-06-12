@@ -13,7 +13,9 @@ from .runner_mapping import (
     _map_runner_artifact,
     _map_runner_result,
     _map_runner_status,
+    _map_swarm_result,
     _to_runner_start_params,
+    _to_swarm_start_params,
 )
 from .sources import parse_review_source
 from .types import (
@@ -29,6 +31,8 @@ from .types import (
     ReviewSource,
     ReviewSourceLike,
     ReviewStatus,
+    SwarmOptions,
+    SwarmResult,
 )
 
 
@@ -94,6 +98,14 @@ class Client:
         options: Optional[ReviewOptions] = None,
     ) -> "ReviewSession":
         return await self.review(source, options)
+
+    async def run_swarm(self, options: SwarmOptions) -> SwarmResult:
+        run_id = f"swarm-{uuid.uuid4()}"
+        runner_result = await self._runner.request(
+            "run.start",
+            _to_swarm_start_params(run_id, options),
+        )
+        return _map_swarm_result(run_id, runner_result)
 
     async def resume_review(self, review_id: str) -> "ReviewSession":
         try:

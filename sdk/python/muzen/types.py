@@ -12,6 +12,9 @@ ReviewStatus = Literal[
     "cancelled",
 ]
 
+SwarmAgentStatus = Literal["done", "failed", "cancelled", "partial"]
+SwarmRunStatus = Literal["completed", "partial", "failed", "cancelled"]
+
 ReviewConclusion = Literal["approved", "commented", "changes_requested"]
 
 ReviewRole = Literal[
@@ -190,6 +193,27 @@ class ReviewOptions:
 
 
 @dataclass(frozen=True)
+class SwarmAgent:
+    id: str
+    objective: str
+    instructions: List["ReviewInstruction"] = field(default_factory=list)
+    model: Optional[ReviewModelSpec] = None
+    tool_grants: List[str] = field(default_factory=list)
+    budget: Optional[ReviewAgentBudget] = None
+
+
+@dataclass(frozen=True)
+class SwarmOptions:
+    agents: List[SwarmAgent]
+    repo: str
+    files: List[str] = field(default_factory=list)
+    model: Optional[ReviewModelSpec] = None
+    tools: List["ReviewTool"] = field(default_factory=list)
+    limits: Optional[ReviewLimits] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ReviewChangedFile:
     path: str
     status: Optional[str] = None
@@ -287,6 +311,34 @@ class ReviewResult:
     summary: str
     findings: List[ReviewFinding]
     coverage: ReviewCoverage
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SwarmAgentOutput:
+    agent_id: str
+    status: SwarmAgentStatus
+    completed: bool
+    output: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SwarmUsage:
+    agents: int
+    completed_agents: int
+    model_calls: int
+    tool_calls: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
+@dataclass(frozen=True)
+class SwarmResult:
+    run_id: str
+    status: SwarmRunStatus
+    outputs: List[SwarmAgentOutput]
+    usage: SwarmUsage
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

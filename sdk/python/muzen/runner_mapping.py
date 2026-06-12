@@ -17,6 +17,10 @@ from .types import (
     ReviewResult,
     ReviewSource,
     ReviewStatus,
+    SwarmAgentOutput,
+    SwarmOptions,
+    SwarmResult,
+    SwarmUsage,
 )
 
 
@@ -53,6 +57,46 @@ def _to_runner_start_params(
     if source.type == "local":
         payload["repo"] = source.repo
     return payload
+
+
+def _to_swarm_start_params(run_id: str, options: SwarmOptions) -> Dict[str, Any]:
+    review_options = _swarm_review_options(options)
+    payload = _to_runner_start_params(
+        run_id,
+        ReviewSource(type="local", repo=options.repo, changed_files=options.files),
+        review_options,
+    )
+    payload["mode"] = "direct_sessions"
+    return payload
+
+
+def _swarm_review_options(options: SwarmOptions) -> ReviewOptions:
+    if not options.agents:
+        raise ValueError("run_swarm requires at least one agent")
+    return ReviewOptions(
+        model=options.model,
+        metadata=options.metadata,
+        tools=options.tools,
+        limits=options.limits,
+        sessions=[
+            _swarm_agent_to_review_session(agent)
+            for agent in options.agents
+        ],
+    )
+
+
+def _swarm_agent_to_review_session(agent: Any) -> Any:
+    from .types import ReviewAgentSession
+
+    return ReviewAgentSession(
+        id=agent.id,
+        role="generalist",
+        objective=agent.objective,
+        model=agent.model,
+        instructions=agent.instructions,
+        tool_grants=agent.tool_grants,
+        budget=agent.budget,
+    )
 
 
 def _session_to_runner(
@@ -259,6 +303,52 @@ def _map_runner_result(review_id: str, source: ReviewSource, value: Any) -> Revi
             "source": source_key(source),
         },
     )
+
+
+def _map_swarm_result(run_id: str, value: Any) -> SwarmResult:
+    if not isinstance(value, dict):
+        raise RuntimeError("muzen-runner returned an invalid run result")
+    summary = value.get("summary") or {}
+    return SwarmResult(
+        run_id=run_id,
+        status=_map_swarm_run_status(value.get("status")),
+        outputs=[
+            _map_swarm_agent_output(output)
+            for output in value.get("sessionOutputs", [])
+            if isinstance(output, dict)
+        ],
+        usage=SwarmUsage(
+            agents=summary.get("sessions", 0),
+            completed_agents=summary.get("completedSessions", 0),
+            model_calls=summary.get("modelCalls", 0),
+            tool_calls=summary.get("toolCalls", 0),
+            input_tokens=summary.get("inputTokens", 0),
+            output_tokens=summary.get("outputTokens", 0),
+            total_tokens=summary.get("totalTokens", 0),
+        ),
+        metadata=value.get("metadata") if isinstance(value.get("metadata"), dict) else {},
+    )
+
+
+def _map_swarm_run_status(status: Any) -> str:
+    if status in ("completed", "partial", "failed", "cancelled"):
+        return status
+    return "failed"
+
+
+def _map_swarm_agent_output(value: Dict[str, Any]) -> SwarmAgentOutput:
+    return SwarmAgentOutput(
+        agent_id=value.get("sessionId", ""),
+        status=_map_swarm_agent_status(value.get("status")),
+        completed=bool(value.get("completed")),
+        output=value.get("output") if isinstance(value.get("output"), str) else None,
+    )
+
+
+def _map_swarm_agent_status(status: Any) -> str:
+    if status in ("done", "failed", "cancelled", "partial"):
+        return status
+    return "failed"
 
 
 def _map_runner_finding(value: Dict[str, Any]) -> ReviewFinding:

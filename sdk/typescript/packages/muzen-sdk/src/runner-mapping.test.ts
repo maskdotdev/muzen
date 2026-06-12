@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { mapRunnerResult, toRunnerStartParams } from "./runner-mapping.js";
+import {
+  mapRunnerResult,
+  mapSwarmResult,
+  toRunnerStartParams,
+  toSwarmStartParams,
+} from "./runner-mapping.js";
 import { openai } from "./models.js";
 import { local } from "./sources.js";
 
@@ -294,5 +299,134 @@ describe("runner mapping", () => {
         }),
       /hosted session model overrides cannot be mixed/,
     );
+  });
+
+  it("maps swarm options to direct-sessions runner params", () => {
+    const params = toSwarmStartParams("swarm-1", {
+      repo: "/repo",
+      files: ["src/auth.ts"],
+      model: openai({ model: "gpt-5.4-mini" }),
+      metadata: { hostRunId: "swarm-host-1" },
+      agents: [
+        {
+          id: "planner",
+          objective: "Plan the migration.",
+          instructions: [
+            {
+              kind: "session_objective",
+              text: "Prefer small steps.",
+              trusted: true,
+            },
+          ],
+          toolGrants: ["read_file"],
+        },
+        {
+          id: "implementer",
+          objective: "Implement the migration.",
+          model: openai({ model: "gpt-5.4" }),
+        },
+      ],
+    }) as {
+      mode: string;
+      repo: string;
+      changedFiles: string[];
+      metadata: Record<string, unknown>;
+      sessions: Array<Record<string, unknown>>;
+      model: {
+        defaultModelProfileId: string;
+        modelProfiles: Array<Record<string, unknown>>;
+      };
+    };
+
+    assert.equal(params.mode, "direct_sessions");
+    assert.equal(params.repo, "/repo");
+    assert.deepEqual(params.changedFiles, ["src/auth.ts"]);
+    assert.deepEqual(params.metadata, { hostRunId: "swarm-host-1" });
+    assert.deepEqual(params.sessions[0], {
+      id: "planner",
+      role: "generalist",
+      objective: "Plan the migration.",
+      cwd: undefined,
+      modelProfileId: undefined,
+      instructions: [
+        {
+          kind: "session_objective",
+          text: "Prefer small steps.",
+          trusted: true,
+        },
+      ],
+      toolGrants: ["read_file"],
+      budget: undefined,
+    });
+    assert.equal(params.sessions[1].modelProfileId, "session:implementer");
+    assert.equal(params.model.defaultModelProfileId, "default");
+    assert.equal(params.model.modelProfiles.length, 2);
+  });
+
+  it("rejects swarm runs with no agents", () => {
+    assert.throws(
+      () => toSwarmStartParams("swarm-1", { repo: "/repo", agents: [] }),
+      /requires at least one agent/,
+    );
+  });
+
+  it("maps direct-session runner results to swarm results", () => {
+    const result = mapSwarmResult("swarm-1", {
+      runId: "runner-1",
+      status: "partial",
+      summary: {
+        sessions: 2,
+        completedSessions: 1,
+        modelCalls: 3,
+        toolCalls: 4,
+        inputTokens: 10,
+        outputTokens: 8,
+        totalTokens: 18,
+      },
+      findings: [],
+      snapshots: [],
+      sessionOutputs: [
+        {
+          sessionId: "planner",
+          status: "done",
+          completed: true,
+          output: "Plan complete.",
+        },
+        {
+          sessionId: "implementer",
+          status: "failed",
+          completed: false,
+          output: null,
+        },
+      ],
+      metadata: { hostRunId: "swarm-host-1" },
+    });
+
+    assert.equal(result.runId, "swarm-1");
+    assert.equal(result.status, "partial");
+    assert.deepEqual(result.usage, {
+      agents: 2,
+      completedAgents: 1,
+      modelCalls: 3,
+      toolCalls: 4,
+      inputTokens: 10,
+      outputTokens: 8,
+      totalTokens: 18,
+    });
+    assert.deepEqual(result.outputs, [
+      {
+        agentId: "planner",
+        status: "done",
+        completed: true,
+        output: "Plan complete.",
+      },
+      {
+        agentId: "implementer",
+        status: "failed",
+        completed: false,
+        output: undefined,
+      },
+    ]);
+    assert.deepEqual(result.metadata, { hostRunId: "swarm-host-1" });
   });
 });

@@ -13,6 +13,11 @@ import type {
   ReviewResult,
   ReviewSource,
   ReviewStatus,
+  SwarmAgentOutput,
+  SwarmAgentStatus,
+  SwarmOptions,
+  SwarmResult,
+  SwarmRunStatus,
 } from "./types.js";
 import {
   isCallbackReviewModelSpec,
@@ -72,6 +77,100 @@ export function toRunnerStartParams(
     params.repo = source.repo;
   }
   return params;
+}
+
+/** A swarm run rides the same run.start surface as a review: agents become
+ * sessions, the repo becomes a local source, and `mode: "direct_sessions"`
+ * routes them through the generic agent loop instead of review planning. */
+export function toSwarmStartParams(runId: string, options: SwarmOptions): unknown {
+  const reviewOptions = swarmReviewOptions(options);
+  const params = toRunnerStartParams(
+    runId,
+    { type: "local", repo: options.repo, changedFiles: options.files ?? [] },
+    reviewOptions,
+  ) as Record<string, unknown>;
+  return { ...params, mode: "direct_sessions" };
+}
+
+/** Internal review-shaped view of swarm options, so model planning and
+ * callback registration are shared with review runs. */
+export function swarmReviewOptions(options: SwarmOptions): ReviewOptions {
+  if (options.agents.length === 0) {
+    throw new Error("runSwarm requires at least one agent");
+  }
+  return {
+    model: options.model,
+    tools: options.tools,
+    limits: options.limits,
+    hooks: options.hooks,
+    metadata: options.metadata,
+    signal: options.signal,
+    sessions: options.agents.map((agent) => ({
+      id: agent.id,
+      role: "generalist",
+      objective: agent.objective,
+      instructions: agent.instructions,
+      model: agent.model,
+      toolGrants: agent.toolGrants,
+      budget: agent.budget,
+    })),
+  };
+}
+
+export function mapSwarmResult(runId: string, value: unknown): SwarmResult {
+  if (!isRunnerRunResult(value)) {
+    throw new Error("muzen-runner returned an invalid run result");
+  }
+  const summary = value.summary;
+  const outputs = (value.sessionOutputs ?? []).map(mapSwarmAgentOutput);
+  return {
+    runId,
+    status: mapSwarmRunStatus(value.status),
+    outputs,
+    usage: {
+      agents: summary.sessions,
+      completedAgents: summary.completedSessions,
+      modelCalls: summary.modelCalls,
+      toolCalls: summary.toolCalls,
+      inputTokens: summary.inputTokens ?? 0,
+      outputTokens: summary.outputTokens ?? 0,
+      totalTokens: summary.totalTokens,
+    },
+    metadata: isRecord(value.metadata) ? value.metadata : undefined,
+  };
+}
+
+function mapSwarmRunStatus(status: string): SwarmRunStatus {
+  switch (status) {
+    case "completed":
+    case "partial":
+    case "failed":
+    case "cancelled":
+      return status;
+    default:
+      return "failed";
+  }
+}
+
+function mapSwarmAgentOutput(output: RunnerSessionOutput): SwarmAgentOutput {
+  return {
+    agentId: output.sessionId,
+    status: mapSwarmAgentStatus(output.status),
+    completed: output.completed,
+    output: output.output ?? undefined,
+  };
+}
+
+function mapSwarmAgentStatus(status: string): SwarmAgentStatus {
+  switch (status) {
+    case "done":
+    case "failed":
+    case "cancelled":
+    case "partial":
+      return status;
+    default:
+      return "failed";
+  }
 }
 
 function mapReviewHeartbeat(options: ReviewOptions): unknown {
@@ -525,6 +624,7 @@ interface RunnerRunResult {
   summary: RunnerRunSummary;
   findings: RunnerFinding[];
   snapshots: RunnerSnapshotSummary[];
+  sessionOutputs?: RunnerSessionOutput[];
   metadata?: Record<string, unknown>;
 }
 
@@ -533,7 +633,16 @@ interface RunnerRunSummary {
   completedSessions: number;
   modelCalls: number;
   toolCalls: number;
+  inputTokens?: number;
+  outputTokens?: number;
   totalTokens: number;
+}
+
+interface RunnerSessionOutput {
+  sessionId: string;
+  status: string;
+  completed: boolean;
+  output?: string | null;
 }
 
 interface RunnerFinding {
