@@ -546,6 +546,7 @@ class SummaryProofTest(unittest.TestCase):
                         "evidenceId": "ev-1",
                         "kind": "file_span",
                         "path": "src/a.rs",
+                        "signals": {"graphDistance": 1, "lexicalChangeScore": 0.5},
                         "score": 0.5,
                         "rankIndex": 12,
                         "tokenEstimate": 100,
@@ -624,6 +625,8 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(pressure["medianRankIndex"], 12)
         self.assertEqual(pressure["p90RankIndex"], 12)
         self.assertEqual(pressure["meanTokenEstimate"], 100)
+        self.assertEqual(pressure["signals"]["graphDistanceCounts"], {"1": 1})
+        self.assertEqual(pressure["signals"]["meanLexicalChangeScore"], 0.5)
         self.assertEqual(pressure["scoreBeatsSelectedTailCaseCount"], 1)
         self.assertEqual(pressure["scoreBeatsSelectedTailCases"][0]["id"], "weak")
         self.assertEqual(pressure["fullRepairShortfallCaseCount"], 1)
