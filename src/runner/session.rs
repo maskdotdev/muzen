@@ -13,7 +13,7 @@ use super::protocol::{
 };
 use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
-use super::transport::{InteractiveTransport, RunnerCallbackTransport};
+use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportEvent};
 use super::types::{
     ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunFailedNotification,
     RunLookupParams, RunStartParams, RunStatusResult, RunnerArtifactExportResult,
@@ -54,28 +54,37 @@ where
     let transport = Arc::new(InteractiveTransport::new(reader, writer));
     let mut session = RunnerStdioSession::default();
     loop {
-        let frame = transport.read_frame()?;
-        let Some(frame) = frame else {
+        let event = transport.read_frame()?;
+        let Some(event) = event else {
             break;
         };
-        match frame {
-            JsonRpcFrame::Request(request) => {
+        match event {
+            TransportEvent::Frame(JsonRpcFrame::Request(request)) => {
                 if let Some(response) =
                     session.handle_interactive_request(request, transport.clone())?
                 {
                     transport.write_response(&response)?;
                 }
             }
-            JsonRpcFrame::Response(response) => {
+            TransportEvent::Frame(JsonRpcFrame::Response(response)) => {
                 let error = JsonRpcResponse::error(
                     response.id,
                     JsonRpcError::protocol_error("runner received an unexpected JSON-RPC response"),
                 );
                 transport.write_response(&error)?;
             }
-            JsonRpcFrame::Notification => {}
+            TransportEvent::Frame(JsonRpcFrame::Notification) => {}
+            TransportEvent::ParseError(message) => {
+                let error =
+                    JsonRpcResponse::error(Some(Value::Null), JsonRpcError::parse_error(message));
+                transport.write_response(&error)?;
+            }
         }
     }
+    // Stdin EOF stops intake but is not a hard kill: in-flight runs finish
+    // (or fail, for callback models that can no longer be answered) and emit
+    // their terminal frames before the process exits.
+    session.drain_active_runs();
     Ok(0)
 }
 
@@ -144,6 +153,7 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
 pub(crate) struct RunnerStdioSession {
     state: Arc<Mutex<RunnerStdioState>>,
     muzen: Muzen,
+    run_threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 #[derive(Default)]
@@ -374,7 +384,7 @@ impl RunnerStdioSession {
         }
         let state = Arc::clone(&self.state);
         let transport: Arc<dyn RunnerCallbackTransport> = transport;
-        std::thread::spawn(move || {
+        self.run_threads.push(std::thread::spawn(move || {
             let response = execute_interactive_run_start(
                 params,
                 request.id,
@@ -384,8 +394,16 @@ impl RunnerStdioSession {
                 Arc::clone(&transport),
             );
             let _ = transport.respond(&response);
-        });
+        }));
         Ok(None)
+    }
+
+    /// Joins every run.start worker thread so their final responses and
+    /// run.finished/run.failed notifications reach the writer before exit.
+    pub(crate) fn drain_active_runs(&mut self) {
+        for handle in self.run_threads.drain(..) {
+            let _ = handle.join();
+        }
     }
 
     fn handle_stateful_request_without_notifications(
@@ -682,6 +700,110 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("shared writer poisoned")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn malformed_line_yields_parse_error_and_keeps_session_alive() {
+        let handshake = serde_json::to_string(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "runner.handshake",
+            "params": { "protocolVersion": RUNNER_PROTOCOL_VERSION }
+        }))
+        .expect("handshake request");
+        let input = format!("{{\"this is not json\n{handshake}\n");
+        let writer = SharedWriter::default();
+        let code = run_stdio_interactive(std::io::Cursor::new(input.into_bytes()), writer.clone())
+            .expect("stdio session survives malformed line");
+        assert_eq!(code, 0);
+        let output = writer.0.lock().expect("shared writer poisoned").clone();
+        let frames = String::from_utf8(output)
+            .expect("utf8 output")
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("response frame"))
+            .collect::<Vec<_>>();
+        assert_eq!(frames.len(), 2, "parse error response plus handshake");
+        assert_eq!(frames[0]["error"]["code"], -32700);
+        assert!(
+            frames[0]
+                .as_object()
+                .expect("response object")
+                .contains_key("id"),
+            "parse error response carries id null"
+        );
+        assert_eq!(frames[0]["id"], Value::Null);
+        assert_eq!(frames[1]["id"], 1);
+        assert!(frames[1]["result"].is_object(), "handshake still answered");
+    }
+
+    #[test]
+    fn stdin_eof_drains_in_flight_run_before_exit() {
+        let repo = tempfile::tempdir().expect("temp repo");
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("fixture file");
+        let mut session = RunnerStdioSession::default();
+        let transport = Arc::new(RecordingTransport::default());
+
+        let start = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "run.start".to_string(),
+            params: Some(json!({
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runId": "drain-me",
+                "repo": repo.path(),
+                "changedFiles": ["Cargo.toml"],
+                "model": { "callback": true },
+                "sessions": [{
+                    "id": "generalist",
+                    "role": "generalist",
+                    "objective": "Review drain behavior."
+                }]
+            })),
+        };
+        let immediate = session
+            .handle_interactive_request(start, transport.clone())
+            .expect("start request");
+        assert!(immediate.is_none());
+        transport.wait_for_model_request();
+        transport.release_model_request();
+
+        session.drain_active_runs();
+
+        let state = transport.state.lock().expect("transport state poisoned");
+        assert_eq!(
+            state.responses.len(),
+            1,
+            "terminal response written before exit"
+        );
+        assert_eq!(state.responses[0].id, Some(json!(1)));
+        assert!(
+            state
+                .notifications
+                .iter()
+                .any(|(method, _)| method == "run.failed" || method == "run.finished"),
+            "terminal run notification written before exit"
+        );
+    }
 
     #[derive(Default)]
     struct RecordingTransport {
