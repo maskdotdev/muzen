@@ -6,7 +6,14 @@ Progress:
 
 - Phase 1 (scheduler core) landed: planned units now run concurrently on a
   JoinSet bounded by `max_active_sessions`, with deterministic report
-  ordering and a concurrency proof test. Shards still run sequentially.
+  ordering and a concurrency proof test.
+- Phase 1.3 landed: shards run concurrently too, sharing one
+  `max_active_sessions` semaphore owned by the run.
+- Phase 0 benchmark landed: `cargo run --release --bin muzen-bench-swarm`
+  compares sequential vs concurrent over the public facade with a mock
+  model (no API key). Results committed under
+  `bench/results-concurrent-compare/summary.md`: 10.4x at 10 units,
+  12.6x at 50, 14.3x at 100, all sessions completing.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 
