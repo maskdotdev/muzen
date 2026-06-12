@@ -1751,6 +1751,81 @@ def false_sufficient_cases(results: list[CaseResult], limit: int = 12) -> list[d
     ]
 
 
+def sufficiency_calibration(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
+    with_sufficiency = [result for result in results if result.sufficiency_status is not None]
+    complete = [result for result in with_sufficiency if not result.missed_paths]
+    incomplete = [result for result in with_sufficiency if result.missed_paths]
+    complete_insufficient = [
+        result for result in complete if result.sufficiency_status == "insufficient"
+    ]
+    complete_budget_only = [
+        result
+        for result in complete_insufficient
+        if result.sufficiency_blocking_gaps == 0 and result.omitted > 0
+    ]
+    complete_with_gaps = [
+        result for result in complete_insufficient if result.sufficiency_blocking_gaps > 0
+    ]
+    incomplete_without_gaps = [
+        result for result in incomplete if result.sufficiency_blocking_gaps == 0
+    ]
+
+    def status_counts(cases: list[CaseResult]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for result in cases:
+            status = result.sufficiency_status or "none"
+            counts[status] = counts.get(status, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def sample(result: CaseResult) -> dict[str, Any]:
+        return {
+            "id": result.id,
+            "sourceGroup": result.source_group,
+            "truthSource": result.truth_source,
+            "kind": result.kind,
+            "sufficiencyStatus": result.sufficiency_status,
+            "sufficiencyBlockingGaps": result.sufficiency_blocking_gaps,
+            "omitted": result.omitted,
+            "missedPaths": result.missed_paths,
+            "candidateMissedPaths": result.candidate_missed_paths,
+            "candidatePresentMissedPaths": result.candidate_present_missed_paths,
+            "recallAt25": result.recall_at_25,
+            "firstRelevantRank": result.first_relevant_rank,
+            "tokensToFirstRelevant": result.tokens_to_first_relevant,
+        }
+
+    return {
+        "caseCount": len(with_sufficiency),
+        "pathCompleteCount": len(complete),
+        "pathIncompleteCount": len(incomplete),
+        "completeStatusCounts": status_counts(complete),
+        "incompleteStatusCounts": status_counts(incomplete),
+        "completeInsufficientCount": len(complete_insufficient),
+        "completeInsufficientWithBlockingGapsCount": len(complete_with_gaps),
+        "completeInsufficientBudgetOnlyCount": len(complete_budget_only),
+        "incompleteWithoutBlockingGapsCount": len(incomplete_without_gaps),
+        "completeInsufficientBudgetOnlyCases": [
+            sample(result)
+            for result in sorted(
+                complete_budget_only,
+                key=lambda result: (-result.omitted, result.source_group, result.id),
+            )[:limit]
+        ],
+        "incompleteWithoutBlockingGapsCases": [
+            sample(result)
+            for result in sorted(
+                incomplete_without_gaps,
+                key=lambda result: (
+                    len(result.candidate_missed_paths),
+                    len(result.candidate_present_missed_paths),
+                    result.id,
+                ),
+                reverse=True,
+            )[:limit]
+        ],
+    }
+
+
 def summarize(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
     failures = sorted(
@@ -1782,6 +1857,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
             "omissionPressure": omission_pressure(results),
             "rankedMissCauses": ranked_miss_causes(results),
             "falseSufficientCases": false_sufficient_cases(results),
+            "sufficiencyCalibration": sufficiency_calibration(results),
             "graphCoverage": graph_coverage(results),
         },
         "cases": [result.__dict__ for result in results],

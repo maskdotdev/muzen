@@ -89,6 +89,10 @@ packs that covered ground truth without a full proof.
 If a run ever reports false sufficiency, `diagnostics.falseSufficientCases`
 lists the affected cases with missed paths and candidate-generation/omission
 classification so proof regressions are actionable.
+`diagnostics.sufficiencyCalibration` separates complete-but-conservative packs
+with only budget pressure from complete packs that still have structural gaps,
+and also highlights incomplete packs whose missing truth is invisible to the
+structural checker.
 Add `--include-graph-debug` on focused diagnostic runs when you need to
 separate raw graph coverage misses from rank/packing misses. The runner invokes
 the public `muzen context graph-debug` CLI for each case, so the summary reports
