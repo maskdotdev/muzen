@@ -27,6 +27,27 @@ Run the evaluation suite:
 python3 bench/context-engine/run.py
 ```
 
+For iteration, build once and run focused diagnostic cases:
+
+```sh
+cargo build --bin muzen
+python3 bench/context-engine/run.py \
+  --muzen-bin target/debug/muzen \
+  --jobs 6 \
+  --case-id mined-1ca728244ab4-pack \
+  --output /tmp/context-case.json
+
+python3 bench/context-engine/run.py \
+  --muzen-bin target/debug/muzen \
+  --jobs 6 \
+  --case-glob '*-pack' \
+  --output /tmp/context-pack-cases.json
+```
+
+Filtered runs are diagnostic only: they skip the committed regression gate and
+cannot write `baseline.json`. Use the full unfiltered suite before accepting
+or committing quality changes.
+
 The runner drives `cargo run --bin muzen -- context query` or
 `cargo run --bin muzen -- context pack` for each case in
 `bench/context-engine/cases/`, computes recall, precision, token efficiency,

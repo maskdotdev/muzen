@@ -571,6 +571,69 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(summary["metrics"]["sufficiencyFalseSufficientCount"], 1)
 
 
+class CaseSelectionTest(unittest.TestCase):
+    def case_files(self) -> list[dict]:
+        return [
+            {
+                "name": "a",
+                "repoSource": {"kind": "fixture", "path": "fixtures/a"},
+                "cases": [
+                    {"id": "mined-alpha-pack"},
+                    {"id": "mined-alpha-query"},
+                ],
+            },
+            {
+                "name": "b",
+                "repoSource": {"kind": "fixture", "path": "fixtures/b"},
+                "cases": [{"id": "curated-beta-pack"}],
+            },
+        ]
+
+    def args(
+        self, case_id: list[str] | None = None, case_glob: list[str] | None = None
+    ) -> argparse.Namespace:
+        return argparse.Namespace(case_id=case_id or [], case_glob=case_glob or [])
+
+    def test_no_selection_keeps_case_files_unmarked(self):
+        case_files = self.case_files()
+        selected, selection = run.select_case_files(case_files, self.args())
+
+        self.assertIs(selected, case_files)
+        self.assertIsNone(selection)
+
+    def test_exact_and_glob_selection_preserve_order_without_duplicates(self):
+        selected, selection = run.select_case_files(
+            self.case_files(),
+            self.args(
+                case_id=["curated-beta-pack"],
+                case_glob=["mined-alpha-*"],
+            ),
+        )
+
+        self.assertEqual(
+            [case["id"] for case_file in selected for case in case_file["cases"]],
+            ["mined-alpha-pack", "mined-alpha-query", "curated-beta-pack"],
+        )
+        self.assertEqual(selection["selectedCaseCount"], 3)
+        self.assertTrue(selection["diagnosticOnly"])
+
+    def test_unknown_exact_case_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            run.select_case_files(self.case_files(), self.args(case_id=["missing"]))
+
+    def test_empty_glob_selection_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            run.select_case_files(self.case_files(), self.args(case_glob=["nope-*"]))
+
+    def test_filtered_run_cannot_write_baseline(self):
+        args = self.args(case_id=["curated-beta-pack"])
+        args.write_baseline = True
+        _selected, selection = run.select_case_files(self.case_files(), args)
+
+        with self.assertRaises(SystemExit):
+            run.validate_case_selection_mode(args, selection)
+
+
 class ParallelSuiteTest(unittest.TestCase):
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
