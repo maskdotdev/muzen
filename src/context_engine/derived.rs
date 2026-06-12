@@ -23,7 +23,7 @@ use super::syntax::ParsedSymbols;
 
 /// Version of the chunk / skeleton / symbol derivation. Bumping it (or
 /// `CONTEXT_ENGINE_VERSION`) invalidates all cached derived data.
-pub const CONTEXT_CHUNKER_VERSION: &str = "2";
+pub const CONTEXT_CHUNKER_VERSION: &str = "1";
 
 pub const CONTEXT_DERIVED_CACHE_SCHEMA_VERSION: &str = "muzen.context_derived_cache.v1";
 

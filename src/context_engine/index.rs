@@ -353,22 +353,6 @@ impl ContextIndex {
                 node_kind_by_file.insert(file.rel_path.clone(), node_kind);
             }
         }
-        // Cross-repo contract declarations become graph facts so
-        // sufficiency can require contract evidence through graph paths.
-        let external_contracts: BTreeMap<String, serde_json::Value> = if request
-            .include_host_context
-        {
-            request
-                .host_metadata
-                .iter()
-                .filter(|(key, _)| {
-                    host_metadata_kind(key) == ContextEvidenceKind::CrossRepoContract
-                })
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect()
-        } else {
-            BTreeMap::new()
-        };
         let graph = ContextGraph::build(ContextGraphBuildInput {
             snapshot_id: snapshot.snapshot_id.clone(),
             repo_root: &snapshot.source_root,
@@ -379,7 +363,6 @@ impl ContextIndex {
             hunk_ranges: &hunk_ranges,
             changed_paths: &changed_paths,
             co_change_commit_limit: request.limits.co_change_commit_limit,
-            external_contracts: &external_contracts,
         });
         let mut graph_expansion = graph.expand(ContextGraphExpansionRequest {
             max_hops: request.limits.graph_max_hops,

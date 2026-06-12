@@ -6,3 +6,5 @@ dist/
 __pycache__/
 *.pyc
 .pytest_cache/
+bench/results-review-quality/
+bench/results-sdk-memory-real/
