@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:36:39.927Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-IHIgwO/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-IHIgwO/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 3,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 58129,
+      "outputTokens": 665,
+      "totalTokens": 58794
+    },
+    "artifactStats": {
+      "artifacts": 9,
+      "artifactBytes": 74201
+    },
+    "elapsedMs": 10670
+  },
+  "benchmark": {
+    "elapsedMs": 11066,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Working-hours availability checks the slot start as the slot end"
+      },
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 3,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 3,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new working-hours branch sets both `start` and `end` to `slotStartTime.hour() * 60 + slotStartTime.minute()`. That changes the boundary comparison from a real interval check to a zero-length point-in-time check. As a result, a slot that starts inside working hours but ends outside them is still accepted, whereas the intended old/new behavior should reject it based on the actual slot end boundary.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_40b687382fdc27c24c05bb563529d59419c59fdc05a2cfc0a1d5da5cee086b8f",
+          "contentHash": "f145160f3d933ad3899e2975e98890f867e36dfa3d8a7258b54dcdd7be49e51d",
+          "evidenceId": "evidence-art_40b687382fdc27c24c05bb563529d59419c59fdc05a2cfc0a1d5da5cee086b8f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "contentHash": "9d2a6bc0095b6ec22cc03ff0744160b221294496b0367fc8be8fa1f790c14d2c",
+          "evidenceId": "evidence-art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_6c2830ec740b3e6291214b85e0bab035df15768d598ecbabe89ba84322c7b610",
+          "contentHash": "90b81796c565bf06408700da09bdaa9f2bc118eba15d0fa5937e08270dfe5b82",
+          "evidenceId": "evidence-art_6c2830ec740b3e6291214b85e0bab035df15768d598ecbabe89ba84322c7b610",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "59aff90561f2ede13ff0442413bd3555659308edf9a36fbbe7828e941214da4c",
+      "location": {
+        "endColumn": null,
+        "endLine": 145,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 140
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Working-hours check computes `end` from the slot start, so any slot longer than zero minutes bypasses boundary filtering",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

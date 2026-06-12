@@ -1,0 +1,14 @@
+{
+  "issues": [
+    {
+      "id": "cal-8087-import-failure-handling",
+      "title": "Async appStore import failures are not handled",
+      "keywords": ["try", "catch", "import", "failure"]
+    },
+    {
+      "id": "cal-8087-unawaited-foreach-cleanup",
+      "title": "Async forEach cleanup operations are not awaited",
+      "keywords": ["forEach", "async", "await", "cleanup"]
+    }
+  ]
+}

@@ -16,6 +16,13 @@ Case files use schema `muzen.context-eval-case.v2`:
 
 A committed baseline (`baseline.json`) gates ranking regressions: the run
 fails when recall@10 or nDCG@10 drops more than `--tolerance` below it.
+
+Every case also collects the Context Graph debug export (G7) and
+attributes each expected path missing from the retrieved top-10 to the
+stage that lost it: the graph (no node, no relationship edge, or edges
+never reached by expansion), traversal (omitted by budget/confidence),
+selection (graph candidate dropped from the pack), or ranking (retrieved
+but buried beyond the cutoff).
 """
 
 from __future__ import annotations
@@ -57,6 +64,13 @@ class CaseResult:
     prompt_injection_resistant: bool
     useful_evidence_per_1k_tokens: float
     latency_ms: float
+    graph_recall_at_10: float
+    graph_recall_at_25: float
+    graph_path_found_rate: float
+    graph_candidate_count: int
+    miss_attribution: dict[str, str]
+    expansion_omitted_by_reason: dict[str, int]
+    edge_confidence_by_kind: dict[str, dict[str, float]]
     expected_paths: list[str]
     retrieved_paths: list[str]
     missed_paths: list[str]
@@ -260,7 +274,7 @@ def base_command(muzen_bin: Path | None) -> list[str]:
 
 def run_context_case(
     case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
-) -> tuple[dict[str, Any], float]:
+) -> tuple[dict[str, Any], float, dict[str, Any]]:
     repo = materialize_repo(case_file["repoSource"])
     command = base_command(args.muzen_bin)
     command.append("context")
@@ -269,6 +283,9 @@ def run_context_case(
     else:
         command.append("query")
     command.extend(["--repo", str(repo)])
+    graph_debug_path = CORPUS_CACHE / "graph-debug" / f"{case['id']}.json"
+    graph_debug_path.parent.mkdir(parents=True, exist_ok=True)
+    command.extend(["--graph-debug-export", str(graph_debug_path)])
     # Durable derived-data cache (R9): repeated invocations over the same
     # checkout re-derive only what changed. Keyed per corpus checkout.
     cache_root = CORPUS_CACHE / "derived" / repo.name
@@ -358,7 +375,9 @@ def run_context_case(
             f"context case failed for {case['id']} with code {completed.returncode}\n"
             f"stderr:\n{completed.stderr}"
         )
-    return json.loads(completed.stdout), latency_ms
+    graph_debug = json.loads(graph_debug_path.read_text())
+    graph_debug_path.unlink()
+    return json.loads(completed.stdout), latency_ms, graph_debug
 
 
 def recall_at_k(retrieved: list[str], expected: set[str], k: int) -> float:
@@ -388,10 +407,135 @@ def tokens_to_first_relevant(evidence: list[dict[str, Any]], expected: set[str])
     return None
 
 
+# ---- Context Graph debug analysis (G7) ------------------------------------
+
+# Structural edges (containment, definition) connect every indexed file;
+# only relationship edges count as "the graph knows about this path".
+STRUCTURAL_EDGE_KINDS = {"contains", "defines", "encloses_hunk"}
+
+
+def node_key_path(key: str) -> str | None:
+    """Repo path from a canonical node key (`file:p`, `chunk:p:a-b`,
+    `symbol:p:name:a-b`)."""
+    kind, _, rest = key.partition(":")
+    if kind == "file":
+        return rest or None
+    if kind in {"chunk", "symbol"}:
+        path = rest.split(":", 1)[0]
+        return path or None
+    return None
+
+
+def graph_candidate_paths(graph_debug: dict[str, Any]) -> list[str]:
+    """Unique candidate file paths in expansion (graph-ranked) order."""
+    return list(
+        dict.fromkeys(
+            candidate["path"]
+            for candidate in graph_debug.get("candidates", [])
+            if candidate.get("path")
+        )
+    )
+
+
+def graph_relationship_paths(graph_debug: dict[str, Any]) -> set[str]:
+    """Paths touched by at least one non-structural graph edge."""
+    paths: set[str] = set()
+    for edge in graph_debug.get("edges", []):
+        if edge.get("kind") in STRUCTURAL_EDGE_KINDS:
+            continue
+        for endpoint in ("from", "to"):
+            path = node_key_path(edge.get(endpoint, ""))
+            if path:
+                paths.add(path)
+    return paths
+
+
+def graph_node_paths(graph_debug: dict[str, Any]) -> set[str]:
+    return {
+        node["path"] for node in graph_debug.get("nodes", []) if node.get("path")
+    }
+
+
+def omission_reason_by_path(graph_debug: dict[str, Any]) -> dict[str, str]:
+    reasons: dict[str, str] = {}
+    for omission in graph_debug.get("omitted", []):
+        path = omission.get("path")
+        if path and path not in reasons:
+            reasons[path] = omission.get("reason", "unknown")
+    return reasons
+
+
+def attribute_misses(
+    expected: set[str],
+    retrieved: list[str],
+    graph_debug: dict[str, Any],
+    k: int = 10,
+) -> dict[str, str]:
+    """Attribute each expected path missing from the retrieved top-k to
+    the stage that lost it. Checked in pipeline-reverse order: ranking,
+    selection, traversal, then the graph itself."""
+    candidate_paths = set(graph_candidate_paths(graph_debug))
+    omitted = omission_reason_by_path(graph_debug)
+    relationship_paths = graph_relationship_paths(graph_debug)
+    node_paths = graph_node_paths(graph_debug)
+    edges_truncated = int(graph_debug.get("truncatedEdges", 0)) > 0
+    top_k = set(retrieved[:k])
+    attribution: dict[str, str] = {}
+    for path in sorted(expected):
+        if path in top_k:
+            continue
+        if path in retrieved:
+            attribution[path] = f"ranking_buried_at_{retrieved.index(path) + 1}"
+        elif path in candidate_paths:
+            attribution[path] = "selection_dropped"
+        elif path in omitted:
+            attribution[path] = f"expansion_omitted_{omitted[path]}"
+        elif path in relationship_paths:
+            attribution[path] = "graph_unreached"
+        elif path in node_paths:
+            # A truncated edge export cannot prove the edge is absent.
+            attribution[path] = (
+                "graph_unknown_truncated" if edges_truncated else "graph_no_edge"
+            )
+        else:
+            attribution[path] = "graph_no_node"
+    return attribution
+
+
+def attribution_category(reason: str) -> str:
+    """Collapse positional/reason-suffixed attributions for aggregation."""
+    if reason.startswith("ranking_buried_at_"):
+        return "ranking_buried"
+    return reason
+
+
+def aggregate_edge_confidence(results: list["CaseResult"]) -> dict[str, dict[str, float]]:
+    """Merge per-case {kind: {count, min, max, mean}} summaries into
+    corpus-level summaries: counts sum, bounds widen, means weight by
+    edge count."""
+    merged: dict[str, dict[str, float]] = {}
+    for result in results:
+        for kind, summary in result.edge_confidence_by_kind.items():
+            count = summary.get("count", 0)
+            if count <= 0:
+                continue
+            entry = merged.setdefault(
+                kind,
+                {"count": 0, "min": summary["min"], "max": summary["max"], "mean": 0.0},
+            )
+            entry["min"] = min(entry["min"], summary["min"])
+            entry["max"] = max(entry["max"], summary["max"])
+            entry["mean"] = (entry["mean"] * entry["count"] + summary["mean"] * count) / (
+                entry["count"] + count
+            )
+            entry["count"] += count
+    return merged
+
+
 def score_case(
     case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
 ) -> CaseResult:
-    result, latency_ms = run_context_case(case_file, case, args)
+    result, latency_ms, graph_debug = run_context_case(case_file, case, args)
     evidence = result.get("evidence", [])
     expected_paths = list(dict.fromkeys(case["expectedPaths"]))
     retrieved_paths = [entry["path"] for entry in evidence if entry.get("path")]
@@ -454,6 +598,17 @@ def score_case(
         for gap in sufficiency.get("gaps", [])
         if any(kind != "no_related_tests" for kind in gap.get("missing", []))
     )
+    # Graph metrics (G7) grade the candidate generator itself, before
+    # retrieval fusion and pack budgeting touch the order.
+    graph_expected = eval_expected if eval_expected else expected_set
+    graph_retrieved = eval_retrieved if eval_expected else retrieved_unique
+    candidate_paths = graph_candidate_paths(graph_debug)
+    graph_path_found_rate = (
+        len(graph_expected & set(candidate_paths)) / len(graph_expected)
+        if graph_expected
+        else 1.0
+    )
+    miss_attribution = attribute_misses(graph_expected, graph_retrieved, graph_debug)
     return CaseResult(
         id=case["id"],
         kind=case.get("kind", case.get("command", "query")),
@@ -469,6 +624,13 @@ def score_case(
         prompt_injection_resistant=not trusted_forbidden_paths,
         useful_evidence_per_1k_tokens=useful_per_1k,
         latency_ms=latency_ms,
+        graph_recall_at_10=recall_at_k(candidate_paths, graph_expected, 10),
+        graph_recall_at_25=recall_at_k(candidate_paths, graph_expected, 25),
+        graph_path_found_rate=graph_path_found_rate,
+        graph_candidate_count=len(candidate_paths),
+        miss_attribution=miss_attribution,
+        expansion_omitted_by_reason=dict(graph_debug.get("omittedCountsByReason", {})),
+        edge_confidence_by_kind=dict(graph_debug.get("edgeConfidenceByKind", {})),
         expected_paths=expected_paths,
         retrieved_paths=retrieved_unique,
         missed_paths=missed_paths,
@@ -534,6 +696,20 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         if complete
         else None
     )
+    # G7 aggregates: where do top-10 misses die, and what does the graph
+    # itself recall before fusion/budgeting reorder it?
+    miss_attribution_counts: dict[str, int] = {}
+    for result in results:
+        for reason in result.miss_attribution.values():
+            category = attribution_category(reason)
+            miss_attribution_counts[category] = miss_attribution_counts.get(category, 0) + 1
+    expansion_omitted_by_reason: dict[str, int] = {}
+    for result in results:
+        for reason, omitted_count in result.expansion_omitted_by_reason.items():
+            expansion_omitted_by_reason[reason] = (
+                expansion_omitted_by_reason.get(reason, 0) + omitted_count
+            )
+    edge_confidence_by_kind = aggregate_edge_confidence(results)
     return {
         "schemaVersion": SUMMARY_SCHEMA_VERSION,
         "generatedAtUnixMs": int(time.time() * 1000),

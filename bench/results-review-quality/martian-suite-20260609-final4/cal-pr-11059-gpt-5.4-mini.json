@@ -1,0 +1,238 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:05:45.500Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-hKV8l8/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-hKV8l8/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 33,
+      "issue_found": 3,
+      "needs_review": 3
+    },
+    "findings": 3,
+    "modelCalls": 88,
+    "toolCalls": 169,
+    "tokens": {
+      "inputTokens": 1216298,
+      "outputTokens": 12636,
+      "totalTokens": 1228934
+    },
+    "artifactStats": {
+      "artifacts": 75,
+      "artifactBytes": 331506
+    },
+    "elapsedMs": 209426
+  },
+  "benchmark": {
+    "elapsedMs": 209544,
+    "hitRate": 0.4,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "9937015a90e70208542389f3017b0ed28bfc552be094f7d843cd57f40fabe003",
+        "title": "refreshOAuthTokens now returns a Fetch Response, but Zoho Bigin still reads `.data` from it"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "findingId": "c7c0ad6ad00cd2bbab81a2c137188b1a136b31cb34cb4b57b2f7548d73f95554",
+        "title": "Google refresh flow stores the Zod wrapper instead of the credential token object"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "title": "Office 365 Calendar refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+        "title": "Zoom video refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 4,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 4,
+    "requiredEvidenceFailures": 4,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 26,
+    "importCount": 0,
+    "needsReviewCount": 3,
+    "cleanCount": 33,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`parseRefreshTokenResponse` now returns the Zod `safeParse` wrapper, but the Google Calendar refresh path writes that wrapper directly into `credential.key`. The downstream Google credential parser expects a raw token object, so the persisted value no longer contains the fields that consumer reads (`access_token`, `expiry_date`, `refresh_token`). This causes the refresh credential shape to fail to round-trip through storage. Also observed in: packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-4519859a49e3b62e8f4ea47319bcde6206a643643194e79f5e4062d27a92f837",
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "contentHash": "5c106ed2361c35b74c2f47dd56e9686fb28116547d349ab7c3e2f4d52b3cff5b",
+          "evidenceId": "evidence-art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-4519859a49e3b62e8f4ea47319bcde6206a643643194e79f5e4062d27a92f837-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-4519859a49e3b62e8f4ea47319bcde6206a643643194e79f5e4062d27a92f837-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "c7c0ad6ad00cd2bbab81a2c137188b1a136b31cb34cb4b57b2f7548d73f95554",
+      "location": {
+        "endColumn": null,
+        "endLine": 101,
+        "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 97
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+      ],
+      "severity": "low",
+      "title": "Google refresh flow stores the Zod wrapper instead of the credential token object",
+      "validatedBy": [
+        "pack-4519859a49e3b62e8f4ea47319bcde6206a643643194e79f5e4062d27a92f837-candidate-evidence",
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The Zoho Bigin refresh path expects `refreshOAuthTokens` to yield an axios-like object with token fields under `.data`, but the helper now returns a Fetch Response object, so `tokenInfo.data` is undefined and the code cannot read or persist refreshed token fields.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_3fc6e9e874bbf8e842af24ab4d39ff95ddc2dbc5dda151e1104a5cfc3a58ce21",
+          "contentHash": "1a30aeae9f27e95330968652547a562ad8797a2c7a9ab32852f5f9935ed365d9",
+          "evidenceId": "evidence-art_3fc6e9e874bbf8e842af24ab4d39ff95ddc2dbc5dda151e1104a5cfc3a58ce21",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "9937015a90e70208542389f3017b0ed28bfc552be094f7d843cd57f40fabe003",
+      "location": {
+        "endColumn": null,
+        "endLine": 110,
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 85
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+      ],
+      "severity": "low",
+      "title": "refreshOAuthTokens now returns a Fetch Response, but Zoho Bigin still reads `.data` from it",
+      "validatedBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The Zoho CRM refresh path also expects an axios-like response with `.data`, but `refreshOAuthTokens` now returns a Fetch Response object in the shared-credential branch, so `zohoCrmTokenInfo.data` is undefined and the token refresh update logic cannot run.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_186b4d2cdca60c613511e583f8c9ab80c5438f33b48ce51eabbba9e29d23e775",
+          "contentHash": "0e335f277fb181f90527b79921082b97e538e20fc1b058ca9a04afe418678378",
+          "evidenceId": "evidence-art_186b4d2cdca60c613511e583f8c9ab80c5438f33b48ce51eabbba9e29d23e775",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "eadf3bad7a284c40750e8a15aa6057c9a1f074c300d48ef96dc64724ab566b1c",
+      "location": {
+        "endColumn": null,
+        "endLine": 234,
+        "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 204
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+      ],
+      "severity": "low",
+      "title": "refreshOAuthTokens now returns a Fetch Response, but Zoho CRM still reads `.data` from it",
+      "validatedBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

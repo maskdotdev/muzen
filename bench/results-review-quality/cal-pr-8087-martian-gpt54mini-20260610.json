@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T12:22:59.649Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8087",
+    "baseRef": "muzen-bench/pr-8087-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 12,
+    "goldenIssueCount": 2
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-kwBrhn/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-kwBrhn/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 4,
+    "completedSessions": 4,
+    "reviewUnits": 4,
+    "completedReviewUnits": 4,
+    "fileReviews": 12,
+    "fileReviewVerdicts": {
+      "clean": 12
+    },
+    "findings": 0,
+    "modelCalls": 24,
+    "toolCalls": 38,
+    "tokens": {
+      "inputTokens": 337611,
+      "outputTokens": 1854,
+      "totalTokens": 339465
+    },
+    "artifactStats": {
+      "artifacts": 28,
+      "artifactBytes": 229787
+    },
+    "elapsedMs": 40157
+  },
+  "benchmark": {
+    "elapsedMs": 40495,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-8087-import-failure-handling",
+        "title": "Async appStore import failures are not handled"
+      },
+      {
+        "issueId": "cal-8087-unawaited-foreach-cleanup",
+        "title": "Async forEach cleanup operations are not awaited"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 1,
+    "contractRiskUnits": 4,
+    "contractSeedCount": 29,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {
+      "query_scope_missing_predicate": 1
+    },
+    "contractRiskCompletionCount": 0,
+    "searchCount": 18,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 12,
+    "skippedCount": 0
+  },
+  "findings": []
+}

@@ -1,0 +1,194 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T01:51:21.390Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-yUGBvh/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-yUGBvh/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 2,
+      "clean": 17,
+      "needs_review": 20
+    },
+    "findings": 2,
+    "modelCalls": 90,
+    "toolCalls": 172,
+    "tokens": {
+      "inputTokens": 1257350,
+      "outputTokens": 11917,
+      "totalTokens": 1269267
+    },
+    "artifactStats": {
+      "artifacts": 76,
+      "artifactBytes": 347649
+    },
+    "elapsedMs": 194637
+  },
+  "benchmark": {
+    "elapsedMs": 194741,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "456727252a9373945da84cf70236746b5625a49476b3fa539ce90a58996468c4",
+        "title": "Webhook handler returns message-only JSON instead of the token-shaped payload its refresh consumers read"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 20,
+    "requiredEvidenceFailures": 20,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 24,
+    "importCount": 0,
+    "needsReviewCount": 20,
+    "cleanCount": 17,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`apps/web/pages/api/webhook/app-credential.ts` now returns `{ message: string }` on success, but the changed refresh consumers read token fields from the response body (`access_token`, `expiry_date`/`expires_in`). If those consumers are pointed at this endpoint, they will parse a message-only body and then dereference missing token fields, breaking credential refresh.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "evidenceId": "evidence-art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "456727252a9373945da84cf70236746b5625a49476b3fa539ce90a58996468c4",
+      "location": {
+        "endColumn": null,
+        "endLine": 91,
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 72
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "packages/app-store/larkcalendar/lib/CalendarService.ts",
+        "packages/app-store/office365calendar/lib/CalendarService.ts"
+      ],
+      "severity": "low",
+      "title": "Webhook handler returns message-only JSON instead of the token-shaped payload its refresh consumers read",
+      "validatedBy": [
+        "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "`refreshOAuthTokens` returns the raw `fetch` response from the credential sync endpoint, and the Google Calendar refresh path immediately reads `res?.data` and accesses `token.access_token` and `token.expiry_date`. If the endpoint is this webhook, the body is only `{ message: string }`, so those properties are missing and token refresh cannot be reconstructed from the response.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "contentHash": "5c106ed2361c35b74c2f47dd56e9686fb28116547d349ab7c3e2f4d52b3cff5b",
+          "evidenceId": "evidence-art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "147405bad4515d331fc144b348dc286c812c78ed199d22b6461f1ab449ba54b5",
+      "location": {
+        "endColumn": null,
+        "endLine": 101,
+        "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 84
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "apps/web/pages/api/webhook/app-credential.ts"
+      ],
+      "severity": "low",
+      "title": "Credential sync refresh path assumes a token JSON body and dereferences fields that the webhook does not provide",
+      "validatedBy": [
+        "pack-87981ba8e90cd8b349e9ff02c5a9232b9cb6a73187a816dbd9d9a30ae232198e-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

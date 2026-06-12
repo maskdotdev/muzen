@@ -1,0 +1,529 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:59:20.723Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-aW4vHv/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-aW4vHv/frames.jsonl"
+  },
+  "review": {
+    "status": "partial",
+    "sessions": 11,
+    "completedSessions": 10,
+    "reviewUnits": 11,
+    "completedReviewUnits": 10,
+    "fileReviews": 36,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 3,
+      "clean": 11,
+      "needs_followup": 3,
+      "needs_review": 18
+    },
+    "findings": 3,
+    "modelCalls": 76,
+    "toolCalls": 108,
+    "tokens": {
+      "inputTokens": 637980,
+      "outputTokens": 4169,
+      "totalTokens": 642149
+    },
+    "artifactStats": {
+      "artifacts": 74,
+      "artifactBytes": 355331
+    },
+    "elapsedMs": 128887
+  },
+  "benchmark": {
+    "elapsedMs": 129179,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "efd8ef34b62d374cc09dc78b0d52c3829d596b0132f8aaf2ba44f2d012b03a8f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "findingId": "efd8ef34b62d374cc09dc78b0d52c3829d596b0132f8aaf2ba44f2d012b03a8f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "findingId": "efd8ef34b62d374cc09dc78b0d52c3829d596b0132f8aaf2ba44f2d012b03a8f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "findingId": "efd8ef34b62d374cc09dc78b0d52c3829d596b0132f8aaf2ba44f2d012b03a8f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "findingId": "896c6829128b2ce0aec99aef1e576e3b0341f219ef0247392f69bb3109df135f",
+        "title": "Webhook-created credential uses app ownership instead of user ownership"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 1,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 2,
+    "contractEvidenceFailures": 18,
+    "requiredEvidenceFailures": 18,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 38,
+    "importCount": 0,
+    "needsReviewCount": 18,
+    "cleanCount": 11,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The callback sets `expiryDate` with `Math.round(Date.now() + 60 * 60)`, which adds only 3.6 seconds to the current timestamp and is inconsistent with the rest of the app-store OAuth flow that stores millisecond-based expiry times. This will cause the credential to be treated as expired almost immediately after authorization.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-009"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_1b4eff46e5313915b56bacb089b75505f3f665acd1b98975257119fc33b95398",
+          "contentHash": "a685fae1bcfebc7a22402b3b2a1c10f4b810bc7d62766ab6bb27aa2746b7f361",
+          "evidenceId": "evidence-art_1b4eff46e5313915b56bacb089b75505f3f665acd1b98975257119fc33b95398",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-009-candidate-evidence"
+        },
+        {
+          "artifactId": "art_af1580ad60ddd181e5c4a17611ab221a67a631377862f6feadeb79ae9835aa64",
+          "contentHash": "6930d9b364da7efbeaaaa248babdb3615fe9c5e00471f6460892d81237febbcb",
+          "evidenceId": "evidence-art_af1580ad60ddd181e5c4a17611ab221a67a631377862f6feadeb79ae9835aa64",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-009-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "contentHash": "a2086c33a04bd54b5ab391dbf3b464822a8a85cd8ed5c012fde7b24cdf9bd523",
+          "evidenceId": "evidence-art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-009-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-009-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "93a20294adcee237cc44274bd9c6028f21d45dff8aa750cf55e9ce4652984197",
+      "location": {
+        "endColumn": null,
+        "endLine": 10,
+        "path": "packages/app-store/zohocrm/api/callback.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 10
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Zoho CRM callback stores access-token expiry in seconds instead of milliseconds",
+      "validatedBy": [
+        "unit-009-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed credential create path writes appId/userId ownership from the webhook payload, so the persisted credential is tied to the app contract instead of the expected user credential owner.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "contract-pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_09f862ec71c9b73083fb27aff099f5bfadb8f17d3f7e5735a209d3de5dfc0db5",
+          "contentHash": "9035f04f061a8420b01b46974d3c7de36f89c8066ed64ae36fd5559d2909fc39",
+          "evidenceId": "evidence-art_09f862ec71c9b73083fb27aff099f5bfadb8f17d3f7e5735a209d3de5dfc0db5",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "evidenceId": "evidence-art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_12c8a95c4acc5aa5474d1dd91ab3f33915789bd9bfb17c1c7718b9d583f18a58",
+          "contentHash": "a4bea632b6687e674ced4ee09a2fad0e21ee2bd1b8bbc559a57371d928d2620b",
+          "evidenceId": "evidence-art_12c8a95c4acc5aa5474d1dd91ab3f33915789bd9bfb17c1c7718b9d583f18a58",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_70a84b2b8aa9b76f4292b1fb81e7daf0f499b203f79b27b9848dbe1c17754388",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_70a84b2b8aa9b76f4292b1fb81e7daf0f499b203f79b27b9848dbe1c17754388",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_b7147b731186708364fa610cce45c69767d59d96d44fe1060b2d23aab10bafd8",
+          "contentHash": "d7f3041fceb075c318b2649b920b023c8740c0580b5337749e4642439112f6b8",
+          "evidenceId": "evidence-art_b7147b731186708364fa610cce45c69767d59d96d44fe1060b2d23aab10bafd8",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d9b47ee495d2fcd30f683791b3ab24808842c5a235908cd21c53e485471da659",
+          "contentHash": "3710fda692b49904571e508bbac27bddcc5c5808b3ca17a9bc83b33b092051b2",
+          "evidenceId": "evidence-art_d9b47ee495d2fcd30f683791b3ab24808842c5a235908cd21c53e485471da659",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dc80e65d763b38cd9e902e86f442b962ab88efbb7c58922d0e3b3f1dd7c316db",
+          "contentHash": "f98102f0673648305a6553dd21f78cb4279dc8120e066a1457d6ca836f861570",
+          "evidenceId": "evidence-art_dc80e65d763b38cd9e902e86f442b962ab88efbb7c58922d0e3b3f1dd7c316db",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 8,
+      "id": "896c6829128b2ce0aec99aef1e576e3b0341f219ef0247392f69bb3109df135f",
+      "location": {
+        "endColumn": null,
+        "endLine": 93,
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 1
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Webhook-created credential uses app ownership instead of user ownership",
+      "validatedBy": [
+        "contract-pack-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed refreshOAuthTokens return path now returns the raw response instead of the credential token fields, while the changed credential consumers still read refreshed access/refresh values from packages/app-store/googlecalendar/api/callback.ts, packages/app-store/googlecalendar/lib/CalendarService.ts, packages/app-store/hubspot/api/callback.ts, packages/app-store/hubspot/lib/CalendarService.ts, packages/app-store/larkcalendar/api/callback.ts, packages/app-store/larkcalendar/lib/CalendarService.ts, packages/app-store/office365calendar/api/callback.ts, packages/app-store/office365calendar/lib/CalendarService.ts, packages/app-store/office365video/api/callback.ts, packages/app-store/office365video/lib/VideoApiAdapter.ts, packages/app-store/webex/api/callback.ts, packages/app-store/webex/lib/VideoApiAdapter.ts, packages/app-store/zoho-bigin/api/callback.ts, packages/app-store/zoho-bigin/lib/CalendarService.ts, packages/app-store/zohocrm/api/callback.ts, packages/app-store/zohocrm/lib/CalendarService.ts, packages/app-store/zoomvideo/api/callback.ts, packages/app-store/zoomvideo/lib/VideoApiAdapter.ts.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "contract-pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_044414316854297b4e9c42bfb8aee0ee2ac627784ff97f6f5e93869e37d7c613",
+          "contentHash": "1cb923766227a00db2373bb7a03c9483a037c1d57cece5b0c7000c94a0d558cc",
+          "evidenceId": "evidence-art_044414316854297b4e9c42bfb8aee0ee2ac627784ff97f6f5e93869e37d7c613",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1617a04c9c48e9f1555e2b709baddf15e2501e10b4975af751f035ed196f4982",
+          "contentHash": "bac4dad372bd87007c2094bc37010015e2e44ade13be206b6fd75006e8b346d5",
+          "evidenceId": "evidence-art_1617a04c9c48e9f1555e2b709baddf15e2501e10b4975af751f035ed196f4982",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_17910c7a7ff76983b2b9b39ca661b254c44deed7f6520e59070367a741473846",
+          "contentHash": "9fb98624a4ac3ac76b993e2d632a7d356a08a19c8c7299a5cfcd4b4a3b4c0764",
+          "evidenceId": "evidence-art_17910c7a7ff76983b2b9b39ca661b254c44deed7f6520e59070367a741473846",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1b4eff46e5313915b56bacb089b75505f3f665acd1b98975257119fc33b95398",
+          "contentHash": "a685fae1bcfebc7a22402b3b2a1c10f4b810bc7d62766ab6bb27aa2746b7f361",
+          "evidenceId": "evidence-art_1b4eff46e5313915b56bacb089b75505f3f665acd1b98975257119fc33b95398",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1b9aa3b2ae0919b7a235d8fba2dd6bcadf16068f69b704983b76e1487b04a27c",
+          "contentHash": "8591c8508d4f5f2de81daca6d5791387347015faa36fb75b1675641ef7893daa",
+          "evidenceId": "evidence-art_1b9aa3b2ae0919b7a235d8fba2dd6bcadf16068f69b704983b76e1487b04a27c",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1f532af1739c2e1f3f8f5e8239a5c9d66740604f2ac57d26cbba343bab0e8fe3",
+          "contentHash": "b39b09255368d84572481709718287fd5c1c92aad59a0d281e6e82fef55f5a5c",
+          "evidenceId": "evidence-art_1f532af1739c2e1f3f8f5e8239a5c9d66740604f2ac57d26cbba343bab0e8fe3",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_2092ecd7064e24ac4fe6d207d240ccbab60fe128bebf4a3241ecbd94a3a89402",
+          "contentHash": "60589f285c37337a536b215a0b5a418a101687417134459c76c15e18049c585d",
+          "evidenceId": "evidence-art_2092ecd7064e24ac4fe6d207d240ccbab60fe128bebf4a3241ecbd94a3a89402",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "contentHash": "5c106ed2361c35b74c2f47dd56e9686fb28116547d349ab7c3e2f4d52b3cff5b",
+          "evidenceId": "evidence-art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_27f3fe292b16ccb2b0e759731595b8e5d76968fc2c00a10ccfd9696945120fd9",
+          "contentHash": "e8b6763abf5cf8cb6443275551dbfd9e752491fb48ea1af97adb42a00f7d5f6e",
+          "evidenceId": "evidence-art_27f3fe292b16ccb2b0e759731595b8e5d76968fc2c00a10ccfd9696945120fd9",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_34d020233a5cd0b0df6b22f6194d0c2910f054be1c507c01ccd5adafd75dc24c",
+          "contentHash": "2a55ece1ec94305351d7199f7910384f7aa353825e4109b2e068a9e0fc1ee8cd",
+          "evidenceId": "evidence-art_34d020233a5cd0b0df6b22f6194d0c2910f054be1c507c01ccd5adafd75dc24c",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_392f5ee3ca34d6430b49ba0e1f4fdbd61299c22c21677981672b03996dbca98c",
+          "contentHash": "982b06d4329563433a90f2402ea5030ac1f7091e2f9f6255082b3c79184d59c1",
+          "evidenceId": "evidence-art_392f5ee3ca34d6430b49ba0e1f4fdbd61299c22c21677981672b03996dbca98c",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_4058eea80145bad1647c71618c1be88b3b2d67feaf3d0181d7ee74c2f0e45f7f",
+          "contentHash": "ad878ef31c868f046a5d1c22a13226c318707269387b929f2fd0a04a7bea2e6a",
+          "evidenceId": "evidence-art_4058eea80145bad1647c71618c1be88b3b2d67feaf3d0181d7ee74c2f0e45f7f",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_47944f271ac36434a0069b0f889eed4372817445a205eebef0ecf35f7be25479",
+          "contentHash": "367025cc37fb0ef5cb592699accb5471c1769c91cc97c1559fc9c3ef15aa38f7",
+          "evidenceId": "evidence-art_47944f271ac36434a0069b0f889eed4372817445a205eebef0ecf35f7be25479",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_49f7160d86bb53cda5733e958875a338e79df0ce71ff8e69c8f6dd98b8a6154a",
+          "contentHash": "a50c562afd2008337b0a0aacb0955a56838820568e92dcf2d193c0c25564ef1b",
+          "evidenceId": "evidence-art_49f7160d86bb53cda5733e958875a338e79df0ce71ff8e69c8f6dd98b8a6154a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_4d31983e2755714c3f4b2456a733c46f4dd5c89b42ca9a598390afad3dbf9b28",
+          "contentHash": "3faca92509033c868ada77cdfb717bbca61ba20d0f3ee2177d65078ef1c5a7be",
+          "evidenceId": "evidence-art_4d31983e2755714c3f4b2456a733c46f4dd5c89b42ca9a598390afad3dbf9b28",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_7043dd776a539b2f14abe564317c4b37b2333065d93f000a6550c3ac13591725",
+          "contentHash": "9af85963b9d8ec52b9f28c1b32bd8f596ce74323b9835510899382be14c972a3",
+          "evidenceId": "evidence-art_7043dd776a539b2f14abe564317c4b37b2333065d93f000a6550c3ac13591725",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_7379a00c4cc441122a7e6ef68d4604a2f55863184f9c32c949f852f81881403a",
+          "contentHash": "12c1444a282556d3ee68862756c0f93559663143d8f70e73ec8b28c31898f7ea",
+          "evidenceId": "evidence-art_7379a00c4cc441122a7e6ef68d4604a2f55863184f9c32c949f852f81881403a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_7b72c58f4429e26a5c327059be90cebe25b9c57f1c747d0d57c8f3989da6b261",
+          "contentHash": "3aa0bc56c326ec660dee00d8a1235e4f5a0dab739746411364067449b9fc86bf",
+          "evidenceId": "evidence-art_7b72c58f4429e26a5c327059be90cebe25b9c57f1c747d0d57c8f3989da6b261",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_872e13e5b45b8da383ac37be2eba55b0db3559981bf1d3ebb66ea5a1d4ca698e",
+          "contentHash": "62c5249494216181496406bc712daa99b3fb59229e3ca7375ec4d47839d3b9fb",
+          "evidenceId": "evidence-art_872e13e5b45b8da383ac37be2eba55b0db3559981bf1d3ebb66ea5a1d4ca698e",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_92219a4c4df7681d6b9db10bd2095e2a0070cd141ab7d28d05e3c0708e92463d",
+          "contentHash": "0d98db7f024a5cbcd1a707af1cbce24a40e8b8bf44688215f8df2fdae0c519dd",
+          "evidenceId": "evidence-art_92219a4c4df7681d6b9db10bd2095e2a0070cd141ab7d28d05e3c0708e92463d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_af1580ad60ddd181e5c4a17611ab221a67a631377862f6feadeb79ae9835aa64",
+          "contentHash": "6930d9b364da7efbeaaaa248babdb3615fe9c5e00471f6460892d81237febbcb",
+          "evidenceId": "evidence-art_af1580ad60ddd181e5c4a17611ab221a67a631377862f6feadeb79ae9835aa64",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_b107c4ceb81fb69dba6566917168b5195b00c13351c682cbda8f833d012bafab",
+          "contentHash": "9c755285d6fbe57da09e8f7141ebf4ad9ea941a07f0139084fc9701d9aae216e",
+          "evidenceId": "evidence-art_b107c4ceb81fb69dba6566917168b5195b00c13351c682cbda8f833d012bafab",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_b8245751b2204c18d42b5e4e5e89f78feb610401a13f07a300636609db2733f9",
+          "contentHash": "0bf31f11b7e2c554ed9ef34a0c4ecf25822efd5da83128a45fec71dbb8032ee2",
+          "evidenceId": "evidence-art_b8245751b2204c18d42b5e4e5e89f78feb610401a13f07a300636609db2733f9",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c8027ca3b87b7802c5a740ad50c622943cedab2ff0ef8dff6a77ac0cf80afe11",
+          "contentHash": "38f089c1b2ce888f2bc261dfc6086455d1326bdfdbf6c9c7439caab696e545d1",
+          "evidenceId": "evidence-art_c8027ca3b87b7802c5a740ad50c622943cedab2ff0ef8dff6a77ac0cf80afe11",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c863371789aebe4ad15cb7f80fd2aab16ca937bd796195e4f7a2e804c7bf6721",
+          "contentHash": "9402634ea55c0b755d4bc9ecdf9077437ba7c04533ca16327ee30666a1c7d140",
+          "evidenceId": "evidence-art_c863371789aebe4ad15cb7f80fd2aab16ca937bd796195e4f7a2e804c7bf6721",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "contentHash": "a2086c33a04bd54b5ab391dbf3b464822a8a85cd8ed5c012fde7b24cdf9bd523",
+          "evidenceId": "evidence-art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d9b47ee495d2fcd30f683791b3ab24808842c5a235908cd21c53e485471da659",
+          "contentHash": "3710fda692b49904571e508bbac27bddcc5c5808b3ca17a9bc83b33b092051b2",
+          "evidenceId": "evidence-art_d9b47ee495d2fcd30f683791b3ab24808842c5a235908cd21c53e485471da659",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eadb61097e7aabb464a9ccbc3fe55db0df4540a980c3f19df2db3ccbe7337fde",
+          "contentHash": "0cde28c49e899b3dfaf23e5a6538bb9d2be030005f3f0696213786deba82bd8c",
+          "evidenceId": "evidence-art_eadb61097e7aabb464a9ccbc3fe55db0df4540a980c3f19df2db3ccbe7337fde",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2346b69fef27e61619db99a0be657ff463e248253444912f8ea2e9581113b19",
+          "contentHash": "ba20a20b96d959f8b0878d1cb6c3ffec1703623942c68b9c87eb5f2b30b5fa78",
+          "evidenceId": "evidence-art_f2346b69fef27e61619db99a0be657ff463e248253444912f8ea2e9581113b19",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f6609391ba6b3495c327ef430a0ce6f503d775ded580f57d39243629b28b005d",
+          "contentHash": "52cd63e857b89e1eeb2df3d88e4cde070b4ce159eeb42c5427df072aa8507d61",
+          "evidenceId": "evidence-art_f6609391ba6b3495c327ef430a0ce6f503d775ded580f57d39243629b28b005d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_fa88e292681aea578bc5592d223499444ff576de6c220d0973f4760152ea5b31",
+          "contentHash": "28c650b3f0c957d0eba8cc908d0a52575a0b0e7d1436e32763aa33e97c87d90f",
+          "evidenceId": "evidence-art_fa88e292681aea578bc5592d223499444ff576de6c220d0973f4760152ea5b31",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_fc457cf8c06c6cff0e0f19595a103960b5aceb7a9faf460a11c59ed98701c7c5",
+          "contentHash": "8fc31adf3fe594abe06892d4c803080afd22ac805be6f730b0c71a4bce6efb3f",
+          "evidenceId": "evidence-art_fc457cf8c06c6cff0e0f19595a103960b5aceb7a9faf460a11c59ed98701c7c5",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 34,
+      "id": "efd8ef34b62d374cc09dc78b0d52c3829d596b0132f8aaf2ba44f2d012b03a8f",
+      "location": {
+        "endColumn": null,
+        "endLine": 22,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 1
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/googlecalendar/api/callback.ts",
+        "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "packages/app-store/hubspot/api/callback.ts",
+        "packages/app-store/hubspot/lib/CalendarService.ts",
+        "packages/app-store/larkcalendar/api/callback.ts",
+        "packages/app-store/larkcalendar/lib/CalendarService.ts",
+        "packages/app-store/office365calendar/api/callback.ts",
+        "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "packages/app-store/office365video/api/callback.ts",
+        "packages/app-store/office365video/lib/VideoApiAdapter.ts",
+        "packages/app-store/webex/api/callback.ts",
+        "packages/app-store/webex/lib/VideoApiAdapter.ts",
+        "packages/app-store/zoho-bigin/api/callback.ts",
+        "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "packages/app-store/zohocrm/api/callback.ts",
+        "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "packages/app-store/zoomvideo/api/callback.ts",
+        "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts"
+      ],
+      "severity": "low",
+      "title": "refreshOAuthTokens returns the credential response shape callers do not store",
+      "validatedBy": [
+        "contract-pack-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

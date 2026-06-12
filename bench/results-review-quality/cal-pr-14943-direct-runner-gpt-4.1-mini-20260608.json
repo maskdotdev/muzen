@@ -1,0 +1,61 @@
+{
+  "generatedAtUtc": "2026-06-08T01:24:50.102Z",
+  "elapsedMs": 14420,
+  "model": "gpt-4.1-mini",
+  "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+  "changedFiles": [
+    "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+    "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+    "packages/prisma/schema.prisma"
+  ],
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "real-pr-14943-1780881875686",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+      }
+    ],
+    "status": "partial",
+    "summary": {
+      "artifactBytes": 11054,
+      "artifacts": 5,
+      "completedSessions": 0,
+      "elapsedMs": 14272,
+      "findings": 0,
+      "inputTokens": 9190,
+      "modelCalls": 5,
+      "outputTokens": 133,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 5,
+      "totalTokens": 9323
+    }
+  },
+  "notifications": 69,
+  "notificationMethods": {
+    "event.runtime": 34,
+    "event.review": 34,
+    "run.finished": 1
+  },
+  "stderr": null
+}

@@ -19,6 +19,11 @@ use super::model::{
     ContextGraphSource, ContextNode, ContextNodeId, ContextNodeKind,
 };
 
+/// Confidence for `mod name;` containment edges: a declared route, but
+/// containment rather than usage -- ranked below resolved imports so
+/// module parents do not outrank true dependencies in expansion.
+const MOD_DECLARATION_CONFIDENCE: f32 = 0.55;
+
 /// Cap on bare-name fallback fan-out: a common name defined in many files
 /// would otherwise create noise edges.
 const NAME_FALLBACK_MAX_DEFINERS: usize = 4;
@@ -44,6 +49,9 @@ pub struct ContextGraphBuildInput<'a> {
     pub hunk_ranges: &'a BTreeMap<String, Vec<ContextRange>>,
     pub changed_paths: &'a BTreeSet<RepoPath>,
     pub co_change_commit_limit: usize,
+    /// Cross-repo contracts declared by host metadata, keyed by the
+    /// metadata key; values may name the repository paths they cover.
+    pub external_contracts: &'a BTreeMap<String, serde_json::Value>,
 }
 
 impl ContextGraph {
@@ -235,6 +243,9 @@ impl ContextGraph {
         // ---- Import, reference, and test edges from resolvers.
         build_reference_edges(&mut graph, &input, &provenance);
 
+        // ---- Rust `mod name;` edges for modules nothing else reaches.
+        build_mod_declaration_edges(&mut graph, &input, &provenance);
+
         // ---- Same-module siblings of changed files, stored once with
         // ordered endpoints.
         let mut same_module_pairs: BTreeSet<(RepoPath, RepoPath)> = BTreeSet::new();
@@ -305,6 +316,13 @@ impl ContextGraph {
         // ---- Test-convention edges: stem-matching test files for
         // changed files, so sufficiency never recreates stem logic.
         build_test_convention_edges(&mut graph, &input, &provenance);
+
+        // ---- Configures edges: manifest/config files point at the
+        // targets they declare, so config sufficiency is graph-derived.
+        build_configures_edges(&mut graph, &input, &provenance);
+
+        // ---- External contract edges from host metadata declarations.
+        build_external_contract_edges(&mut graph, &input, &provenance);
 
         graph
     }
@@ -654,6 +672,403 @@ fn build_test_convention_edges(
     }
 }
 
+/// Rust `mod name;` edges, emitted only for child modules that resolver
+/// edges left orphaned (no cross-file Imports/References/Tests
+/// in-edges). A module parent declares every submodule, so emitting the
+/// edge unconditionally turns `lib.rs`/`mod.rs` into hop-1 hubs that
+/// outrank true dependencies; the declaration only adds recall when
+/// nothing else connects the child.
+fn build_mod_declaration_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    let paths = graph.file_paths.clone();
+    for (importer, parsed) in input.parsed_by_file {
+        if parsed.mod_declarations.is_empty() || !importer.display().ends_with(".rs") {
+            continue;
+        }
+        for name in &parsed.mod_declarations {
+            let Some(target) = resolve_mod_declaration(importer, name, &paths) else {
+                continue;
+            };
+            if target == *importer {
+                continue;
+            }
+            let connected = graph.file_referencers(&target).any(|edge| {
+                matches!(
+                    edge.kind,
+                    ContextEdgeKind::Imports | ContextEdgeKind::References | ContextEdgeKind::Tests
+                )
+            });
+            if connected {
+                continue;
+            }
+            let from = ContextNodeId::File {
+                path: importer.clone(),
+            };
+            let to = ContextNodeId::File {
+                path: target.clone(),
+            };
+            let detail = format!("mod declaration '{name}'");
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &to, ContextEdgeKind::Imports, &detail),
+                from,
+                to,
+                kind: ContextEdgeKind::Imports,
+                confidence: MOD_DECLARATION_CONFIDENCE,
+                reason: format!(
+                    "{} declares module {name} ({})",
+                    importer.display(),
+                    target.display()
+                ),
+                provenance: provenance(ContextGraphSource::ImportResolver, detail),
+            });
+        }
+    }
+}
+
+/// Cap on `Configures` targets per config file: a manifest declaring
+/// more routes than this contributes its first declarations only.
+const MAX_CONFIGURES_TARGETS_PER_CONFIG: usize = 16;
+
+/// `Configures` edges from manifest/config files to the snapshot files
+/// they declare: package.json entry points, exports, and bins; tsconfig
+/// extends chains and `files`; Cargo.toml lib/bin paths, workspace
+/// members, and conventional crate roots.
+fn build_configures_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    let paths = graph.file_paths.clone();
+    for (config_path, text) in input.file_contents {
+        if !paths.contains(config_path) {
+            continue;
+        }
+        let config_text = config_path.display();
+        let (dir, file_name) = match config_text.rsplit_once('/') {
+            Some((dir, file_name)) => (dir, file_name),
+            None => ("", config_text.as_str()),
+        };
+        let targets: Vec<(RepoPath, String)> = match file_name {
+            "package.json" => parse_jsonc(text)
+                .map(|value| package_configure_targets(dir, &value, &paths))
+                .unwrap_or_default(),
+            "tsconfig.json" | "jsconfig.json" => parse_jsonc(text)
+                .map(|value| tsconfig_configure_targets(dir, &value, &paths))
+                .unwrap_or_default(),
+            "Cargo.toml" => cargo_configure_targets(dir, text, &paths),
+            _ => continue,
+        };
+        // One edge per (config, target): the first declared route wins.
+        let mut seen: BTreeSet<RepoPath> = BTreeSet::new();
+        let from = ContextNodeId::File {
+            path: config_path.clone(),
+        };
+        for (target, route) in targets {
+            if target == *config_path || !seen.insert(target.clone()) {
+                continue;
+            }
+            if seen.len() > MAX_CONFIGURES_TARGETS_PER_CONFIG {
+                break;
+            }
+            let to = ContextNodeId::File {
+                path: target.clone(),
+            };
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &to, ContextEdgeKind::Configures, &route),
+                from: from.clone(),
+                to,
+                kind: ContextEdgeKind::Configures,
+                confidence: DECLARED_RESOLUTION_CONFIDENCE,
+                reason: format!(
+                    "{} configures {} ({route})",
+                    config_path.display(),
+                    target.display()
+                ),
+                provenance: provenance(ContextGraphSource::SnapshotManifest, route),
+            });
+        }
+    }
+}
+
+/// Declared targets in a `package.json`: entry-point fields, bin
+/// entries, and `exports` map string leaves.
+fn package_configure_targets(
+    dir: &str,
+    value: &serde_json::Value,
+    paths: &BTreeSet<RepoPath>,
+) -> Vec<(RepoPath, String)> {
+    let mut targets = Vec::new();
+    let add = |spec: &str, route: String, targets: &mut Vec<(RepoPath, String)>| {
+        if let Some(joined) = normalize_join(dir, spec) {
+            if let Some(found) = try_paths(ts_file_candidates(&joined), paths) {
+                targets.push((found, route));
+            }
+        }
+    };
+    for key in ["main", "module", "types", "typings", "browser"] {
+        if let Some(spec) = value.get(key).and_then(|spec| spec.as_str()) {
+            add(spec, format!("{key} '{spec}'"), &mut targets);
+        }
+    }
+    match value.get("bin") {
+        Some(serde_json::Value::String(spec)) => add(spec, format!("bin '{spec}'"), &mut targets),
+        Some(serde_json::Value::Object(map)) => {
+            for (name, spec) in map {
+                if let Some(spec) = spec.as_str() {
+                    add(spec, format!("bin '{name}' -> '{spec}'"), &mut targets);
+                }
+            }
+        }
+        _ => {}
+    }
+    if let Some(exports) = value.get("exports") {
+        let mut specs = Vec::new();
+        collect_export_path_strings(exports, &mut specs);
+        for spec in specs {
+            add(&spec, format!("exports '{spec}'"), &mut targets);
+        }
+    }
+    targets
+}
+
+/// String leaves of an `exports` map that name concrete relative paths
+/// (wildcard patterns configure a family, not a file; skip them).
+fn collect_export_path_strings(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(spec) => {
+            if spec.starts_with("./") && !spec.contains('*') {
+                out.push(spec.clone());
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for nested in map.values() {
+                collect_export_path_strings(nested, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Declared targets in a tsconfig/jsconfig: the `extends` chain and the
+/// explicit `files` list.
+fn tsconfig_configure_targets(
+    dir: &str,
+    value: &serde_json::Value,
+    paths: &BTreeSet<RepoPath>,
+) -> Vec<(RepoPath, String)> {
+    let mut targets = Vec::new();
+    let extend_specs: Vec<&str> = match value.get("extends") {
+        Some(serde_json::Value::String(spec)) => vec![spec.as_str()],
+        Some(serde_json::Value::Array(specs)) => {
+            specs.iter().filter_map(|spec| spec.as_str()).collect()
+        }
+        _ => Vec::new(),
+    };
+    for spec in extend_specs {
+        if !spec.starts_with("./") && !spec.starts_with("../") {
+            continue;
+        }
+        let Some(joined) = normalize_join(dir, spec) else {
+            continue;
+        };
+        let candidates = if joined.ends_with(".json") {
+            vec![joined.clone()]
+        } else {
+            vec![format!("{joined}.json"), joined]
+        };
+        if let Some(found) = try_paths(candidates, paths) {
+            targets.push((found, format!("extends '{spec}'")));
+        }
+    }
+    if let Some(files) = value.get("files").and_then(|files| files.as_array()) {
+        for spec in files.iter().filter_map(|spec| spec.as_str()) {
+            if let Some(joined) = normalize_join(dir, spec) {
+                if let Some(found) = try_paths([joined], paths) {
+                    targets.push((found, format!("files '{spec}'")));
+                }
+            }
+        }
+    }
+    targets
+}
+
+/// Declared targets in a Cargo manifest: `[lib]`/`[[bin]]` path keys,
+/// workspace members (their manifests), and conventional crate roots.
+fn cargo_configure_targets(
+    dir: &str,
+    text: &str,
+    paths: &BTreeSet<RepoPath>,
+) -> Vec<(RepoPath, String)> {
+    let mut targets = Vec::new();
+    let mut section = String::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            section = trimmed.trim_matches(['[', ']']).to_string();
+            continue;
+        }
+        match section.as_str() {
+            "lib" | "bin" => {
+                if let Some(spec) = toml_string_value(trimmed, "path") {
+                    if let Some(joined) = normalize_join(dir, &spec) {
+                        if let Some(found) = try_paths([joined], paths) {
+                            targets.push((found, format!("[{section}] path '{spec}'")));
+                        }
+                    }
+                }
+            }
+            "workspace" => {
+                if trimmed.starts_with("members") {
+                    let mut buffer = trimmed.to_string();
+                    while !buffer.contains(']') {
+                        match lines.next() {
+                            Some(next) => buffer.push_str(next.trim()),
+                            None => break,
+                        }
+                    }
+                    for member in quoted_strings(&buffer) {
+                        if member.contains('*') {
+                            continue;
+                        }
+                        if let Some(joined) = normalize_join(dir, &format!("{member}/Cargo.toml")) {
+                            if let Some(found) = try_paths([joined], paths) {
+                                targets.push((found, format!("workspace member '{member}'")));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for conventional in ["src/lib.rs", "src/main.rs"] {
+        if let Some(joined) = normalize_join(dir, conventional) {
+            if let Some(found) = try_paths([joined], paths) {
+                targets.push((found, format!("crate root '{conventional}'")));
+            }
+        }
+    }
+    targets
+}
+
+/// `key = "value"` on one TOML line; enough for the manifest keys the
+/// graph reads, without a TOML dependency.
+fn toml_string_value(line: &str, key: &str) -> Option<String> {
+    let rest = line.strip_prefix(key)?.trim_start();
+    let rest = rest.strip_prefix('=')?.trim_start();
+    let rest = rest.strip_prefix('"')?;
+    rest.split_once('"').map(|(value, _)| value.to_string())
+}
+
+fn quoted_strings(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('"') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('"') else {
+            break;
+        };
+        out.push(after[..end].to_string());
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+/// Cap on `ExternalContract` edges per contract when the declaration
+/// names no paths and falls back to the review's changed files.
+const MAX_CONTRACT_SCOPE_FILES: usize = 32;
+
+/// `ExternalContract` edges from covered file nodes to the repo node
+/// (which stands in for the host-scoped contract until contracts get
+/// richer structure). Paths the declaration names resolve at full
+/// confidence; a declaration without paths scopes to the changed files
+/// at reduced confidence so coverage checks still see it.
+fn build_external_contract_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    if input.external_contracts.is_empty() {
+        return;
+    }
+    let repo_id = ContextNodeId::Repo {
+        snapshot_id: input.snapshot_id.clone(),
+    };
+    for (key, value) in input.external_contracts {
+        let mut covered: Vec<(RepoPath, f32, String)> = Vec::new();
+        for spec in contract_declared_paths(value) {
+            let Ok(path) = RepoPath::parse(&spec) else {
+                continue;
+            };
+            if graph.file_paths.contains(&path) {
+                covered.push((
+                    path,
+                    DECLARED_RESOLUTION_CONFIDENCE,
+                    format!("declared path '{spec}'"),
+                ));
+            }
+        }
+        if covered.is_empty() {
+            covered.extend(
+                input
+                    .changed_paths
+                    .iter()
+                    .filter(|path| graph.file_paths.contains(*path))
+                    .take(MAX_CONTRACT_SCOPE_FILES)
+                    .map(|path| {
+                        (
+                            path.clone(),
+                            0.5,
+                            "no declared paths; scoped to changed files".to_string(),
+                        )
+                    }),
+            );
+        }
+        for (path, confidence, detail) in covered {
+            let from = ContextNodeId::File { path: path.clone() };
+            let detail = format!("{key}: {detail}");
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &repo_id, ContextEdgeKind::ExternalContract, &detail),
+                from,
+                to: repo_id.clone(),
+                kind: ContextEdgeKind::ExternalContract,
+                confidence,
+                reason: format!(
+                    "{} is covered by external contract '{key}'",
+                    path.display()
+                ),
+                provenance: provenance(ContextGraphSource::HostMetadata, detail),
+            });
+        }
+    }
+}
+
+/// Paths a contract declaration names: `paths`/`files` arrays or a
+/// single `path` string in the metadata value.
+fn contract_declared_paths(value: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(map) = value.as_object() else {
+        return out;
+    };
+    for key in ["paths", "files"] {
+        if let Some(entries) = map.get(key).and_then(|entries| entries.as_array()) {
+            out.extend(
+                entries
+                    .iter()
+                    .filter_map(|entry| entry.as_str().map(str::to_string)),
+            );
+        }
+    }
+    if let Some(path) = map.get("path").and_then(|path| path.as_str()) {
+        out.push(path.to_string());
+    }
+    out
+}
+
 fn path_stem(path: &str) -> String {
     std::path::Path::new(path)
         .file_stem()
@@ -709,9 +1124,14 @@ fn is_near(test_path: &RepoPath, changed: &RepoPath) -> bool {
     false
 }
 
-/// One hop through a barrel/re-export file: statements in `target` that
+/// Bound on re-export chain depth: barrels of barrels resolve, but a
+/// pathological chain cannot recurse unbounded.
+const REEXPORT_MAX_DEPTH: usize = 3;
+
+/// Hops through barrel/re-export files: statements in `target` that
 /// bind `name` (named re-export) or bind nothing (`export * from`,
-/// wildcard `use`) resolve to the files that actually provide the name.
+/// wildcard `use`) resolve to the files that actually provide the name,
+/// following chained barrels up to `REEXPORT_MAX_DEPTH`.
 fn barrel_hops(
     target: &RepoPath,
     target_parsed: &ParsedSymbols,
@@ -721,6 +1141,49 @@ fn barrel_hops(
     resolver: &ModuleResolver,
 ) -> Vec<RepoPath> {
     let mut hops = Vec::new();
+    let mut visited = BTreeSet::new();
+    visited.insert(target.clone());
+    collect_barrel_hops(
+        target,
+        target_parsed,
+        name,
+        parsed_by_file,
+        paths,
+        resolver,
+        0,
+        &mut visited,
+        &mut hops,
+    );
+    hops.sort();
+    hops.dedup();
+    hops
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_barrel_hops(
+    target: &RepoPath,
+    target_parsed: &ParsedSymbols,
+    name: &str,
+    parsed_by_file: &BTreeMap<RepoPath, ParsedSymbols>,
+    paths: &BTreeSet<RepoPath>,
+    resolver: &ModuleResolver,
+    depth: usize,
+    visited: &mut BTreeSet<RepoPath>,
+    hops: &mut Vec<RepoPath>,
+) {
+    // `mod name;` declarations are routes too: `use util::helpers`
+    // resolves to `util.rs`, whose `mod helpers;` names the child file.
+    if target_parsed
+        .mod_declarations
+        .iter()
+        .any(|declared| declared == name)
+    {
+        if let Some(child) = resolve_mod_declaration(target, name, paths) {
+            if child != *target {
+                hops.push(child);
+            }
+        }
+    }
     for statement in &target_parsed.import_statements {
         let binds_name = statement.names.iter().any(|bound| bound == name);
         let wildcard = statement.names.is_empty();
@@ -733,21 +1196,59 @@ fn barrel_hops(
         let Some(resolved) = resolve_module(target, module, paths, resolver) else {
             continue;
         };
+        let resolved_parsed = parsed_by_file.get(&resolved.path);
+        let defines = resolved_parsed
+            .is_some_and(|parsed| parsed.definitions.iter().any(|definition| definition == name));
+        let may_recurse = depth + 1 < REEXPORT_MAX_DEPTH
+            && !defines
+            && !visited.contains(&resolved.path)
+            && resolved_parsed.is_some();
         if wildcard {
-            // A wildcard re-export only justifies the hop when the
-            // resolved file actually defines the name.
-            let defines = parsed_by_file
-                .get(&resolved.path)
-                .is_some_and(|parsed| parsed.definitions.iter().any(|d| d == name));
-            if !defines {
-                continue;
+            // A wildcard re-export justifies the hop only when the
+            // resolved file defines the name; otherwise it may be a
+            // deeper barrel that re-exports it.
+            if defines {
+                hops.push(resolved.path);
+            } else if may_recurse {
+                visited.insert(resolved.path.clone());
+                collect_barrel_hops(
+                    &resolved.path,
+                    resolved_parsed.unwrap(),
+                    name,
+                    parsed_by_file,
+                    paths,
+                    resolver,
+                    depth + 1,
+                    visited,
+                    hops,
+                );
             }
+            continue;
         }
-        hops.push(resolved.path);
+        if defines || !may_recurse {
+            hops.push(resolved.path);
+            continue;
+        }
+        // A named re-export of a name the resolved file does not define:
+        // chase the chain, but keep the direct hop if nothing deeper
+        // provides the name (the existing one-hop behavior).
+        let before = hops.len();
+        visited.insert(resolved.path.clone());
+        collect_barrel_hops(
+            &resolved.path,
+            resolved_parsed.unwrap(),
+            name,
+            parsed_by_file,
+            paths,
+            resolver,
+            depth + 1,
+            visited,
+            hops,
+        );
+        if hops.len() == before {
+            hops.push(resolved.path);
+        }
     }
-    hops.sort();
-    hops.dedup();
-    hops
 }
 
 /// Identifier occurrence with word boundaries: `getDb` matches `getDb(`
@@ -803,11 +1304,12 @@ pub(crate) struct ResolvedModule {
 }
 
 /// All resolver configuration discovered in the snapshot: tsconfig path
-/// aliases and workspace package exports.
+/// aliases, workspace package exports, and Rust workspace crates.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ModuleResolver {
     ts: TsProjectConfig,
     packages: PackageExports,
+    rust: RustWorkspace,
 }
 
 impl ModuleResolver {
@@ -815,6 +1317,7 @@ impl ModuleResolver {
         Self {
             ts: TsProjectConfig::from_files(file_contents),
             packages: PackageExports::from_files(file_contents),
+            rust: RustWorkspace::from_files(file_contents),
         }
     }
 }
@@ -835,14 +1338,31 @@ pub(crate) fn resolve_module(
             confidence: DECLARED_RESOLUTION_CONFIDENCE,
         });
     }
-    if module.contains("::") || module == "crate" || module == "self" || module == "super" {
-        return resolve_rust_path(importer, module, paths).map(|path| ResolvedModule {
-            path,
-            via: format!("rust path '{module}'"),
-            confidence: DECLARED_RESOLUTION_CONFIDENCE,
-        });
-    }
     let importer_text = importer.display();
+    // A single-segment module from a Rust importer (`use other_crate::X`
+    // records module `other_crate`) is a rust path only when it names a
+    // workspace crate: arbitrary single segments resolve better through
+    // the bare-name fallback's definer scan.
+    if module.contains("::")
+        || module == "crate"
+        || module == "self"
+        || module == "super"
+        || (importer_text.ends_with(".rs") && resolver.rust.knows_crate(module))
+    {
+        return resolve_rust_path(importer, module, paths, &resolver.rust).map(
+            |(path, crate_root_fallback)| ResolvedModule {
+                path,
+                via: format!("rust path '{module}'"),
+                // A crate-root file catching leftover item segments is a
+                // layout guess, not a declared module file.
+                confidence: if crate_root_fallback {
+                    LAYOUT_RESOLUTION_CONFIDENCE
+                } else {
+                    DECLARED_RESOLUTION_CONFIDENCE
+                },
+            },
+        );
+    }
     if importer_text.ends_with(".py") {
         if let Some(stripped) = module.strip_prefix('.') {
             return resolve_python_relative_module(importer, stripped, paths).map(|path| {
@@ -942,12 +1462,18 @@ fn ts_file_candidates(joined: &str) -> Vec<String> {
 }
 
 /// Rust `use` paths: `crate::auth::token` -> `src/auth/token.rs` (or
-/// `mod.rs`), `super::x` relative to the importer's parent module.
+/// `mod.rs`), `super::x` relative to the importer's parent module, and
+/// workspace crate names (`other_crate::foo`) rooted at that crate's
+/// source directory.
+/// Returns the resolved file plus whether it was reached through the
+/// crate-root (`lib.rs`/`main.rs`) layout fallback rather than a module
+/// file named by the path.
 fn resolve_rust_path(
     importer: &RepoPath,
     module: &str,
     paths: &BTreeSet<RepoPath>,
-) -> Option<RepoPath> {
+    workspace: &RustWorkspace,
+) -> Option<(RepoPath, bool)> {
     let importer_text = importer.display();
     let importer_dir = importer_text
         .rsplit_once('/')
@@ -955,10 +1481,21 @@ fn resolve_rust_path(
         .unwrap_or("");
     let mut segments: Vec<String> = Vec::new();
     let mut roots: Vec<String> = Vec::new();
+    // Source roots whose crate-root files (`lib.rs`, `main.rs`) should
+    // catch paths whose segments are all items inside the crate root.
+    let mut crate_root_dirs: Vec<String> = Vec::new();
     let mut raw = module.split("::").peekable();
     match raw.peek().copied() {
         Some("crate") => {
             raw.next();
+            // The importer's own crate: its nearest enclosing `src`
+            // directory in a workspace, with repo-level fallbacks. No
+            // crate-root file fallback here: an own-crate item path that
+            // names no module file resolves better through the bare-name
+            // definer scan than by landing on `lib.rs`.
+            if let Some(own_src) = nearest_src_root(importer_dir) {
+                roots.push(own_src);
+            }
             roots.push("src".to_string());
             roots.push(String::new());
         }
@@ -978,16 +1515,25 @@ fn resolve_rust_path(
             roots.push(importer_dir.to_string());
             roots.push(parent.to_string());
         }
-        _ => {
-            // External crate (`serde::...`) unless the first segment is a
-            // local top-level module; try source roots anyway.
-            roots.push("src".to_string());
-            roots.push(String::new());
-            roots.push(importer_dir.to_string());
+        Some(first) => {
+            if let Some(crate_src) = workspace.src_root(first) {
+                // Workspace crate boundary: consume the crate-name
+                // segment and root at that crate's source directory.
+                raw.next();
+                roots.push(crate_src.clone());
+                crate_root_dirs.push(crate_src);
+            } else {
+                // External crate (`serde::...`) unless the first segment
+                // is a local top-level module; try source roots anyway.
+                roots.push("src".to_string());
+                roots.push(String::new());
+                roots.push(importer_dir.to_string());
+            }
         }
+        None => {}
     }
     segments.extend(raw.map(str::to_string));
-    if segments.is_empty() {
+    if segments.is_empty() && crate_root_dirs.is_empty() {
         return None;
     }
     let mut candidates = Vec::new();
@@ -1004,7 +1550,138 @@ fn resolve_rust_path(
             candidates.push(format!("{joined}/mod.rs"));
         }
     }
+    if let Some(path) = try_paths(candidates, paths) {
+        return Some((path, false));
+    }
+    // Crate-root files last: every module prefix was tried, so the
+    // remaining segments must be items defined in the crate root.
+    let mut root_candidates = Vec::new();
+    for dir in &crate_root_dirs {
+        root_candidates.push(format!("{dir}/lib.rs"));
+        root_candidates.push(format!("{dir}/main.rs"));
+    }
+    try_paths(root_candidates, paths).map(|path| (path, true))
+}
+
+/// Nearest enclosing `src` directory of a module file, which is the
+/// crate source root inside a Cargo workspace member.
+fn nearest_src_root(importer_dir: &str) -> Option<String> {
+    let mut dir = importer_dir.to_string();
+    loop {
+        if dir == "src" || dir.ends_with("/src") {
+            return Some(dir);
+        }
+        match dir.rsplit_once('/') {
+            Some((parent, _)) => dir = parent.to_string(),
+            None => return None,
+        }
+    }
+}
+
+/// Resolve a Rust `mod name;` declaration to the child module file. A
+/// crate-root or `mod.rs` parent loads siblings; any other parent file
+/// loads from its own subdirectory (2018-style module layout).
+fn resolve_mod_declaration(
+    importer: &RepoPath,
+    name: &str,
+    paths: &BTreeSet<RepoPath>,
+) -> Option<RepoPath> {
+    let importer_text = importer.display();
+    let (dir, file_name) = match importer_text.rsplit_once('/') {
+        Some((dir, file_name)) => (dir, file_name),
+        None => ("", importer_text.as_str()),
+    };
+    let stem = file_name.strip_suffix(".rs")?;
+    let join = |rest: String| {
+        if dir.is_empty() {
+            rest
+        } else {
+            format!("{dir}/{rest}")
+        }
+    };
+    let candidates = if matches!(stem, "mod" | "lib" | "main") {
+        [join(format!("{name}.rs")), join(format!("{name}/mod.rs"))]
+    } else {
+        [
+            join(format!("{stem}/{name}.rs")),
+            join(format!("{stem}/{name}/mod.rs")),
+        ]
+    };
     try_paths(candidates, paths)
+}
+
+// ---------------------------------------------------------------------
+// Cargo workspace crates
+// ---------------------------------------------------------------------
+
+/// Workspace crates discovered from `Cargo.toml` manifests: normalized
+/// package name (dashes as underscores, as the name appears in `use`
+/// paths) -> manifest directory.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RustWorkspace {
+    crates: BTreeMap<String, String>,
+}
+
+impl RustWorkspace {
+    fn from_files(file_contents: &BTreeMap<RepoPath, String>) -> Self {
+        let mut crates = BTreeMap::new();
+        for (path, text) in file_contents {
+            let path_text = path.display();
+            let file_name = path_text
+                .rsplit_once('/')
+                .map(|(_, name)| name)
+                .unwrap_or(&path_text);
+            if file_name != "Cargo.toml" {
+                continue;
+            }
+            let Some(name) = toml_package_name(text) else {
+                continue;
+            };
+            let dir = path_text
+                .rsplit_once('/')
+                .map(|(dir, _)| dir)
+                .unwrap_or("")
+                .to_string();
+            // First manifest wins on duplicate names; BTreeMap iteration
+            // keeps this deterministic.
+            crates.entry(name.replace('-', "_")).or_insert(dir);
+        }
+        Self { crates }
+    }
+
+    /// Whether `name` is a workspace crate as it appears in `use` paths.
+    fn knows_crate(&self, name: &str) -> bool {
+        self.crates.contains_key(name)
+    }
+
+    /// Source root for a crate referenced by its `use`-path name.
+    fn src_root(&self, name: &str) -> Option<String> {
+        let dir = self.crates.get(name)?;
+        Some(if dir.is_empty() {
+            "src".to_string()
+        } else {
+            format!("{dir}/src")
+        })
+    }
+}
+
+/// `[package] name` from a Cargo manifest via a minimal line scan: full
+/// TOML parsing buys nothing for one key and would add a dependency.
+fn toml_package_name(text: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_package = trimmed == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(name) = toml_string_value(trimmed, "name") {
+                return Some(name);
+            }
+        }
+    }
+    None
 }
 
 /// Python dotted modules: `auth.tokens` -> `auth/tokens.py` or package

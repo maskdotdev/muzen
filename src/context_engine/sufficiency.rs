@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::runtime::contracts::RepoPath;
 
 use super::chunking::range_overlaps;
-use super::graph::ContextEdgeKind;
+use super::graph::{ContextEdgeKind, ContextNodeId};
 use super::{
     ContextEvidence, ContextEvidenceKind, ContextIndex, ContextRange, ContextSufficiency,
     ContextSufficiencyStatus,
@@ -30,6 +30,12 @@ pub enum ContextCoverageGapKind {
     /// The repository has no tests related to this hunk. Recorded
     /// explicitly; does not count against sufficiency.
     NoRelatedTests,
+    /// The changed file is a config with resolvable `Configures`
+    /// targets, none of which are in the context set.
+    ConfiguredTargets,
+    /// Host metadata declares an external contract covering this file,
+    /// but no cross-repo contract evidence is in the context set.
+    ExternalContracts,
 }
 
 impl ContextCoverageGapKind {
@@ -39,6 +45,8 @@ impl ContextCoverageGapKind {
             Self::Callers => "callers",
             Self::Tests => "tests",
             Self::NoRelatedTests => "no_related_tests",
+            Self::ConfiguredTargets => "configured_targets",
+            Self::ExternalContracts => "external_contracts",
         }
     }
 
@@ -101,6 +109,20 @@ pub(crate) fn evaluate_sufficiency(
             .filter_map(|edge| edge.from_path())
             .collect();
         let related_test_paths = related_test_paths(index, &path);
+        // Config and contract coverage come from graph facts too:
+        // `Configures` and `ExternalContract` edges from the changed
+        // file node (repo-node endpoints are not in the file indexes).
+        let file_node = ContextNodeId::File { path: path.clone() };
+        let configured_targets: Vec<RepoPath> = index
+            .graph
+            .edges_from(&file_node)
+            .filter(|edge| edge.kind == ContextEdgeKind::Configures)
+            .filter_map(|edge| edge.to_path().cloned())
+            .collect();
+        let declares_external_contract = index
+            .graph
+            .edges_from(&file_node)
+            .any(|edge| edge.kind == ContextEdgeKind::ExternalContract);
         for hunk in hunks {
             checked_hunks += 1;
             let mut missing: Vec<ContextCoverageGapKind> = Vec::new();
@@ -142,8 +164,28 @@ pub(crate) fn evaluate_sufficiency(
                     missing.push(ContextCoverageGapKind::Tests);
                 }
             }
+            if !configured_targets.is_empty() {
+                let target_present = evidence.iter().any(|item| {
+                    item.path
+                        .as_ref()
+                        .map(|item_path| configured_targets.contains(item_path))
+                        .unwrap_or(false)
+                });
+                if !target_present {
+                    missing.push(ContextCoverageGapKind::ConfiguredTargets);
+                }
+            }
+            if declares_external_contract {
+                let contract_present = evidence
+                    .iter()
+                    .any(|item| item.kind == ContextEvidenceKind::CrossRepoContract);
+                if !contract_present {
+                    missing.push(ContextCoverageGapKind::ExternalContracts);
+                }
+            }
             if !missing.is_empty() {
-                let suggested_query = suggested_query(&path, hunk, missing[0]);
+                let suggested_query =
+                    suggested_query(&path, hunk, missing[0], configured_targets.first());
                 gaps.push(ContextSufficiencyGap {
                     path: path_text.clone(),
                     start_line: hunk.start_line,
@@ -210,6 +252,7 @@ fn suggested_query(
     path: &RepoPath,
     hunk: &ContextRange,
     kind: ContextCoverageGapKind,
+    first_configured_target: Option<&RepoPath>,
 ) -> serde_json::Value {
     match kind {
         ContextCoverageGapKind::EnclosingDefinition => serde_json::json!({
@@ -230,5 +273,20 @@ fn suggested_query(
                 "arguments": { "path": path.display() },
             })
         }
+        ContextCoverageGapKind::ConfiguredTargets => {
+            let target = first_configured_target.unwrap_or(path);
+            serde_json::json!({
+                "kind": "read_span",
+                "arguments": {
+                    "path": target.display(),
+                    "startLine": 1,
+                    "endLine": 1,
+                },
+            })
+        }
+        ContextCoverageGapKind::ExternalContracts => serde_json::json!({
+            "kind": "cross_repo_contracts",
+            "arguments": { "query": path.display() },
+        }),
     }
 }

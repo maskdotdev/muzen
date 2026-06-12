@@ -1,0 +1,1297 @@
+{
+  "generatedAtUtc": "2026-06-08T01:31:25.468Z",
+  "model": "gpt-4o-mini",
+  "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+  "changedFiles": [
+    "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+    "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+    "packages/prisma/schema.prisma"
+  ],
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+          "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb"
+        ],
+        "evidenceCount": 2,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages. Finding: Destructive query broadening: deleteMany condition",
+        "unitId": "unit-001",
+        "verdict": "issue_found"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+          "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b"
+        ],
+        "evidenceCount": 2,
+        "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages.",
+        "unitId": "unit-001",
+        "verdict": "needs_review"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The condition for deleting scheduled SMS reminders has been broadened to include reminders with a retryCount greater than 1, which may lead to unintended deletions.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "final-synthesis"
+        ],
+        "evidence": [
+          {
+            "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+            "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+            "evidenceId": "evidence-art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+            "kind": "tool_summary",
+            "producingToolCallId": "final-synthesis-candidate-evidence"
+          },
+          {
+            "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+            "evidenceId": "evidence-art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "kind": "tool_summary",
+            "producingToolCallId": "final-synthesis-candidate-evidence"
+          }
+        ],
+        "evidenceCount": 2,
+        "id": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+        "location": {
+          "endColumn": null,
+          "endLine": 53,
+          "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 28
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Destructive query broadening: deleteMany condition",
+        "validatedBy": [
+          "final-synthesis-candidate-evidence"
+        ],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "prod-phrase-pr14943-1780882276167",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 9724,
+      "artifacts": 3,
+      "completedSessions": 1,
+      "elapsedMs": 9162,
+      "findings": 1,
+      "inputTokens": 3407,
+      "modelCalls": 2,
+      "outputTokens": 566,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 3,
+      "totalTokens": 3973
+    }
+  },
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "capabilities": {
+          "plannedMethods": [],
+          "supportedMethods": [
+            "runner.handshake",
+            "runner.check",
+            "runner.schema.export",
+            "run.start",
+            "run.cancel",
+            "run.status",
+            "run.result",
+            "artifact.read",
+            "artifact.export",
+            "snapshot.readText",
+            "context.index",
+            "context.pack",
+            "context.query",
+            "context.feedback",
+            "context.learning.approve",
+            "webhook.github.handle",
+            "webhook.gitlab.handle",
+            "worker.runOnce",
+            "source.materialize",
+            "run.heartbeat",
+            "model.complete",
+            "secret.resolve",
+            "tool.execute",
+            "event.review",
+            "event.runtime",
+            "run.finished",
+            "run.failed"
+          ],
+          "transports": [
+            "stdio-jsonl"
+          ]
+        },
+        "protocolVersion": "muzen.runner.v1",
+        "runnerName": "muzen-runner",
+        "runnerVersion": "0.1.0"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "jobStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 1,
+        "timestampUtc": "1780882276.304483000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "runStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 1,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304503000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "snapshotStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 2,
+        "timestampUtc": "1780882276.304512000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "snapshotStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 2,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304516000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "sessionStarted": {
+            "sessionId": "unit-001"
+          }
+        },
+        "seq": 3,
+        "timestampUtc": "1780882276.304568000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "sessionStarted": {
+            "sessionId": "unit-001"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 3,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304572000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 4294967295
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 3,
+            "sessionId": "unit-001",
+            "turnId": 4294967295
+          }
+        },
+        "seq": 4,
+        "timestampUtc": "1780882276.304603000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 3,
+            "sessionId": "unit-001",
+            "turn": 4294967295
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 4,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304606000Z",
+        "toolCallId": null,
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-0-read_diff",
+          "turnId": 4294967295
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+            "bytes": 2512,
+            "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+            "details": {
+              "contentHash": "9a2979816b17d916b00d8062fcc03a3f9b0036bbb10384a353f9b3b303b381fd",
+              "riskHints": [
+                "changed template/rendering or string-to-HTML boundary; inspect escaping, nil/null handling, and template syntax on the changed render path"
+              ]
+            },
+            "providerId": "builtin_review",
+            "summary": "diff artifact contentHash=9a2979816b17d916b00d8062fcc03a3f9b0036bbb10384a353f9b3b303b381fd",
+            "toolCallId": "bootstrap-0-read_diff",
+            "toolName": "read_diff"
+          }
+        },
+        "seq": 5,
+        "timestampUtc": "1780882276.304816000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+            "bytes": 2512,
+            "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+            "details": {
+              "contentHash": "9a2979816b17d916b00d8062fcc03a3f9b0036bbb10384a353f9b3b303b381fd",
+              "riskHints": [
+                "changed template/rendering or string-to-HTML boundary; inspect escaping, nil/null handling, and template syntax on the changed render path"
+              ]
+            },
+            "summary": "diff artifact contentHash=9a2979816b17d916b00d8062fcc03a3f9b0036bbb10384a353f9b3b303b381fd",
+            "toolCallId": "bootstrap-0-read_diff",
+            "toolId": "read_diff"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 5,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304825000Z",
+        "toolCallId": "bootstrap-0-read_diff",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-0-read_diff",
+          "turnId": 4294967295
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "bootstrap-0-read_diff",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 2512,
+            "providerId": "builtin_review",
+            "toolName": "read_diff"
+          }
+        },
+        "seq": 6,
+        "timestampUtc": "1780882276.304832000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "bootstrap-0-read_diff",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "read_diff"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 6,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304837000Z",
+        "toolCallId": "bootstrap-0-read_diff",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-1-read_head_file",
+          "turnId": 4294967295
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+            "bytes": 101,
+            "contentHash": "6eff6504b9d4541f5c9dc772dbd2743efed6eb585f8d7d6329601fd658e3004d",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 2,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql"
+            },
+            "providerId": "builtin_review",
+            "summary": "read file artifact packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "toolCallId": "bootstrap-1-read_head_file",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 7,
+        "timestampUtc": "1780882276.304845000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+            "bytes": 101,
+            "contentHash": "6eff6504b9d4541f5c9dc772dbd2743efed6eb585f8d7d6329601fd658e3004d",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 2,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql"
+            },
+            "summary": "read file artifact packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "toolCallId": "bootstrap-1-read_head_file",
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 7,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304851000Z",
+        "toolCallId": "bootstrap-1-read_head_file",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-1-read_head_file",
+          "turnId": 4294967295
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "bootstrap-1-read_head_file",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 101,
+            "providerId": "builtin_review",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 8,
+        "timestampUtc": "1780882276.304856000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "bootstrap-1-read_head_file",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 8,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304859000Z",
+        "toolCallId": "bootstrap-1-read_head_file",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-2-read_head_file",
+          "turnId": 4294967295
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "bytes": 7111,
+            "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 206,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+            },
+            "providerId": "builtin_review",
+            "summary": "read file artifact packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "toolCallId": "bootstrap-2-read_head_file",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 9,
+        "timestampUtc": "1780882276.304865000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "bytes": 7111,
+            "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 206,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+            },
+            "summary": "read file artifact packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "toolCallId": "bootstrap-2-read_head_file",
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 9,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304870000Z",
+        "toolCallId": "bootstrap-2-read_head_file",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "bootstrap-2-read_head_file",
+          "turnId": 4294967295
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "bootstrap-2-read_head_file",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 7111,
+            "providerId": "builtin_review",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 10,
+        "timestampUtc": "1780882276.304874000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "bootstrap-2-read_head_file",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 10,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304877000Z",
+        "toolCallId": "bootstrap-2-read_head_file",
+        "turn": 4294967295
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 0
+          }
+        },
+        "seq": 11,
+        "timestampUtc": "1780882276.304883000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 11,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882276.304886000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 0,
+            "turnId": 0
+          }
+        },
+        "seq": 12,
+        "timestampUtc": "1780882280.348024000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 0,
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 12,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882280.348072000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "sessionFinished": {
+            "sessionId": "unit-001",
+            "status": "done"
+          }
+        },
+        "seq": 13,
+        "timestampUtc": "1780882280.348146000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "sessionFinished": {
+            "sessionId": "unit-001",
+            "status": "done"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 13,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882280.348161000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "final-synthesis",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "final-synthesis",
+            "turnId": 0
+          }
+        },
+        "seq": 14,
+        "timestampUtc": "1780882280.348352000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "final-synthesis",
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 14,
+        "sessionId": "final-synthesis",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882280.348366000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "final-synthesis",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "final-synthesis",
+            "toolCallCount": 0,
+            "turnId": 0
+          }
+        },
+        "seq": 15,
+        "timestampUtc": "1780882285.466066000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "final-synthesis",
+            "toolCallCount": 0,
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 15,
+        "sessionId": "final-synthesis",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882285.466094000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": "synthesis",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba-synthesis",
+          "turnId": null
+        },
+        "event": {
+          "findingRecorded": {
+            "findingId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+            "sessionId": "synthesis",
+            "toolCallId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba-synthesis"
+          }
+        },
+        "seq": 16,
+        "timestampUtc": "1780882285.466246000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "findingRecorded": {
+            "findingId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+            "sessionId": "synthesis",
+            "toolCallId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba-synthesis"
+          }
+        },
+        "findingId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 16,
+        "sessionId": "synthesis",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882285.466257000Z",
+        "toolCallId": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba-synthesis",
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "snapshotFinished": {
+            "completedSessions": 1,
+            "sessions": 1,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 17,
+        "timestampUtc": "1780882285.466309000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "snapshotFinished": {
+            "completedSessions": 1,
+            "sessions": 1,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 17,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882285.466321000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "prod-phrase-pr14943-1780882276167",
+          "sessionId": null,
+          "snapshotId": null,
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "jobFinished": {
+            "status": "completed"
+          }
+        },
+        "seq": 18,
+        "timestampUtc": "1780882285.466553000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "runFinished": {
+            "status": "completed"
+          }
+        },
+        "findingId": null,
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "seq": 18,
+        "sessionId": null,
+        "snapshotId": null,
+        "timestampUtc": "1780882285.466582000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "run.finished",
+      "params": {
+        "fileReviews": [
+          {
+            "evidenceArtifactIds": [],
+            "evidenceCount": 0,
+            "path": "packages/prisma/schema.prisma",
+            "relatedPaths": [],
+            "sessionId": "planner",
+            "summary": "File is not reviewable as text.",
+            "unitId": "planner-excluded",
+            "verdict": "skipped"
+          },
+          {
+            "evidenceArtifactIds": [
+              "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+              "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb"
+            ],
+            "evidenceCount": 2,
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "relatedPaths": [],
+            "sessionId": "unit-001",
+            "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages. Finding: Destructive query broadening: deleteMany condition",
+            "unitId": "unit-001",
+            "verdict": "issue_found"
+          },
+          {
+            "evidenceArtifactIds": [
+              "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+              "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b"
+            ],
+            "evidenceCount": 2,
+            "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "relatedPaths": [],
+            "sessionId": "unit-001",
+            "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages.",
+            "unitId": "unit-001",
+            "verdict": "needs_review"
+          }
+        ],
+        "findings": [
+          {
+            "challengedBy": [],
+            "claim": "The condition for deleting scheduled SMS reminders has been broadened to include reminders with a retryCount greater than 1, which may lead to unintended deletions.",
+            "confidence": 0.7200000286102295,
+            "discoveredBy": [
+              "final-synthesis"
+            ],
+            "evidence": [
+              {
+                "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+                "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+                "evidenceId": "evidence-art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+                "kind": "tool_summary",
+                "producingToolCallId": "final-synthesis-candidate-evidence"
+              },
+              {
+                "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+                "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+                "evidenceId": "evidence-art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+                "kind": "tool_summary",
+                "producingToolCallId": "final-synthesis-candidate-evidence"
+              }
+            ],
+            "evidenceCount": 2,
+            "id": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+            "location": {
+              "endColumn": null,
+              "endLine": 53,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+              "providerAnchor": null,
+              "revision": null,
+              "side": null,
+              "startColumn": null,
+              "startLine": 28
+            },
+            "publishable": true,
+            "severity": "low",
+            "title": "Destructive query broadening: deleteMany condition",
+            "validatedBy": [
+              "final-synthesis-candidate-evidence"
+            ],
+            "validationStatus": "validated"
+          }
+        ],
+        "metadata": {},
+        "protocolVersion": "muzen.runner.v1",
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "snapshots": [
+          {
+            "capturedBytes": 14540280,
+            "capturedFiles": 4465,
+            "changedFiles": 3,
+            "files": 5277,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        ],
+        "status": "completed",
+        "summary": {
+          "artifactBytes": 9724,
+          "artifacts": 3,
+          "completedSessions": 1,
+          "elapsedMs": 9162,
+          "findings": 1,
+          "inputTokens": 3407,
+          "modelCalls": 2,
+          "outputTokens": 566,
+          "publishableFindings": 1,
+          "sessions": 1,
+          "snapshotCount": 1,
+          "toolCalls": 3,
+          "totalTokens": 3973
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "fileReviews": [
+          {
+            "evidenceArtifactIds": [],
+            "evidenceCount": 0,
+            "path": "packages/prisma/schema.prisma",
+            "relatedPaths": [],
+            "sessionId": "planner",
+            "summary": "File is not reviewable as text.",
+            "unitId": "planner-excluded",
+            "verdict": "skipped"
+          },
+          {
+            "evidenceArtifactIds": [
+              "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+              "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb"
+            ],
+            "evidenceCount": 2,
+            "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "relatedPaths": [],
+            "sessionId": "unit-001",
+            "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages. Finding: Destructive query broadening: deleteMany condition",
+            "unitId": "unit-001",
+            "verdict": "issue_found"
+          },
+          {
+            "evidenceArtifactIds": [
+              "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+              "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b"
+            ],
+            "evidenceCount": 2,
+            "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "relatedPaths": [],
+            "sessionId": "unit-001",
+            "summary": "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: path:api, repeated:packages.",
+            "unitId": "unit-001",
+            "verdict": "needs_review"
+          }
+        ],
+        "findings": [
+          {
+            "challengedBy": [],
+            "claim": "The condition for deleting scheduled SMS reminders has been broadened to include reminders with a retryCount greater than 1, which may lead to unintended deletions.",
+            "confidence": 0.7200000286102295,
+            "discoveredBy": [
+              "final-synthesis"
+            ],
+            "evidence": [
+              {
+                "artifactId": "art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+                "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+                "evidenceId": "evidence-art_6706041c981c0dae6f4211259d90f44fa2a8d6bdf74612759fcb1b1526fc8437",
+                "kind": "tool_summary",
+                "producingToolCallId": "final-synthesis-candidate-evidence"
+              },
+              {
+                "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+                "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+                "evidenceId": "evidence-art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+                "kind": "tool_summary",
+                "producingToolCallId": "final-synthesis-candidate-evidence"
+              }
+            ],
+            "evidenceCount": 2,
+            "id": "705295949354dca15165f4f78758b8f6645231aa16d3311862e7296059c4c8ba",
+            "location": {
+              "endColumn": null,
+              "endLine": 53,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+              "providerAnchor": null,
+              "revision": null,
+              "side": null,
+              "startColumn": null,
+              "startLine": 28
+            },
+            "publishable": true,
+            "severity": "low",
+            "title": "Destructive query broadening: deleteMany condition",
+            "validatedBy": [
+              "final-synthesis-candidate-evidence"
+            ],
+            "validationStatus": "validated"
+          }
+        ],
+        "metadata": {},
+        "protocolVersion": "muzen.runner.v1",
+        "runId": "prod-phrase-pr14943-1780882276167",
+        "snapshots": [
+          {
+            "capturedBytes": 14540280,
+            "capturedFiles": 4465,
+            "changedFiles": 3,
+            "files": 5277,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        ],
+        "status": "completed",
+        "summary": {
+          "artifactBytes": 9724,
+          "artifacts": 3,
+          "completedSessions": 1,
+          "elapsedMs": 9162,
+          "findings": 1,
+          "inputTokens": 3407,
+          "modelCalls": 2,
+          "outputTokens": 566,
+          "publishableFindings": 1,
+          "sessions": 1,
+          "snapshotCount": 1,
+          "toolCalls": 3,
+          "totalTokens": 3973
+        }
+      }
+    }
+  ],
+  "stderr": null
+}

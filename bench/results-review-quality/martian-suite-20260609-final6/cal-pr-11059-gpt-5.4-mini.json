@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:25:29.799Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 7
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XiRBuB/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XiRBuB/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "needs_review": 5,
+      "clean": 33,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 93,
+    "toolCalls": 175,
+    "tokens": {
+      "inputTokens": 1274775,
+      "outputTokens": 11717,
+      "totalTokens": 1286492
+    },
+    "artifactStats": {
+      "artifacts": 82,
+      "artifactBytes": 354026
+    },
+    "elapsedMs": 210883
+  },
+  "benchmark": {
+    "elapsedMs": 211020,
+    "hitRate": 0.2857142857142857,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "cb3e97a71ec9bad44989f902f5e2b1a98849e53c1b88e8db7a8492f31d867ed3",
+        "title": "refreshOAuthTokens now returns a raw Response where Google Calendar expects a token payload object"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "findingId": "cb3e97a71ec9bad44989f902f5e2b1a98849e53c1b88e8db7a8492f31d867ed3",
+        "title": "refreshOAuthTokens now returns a raw Response where Google Calendar expects a token payload object"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "title": "Office 365 Calendar refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+        "title": "Zoom video refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoho-bigin-return-shape",
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "title": "Zoho Bigin refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-zohocrm-return-shape",
+        "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "title": "Zoho CRM refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 5,
+    "requiredEvidenceFailures": 5,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 30,
+    "importCount": 0,
+    "needsReviewCount": 5,
+    "cleanCount": 33,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The helper returns a fetch `Response`, but Google Calendar immediately reads `res?.data.access_token` and `res?.data.expiry_date`. A raw `Response` does not provide token fields on `.data`, so when credential sharing is enabled and the sync endpoint is used, token refresh produces `undefined` token values and the credential update stores the wrong data. Also observed in: packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "cb3e97a71ec9bad44989f902f5e2b1a98849e53c1b88e8db7a8492f31d867ed3",
+      "location": {
+        "endColumn": null,
+        "endLine": 18,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 5
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      ],
+      "severity": "low",
+      "title": "refreshOAuthTokens now returns a raw Response where Google Calendar expects a token payload object",
+      "validatedBy": [
+        "pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

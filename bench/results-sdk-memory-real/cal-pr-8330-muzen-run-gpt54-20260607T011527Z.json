@@ -1,0 +1,199 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-martian-cal-8330-20260607T011527Z",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "aci-martian/pr-8330-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:15:28.333Z",
+    "finishedAtUtc": "2026-06-07T01:15:33.408Z",
+    "elapsedMs": 5074
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18433,
+    "outputTokens": 310,
+    "totalTokens": 18743,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Found 2 actionable correctness bugs in the availability checks introduced by the change; the test and type-only updates are otherwise clean.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"buggy\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Date override equality check never matches zero-length overrides\",\"claim\":\"The new override logic compares two freshly created Dayjs objects with `===`, which is always false for equal timestamps. As a result, zero-length date overrides are never recognized by this branch and fall through to the later range checks, changing availability behavior for overrides where `start` and `end` are the same instant.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":111,\"endLine\":111},{\"title\":\"Working-hours boundary check ignores slot duration\",\"claim\":\"The new working-hours validation computes both `start` and `end` from `slotStartTime`, so `end` never includes `eventLength`. This allows slots that start before the end of working hours but extend past it to be treated as available, violating the invariant that the whole slot must fit inside working hours.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":134,\"endLine\":138}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67420,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_2669040415ecc9134fca5ec4e371de0f5c58ed55318575db5dc48cc54dd01b35",
+          "art_85e3a2886c259dbcc9d05754b0891aff047e43e7c72398483846a173ce52e0d8",
+          "art_f3adbf29b49f17544f566f3097261ca20b23f68e3fba393a34a1829129bd70bc",
+          "art_f6291aaf06d0d9f0683519c1c50d1f0afed264935869939d10c684e6ae41c67b"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_2669040415ecc9134fca5ec4e371de0f5c58ed55318575db5dc48cc54dd01b35",
+          "art_85e3a2886c259dbcc9d05754b0891aff047e43e7c72398483846a173ce52e0d8",
+          "art_f3adbf29b49f17544f566f3097261ca20b23f68e3fba393a34a1829129bd70bc",
+          "art_f6291aaf06d0d9f0683519c1c50d1f0afed264935869939d10c684e6ae41c67b"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_2669040415ecc9134fca5ec4e371de0f5c58ed55318575db5dc48cc54dd01b35",
+          "art_85e3a2886c259dbcc9d05754b0891aff047e43e7c72398483846a173ce52e0d8",
+          "art_ac31c61f303a546c4f824986dc7772a4b7ac45618de3d2002b9d128a6b6c7505",
+          "art_f3adbf29b49f17544f566f3097261ca20b23f68e3fba393a34a1829129bd70bc",
+          "art_f6291aaf06d0d9f0683519c1c50d1f0afed264935869939d10c684e6ae41c67b"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict buggy.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_2669040415ecc9134fca5ec4e371de0f5c58ed55318575db5dc48cc54dd01b35",
+          "art_85e3a2886c259dbcc9d05754b0891aff047e43e7c72398483846a173ce52e0d8",
+          "art_f3adbf29b49f17544f566f3097261ca20b23f68e3fba393a34a1829129bd70bc",
+          "art_f6291aaf06d0d9f0683519c1c50d1f0afed264935869939d10c684e6ae41c67b"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new override logic compares two freshly created Dayjs objects with `===`, which is always false for equal timestamps. As a result, zero-length date overrides are never recognized by this branch and fall through to the later range checks, changing availability behavior for overrides where `start` and `end` are the same instant.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "62aeab50c42d2351949f3ca739157d3d1e603b1a5e24edd35a2ff24e65fd8de6",
+        "location": {
+          "endColumn": null,
+          "endLine": 88,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 88
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Date override equality check never matches zero-length overrides",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      },
+      {
+        "challengedBy": [],
+        "claim": "The new working-hours validation computes both `start` and `end` from `slotStartTime`, so `end` never includes `eventLength`. This allows slots that start before the end of working hours but extend past it to be treated as available, violating the invariant that the whole slot must fit inside working hours.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "755641f1a10ebbe6c4f06bbff9807f490af4ff25891a43139c353948f5eb8108",
+        "location": {
+          "endColumn": null,
+          "endLine": 138,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 134
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Working-hours boundary check ignores slot duration",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780794928338",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "03e7cdc083fe63f64e4d4c4eb5851b86f658ed28213374a048721a80a3ea48e7"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29901,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 4998,
+      "findings": 2,
+      "inputTokens": 18433,
+      "modelCalls": 3,
+      "outputTokens": 310,
+      "publishableFindings": 2,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18743
+    }
+  },
+  "reviewValid": true
+}

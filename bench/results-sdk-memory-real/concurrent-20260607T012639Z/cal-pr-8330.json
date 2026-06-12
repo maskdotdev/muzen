@@ -1,0 +1,225 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-concurrent-cal-8330-20260607T012639Z",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "aci-martian/pr-8330-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:26:40.776Z",
+    "finishedAtUtc": "2026-06-07T01:26:44.627Z",
+    "elapsedMs": 3851
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18425,
+    "outputTokens": 550,
+    "totalTokens": 18975,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the four changed files. The test-only change is fine. The slot/timezone logic changes in packages/lib/slots.ts and packages/trpc/server/routers/viewer/slots.ts introduce concrete correctness regressions in date-override and working-hours handling, and the type change in packages/types/schedule.d.ts is consistent with the new data flow.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"buggy\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"buggy\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Date override comparison uses object identity, so matching overrides never short-circuit correctly\",\"claim\":\"The new date-override branch compares two Dayjs objects with `===` instead of comparing their values. Because `dayjs(date.start).add(...) === dayjs(date.end).add(...)` is always false for distinct instances, the code never recognizes an override whose adjusted start and end are equal, and the surrounding `find` callback also returns `undefined` for the common in-range case. This breaks the intended override scoping and can incorrectly fall through to normal availability checks.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":108,\"endLine\":116},{\"title\":\"Working-hours check computes start and end from the same timestamp, making the boundary test ineffective\",\"claim\":\"In the new working-hours filter, both `start` and `end` are derived from `slotStartTime` (`const end = slotStartTime.hour() * 60 + slotStartTime.minute();`). That means the code never evaluates the slot end boundary, so slots that extend past the end of working hours can be treated as valid. This changes availability math for any slot whose start is inside hours but whose duration crosses the boundary.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":128,\"endLine\":134},{\"title\":\"Override timezone offset is applied with the wrong sign, shifting slots in the opposite direction\",\"claim\":\"The new override conversion in `packages/lib/slots.ts` computes `offset = inviteeUtcOffset - organizerUtcOffset` and then adds that offset to the override start/end times. For a positive invitee offset relative to the organizer, this moves the override later instead of earlier in UTC terms, so the generated working-hour exclusions can land on the wrong minute range and hide or expose slots incorrectly across timezones.\",\"path\":\"packages/lib/slots.ts\",\"startLine\":211,\"endLine\":220}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67420,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_0c2fac00935cbf96c9aebbfecd968b8c16aa933595e865f11bdad87a5cb756ba",
+          "art_1723d38765c37ac76b10e2a01fc89a1089e9a29727cc0e0ad861cc826f7d2e14",
+          "art_4a4267b846ea5081672d39b6d165093301e3fafab6ce98cb8e3bfcc38f0bdca5",
+          "art_9aa37c16dea72a795c8d9e124f2ab9f157066181a720f3852e99509ea6d6213d"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0c2fac00935cbf96c9aebbfecd968b8c16aa933595e865f11bdad87a5cb756ba",
+          "art_1723d38765c37ac76b10e2a01fc89a1089e9a29727cc0e0ad861cc826f7d2e14",
+          "art_4a4267b846ea5081672d39b6d165093301e3fafab6ce98cb8e3bfcc38f0bdca5",
+          "art_9aa37c16dea72a795c8d9e124f2ab9f157066181a720f3852e99509ea6d6213d"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict buggy.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0c2fac00935cbf96c9aebbfecd968b8c16aa933595e865f11bdad87a5cb756ba",
+          "art_1723d38765c37ac76b10e2a01fc89a1089e9a29727cc0e0ad861cc826f7d2e14",
+          "art_4a4267b846ea5081672d39b6d165093301e3fafab6ce98cb8e3bfcc38f0bdca5",
+          "art_6930a2ff07bde811a9a7e4cde7eeed5729ae08c4d21507523b17fd98f90d84d9",
+          "art_9aa37c16dea72a795c8d9e124f2ab9f157066181a720f3852e99509ea6d6213d"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict buggy.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_0c2fac00935cbf96c9aebbfecd968b8c16aa933595e865f11bdad87a5cb756ba",
+          "art_1723d38765c37ac76b10e2a01fc89a1089e9a29727cc0e0ad861cc826f7d2e14",
+          "art_4a4267b846ea5081672d39b6d165093301e3fafab6ce98cb8e3bfcc38f0bdca5",
+          "art_9aa37c16dea72a795c8d9e124f2ab9f157066181a720f3852e99509ea6d6213d"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new date-override branch compares two Dayjs objects with `===` instead of comparing their values. Because `dayjs(date.start).add(...) === dayjs(date.end).add(...)` is always false for distinct instances, the code never recognizes an override whose adjusted start and end are equal, and the surrounding `find` callback also returns `undefined` for the common in-range case. This breaks the intended override scoping and can incorrectly fall through to normal availability checks.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "91157d11337ded7fc8f8f2e33088839a971eeacfb5648455c1913982f4abc737",
+        "location": {
+          "endColumn": null,
+          "endLine": 116,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 108
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Date override comparison uses object identity, so matching overrides never short-circuit correctly",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      },
+      {
+        "challengedBy": [],
+        "claim": "In the new working-hours filter, both `start` and `end` are derived from `slotStartTime` (`const end = slotStartTime.hour() * 60 + slotStartTime.minute();`). That means the code never evaluates the slot end boundary, so slots that extend past the end of working hours can be treated as valid. This changes availability math for any slot whose start is inside hours but whose duration crosses the boundary.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "6af03dd1b639c2950bf249e8c58c969b2552681d50cc034c722eb3aca67a451e",
+        "location": {
+          "endColumn": null,
+          "endLine": 134,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 128
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Working-hours check computes start and end from the same timestamp, making the boundary test ineffective",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      },
+      {
+        "challengedBy": [],
+        "claim": "The new override conversion in `packages/lib/slots.ts` computes `offset = inviteeUtcOffset - organizerUtcOffset` and then adds that offset to the override start/end times. For a positive invitee offset relative to the organizer, this moves the override later instead of earlier in UTC terms, so the generated working-hour exclusions can land on the wrong minute range and hide or expose slots incorrectly across timezones.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "32471acc7a66ee732350fa1516162395cf9070a70d29e96941a02d1e85ddacb7",
+        "location": {
+          "endColumn": null,
+          "endLine": 220,
+          "path": "packages/lib/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 211
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Override timezone offset is applied with the wrong sign, shifting slots in the opposite direction",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780795600781",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "61d511e01a0e85fa6dd219892a0de6d830c9de4cf3be1ef3d9e785831d61cfe9"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29901,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 3761,
+      "findings": 3,
+      "inputTokens": 18425,
+      "modelCalls": 3,
+      "outputTokens": 550,
+      "publishableFindings": 3,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18975
+    }
+  },
+  "reviewValid": true
+}

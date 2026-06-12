@@ -1,0 +1,1987 @@
+{
+  "generatedAtUtc": "2026-06-08T01:29:34.838Z",
+  "model": "gpt-4o-mini",
+  "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+  "changedFiles": [
+    "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+    "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+    "packages/prisma/schema.prisma"
+  ],
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "diagnostic-pr-14943-1780882160868",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 61824,
+      "artifacts": 5,
+      "completedSessions": 1,
+      "elapsedMs": 13830,
+      "findings": 0,
+      "inputTokens": 11043,
+      "modelCalls": 6,
+      "outputTokens": 341,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 5,
+      "totalTokens": 11384
+    }
+  },
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "capabilities": {
+          "plannedMethods": [],
+          "supportedMethods": [
+            "runner.handshake",
+            "runner.check",
+            "runner.schema.export",
+            "run.start",
+            "run.cancel",
+            "run.status",
+            "run.result",
+            "artifact.read",
+            "artifact.export",
+            "snapshot.readText",
+            "context.index",
+            "context.pack",
+            "context.query",
+            "context.feedback",
+            "context.learning.approve",
+            "webhook.github.handle",
+            "webhook.gitlab.handle",
+            "worker.runOnce",
+            "source.materialize",
+            "run.heartbeat",
+            "model.complete",
+            "secret.resolve",
+            "tool.execute",
+            "event.review",
+            "event.runtime",
+            "run.finished",
+            "run.failed"
+          ],
+          "transports": [
+            "stdio-jsonl"
+          ]
+        },
+        "protocolVersion": "muzen.runner.v1",
+        "runnerName": "muzen-runner",
+        "runnerVersion": "0.1.0"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "jobStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 1,
+        "timestampUtc": "1780882161.006682000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "runStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 1,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882161.006706000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "snapshotStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 2,
+        "timestampUtc": "1780882161.006715000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "snapshotStarted": {
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 2,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882161.006718000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "sessionStarted": {
+            "sessionId": "unit-001"
+          }
+        },
+        "seq": 3,
+        "timestampUtc": "1780882161.006771000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "sessionStarted": {
+            "sessionId": "unit-001"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 3,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882161.006775000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 0
+          }
+        },
+        "seq": 4,
+        "timestampUtc": "1780882161.006790000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 4,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882161.006794000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turnId": 0
+          }
+        },
+        "seq": 5,
+        "timestampUtc": "1780882162.891483000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 5,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882162.891530000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 0
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turnId": 0
+          }
+        },
+        "seq": 6,
+        "timestampUtc": "1780882162.891561000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turn": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 6,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882162.891576000Z",
+        "toolCallId": null,
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+          "turnId": 0
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+            "bytes": 101,
+            "contentHash": "6eff6504b9d4541f5c9dc772dbd2743efed6eb585f8d7d6329601fd658e3004d",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 2,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql"
+            },
+            "providerId": "builtin_review",
+            "summary": "read file artifact packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 7,
+        "timestampUtc": "1780882162.891919000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_aabcd140ea759943a501bceac147e6d6131a172ca3115d068e872e517f94255b",
+            "bytes": 101,
+            "contentHash": "6eff6504b9d4541f5c9dc772dbd2743efed6eb585f8d7d6329601fd658e3004d",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 2,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql"
+            },
+            "summary": "read file artifact packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+            "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 7,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882162.891953000Z",
+        "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+          "turnId": 0
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 101,
+            "providerId": "builtin_review",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 8,
+        "timestampUtc": "1780882162.891986000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 8,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882162.892004000Z",
+        "toolCallId": "call_SMUBVNOFuugec0I6yvzDVGyh",
+        "turn": 0
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 1
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 1
+          }
+        },
+        "seq": 9,
+        "timestampUtc": "1780882162.892035000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 1
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 9,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882162.892047000Z",
+        "toolCallId": null,
+        "turn": 1
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 1
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turnId": 1
+          }
+        },
+        "seq": 10,
+        "timestampUtc": "1780882164.522499000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turn": 1
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 10,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882164.522544000Z",
+        "toolCallId": null,
+        "turn": 1
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 1
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turnId": 1
+          }
+        },
+        "seq": 11,
+        "timestampUtc": "1780882164.522576000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turn": 1
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 11,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882164.522590000Z",
+        "toolCallId": null,
+        "turn": 1
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+          "turnId": 1
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "bytes": 7111,
+            "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 206,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+            },
+            "providerId": "builtin_review",
+            "summary": "read file artifact packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 12,
+        "timestampUtc": "1780882164.522918000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_be22e13ce12a28ca3490f6201b6bbade6f3e3f691b15ea924eb4530165fff5cb",
+            "bytes": 7111,
+            "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+            "details": {
+              "available": null,
+              "lineRange": {
+                "endLine": 206,
+                "startLine": 1
+              },
+              "message": null,
+              "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+            },
+            "summary": "read file artifact packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+            "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 12,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882164.522947000Z",
+        "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+        "turn": 1
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+          "turnId": 1
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 7111,
+            "providerId": "builtin_review",
+            "toolName": "read_head_file"
+          }
+        },
+        "seq": 13,
+        "timestampUtc": "1780882164.522970000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "read_head_file"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 13,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882164.522988000Z",
+        "toolCallId": "call_TYAeLuTMaz7nvIHt9SH1sHLu",
+        "turn": 1
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 2
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 2
+          }
+        },
+        "seq": 14,
+        "timestampUtc": "1780882164.523023000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 2
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 14,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882164.523035000Z",
+        "toolCallId": null,
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 2
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turnId": 2
+          }
+        },
+        "seq": 15,
+        "timestampUtc": "1780882166.081971000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turn": 2
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 15,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.082004000Z",
+        "toolCallId": null,
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 2
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turnId": 2
+          }
+        },
+        "seq": 16,
+        "timestampUtc": "1780882166.082022000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turn": 2
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 16,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.082029000Z",
+        "toolCallId": null,
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_a27915c1b8f0133d31297032f98abfa66b0c0bc33ab93f1809a88f40bca8b4af",
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+          "turnId": 2
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_a27915c1b8f0133d31297032f98abfa66b0c0bc33ab93f1809a88f40bca8b4af",
+            "bytes": 0,
+            "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            "details": {
+              "bytesScanned": 14540280,
+              "firstMatch": null,
+              "query": "await prisma.workflowreminder.update",
+              "returnedMatches": 0,
+              "searchedFiles": 4465,
+              "skippedFiles": 0,
+              "truncated": false
+            },
+            "providerId": "builtin_review",
+            "summary": "search_text query=await prisma.workflowreminder.update matches=0",
+            "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 17,
+        "timestampUtc": "1780882166.098672000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_a27915c1b8f0133d31297032f98abfa66b0c0bc33ab93f1809a88f40bca8b4af",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_a27915c1b8f0133d31297032f98abfa66b0c0bc33ab93f1809a88f40bca8b4af",
+            "bytes": 0,
+            "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            "details": {
+              "bytesScanned": 14540280,
+              "firstMatch": null,
+              "query": "await prisma.workflowreminder.update",
+              "returnedMatches": 0,
+              "searchedFiles": 4465,
+              "skippedFiles": 0,
+              "truncated": false
+            },
+            "summary": "search_text query=await prisma.workflowreminder.update matches=0",
+            "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 17,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.098707000Z",
+        "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+          "turnId": 2
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "call_EynSqSagVj59awG1ikk89plr",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 0,
+            "providerId": "builtin_review",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 18,
+        "timestampUtc": "1780882166.098720000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "call_EynSqSagVj59awG1ikk89plr",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 18,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.098729000Z",
+        "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+          "turnId": 2
+        },
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 14540280,
+            "ms": 0,
+            "searchedFiles": 4465,
+            "skippedFiles": 0
+          }
+        },
+        "seq": 19,
+        "timestampUtc": "1780882166.098735000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 14540280,
+            "ms": 0,
+            "searchedFiles": 4465,
+            "skippedFiles": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 19,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.098741000Z",
+        "toolCallId": "call_EynSqSagVj59awG1ikk89plr",
+        "turn": 2
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 3
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 3
+          }
+        },
+        "seq": 20,
+        "timestampUtc": "1780882166.098763000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 3
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 20,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882166.098769000Z",
+        "toolCallId": null,
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 3
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turnId": 3
+          }
+        },
+        "seq": 21,
+        "timestampUtc": "1780882167.398330000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turn": 3
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 21,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.398374000Z",
+        "toolCallId": null,
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 3
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turnId": 3
+          }
+        },
+        "seq": 22,
+        "timestampUtc": "1780882167.398403000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turn": 3
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 22,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.398415000Z",
+        "toolCallId": null,
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_de764f4016870817472b2da58fc5a883c16ba96cbc84ab433d840c283573e54a",
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+          "turnId": 3
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_de764f4016870817472b2da58fc5a883c16ba96cbc84ab433d840c283573e54a",
+            "bytes": 0,
+            "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            "details": {
+              "bytesScanned": 14540280,
+              "firstMatch": null,
+              "query": "partialWorkflowReminder",
+              "returnedMatches": 0,
+              "searchedFiles": 4465,
+              "skippedFiles": 0,
+              "truncated": false
+            },
+            "providerId": "builtin_review",
+            "summary": "search_text query=partialWorkflowReminder matches=0",
+            "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 23,
+        "timestampUtc": "1780882167.414638000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_de764f4016870817472b2da58fc5a883c16ba96cbc84ab433d840c283573e54a",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_de764f4016870817472b2da58fc5a883c16ba96cbc84ab433d840c283573e54a",
+            "bytes": 0,
+            "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            "details": {
+              "bytesScanned": 14540280,
+              "firstMatch": null,
+              "query": "partialWorkflowReminder",
+              "returnedMatches": 0,
+              "searchedFiles": 4465,
+              "skippedFiles": 0,
+              "truncated": false
+            },
+            "summary": "search_text query=partialWorkflowReminder matches=0",
+            "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 23,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.414677000Z",
+        "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+          "turnId": 3
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 0,
+            "providerId": "builtin_review",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 24,
+        "timestampUtc": "1780882167.414692000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 24,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.414702000Z",
+        "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+          "turnId": 3
+        },
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 14540280,
+            "ms": 0,
+            "searchedFiles": 4465,
+            "skippedFiles": 0
+          }
+        },
+        "seq": 25,
+        "timestampUtc": "1780882167.414710000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 14540280,
+            "ms": 0,
+            "searchedFiles": 4465,
+            "skippedFiles": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 25,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.414716000Z",
+        "toolCallId": "call_NYTBz9EC1f5ELfweI8cx5nm9",
+        "turn": 3
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 4
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 4
+          }
+        },
+        "seq": 26,
+        "timestampUtc": "1780882167.414739000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 4
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 26,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882167.414745000Z",
+        "toolCallId": null,
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 4
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turnId": 4
+          }
+        },
+        "seq": 27,
+        "timestampUtc": "1780882169.049940000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 1,
+            "turn": 4
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 27,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.049992000Z",
+        "toolCallId": null,
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 4
+        },
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turnId": 4
+          }
+        },
+        "seq": 28,
+        "timestampUtc": "1780882169.050023000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolBatchStarted": {
+            "count": 1,
+            "sessionId": "unit-001",
+            "turn": 4
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 28,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.050037000Z",
+        "toolCallId": null,
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": "art_276337ef5fc30925c210dcc5f90c6cd5ec95564289a5a268b23f4e9852ce7e99",
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+          "turnId": 4
+        },
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_276337ef5fc30925c210dcc5f90c6cd5ec95564289a5a268b23f4e9852ce7e99",
+            "bytes": 54612,
+            "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+            "details": {
+              "bytesScanned": 247736,
+              "firstMatch": {
+                "line": 69,
+                "path": ".github/workflows/api-v1-production-build.yml"
+              },
+              "query": "api",
+              "returnedMatches": 120,
+              "searchedFiles": 101,
+              "skippedFiles": 0,
+              "truncated": true
+            },
+            "providerId": "builtin_review",
+            "summary": "search_text query=api matches=120",
+            "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 29,
+        "timestampUtc": "1780882169.062931000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": "art_276337ef5fc30925c210dcc5f90c6cd5ec95564289a5a268b23f4e9852ce7e99",
+        "event": {
+          "artifactCreated": {
+            "artifactId": "art_276337ef5fc30925c210dcc5f90c6cd5ec95564289a5a268b23f4e9852ce7e99",
+            "bytes": 54612,
+            "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+            "details": {
+              "bytesScanned": 247736,
+              "firstMatch": {
+                "line": 69,
+                "path": ".github/workflows/api-v1-production-build.yml"
+              },
+              "query": "api",
+              "returnedMatches": 120,
+              "searchedFiles": 101,
+              "skippedFiles": 0,
+              "truncated": true
+            },
+            "summary": "search_text query=api matches=120",
+            "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 29,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.062976000Z",
+        "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+          "turnId": 4
+        },
+        "event": {
+          "toolCallCompleted": {
+            "cacheStatus": "miss",
+            "callId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+            "errorCode": null,
+            "errorMessage": null,
+            "ok": true,
+            "outputBytes": 54493,
+            "providerId": "builtin_review",
+            "toolName": "search_text"
+          }
+        },
+        "seq": 30,
+        "timestampUtc": "1780882169.063001000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "toolCallCompleted": {
+            "callId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+            "errorCode": null,
+            "ok": true,
+            "toolId": "search_text"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 30,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.063012000Z",
+        "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+          "turnId": 4
+        },
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 247736,
+            "ms": 0,
+            "searchedFiles": 101,
+            "skippedFiles": 0
+          }
+        },
+        "seq": 31,
+        "timestampUtc": "1780882169.063022000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "searchBatchCompleted": {
+            "bytesScanned": 247736,
+            "ms": 0,
+            "searchedFiles": 101,
+            "skippedFiles": 0
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 31,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.063029000Z",
+        "toolCallId": "call_eutwGWtnsYfYCZ7CmTk2JSIQ",
+        "turn": 4
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 5
+        },
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turnId": 5
+          }
+        },
+        "seq": 32,
+        "timestampUtc": "1780882169.063150000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelStarted": {
+            "sessionId": "unit-001",
+            "turn": 5
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 32,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882169.063157000Z",
+        "toolCallId": null,
+        "turn": 5
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": 5
+        },
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 0,
+            "turnId": 5
+          }
+        },
+        "seq": 33,
+        "timestampUtc": "1780882174.835826000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "modelCompleted": {
+            "sessionId": "unit-001",
+            "toolCallCount": 0,
+            "turn": 5
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 33,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882174.835871000Z",
+        "toolCallId": null,
+        "turn": 5
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": "unit-001",
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "sessionFinished": {
+            "sessionId": "unit-001",
+            "status": "done"
+          }
+        },
+        "seq": 34,
+        "timestampUtc": "1780882174.835982000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "sessionFinished": {
+            "sessionId": "unit-001",
+            "status": "done"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 34,
+        "sessionId": "unit-001",
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882174.836010000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": null,
+          "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "snapshotFinished": {
+            "completedSessions": 1,
+            "sessions": 1,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "seq": 35,
+        "timestampUtc": "1780882174.836282000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "snapshotFinished": {
+            "completedSessions": 1,
+            "sessions": 1,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 35,
+        "sessionId": null,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533",
+        "timestampUtc": "1780882174.836300000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.runtime",
+      "params": {
+        "context": {
+          "artifactId": null,
+          "findingId": null,
+          "runId": "diagnostic-pr-14943-1780882160868",
+          "sessionId": null,
+          "snapshotId": null,
+          "toolCallId": null,
+          "turnId": null
+        },
+        "event": {
+          "jobFinished": {
+            "status": "completed"
+          }
+        },
+        "seq": 36,
+        "timestampUtc": "1780882174.836675000Z"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "event.review",
+      "params": {
+        "artifactId": null,
+        "event": {
+          "runFinished": {
+            "status": "completed"
+          }
+        },
+        "findingId": null,
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "seq": 36,
+        "sessionId": null,
+        "snapshotId": null,
+        "timestampUtc": "1780882174.836693000Z",
+        "toolCallId": null,
+        "turn": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "run.finished",
+      "params": {
+        "fileReviews": [
+          {
+            "evidenceArtifactIds": [],
+            "evidenceCount": 0,
+            "path": "packages/prisma/schema.prisma",
+            "relatedPaths": [],
+            "sessionId": "planner",
+            "summary": "File is not reviewable as text.",
+            "unitId": "planner-excluded",
+            "verdict": "skipped"
+          }
+        ],
+        "findings": [],
+        "metadata": {},
+        "protocolVersion": "muzen.runner.v1",
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "snapshots": [
+          {
+            "capturedBytes": 14540280,
+            "capturedFiles": 4465,
+            "changedFiles": 3,
+            "files": 5277,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        ],
+        "status": "completed",
+        "summary": {
+          "artifactBytes": 61824,
+          "artifacts": 5,
+          "completedSessions": 1,
+          "elapsedMs": 13830,
+          "findings": 0,
+          "inputTokens": 11043,
+          "modelCalls": 6,
+          "outputTokens": 341,
+          "publishableFindings": 0,
+          "sessions": 1,
+          "snapshotCount": 1,
+          "toolCalls": 5,
+          "totalTokens": 11384
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "fileReviews": [
+          {
+            "evidenceArtifactIds": [],
+            "evidenceCount": 0,
+            "path": "packages/prisma/schema.prisma",
+            "relatedPaths": [],
+            "sessionId": "planner",
+            "summary": "File is not reviewable as text.",
+            "unitId": "planner-excluded",
+            "verdict": "skipped"
+          }
+        ],
+        "findings": [],
+        "metadata": {},
+        "protocolVersion": "muzen.runner.v1",
+        "runId": "diagnostic-pr-14943-1780882160868",
+        "snapshots": [
+          {
+            "capturedBytes": 14540280,
+            "capturedFiles": 4465,
+            "changedFiles": 3,
+            "files": 5277,
+            "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+          }
+        ],
+        "status": "completed",
+        "summary": {
+          "artifactBytes": 61824,
+          "artifacts": 5,
+          "completedSessions": 1,
+          "elapsedMs": 13830,
+          "findings": 0,
+          "inputTokens": 11043,
+          "modelCalls": 6,
+          "outputTokens": 341,
+          "publishableFindings": 0,
+          "sessions": 1,
+          "snapshotCount": 1,
+          "toolCalls": 5,
+          "totalTokens": 11384
+        }
+      }
+    }
+  ],
+  "stderr": null
+}

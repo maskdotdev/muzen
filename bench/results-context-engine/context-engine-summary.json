@@ -1,24 +1,24 @@
 {
   "schemaVersion": "muzen.context-eval-summary.v2",
-  "generatedAtUnixMs": 1781202200301,
+  "generatedAtUnixMs": 1781231458760,
   "caseCount": 86,
   "ok": true,
   "failures": [],
   "metrics": {
     "meanRecall": 0.4880356723379979,
-    "meanPrecision": 0.11981951778689756,
+    "meanPrecision": 0.1194708309660025,
     "meanRecallAt5": 0.30916431759455015,
     "meanRecallAt10": 0.4037518037518037,
     "meanRecallAt25": 0.4857100909426491,
-    "meanNdcgAt10": 0.327706547548242,
+    "meanNdcgAt10": 0.3234150330548869,
     "firstRelevantRate": 0.6744186046511628,
-    "meanTokensToFirstRelevant": 2464.0172413793102,
+    "meanTokensToFirstRelevant": 2465.051724137931,
     "secretRedactionCorrectRate": 1.0,
     "promptInjectionResistanceRate": 1.0,
     "meanUsefulEvidencePer1kTokens": 1.341102005270602,
-    "meanLatencyMs": 511.96930518639164,
-    "maxLatencyMs": 1352.2080840193667,
-    "totalOmittedCandidates": 222978,
+    "meanLatencyMs": 3304.960872579994,
+    "maxLatencyMs": 6825.663750001695,
+    "totalOmittedCandidates": 222981,
     "sufficiencyGapRecall": 0.9285714285714286,
     "sufficiencySufficientWhenComplete": 1.0
   },
@@ -37,7 +37,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1140.7581249950454,
+      "latency_ms": 3178.5931669874117,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 34,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 189,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 5480
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6185,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 7,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 218,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8912844
+        },
+        "defines": {
+          "count": 3560,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4307,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66271186
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 162,
+          "min": 0.38953385,
+          "max": 0.48180833,
+          "mean": 0.40365034
+        },
+        "same_module": {
+          "count": 34,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/runtime/model.rs"
       ],
@@ -106,7 +172,72 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 642.0801659696735,
+      "latency_ms": 3085.1815000060014,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 31,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 360,
+        "duplicate_lower_score": 15991
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7637,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 345,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8823188
+        },
+        "defines": {
+          "count": 4165,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5525,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6634751
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 175,
+          "min": 0.3886385,
+          "max": 0.8,
+          "mean": 0.45165017
+        },
+        "same_module": {
+          "count": 32,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/syntax.rs"
       ],
@@ -183,7 +314,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 317.3389579751529,
+      "latency_ms": 2326.2840419774875,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 119,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 2253
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6407,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 3,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 222,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8914414
+        },
+        "defines": {
+          "count": 3630,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4428,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6679313
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 120,
+          "min": 0.33551615,
+          "max": 0.7742146,
+          "mean": 0.4255851
+        },
+        "same_module": {
+          "count": 14,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/options.rs",
         "src/runner/execution.rs",
@@ -236,7 +433,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 264.7927080397494,
+      "latency_ms": 2055.5900830077007,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 17,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 61,
+        "no_evidence_projection": 5,
+        "duplicate_lower_score": 2659
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 5287,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 10,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 229,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8936681
+        },
+        "defines": {
+          "count": 3009,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4064,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.67096454
+        },
+        "tests": {
+          "count": 4,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.79999995
+        },
+        "co_changed": {
+          "count": 43,
+          "min": 0.39801002,
+          "max": 0.49801,
+          "mean": 0.42651862
+        },
+        "same_module": {
+          "count": 10,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "examples/tanstack-durable-review/src/server/store.ts",
         "examples/tanstack-durable-review/src/server/worker.ts"
@@ -288,7 +551,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 0.3333333333333333,
-      "precision": 0.08333333333333333,
+      "precision": 0.09090909090909091,
       "recall_at_5": 0.3333333333333333,
       "recall_at_10": 0.3333333333333333,
       "recall_at_25": 0.3333333333333333,
@@ -297,7 +560,69 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 195.85912500042468,
+      "latency_ms": 2149.2026670021005,
+      "graph_recall_at_10": 0.3333333333333333,
+      "graph_recall_at_25": 0.3333333333333333,
+      "graph_path_found_rate": 0.3333333333333333,
+      "graph_candidate_count": 25,
+      "miss_attribution": {
+        "src/review_session/profiles.rs": "expansion_omitted_duplicate_lower_score",
+        "src/review_session/store.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 97,
+        "duplicate_lower_score": 2395
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3931,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 197,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89822334
+        },
+        "defines": {
+          "count": 2203,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2721,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7243293
+        },
+        "co_changed": {
+          "count": 80,
+          "min": 0.3611118,
+          "max": 0.46298242,
+          "mean": 0.37444568
+        },
+        "same_module": {
+          "count": 23,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session.rs",
         "src/review_session/profiles.rs",
@@ -307,14 +632,13 @@
         "src/review_session.rs",
         "src/cli.rs",
         "src/bench.rs",
-        "src/reviewer.rs",
         "src/events.rs",
         "src/main.rs",
         "src/bin/muzen-runner.rs",
         "src/service.rs",
         "src/lib.rs",
         "Cargo.lock",
-        "src/contracts.rs",
+        "src/runtime/mod.rs",
         "src/bin/muzen-service.rs"
       ],
       "missed_paths": [
@@ -327,11 +651,10 @@
         "src/bin/muzen-runner.rs",
         "src/bin/muzen-service.rs",
         "src/cli.rs",
-        "src/contracts.rs",
         "src/events.rs",
         "src/lib.rs",
         "src/main.rs",
-        "src/reviewer.rs",
+        "src/runtime/mod.rs",
         "src/service.rs"
       ],
       "forbidden_content_hits": [],
@@ -339,9 +662,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1001,
+      "omitted": 1006,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 21
+      "sufficiency_blocking_gaps": 15
     },
     {
       "id": "mined-409401a0fb04-pack",
@@ -357,7 +680,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 308.2621669746004,
+      "latency_ms": 2180.7949999929406,
+      "graph_recall_at_10": 0.25,
+      "graph_recall_at_25": 0.25,
+      "graph_path_found_rate": 0.25,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/review_session/tests.rs": "expansion_omitted_duplicate_lower_score",
+        "src/review_units.rs": "expansion_omitted_duplicate_lower_score",
+        "src/tests.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 106,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 3842
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6148,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 4,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 218,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8912844
+        },
+        "defines": {
+          "count": 3550,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4304,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66254646
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 110,
+          "min": 0.33343777,
+          "max": 0.51162815,
+          "mean": 0.40459886
+        },
+        "same_module": {
+          "count": 9,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -421,7 +814,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 503.2760419999249,
+      "latency_ms": 2678.889832983259,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/context_engine/tests.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 91,
+        "duplicate_lower_score": 6092
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7566,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 5,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 344,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8822674
+        },
+        "defines": {
+          "count": 4142,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5491,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6641231
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 13,
+          "min": 0.39605963,
+          "max": 0.49605963,
+          "mean": 0.40375194
+        },
+        "same_module": {
+          "count": 11,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 3,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/tests.rs"
@@ -473,7 +933,80 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5,
-      "latency_ms": 498.9681669976562,
+      "latency_ms": 2697.7092499728315,
+      "graph_recall_at_10": 0.4,
+      "graph_recall_at_25": 0.8,
+      "graph_path_found_rate": 0.8,
+      "graph_candidate_count": 30,
+      "miss_attribution": {
+        "sdk/python/muzen/remote.py": "ranking_buried_at_11",
+        "sdk/python/muzen/runner_mapping.py": "expansion_omitted_duplicate_lower_score",
+        "sdk/python/muzen/types.py": "ranking_buried_at_12",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts": "ranking_buried_at_13",
+        "src/cli.rs": "expansion_omitted_duplicate_lower_score",
+        "src/context_engine/config.rs": "selection_dropped",
+        "src/context_engine/semantic.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 277,
+        "duplicate_lower_score": 10606
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7650,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 14,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 345,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8823188
+        },
+        "defines": {
+          "count": 4170,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5537,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6631208
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 113,
+          "min": 0.38687462,
+          "max": 0.8,
+          "mean": 0.4558602
+        },
+        "same_module": {
+          "count": 27,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -541,7 +1074,67 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 303.6397920222953,
+      "latency_ms": 2364.847249991726,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 31,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 126,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 8521
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4092,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 12,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 205,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89829266
+        },
+        "defines": {
+          "count": 2277,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 3086,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6993519
+        },
+        "co_changed": {
+          "count": 56,
+          "min": 0.35203412,
+          "max": 0.8,
+          "mean": 0.44695982
+        },
+        "same_module": {
+          "count": 30,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/store.rs"
       ],
@@ -592,7 +1185,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 329.7621670062654,
+      "latency_ms": 2331.412667001132,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.5,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/runtime/dispatch.rs": "ranking_buried_at_12",
+        "src/runtime/tools/authorization.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runtime/tools/validation.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 106,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 5841
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6328,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 11,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 222,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8914414
+        },
+        "defines": {
+          "count": 3612,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4425,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.667774
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 110,
+          "min": 0.3348094,
+          "max": 0.52030915,
+          "mean": 0.40888953
+        },
+        "same_module": {
+          "count": 9,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/runtime/dispatch.rs",
         "src/runtime/tools/authorization.rs",
@@ -654,7 +1317,67 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 251.69920799089596,
+      "latency_ms": 2257.7411250094883,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 31,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 102,
+        "no_evidence_projection": 5,
+        "duplicate_lower_score": 6618
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3704,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 15,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 192,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8981771
+        },
+        "defines": {
+          "count": 2064,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2443,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7478919
+        },
+        "co_changed": {
+          "count": 61,
+          "min": 0.37700436,
+          "max": 0.6390785,
+          "mean": 0.42600307
+        },
+        "same_module": {
+          "count": 25,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts"
@@ -701,7 +1424,67 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 317.5376659492031,
+      "latency_ms": 2227.497374988161,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 36,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 239,
+        "no_evidence_projection": 3,
+        "duplicate_lower_score": 11139
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4244,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 28,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 211,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8983412
+        },
+        "defines": {
+          "count": 2347,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 3532,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6843715
+        },
+        "co_changed": {
+          "count": 217,
+          "min": 0.34386182,
+          "max": 0.5771891,
+          "mean": 0.36916995
+        },
+        "same_module": {
+          "count": 40,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts"
       ],
@@ -756,7 +1539,80 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.4166666666666667,
-      "latency_ms": 300.6721250130795,
+      "latency_ms": 2408.002417010721,
+      "graph_recall_at_10": 0.1111111111111111,
+      "graph_recall_at_25": 0.4444444444444444,
+      "graph_path_found_rate": 0.6666666666666666,
+      "graph_candidate_count": 33,
+      "miss_attribution": {
+        "src/cli.rs": "ranking_buried_at_14",
+        "src/runner/adapters.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/execution.rs": "ranking_buried_at_17",
+        "src/runner/stored.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/types.rs": "selection_dropped",
+        "src/runtime/bench.rs": "expansion_omitted_budget_exceeded"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 183,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 2729
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6137,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 4,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 217,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89124423
+        },
+        "defines": {
+          "count": 3545,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4281,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6614576
+        },
+        "tests": {
+          "count": 3,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8
+        },
+        "co_changed": {
+          "count": 266,
+          "min": 0.33277234,
+          "max": 0.5074167,
+          "mean": 0.40038636
+        },
+        "same_module": {
+          "count": 34,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -832,7 +1688,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25002083506958916,
-      "latency_ms": 232.91733302176,
+      "latency_ms": 2283.7987079983577,
+      "graph_recall_at_10": 0.3333333333333333,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 17,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 47,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 978
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 5288,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 3,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 229,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8936681
+        },
+        "defines": {
+          "count": 3010,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4066,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.67088044
+        },
+        "tests": {
+          "count": 3,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 28,
+          "min": 0.39702994,
+          "max": 0.4960299,
+          "mean": 0.43280923
+        },
+        "same_module": {
+          "count": 6,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "examples/tanstack-durable-review/src/server.ts",
         "examples/tanstack-durable-review/src/server/store.ts",
@@ -925,7 +1847,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 337.1857500169426,
+      "latency_ms": 2469.8005000245757,
+      "graph_recall_at_10": 0.2,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.7,
+      "graph_candidate_count": 29,
+      "miss_attribution": {
+        "sdk/typescript/packages/muzen-sdk/src/index.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts": "selection_dropped",
+        "src/review_session/worker.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/protocol.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/schema.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/types.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 151,
+        "duplicate_lower_score": 12957
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3868,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 32,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 194,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89819586
+        },
+        "defines": {
+          "count": 2162,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2663,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7280135
+        },
+        "co_changed": {
+          "count": 43,
+          "min": 0.365566,
+          "max": 0.8,
+          "mean": 0.41063455
+        },
+        "same_module": {
+          "count": 21,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -982,16 +1971,78 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.05263157894736842,
+      "precision": 0.05,
       "recall_at_5": 0.0,
       "recall_at_10": 0.0,
       "recall_at_25": 1.0,
       "ndcg_at_10": 0.0,
-      "tokens_to_first_relevant": 9282,
+      "tokens_to_first_relevant": 9368,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 256.77766697481275,
+      "latency_ms": 1835.4157920111902,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 27,
+      "miss_attribution": {
+        "src/runner.rs": "ranking_buried_at_18"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 97,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 6558
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 2720,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 26,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 181,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8961326
+        },
+        "defines": {
+          "count": 1427,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 1435,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.88411146
+        },
+        "co_changed": {
+          "count": 121,
+          "min": 0.39702994,
+          "max": 0.4,
+          "mean": 0.39710358
+        },
+        "same_module": {
+          "count": 27,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/runner.rs"
       ],
@@ -1009,6 +2060,7 @@
         "src/runtime/contracts.rs",
         "src/runner/types.rs",
         "src/runner/adapters.rs",
+        "src/runtime/mod.rs",
         "src/runtime/dispatch.rs",
         "src/runner/execution.rs",
         "src/runtime/accounting.rs",
@@ -1034,6 +2086,7 @@
         "src/runtime/bench.rs",
         "src/runtime/contracts.rs",
         "src/runtime/dispatch.rs",
+        "src/runtime/mod.rs",
         "src/runtime/model.rs",
         "src/util.rs"
       ],
@@ -1042,7 +2095,7 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 831,
+      "omitted": 830,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -1060,7 +2113,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 484.2257919954136,
+      "latency_ms": 2553.6375420051627,
+      "graph_recall_at_10": 0.75,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/context_engine/semantic.rs": "selection_dropped",
+        "src/context_engine/tests.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 108,
+        "duplicate_lower_score": 5676
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7598,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 5,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 345,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8823188
+        },
+        "defines": {
+          "count": 4154,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5492,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66416603
+        },
+        "tests": {
+          "count": 41,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8829268
+        },
+        "co_changed": {
+          "count": 52,
+          "min": 0.39043823,
+          "max": 0.58649784,
+          "mean": 0.3979032
+        },
+        "same_module": {
+          "count": 11,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
@@ -1114,7 +2235,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 291.1806250340305,
+      "latency_ms": 2289.4969579647295,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 21,
+      "miss_attribution": {
+        "sdk/typescript/packages/muzen-sdk/src/index.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 45,
+        "no_evidence_projection": 4,
+        "duplicate_lower_score": 10058
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3625,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 27,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 190,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8965789
+        },
+        "defines": {
+          "count": 2009,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2291,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.75787866
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 48,
+          "min": 0.3826169,
+          "max": 0.5669112,
+          "mean": 0.4071468
+        },
+        "same_module": {
+          "count": 7,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
@@ -1168,7 +2358,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 223.78975001629442,
+      "latency_ms": 1960.8150420244783,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 23,
+      "miss_attribution": {
+        "sdk/typescript/packages/muzen-sdk/src/index.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts": "selection_dropped",
+        "src/review_session.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 26,
+        "no_evidence_projection": 7,
+        "duplicate_lower_score": 6602
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3065,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 26,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 188,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8981383
+        },
+        "defines": {
+          "count": 1677,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 1803,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8183583
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 21,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -1222,7 +2478,66 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 305.56433397578076,
+      "latency_ms": 2212.2708749957383,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 28,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 82,
+        "duplicate_lower_score": 9767
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4060,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 17,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 200,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89825
+        },
+        "defines": {
+          "count": 2262,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2750,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.724
+        },
+        "co_changed": {
+          "count": 38,
+          "min": 0.3592967,
+          "max": 0.8,
+          "mean": 0.47682667
+        },
+        "same_module": {
+          "count": 18,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/store.rs",
         "src/review_session/worker.rs"
@@ -1267,7 +2582,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 366.2904159864411,
+      "latency_ms": 2451.2038749526255,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.5714285714285714,
+      "graph_path_found_rate": 0.8571428571428571,
+      "graph_candidate_count": 31,
+      "miss_attribution": {
+        "sdk/python/muzen/client.py": "selection_dropped",
+        "sdk/python/tests/test_client.py": "selection_dropped",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts": "selection_dropped",
+        "src/runner.rs": "ranking_buried_at_12",
+        "src/runner/execution.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/types.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 125,
+        "duplicate_lower_score": 12083
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4003,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 33,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 197,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89822334
+        },
+        "defines": {
+          "count": 2234,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2738,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7235208
+        },
+        "co_changed": {
+          "count": 58,
+          "min": 0.3617291,
+          "max": 0.8,
+          "mean": 0.4429742
+        },
+        "same_module": {
+          "count": 23,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/python/muzen/client.py",
         "sdk/python/tests/test_client.py",
@@ -1339,7 +2720,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 410.1755419978872,
+      "latency_ms": 2562.762124987785,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 23,
+      "miss_attribution": {
+        "src/context_engine/store.rs": "ranking_buried_at_17"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 196,
+        "duplicate_lower_score": 6344
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7593,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 7,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 344,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8822674
+        },
+        "defines": {
+          "count": 4151,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5491,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6641231
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 117,
+          "min": 0.39135176,
+          "max": 0.8,
+          "mean": 0.44251445
+        },
+        "same_module": {
+          "count": 20,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/store.rs"
       ],
@@ -1406,7 +2854,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 268.0805000127293,
+      "latency_ms": 2195.697667018976,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 21,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 71,
+        "no_evidence_projection": 3,
+        "duplicate_lower_score": 9157
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3497,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 17,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 190,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8965789
+        },
+        "defines": {
+          "count": 1926,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2131,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.771985
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 48,
+          "min": 0.3851458,
+          "max": 0.5728979,
+          "mean": 0.4042706
+        },
+        "same_module": {
+          "count": 12,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts"
       ],
@@ -1451,7 +2965,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 286.85308300191537,
+      "latency_ms": 2198.790459020529,
+      "graph_recall_at_10": 0.3333333333333333,
+      "graph_recall_at_25": 0.3333333333333333,
+      "graph_path_found_rate": 0.3333333333333333,
+      "graph_candidate_count": 37,
+      "miss_attribution": {
+        "src/review_session/tests.rs": "expansion_omitted_budget_exceeded",
+        "src/review_units.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runtime/planned_units.rs": "ranking_buried_at_15"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 271,
+        "no_evidence_projection": 4,
+        "duplicate_lower_score": 2062
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6225,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 4,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 218,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8912844
+        },
+        "defines": {
+          "count": 3572,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4320,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6634259
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 294,
+          "min": 0.3344613,
+          "max": 0.5181061,
+          "mean": 0.38411996
+        },
+        "same_module": {
+          "count": 36,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1508,7 +3092,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.1111111111111111,
+      "precision": 0.09090909090909091,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -1517,7 +3101,66 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 324.118249991443,
+      "latency_ms": 2278.635792026762,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 28,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 114,
+        "duplicate_lower_score": 6961
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4078,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 202,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8982673
+        },
+        "defines": {
+          "count": 2268,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2827,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.71733284
+        },
+        "co_changed": {
+          "count": 38,
+          "min": 0.3541686,
+          "max": 0.8,
+          "mean": 0.47269484
+        },
+        "same_module": {
+          "count": 20,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1529,13 +3172,17 @@
         "src/review_session/source.rs",
         "src/review_session/router.rs",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "src/bin/muzen-service.rs",
         "src/runner/session.rs",
-        "src/runner.rs"
+        "src/runner.rs",
+        "src/review_session/options.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "src/bin/muzen-service.rs",
         "src/review_session/http.rs",
+        "src/review_session/options.rs",
         "src/review_session/router.rs",
         "src/review_session/source.rs",
         "src/review_session/store.rs",
@@ -1548,9 +3195,9 @@
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 1187,
+      "omitted": 1186,
       "sufficiency_status": "probably_sufficient",
-      "sufficiency_blocking_gaps": 7
+      "sufficiency_blocking_gaps": 6
     },
     {
       "id": "mined-b0dfac06b003-pack",
@@ -1566,7 +3213,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 564.5713749690913,
+      "latency_ms": 2803.972875000909,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 34,
+      "miss_attribution": {
+        "src/context_engine/store.rs": "selection_dropped",
+        "src/context_engine/tests.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 292,
+        "duplicate_lower_score": 14104
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7530,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 17,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 344,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8822674
+        },
+        "defines": {
+          "count": 4119,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5455,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6643996
+        },
+        "tests": {
+          "count": 41,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8829268
+        },
+        "co_changed": {
+          "count": 153,
+          "min": 0.39509904,
+          "max": 0.69013894,
+          "mean": 0.43024832
+        },
+        "same_module": {
+          "count": 32,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 3,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/store.rs",
         "src/context_engine/tests.rs"
@@ -1646,7 +3361,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 339.577000006102,
+      "latency_ms": 2429.977665946353,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.3333333333333333,
+      "graph_candidate_count": 35,
+      "miss_attribution": {
+        "src/review_session/tests.rs": "selection_dropped",
+        "src/review_units.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runtime/planned_units.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 459,
+        "no_evidence_projection": 3,
+        "duplicate_lower_score": 5025
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6407,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 222,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8914414
+        },
+        "defines": {
+          "count": 3630,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4428,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6679313
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 432,
+          "min": 0.335161,
+          "max": 0.70957685,
+          "mean": 0.41489178
+        },
+        "same_module": {
+          "count": 41,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -1716,7 +3501,66 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 295.2517500380054,
+      "latency_ms": 2271.6316250152886,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 28,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 106,
+        "duplicate_lower_score": 8295
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4087,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 15,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 203,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89827585
+        },
+        "defines": {
+          "count": 2272,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2970,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7065993
+        },
+        "co_changed": {
+          "count": 39,
+          "min": 0.35309064,
+          "max": 0.8,
+          "mean": 0.47081184
+        },
+        "same_module": {
+          "count": 21,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -1765,7 +3609,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 281.34479199070483,
+      "latency_ms": 2093.04633399006,
+      "graph_recall_at_10": 0.25,
+      "graph_recall_at_25": 0.625,
+      "graph_path_found_rate": 0.625,
+      "graph_candidate_count": 28,
+      "miss_attribution": {
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts": "selection_dropped",
+        "src/runner.rs": "selection_dropped",
+        "src/runner/protocol.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/schema.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/session.rs": "selection_dropped",
+        "src/runner/types.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 91,
+        "duplicate_lower_score": 9370
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3662,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 15,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 190,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8981579
+        },
+        "defines": {
+          "count": 2031,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2379,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.74833965
+        },
+        "co_changed": {
+          "count": 20,
+          "min": 0.37700436,
+          "max": 0.8,
+          "mean": 0.42405325
+        },
+        "same_module": {
+          "count": 16,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
@@ -1829,7 +3739,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 396.72862499719486,
+      "latency_ms": 2727.3223329684697,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/context_engine/tests.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 47,
+        "duplicate_lower_score": 5999
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7646,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 7,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 345,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8823188
+        },
+        "defines": {
+          "count": 4169,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5525,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6634751
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 4,
+          "min": 0.3922745,
+          "max": 0.4922745,
+          "mean": 0.4172745
+        },
+        "same_module": {
+          "count": 11,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/index.rs",
         "src/context_engine/tests.rs"
@@ -1875,7 +3852,79 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 282.1797919459641,
+      "latency_ms": 2120.718582998961,
+      "graph_recall_at_10": 0.3333333333333333,
+      "graph_recall_at_25": 0.5555555555555556,
+      "graph_path_found_rate": 0.5555555555555556,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "src/cli.rs": "expansion_omitted_duplicate_lower_score",
+        "src/review_session/outcome.rs": "expansion_omitted_duplicate_lower_score",
+        "src/review_session/tests.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/stored.rs": "selection_dropped",
+        "src/runtime/bench.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 119,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 2087
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6172,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 218,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8912844
+        },
+        "defines": {
+          "count": 3557,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4304,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66254646
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 117,
+          "min": 0.33377552,
+          "max": 0.6673609,
+          "mean": 0.40868178
+        },
+        "same_module": {
+          "count": 9,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -1945,7 +3994,61 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 261.41504099359736,
+      "latency_ms": 2243.698666978162,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 0,
+      "miss_attribution": {
+        "src/review_session/tests.rs": "graph_unreached",
+        "src/review_units.rs": "graph_unreached",
+        "src/runtime/planned_units.rs": "graph_unreached"
+      },
+      "expansion_omitted_by_reason": {},
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6148,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 218,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8912844
+        },
+        "defines": {
+          "count": 3550,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4304,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66254646
+        },
+        "tests": {
+          "count": 5,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.84
+        },
+        "co_changed": {
+          "count": 110,
+          "min": 0.3331034,
+          "max": 0.5095118,
+          "mean": 0.40355286
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -2021,7 +4124,83 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 373.80191701231524,
+      "latency_ms": 2423.817083996255,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.09090909090909091,
+      "graph_path_found_rate": 0.09090909090909091,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "sdk/python/muzen/local.py": "expansion_omitted_duplicate_lower_score",
+        "sdk/python/muzen/remote.py": "expansion_omitted_duplicate_lower_score",
+        "sdk/python/muzen/runner_mapping.py": "expansion_omitted_duplicate_lower_score",
+        "sdk/python/muzen/types.py": "expansion_omitted_duplicate_lower_score",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts": "expansion_omitted_duplicate_lower_score",
+        "src/context_engine/config.rs": "expansion_omitted_duplicate_lower_score",
+        "src/context_engine/engine.rs": "expansion_omitted_duplicate_lower_score",
+        "src/context_engine/index.rs": "expansion_omitted_duplicate_lower_score",
+        "src/context_engine/semantic.rs": "graph_unreached",
+        "src/context_engine/tests.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 138,
+        "duplicate_lower_score": 3454
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7653,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 4,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 345,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8823188
+        },
+        "defines": {
+          "count": 4172,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5537,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.6631208
+        },
+        "tests": {
+          "count": 40,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8925
+        },
+        "co_changed": {
+          "count": 138,
+          "min": 0.32424173,
+          "max": 0.63903767,
+          "mean": 0.41004038
+        },
+        "same_module": {
+          "count": 13,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -2094,7 +4273,7 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.125,
+      "precision": 0.1111111111111111,
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
@@ -2103,7 +4282,66 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 341.03287500329316,
+      "latency_ms": 2283.776082971599,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 31,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 87,
+        "duplicate_lower_score": 7870
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 4074,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 11,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 200,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89825
+        },
+        "defines": {
+          "count": 2265,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2773,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7214208
+        },
+        "co_changed": {
+          "count": 37,
+          "min": 0.35526842,
+          "max": 0.8,
+          "mean": 0.47462514
+        },
+        "same_module": {
+          "count": 19,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -2113,15 +4351,17 @@
         "src/review_session/webhooks.rs",
         "src/review_session/http.rs",
         "src/review_session/router.rs",
+        "src/bin/muzen-service.rs",
         "src/runner/session.rs",
         "src/runner.rs",
-        "src/review_session/source.rs"
+        "src/review_session.rs"
       ],
       "missed_paths": [],
       "unexpected_paths": [
+        "src/bin/muzen-service.rs",
+        "src/review_session.rs",
         "src/review_session/http.rs",
         "src/review_session/router.rs",
-        "src/review_session/source.rs",
         "src/review_session/store.rs",
         "src/review_session/webhooks.rs",
         "src/runner.rs",
@@ -2150,7 +4390,79 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 348.29804103355855,
+      "latency_ms": 2129.1775419958867,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.3333333333333333,
+      "graph_path_found_rate": 0.3333333333333333,
+      "graph_candidate_count": 24,
+      "miss_attribution": {
+        "src/review_session/http.rs": "selection_dropped",
+        "src/runner.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/protocol.rs": "selection_dropped",
+        "src/runner/schema.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/session.rs": "expansion_omitted_duplicate_lower_score",
+        "src/runner/types.rs": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 117,
+        "duplicate_lower_score": 9251
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3718,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 14,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 192,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8981771
+        },
+        "defines": {
+          "count": 2077,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2463,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.745879
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 64,
+          "min": 0.37471727,
+          "max": 0.72900754,
+          "mean": 0.42997333
+        },
+        "same_module": {
+          "count": 16,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/http.rs",
         "src/runner.rs",
@@ -2216,7 +4528,69 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 267.45058299275115,
+      "latency_ms": 2219.251540955156,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 22,
+      "miss_attribution": {
+        "src/review_session.rs": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 40,
+        "no_evidence_projection": 7,
+        "duplicate_lower_score": 10190
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 2946,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 27,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 181,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8980663
+        },
+        "defines": {
+          "count": 1602,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 1655,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8342598
+        },
+        "tests": {
+          "count": 2,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 35,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session.rs"
       ],
@@ -2260,7 +4634,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 280.78354202443734,
+      "latency_ms": 2126.7384170205332,
+      "graph_recall_at_10": 0.3333333333333333,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 23,
+      "miss_attribution": {
+        "sdk/python/muzen/__init__.py": "selection_dropped",
+        "sdk/python/muzen/types.py": "selection_dropped",
+        "sdk/python/tests/test_client.py": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 96,
+        "no_evidence_projection": 3,
+        "duplicate_lower_score": 9821
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3551,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 21,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 190,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8965789
+        },
+        "defines": {
+          "count": 1968,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2214,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7617886
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        },
+        "co_changed": {
+          "count": 60,
+          "min": 0.3834514,
+          "max": 0.66746724,
+          "mean": 0.41444448
+        },
+        "same_module": {
+          "count": 12,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/types.py",
@@ -2314,7 +4758,72 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 515.9769579768181,
+      "latency_ms": 3042.617416998837,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 31,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 288,
+        "duplicate_lower_score": 15157
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 7553,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 16,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 344,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8822674
+        },
+        "defines": {
+          "count": 4132,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5484,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.66411376
+        },
+        "tests": {
+          "count": 41,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8829268
+        },
+        "co_changed": {
+          "count": 153,
+          "min": 0.39414805,
+          "max": 0.78623754,
+          "mean": 0.43090662
+        },
+        "same_module": {
+          "count": 27,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 3,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/context_engine/semantic.rs"
       ],
@@ -2385,7 +4894,66 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 383.8657920132391,
+      "latency_ms": 2417.400083038956,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 30,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 80,
+        "duplicate_lower_score": 11409
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3759,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 17,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 194,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89819586
+        },
+        "defines": {
+          "count": 2097,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2483,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7445429
+        },
+        "co_changed": {
+          "count": 24,
+          "min": 0.36894497,
+          "max": 0.8,
+          "mean": 0.41014767
+        },
+        "same_module": {
+          "count": 16,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 2,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/review_session/http.rs"
       ],
@@ -2440,7 +5008,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1352.2080840193667,
+      "latency_ms": 6106.864832981955,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.6666666666666666,
+      "graph_candidate_count": 64,
+      "miss_attribution": {
+        "apps/web/src/features/review/server/review-argus-agent.test.ts": "selection_dropped",
+        "packages/review-domain/src/argus-agent/config.ts": "expansion_omitted_budget_exceeded"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1364,
+        "no_evidence_projection": 7,
+        "duplicate_lower_score": 8945
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 36857,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 11,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3301,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8982732
+        },
+        "defines": {
+          "count": 21926,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 15988,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84791404
+        },
+        "tests": {
+          "count": 527,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8994307
+        },
+        "co_changed": {
+          "count": 809,
+          "min": 0.30099213,
+          "max": 0.8,
+          "mean": 0.37532336
+        },
+        "same_module": {
+          "count": 160,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 71,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/server/review-argus-agent.test.ts",
         "apps/web/src/features/review/server/review-argus-agent.ts",
@@ -2514,7 +5151,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 730.1658749929629,
+      "latency_ms": 4461.51762502268,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 56,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1248,
+        "no_evidence_projection": 5,
+        "duplicate_lower_score": 6936
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 22833,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2040,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.897598
+        },
+        "defines": {
+          "count": 14055,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9612,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.83150226
+        },
+        "tests": {
+          "count": 212,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8962264
+        },
+        "co_changed": {
+          "count": 896,
+          "min": 0.30101225,
+          "max": 0.47034484,
+          "mean": 0.30538854
+        },
+        "same_module": {
+          "count": 24,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
         "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
@@ -2590,7 +5295,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1042.7964580012485,
+      "latency_ms": 6266.076917003375,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 52,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/gitlab-job-runner.ts": "selection_dropped",
+        "apps/web/src/features/review/server/persist-review-run.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 688,
+        "duplicate_lower_score": 10152
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 37685,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 29,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3291,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89817685
+        },
+        "defines": {
+          "count": 22533,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 16380,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8474084
+        },
+        "tests": {
+          "count": 536,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.898694
+        },
+        "co_changed": {
+          "count": 482,
+          "min": 0.30082795,
+          "max": 0.5055614,
+          "mean": 0.32980242
+        },
+        "same_module": {
+          "count": 48,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 49,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
         "apps/web/src/features/review/server/persist-review-run.ts"
@@ -2666,7 +5439,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08334722453742291,
-      "latency_ms": 629.2812080355361,
+      "latency_ms": 4457.718042016495,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.5,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "apps/web/src/components/site-header.tsx": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 130,
+        "duplicate_lower_score": 663
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 26087,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 1,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2279,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8978499
+        },
+        "defines": {
+          "count": 15519,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 10835,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.83709276
+        },
+        "tests": {
+          "count": 337,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 86,
+          "min": 0.3013014,
+          "max": 0.3643031,
+          "mean": 0.33135706
+        },
+        "same_module": {
+          "count": 16,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 37,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/components/site-header.tsx",
         "apps/web/src/features/review/components/diff/panel.tsx"
@@ -2724,7 +5564,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 660.6386660132557,
+      "latency_ms": 4249.810291978065,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.3333333333333333,
+      "graph_candidate_count": 41,
+      "miss_attribution": {
+        "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts": "selection_dropped",
+        "apps/web/src/app/api/onboarding/track/route.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/app/api/review/comment-publish/route.test.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 319,
+        "no_evidence_projection": 10,
+        "duplicate_lower_score": 4916
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 22784,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1998,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89754754
+        },
+        "defines": {
+          "count": 14067,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9694,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8268826
+        },
+        "tests": {
+          "count": 217,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 59,
+          "min": 0.30362758,
+          "max": 0.37507018,
+          "mean": 0.33919394
+        },
+        "same_module": {
+          "count": 3,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts",
         "apps/web/src/app/api/onboarding/track/route.test.ts",
@@ -2814,7 +5724,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 1169.7214999585412,
+      "latency_ms": 6375.488999998197,
+      "graph_recall_at_10": 0.5,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.5,
+      "graph_candidate_count": 32,
+      "miss_attribution": {
+        "apps/web/src/features/review/server/flow-run-claim.ts": "ranking_buried_at_12",
+        "apps/web/src/features/review/server/flow-run-dedupe.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/server/flow-run.helpers.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 736,
+        "duplicate_lower_score": 13345
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 36973,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 11,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3316,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89828104
+        },
+        "defines": {
+          "count": 21995,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 16436,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84098625
+        },
+        "tests": {
+          "count": 535,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.8994392
+        },
+        "co_changed": {
+          "count": 255,
+          "min": 0.3018315,
+          "max": 0.8,
+          "mean": 0.3559656
+        },
+        "same_module": {
+          "count": 74,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 81,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/server/flow-run-claim.ts",
         "apps/web/src/features/review/server/flow-run-dedupe.ts",
@@ -2884,7 +5863,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 928.0661670491099,
+      "latency_ms": 5787.0629579992965,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 74,
+      "miss_attribution": {
+        "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1113,
+        "duplicate_lower_score": 4257
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 34768,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3085,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8980875
+        },
+        "defines": {
+          "count": 20533,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 15199,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84537137
+        },
+        "tests": {
+          "count": 492,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89837396
+        },
+        "co_changed": {
+          "count": 432,
+          "min": 0.30151317,
+          "max": 0.4673935,
+          "mean": 0.33182803
+        },
+        "same_module": {
+          "count": 320,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 45,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
       ],
@@ -2974,7 +6020,81 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 851.4469169895165,
+      "latency_ms": 5304.40850002924,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/gitlab-proxy/handlers.ts": "graph_unreached",
+        "apps/web/src/features/gitlab/server/gitlab-proxy/types.ts": "graph_unreached",
+        "apps/web/src/features/review/server/description/llm-client.ts": "graph_unreached",
+        "apps/web/src/features/review/server/description/request-input.test.ts": "graph_unreached",
+        "apps/web/src/features/review/server/description/request-input.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/server/description/review-description.test.ts": "graph_unreached",
+        "apps/web/src/features/review/server/description/review-description.ts": "graph_unreached",
+        "apps/web/src/features/review/server/description/types.ts": "graph_unreached"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 245,
+        "duplicate_lower_score": 3294
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 31324,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 3,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2703,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8979282
+        },
+        "defines": {
+          "count": 18473,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 12720,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8425786
+        },
+        "tests": {
+          "count": 423,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 190,
+          "min": 0.30080333,
+          "max": 0.3401411,
+          "mean": 0.30661076
+        },
+        "same_module": {
+          "count": 19,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 40,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/gitlab-proxy/handlers.ts",
         "apps/web/src/features/gitlab/server/gitlab-proxy/types.ts",
@@ -3050,7 +6170,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 238.6198749882169,
+      "latency_ms": 2029.0861659450457,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.2,
+      "graph_candidate_count": 46,
+      "miss_attribution": {
+        "src/app/layout.tsx": "graph_unreached",
+        "src/components/merge-request-diff/merge-request-diff-panel.tsx": "ranking_buried_at_14",
+        "src/components/onboarding/onboarding-mrs-step.tsx": "expansion_omitted_duplicate_lower_score",
+        "src/components/onboarding/onboarding-projects-step.tsx": "expansion_omitted_duplicate_lower_score",
+        "src/components/onboarding/onboarding-token-step.tsx": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 168,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 2303
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 5760,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 12,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 581,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 3739,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2376,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8765993
+        },
+        "tests": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 191,
+          "min": 0.35870376,
+          "max": 0.5319704,
+          "mean": 0.39677635
+        },
+        "same_module": {
+          "count": 34,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/app/layout.tsx",
         "src/components/merge-request-diff/merge-request-diff-panel.tsx",
@@ -3150,7 +6336,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 824.713000038173,
+      "latency_ms": 5085.440583992749,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.5,
+      "graph_candidate_count": 58,
+      "miss_attribution": {
+        "packages/argus-agent/src/runtime/argus-index.test.ts": "expansion_omitted_budget_exceeded",
+        "packages/argus-agent/src/runtime/argus-index.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 898,
+        "no_evidence_projection": 4,
+        "duplicate_lower_score": 6630
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 29187,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 19,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2581,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89783025
+        },
+        "defines": {
+          "count": 17293,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 11952,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8429049
+        },
+        "tests": {
+          "count": 411,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89902675
+        },
+        "co_changed": {
+          "count": 630,
+          "min": 0.37105536,
+          "max": 0.6383848,
+          "mean": 0.38728955
+        },
+        "same_module": {
+          "count": 131,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 49,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "packages/argus-agent/src/runtime/argus-index.test.ts",
         "packages/argus-agent/src/runtime/argus-index.ts"
@@ -3254,7 +6509,70 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 366.9353750301525,
+      "latency_ms": 2523.6743339919485,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 53,
+      "miss_attribution": {
+        "src/app/layout.tsx": "expansion_omitted_duplicate_lower_score",
+        "src/components/site-header.tsx": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 420,
+        "no_evidence_projection": 19,
+        "duplicate_lower_score": 12893
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 6963,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 57,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 666,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 4522,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 2826,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.860368
+        },
+        "tests": {
+          "count": 44,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8909091
+        },
+        "co_changed": {
+          "count": 364,
+          "min": 0.32818615,
+          "max": 0.52450275,
+          "mean": 0.3771424
+        },
+        "same_module": {
+          "count": 34,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/app/layout.tsx",
         "src/components/site-header.tsx"
@@ -3352,7 +6670,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1272.0743750105612,
+      "latency_ms": 6801.886665984057,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.5,
+      "graph_candidate_count": 46,
+      "miss_attribution": {
+        "apps/web/src/features/review/server/comment-publish.test.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 557,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 16019
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 38073,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 32,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3592,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89824605
+        },
+        "defines": {
+          "count": 22742,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 17999,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.82964885
+        },
+        "tests": {
+          "count": 596,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89882547
+        },
+        "co_changed": {
+          "count": 126,
+          "min": 0.30108604,
+          "max": 0.40712,
+          "mean": 0.33788988
+        },
+        "same_module": {
+          "count": 147,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 114,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/server/comment-publish.test.ts",
         "apps/web/src/features/review/server/comment-publish.ts"
@@ -3408,7 +6794,81 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1334.5927919726819,
+      "latency_ms": 6825.663750001695,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 48,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/gitlab/server/integration-connect.ts": "graph_unreached",
+        "apps/web/src/features/gitlab/server/integration-mappers.ts": "graph_unreached",
+        "apps/web/src/features/gitlab/server/integration-types.ts": "graph_unreached",
+        "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/gitlab/server/test-harness.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/server/review-argus-agent.test.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1035,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 16493
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 38530,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 35,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3874,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8983737
+        },
+        "defines": {
+          "count": 23008,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 18593,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8311219
+        },
+        "tests": {
+          "count": 618,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8988673
+        },
+        "co_changed": {
+          "count": 443,
+          "min": 0.3009435,
+          "max": 0.435161,
+          "mean": 0.3325176
+        },
+        "same_module": {
+          "count": 64,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 122,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
         "apps/web/src/features/gitlab/server/integration-connect.ts",
@@ -3490,7 +6950,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 964.3617909750901,
+      "latency_ms": 6013.3714160183445,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/layout.tsx": "graph_unreached",
+        "apps/web/src/components/app-shell.tsx": "graph_unreached",
+        "apps/web/src/components/app-sidebar-right-slot.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/components/ui/sidebar.tsx": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 196,
+        "duplicate_lower_score": 2052
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 39194,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3913,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89838994
+        },
+        "defines": {
+          "count": 23484,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 18879,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.83059746
+        },
+        "tests": {
+          "count": 622,
+          "min": 0.75,
+          "max": 0.9,
+          "mean": 0.89951766
+        },
+        "co_changed": {
+          "count": 77,
+          "min": 0.35870376,
+          "max": 0.36050066,
+          "mean": 0.36018887
+        },
+        "same_module": {
+          "count": 19,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 122,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/layout.tsx",
         "apps/web/src/components/app-shell.tsx",
@@ -3554,7 +7084,72 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 439.9735829792917,
+      "latency_ms": 3658.6941669811495,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 388,
+        "duplicate_lower_score": 1358
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18196,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1373,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89643115
+        },
+        "defines": {
+          "count": 11618,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 8207,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.75904715
+        },
+        "tests": {
+          "count": 121,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 399,
+          "min": 0.31437457,
+          "max": 0.35736352,
+          "mean": 0.3158466
+        },
+        "same_module": {
+          "count": 26,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 30,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/components/app-sidebar.tsx"
       ],
@@ -3613,7 +7208,72 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1225.9625000297092,
+      "latency_ms": 6054.48441702174,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 63,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 801,
+        "duplicate_lower_score": 15789
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 33790,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 25,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3028,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89815056
+        },
+        "defines": {
+          "count": 19945,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 14659,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8464902
+        },
+        "tests": {
+          "count": 478,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8991631
+        },
+        "co_changed": {
+          "count": 290,
+          "min": 0.30276546,
+          "max": 0.6503692,
+          "mean": 0.36503786
+        },
+        "same_module": {
+          "count": 34,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 45,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/components/diff/panel.tsx"
       ],
@@ -3682,7 +7342,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 584.1574579826556,
+      "latency_ms": 4233.686583000235,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 0.75,
+      "graph_candidate_count": 43,
+      "miss_attribution": {
+        "apps/web/src/app/api/ai/test/route.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/app/api/command-palette/chat/route.test.ts": "selection_dropped",
+        "apps/web/src/app/api/review/description/route.test.ts": "selection_dropped",
+        "apps/web/src/app/api/review/diff/route.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 975,
+        "no_evidence_projection": 6,
+        "duplicate_lower_score": 3607
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 21599,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 9,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1691,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8971023
+        },
+        "defines": {
+          "count": 13428,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 11796,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.74333674
+        },
+        "tests": {
+          "count": 140,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8971428
+        },
+        "co_changed": {
+          "count": 996,
+          "min": 0.3039313,
+          "max": 0.59022737,
+          "mean": 0.34383258
+        },
+        "same_module": {
+          "count": 18,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 34,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/api/ai/test/route.test.ts",
         "apps/web/src/app/api/command-palette/chat/route.test.ts",
@@ -3762,7 +7493,75 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 590.0799590162933,
+      "latency_ms": 4112.833415973,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 34,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/analytics/_components/page-content.tsx": "ranking_buried_at_11",
+        "apps/web/src/app/(app)/analytics/page.tsx": "ranking_buried_at_12"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 274,
+        "duplicate_lower_score": 1545
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 22923,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2092,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89749044
+        },
+        "defines": {
+          "count": 14007,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9837,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84006304
+        },
+        "tests": {
+          "count": 287,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 130,
+          "min": 0.32259488,
+          "max": 0.41674292,
+          "mean": 0.39003354
+        },
+        "same_module": {
+          "count": 11,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/analytics/_components/page-content.tsx",
         "apps/web/src/app/(app)/analytics/page.tsx"
@@ -3831,7 +7630,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 688.9405420515686,
+      "latency_ms": 4304.3889999971725,
+      "graph_recall_at_10": 0.6666666666666666,
+      "graph_recall_at_25": 0.6666666666666666,
+      "graph_path_found_rate": 0.6666666666666666,
+      "graph_candidate_count": 46,
+      "miss_attribution": {
+        "apps/web/src/lib/review/flow-run.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1861,
+        "duplicate_lower_score": 11829
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 21201,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 26,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1521,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8967784
+        },
+        "defines": {
+          "count": 13142,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9236,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7609354
+        },
+        "tests": {
+          "count": 121,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 1784,
+          "min": 0.30725753,
+          "max": 0.63261145,
+          "mean": 0.31625816
+        },
+        "same_module": {
+          "count": 35,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 33,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/components/merge-request-diff/hooks/use-merge-request-ai-review.ts",
         "apps/web/src/components/merge-request-diff/merge-request-review-process.tsx",
@@ -3903,7 +7769,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1247.730583010707,
+      "latency_ms": 6325.16820798628,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 38,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/components/diff/linked-issue-context.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/components/sidebar-review-overview.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/hooks/use-current-jira-credentials.ts": "graph_unreached"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 918,
+        "duplicate_lower_score": 14627
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 37244,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 25,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3236,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89814585
+        },
+        "defines": {
+          "count": 22279,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 16085,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8470842
+        },
+        "tests": {
+          "count": 524,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8992366
+        },
+        "co_changed": {
+          "count": 452,
+          "min": 0.30397102,
+          "max": 0.67540026,
+          "mean": 0.35681567
+        },
+        "same_module": {
+          "count": 186,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 47,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
         "apps/web/src/features/review/components/diff/linked-issue-context.tsx",
@@ -3966,16 +7903,84 @@
       "kind": "pack",
       "strict": false,
       "recall": 1.0,
-      "precision": 0.029411764705882353,
+      "precision": 0.02857142857142857,
       "recall_at_5": 0.0,
       "recall_at_10": 0.0,
       "recall_at_25": 1.0,
       "ndcg_at_10": 0.0,
-      "tokens_to_first_relevant": 3059,
+      "tokens_to_first_relevant": 3015,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 230.9118749690242,
+      "latency_ms": 2286.078749981243,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 24,
+      "miss_attribution": {
+        "packages/services/indexer/src/main.test.ts": "ranking_buried_at_12"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 364,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 35
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 8334,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 850,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 5346,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4297,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7831743
+        },
+        "tests": {
+          "count": 71,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 380,
+          "min": 0.3851458,
+          "max": 0.5811757,
+          "mean": 0.38576585
+        },
+        "same_module": {
+          "count": 3,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 9,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "packages/services/indexer/src/main.test.ts"
       ],
@@ -3991,7 +7996,6 @@
         "packages/services/web/src/lib/utils/logger.ts",
         "packages/services/web/src/lib/indexing/runner.ts",
         "packages/shared/core/src/index.ts",
-        "packages/shared/observability/src/index.ts",
         "packages/shared/config/src/index.ts",
         "packages/shared/config/src/env.ts",
         "packages/services/indexer/src/main.test.ts",
@@ -4002,6 +8006,7 @@
         "packages/services/indexer/tsconfig.json",
         "packages/README.md",
         "bunfig.toml",
+        "packages/shared/observability/src/logger-utils.ts",
         "packages/shared/core/src/error.ts",
         "packages/services/web/src/components/nav-documents.tsx",
         "packages/services/web/src/components/code-graph-index-pack-panel.tsx",
@@ -4013,7 +8018,8 @@
         "packages/services/web/src/components/nav-user.tsx",
         "packages/services/web/src/components/code-graph-trace-panel.tsx",
         "packages/services/web/src/components/site-header-title.tsx",
-        "packages/services/web/src/app/globals.css"
+        "packages/services/web/src/components/code-graph-visualization-panel.tsx",
+        "packages/services/web/src/components/nav-main.tsx"
       ],
       "missed_paths": [],
       "unexpected_paths": [
@@ -4028,12 +8034,13 @@
         "packages/services/web/bunfig.toml",
         "packages/services/web/components.json",
         "packages/services/web/drizzle.config.ts",
-        "packages/services/web/src/app/globals.css",
         "packages/services/web/src/app/layout.tsx",
         "packages/services/web/src/components/app-sidebar.tsx",
         "packages/services/web/src/components/code-graph-index-pack-panel.tsx",
         "packages/services/web/src/components/code-graph-trace-panel.tsx",
+        "packages/services/web/src/components/code-graph-visualization-panel.tsx",
         "packages/services/web/src/components/nav-documents.tsx",
+        "packages/services/web/src/components/nav-main.tsx",
         "packages/services/web/src/components/nav-user.tsx",
         "packages/services/web/src/components/site-header-title.tsx",
         "packages/services/web/src/components/table-cell-viewer-chart.tsx",
@@ -4049,14 +8056,14 @@
         "packages/shared/config/src/index.ts",
         "packages/shared/core/src/error.ts",
         "packages/shared/core/src/index.ts",
-        "packages/shared/observability/src/index.ts"
+        "packages/shared/observability/src/logger-utils.ts"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 11999,
-      "omitted": 1838,
+      "omitted": 1841,
       "sufficiency_status": "sufficient",
       "sufficiency_blocking_gaps": 0
     },
@@ -4074,7 +8081,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 596.6705410392024,
+      "latency_ms": 4277.589874982368,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.5,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 36,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/run-internal-gitlab-jobs.ts": "ranking_buried_at_18"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 506,
+        "duplicate_lower_score": 1689
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 22949,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2092,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89749044
+        },
+        "defines": {
+          "count": 14019,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9846,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.83983344
+        },
+        "tests": {
+          "count": 291,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 4,
+          "min": 0.39801002,
+          "max": 0.39801002,
+          "mean": 0.39801002
+        },
+        "same_module": {
+          "count": 322,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/cleanup-internal-gitlab-jobs.ts",
         "apps/web/src/features/gitlab/server/run-internal-gitlab-jobs.ts"
@@ -4155,7 +8229,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 770.2394999796525,
+      "latency_ms": 5068.714416993316,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.16666666666666666,
+      "graph_path_found_rate": 0.16666666666666666,
+      "graph_candidate_count": 48,
+      "miss_attribution": {
+        "apps/web/src/app/(settings)/settings/page-client.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/components/app-sidebar/types.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/settings/components/gitlab-tab.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/settings/hooks/use-gitlab-settings.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/settings/model/settings.shared.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 272,
+        "duplicate_lower_score": 5573
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 30196,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 14,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2607,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8978519
+        },
+        "defines": {
+          "count": 17767,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 12158,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84334594
+        },
+        "tests": {
+          "count": 414,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 53,
+          "min": 0.30084476,
+          "max": 0.3429749,
+          "mean": 0.31634614
+        },
+        "same_module": {
+          "count": 68,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 40,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(settings)/settings/page-client.tsx",
         "apps/web/src/components/app-sidebar.tsx",
@@ -4253,7 +8398,70 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 235.7726669870317,
+      "latency_ms": 2377.528458018787,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 40,
+      "miss_attribution": {
+        "src/lib/indexing/stores/artifact-store.fs.ts": "expansion_omitted_duplicate_lower_score",
+        "src/lib/indexing/stores/artifact-store.s3.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 288,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 5606
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 3971,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 33,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 472,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 2545,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 1833,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8744681
+        },
+        "tests": {
+          "count": 32,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.86249995
+        },
+        "co_changed": {
+          "count": 174,
+          "min": 0.365566,
+          "max": 0.6936132,
+          "mean": 0.39722005
+        },
+        "same_module": {
+          "count": 26,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/lib/indexing/stores/artifact-store.fs.ts",
         "src/lib/indexing/stores/artifact-store.s3.ts"
@@ -4317,7 +8525,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1269.4356249994598,
+      "latency_ms": 6512.655083031859,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.25,
+      "graph_path_found_rate": 0.25,
+      "graph_candidate_count": 53,
+      "miss_attribution": {
+        "apps/web/src/features/gitlab/server/integration-connect.test.ts": "graph_unreached",
+        "apps/web/src/features/issues/server/providers/gitlab.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/model/diff/types.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1041,
+        "duplicate_lower_score": 9149
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 38936,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 7,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3872,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8983729
+        },
+        "defines": {
+          "count": 23324,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 18651,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8302638
+        },
+        "tests": {
+          "count": 623,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89887637
+        },
+        "co_changed": {
+          "count": 575,
+          "min": 0.30080333,
+          "max": 0.5533787,
+          "mean": 0.33697203
+        },
+        "same_module": {
+          "count": 18,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 122,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/gitlab/server/integration-connect.test.ts",
         "apps/web/src/features/issues/server/providers/gitlab.ts",
@@ -4335,6 +8612,7 @@
         "apps/review-worker/src/gitlab-personal-tokens.ts",
         "apps/web/src/features/review/server/review-argus-agent.ts",
         "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
+        "packages/review/persistence/src/schema/review.ts",
         "packages/review/contracts/src/review/index.ts",
         "apps/web/src/features/gitlab/server/diff-service/token.ts",
         "apps/web/src/server/db/schema/gitlab.ts",
@@ -4344,8 +8622,7 @@
         "apps/web/src/features/review/server/diff/request-input.ts",
         "apps/web/src/features/argus-config/server/status.ts",
         "apps/web/src/features/argus-config/server/repository-config.ts",
-        "apps/web/src/features/gitlab/server/integrations.ts",
-        "apps/web/src/app/api/review/diff/active/route.ts",
+        "apps/web/src/server/db/index.ts",
         "packages/argus-search/src/core/kitedb_store.rs"
       ],
       "missed_paths": [
@@ -4356,14 +8633,12 @@
       "unexpected_paths": [
         "apps/review-worker/src/gitlab-diff-service.ts",
         "apps/review-worker/src/gitlab-personal-tokens.ts",
-        "apps/web/src/app/api/review/diff/active/route.ts",
         "apps/web/src/features/argus-config/server/effective-settings.ts",
         "apps/web/src/features/argus-config/server/repository-config.ts",
         "apps/web/src/features/argus-config/server/status.ts",
         "apps/web/src/features/gitlab/server/diff-service/token.ts",
         "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
         "apps/web/src/features/gitlab/server/integration-token.ts",
-        "apps/web/src/features/gitlab/server/integrations.ts",
         "apps/web/src/features/review/server/diff/request-input.ts",
         "apps/web/src/features/review/server/diff/review-diff-deps.ts",
         "apps/web/src/features/review/server/diff/review-diff-stream.ts",
@@ -4372,16 +8647,18 @@
         "apps/web/src/features/review/server/review-argus-agent.ts",
         "apps/web/src/features/review/server/review-issue-context.ts",
         "apps/web/src/features/review/server/review-read-model.ts",
+        "apps/web/src/server/db/index.ts",
         "apps/web/src/server/db/schema/gitlab.ts",
         "packages/argus-search/src/core/kitedb_store.rs",
-        "packages/review/contracts/src/review/index.ts"
+        "packages/review/contracts/src/review/index.ts",
+        "packages/review/persistence/src/schema/review.ts"
       ],
       "forbidden_content_hits": [],
       "missing_required_content": [],
       "trusted_forbidden_paths": [],
       "missing_expected_ranges": [],
       "token_estimate": 12000,
-      "omitted": 4948,
+      "omitted": 4945,
       "sufficiency_status": "probably_sufficient",
       "sufficiency_blocking_gaps": 5
     },
@@ -4399,7 +8676,76 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 328.9278330048546,
+      "latency_ms": 2712.8577499534003,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.6666666666666666,
+      "graph_candidate_count": 40,
+      "miss_attribution": {
+        "apps/web/src/app/api/review/impact/route.ts": "graph_unreached",
+        "apps/web/src/lib/review/impact-service.test.ts": "selection_dropped",
+        "apps/web/src/lib/review/impact-service.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 942,
+        "duplicate_lower_score": 2647
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 11010,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 979,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 6991,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 6619,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7145339
+        },
+        "tests": {
+          "count": 88,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8954545
+        },
+        "co_changed": {
+          "count": 840,
+          "min": 0.35255972,
+          "max": 0.7129258,
+          "mean": 0.365577
+        },
+        "same_module": {
+          "count": 38,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 14,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/api/review/impact/route.ts",
         "apps/web/src/lib/review/impact-service.test.ts",
@@ -4469,7 +8815,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1041.0704169771634,
+      "latency_ms": 6160.491958027706,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 69,
+      "miss_attribution": {
+        "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 955,
+        "duplicate_lower_score": 17453
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 32431,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 26,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2976,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89811826
+        },
+        "defines": {
+          "count": 19174,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 14338,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8479704
+        },
+        "tests": {
+          "count": 472,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89830506
+        },
+        "co_changed": {
+          "count": 599,
+          "min": 0.301097,
+          "max": 0.5617459,
+          "mean": 0.3358439
+        },
+        "same_module": {
+          "count": 21,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 40,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts"
       ],
@@ -4537,7 +8950,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 636.2736249575391,
+      "latency_ms": 4655.022167018615,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 76,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/analytics/page.tsx": "selection_dropped",
+        "apps/web/src/app/(app)/layout.tsx": "ranking_buried_at_15",
+        "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/page.tsx": "ranking_buried_at_29",
+        "apps/web/src/app/(onboarding)/onboarding/layout.tsx": "ranking_buried_at_13",
+        "apps/web/src/app/(settings)/layout.tsx": "ranking_buried_at_14"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 572,
+        "duplicate_lower_score": 2819
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 23105,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2097,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8974964
+        },
+        "defines": {
+          "count": 14113,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9894,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8389124
+        },
+        "tests": {
+          "count": 292,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 345,
+          "min": 0.3047109,
+          "max": 0.51191175,
+          "mean": 0.3532717
+        },
+        "same_module": {
+          "count": 39,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/analytics/page.tsx",
         "apps/web/src/app/(app)/layout.tsx",
@@ -4633,7 +9117,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 763.1691669812426,
+      "latency_ms": 4256.163874990307,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.4,
+      "graph_candidate_count": 66,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/settings/page.tsx": "selection_dropped",
+        "apps/web/src/components/app-sidebar-repo-dialog.tsx": "graph_unreached",
+        "apps/web/src/components/app-sidebar.tsx": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/components/command-palette.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/components/command-palette.tsx": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1657,
+        "duplicate_lower_score": 14444
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18055,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 22,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1348,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8976632
+        },
+        "defines": {
+          "count": 11517,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 7960,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7596482
+        },
+        "tests": {
+          "count": 116,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8965517
+        },
+        "co_changed": {
+          "count": 1196,
+          "min": 0.3210599,
+          "max": 0.39320657,
+          "mean": 0.32320684
+        },
+        "same_module": {
+          "count": 8,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 30,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/settings/page.tsx",
         "apps/web/src/components/app-sidebar-repo-dialog.tsx",
@@ -4733,7 +9288,83 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 898.7248329794966,
+      "latency_ms": 5096.691250044387,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 46,
+      "miss_attribution": {
+        "apps/indexer/src/lib/indexing/processors/ingest.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts": "graph_unreached",
+        "apps/indexer/src/lib/indexing/stores/artifact-store.ts": "graph_unreached",
+        "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/lib/indexing/stores/artifact-store.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1513,
+        "no_evidence_projection": 2,
+        "duplicate_lower_score": 20827
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 22631,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 28,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1926,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8974559
+        },
+        "defines": {
+          "count": 14008,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 14500,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7129379
+        },
+        "tests": {
+          "count": 160,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.895
+        },
+        "co_changed": {
+          "count": 950,
+          "min": 0.30276546,
+          "max": 0.55369365,
+          "mean": 0.31701645
+        },
+        "same_module": {
+          "count": 88,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 35,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/indexer/src/lib/indexing/processors/ingest.ts",
         "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
@@ -4811,7 +9442,74 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1093.802500050515,
+      "latency_ms": 6634.666583035141,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 43,
+      "miss_attribution": {
+        "apps/web/src/features/review/server/review-argus-agent.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 685,
+        "duplicate_lower_score": 13130
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 37206,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 20,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3331,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8982888
+        },
+        "defines": {
+          "count": 22172,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 17027,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.82990247
+        },
+        "tests": {
+          "count": 542,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89870846
+        },
+        "co_changed": {
+          "count": 171,
+          "min": 0.30085328,
+          "max": 0.8,
+          "mean": 0.36758342
+        },
+        "same_module": {
+          "count": 104,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 91,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/features/review/server/review-argus-agent.ts"
       ],
@@ -4867,7 +9565,63 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 72.07366602960974,
+      "latency_ms": 1517.7022500429302,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 30,
+      "miss_attribution": {
+        "src/lib/db/schema/auth/index.ts": "graph_unreached"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 73,
+        "no_evidence_projection": 12,
+        "duplicate_lower_score": 125
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 534,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 3,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 91,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 267,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 372,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 103,
+          "min": 0.39801002,
+          "max": 0.49801,
+          "mean": 0.3999711
+        },
+        "same_module": {
+          "count": 11,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/lib/db/schema/auth/index.ts"
       ],
@@ -4933,7 +9687,73 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 649.1447080043145,
+      "latency_ms": 4198.34808295127,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 29,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 144,
+        "no_evidence_projection": 3,
+        "duplicate_lower_score": 1830
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 23328,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 6,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2111,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89751303
+        },
+        "defines": {
+          "count": 14191,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 9909,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8404985
+        },
+        "tests": {
+          "count": 300,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 28,
+          "min": 0.30553272,
+          "max": 0.38097283,
+          "mean": 0.31630987
+        },
+        "same_module": {
+          "count": 6,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 36,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/mcp/src/main.ts"
       ],
@@ -4984,7 +9804,78 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 325.51016699289903,
+      "latency_ms": 2500.8235000423156,
+      "graph_recall_at_10": 0.2222222222222222,
+      "graph_recall_at_25": 0.6666666666666666,
+      "graph_path_found_rate": 0.7777777777777778,
+      "graph_candidate_count": 32,
+      "miss_attribution": {
+        "apps/web/src/app/api/gitlab/route.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/app/api/gitlab/route.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/components/onboarding/tests/onboarding-flow.utils.test.ts": "selection_dropped",
+        "apps/web/src/components/onboarding/tests/use-onboarding-data.test.ts": "selection_dropped",
+        "apps/web/src/components/onboarding/tests/use-onboarding-selection-handlers.test.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 460,
+        "duplicate_lower_score": 3512
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 9486,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 895,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 6061,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 5880,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7194558
+        },
+        "tests": {
+          "count": 80,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.895
+        },
+        "co_changed": {
+          "count": 398,
+          "min": 0.36894497,
+          "max": 0.46309298,
+          "mean": 0.3703177
+        },
+        "same_module": {
+          "count": 25,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 14,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/api/gitlab/route.test.ts",
         "apps/web/src/app/api/gitlab/route.ts",
@@ -5054,7 +9945,63 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 88.82949996041134,
+      "latency_ms": 1630.17983303871,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.6666666666666666,
+      "graph_candidate_count": 34,
+      "miss_attribution": {
+        "src/lib/auth-client.ts": "expansion_omitted_budget_exceeded"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 41,
+        "no_evidence_projection": 5,
+        "duplicate_lower_score": 942
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 970,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 9,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 128,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 553,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 551,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.89564425
+        },
+        "co_changed": {
+          "count": 57,
+          "min": 0.3851458,
+          "max": 0.4851458,
+          "mean": 0.3943215
+        },
+        "same_module": {
+          "count": 14,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/components/app-sidebar.tsx",
         "src/components/nav-user.tsx",
@@ -5136,7 +10083,69 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 1016.9969580019824,
+      "latency_ms": 6162.72016701987,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 26,
+      "miss_attribution": {
+        "apps/review-worker/src/runtime-resources.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/review-worker/src/worker-runtime.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 270,
+        "duplicate_lower_score": 7390
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 37534,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 9,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 3482,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8981907
+        },
+        "defines": {
+          "count": 22363,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 17430,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8297848
+        },
+        "tests": {
+          "count": 585,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8981196
+        },
+        "same_module": {
+          "count": 51,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 102,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/review-worker/src/runtime-resources.ts",
         "apps/review-worker/src/worker-runtime.ts"
@@ -5218,7 +10227,79 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 711.597083020024,
+      "latency_ms": 5009.71833395306,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 46,
+      "miss_attribution": {
+        "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts": "graph_unreached",
+        "apps/web/src/features/indexing/server/artifact-store.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/features/review/components/diff/review-process.test.tsx": "expansion_omitted_budget_exceeded",
+        "apps/web/src/features/review/hooks/diff/use-ai-review-stream.test.tsx": "graph_unreached",
+        "apps/web/src/features/review/server/save-review.test.ts": "expansion_omitted_budget_exceeded",
+        "apps/web/src/server/api/authenticated-route.test.ts": "graph_unreached"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 378,
+        "duplicate_lower_score": 2314
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 30099,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 4,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2598,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8978445
+        },
+        "defines": {
+          "count": 17735,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 12148,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.84310174
+        },
+        "tests": {
+          "count": 415,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8990361
+        },
+        "co_changed": {
+          "count": 148,
+          "min": 0.3011306,
+          "max": 0.72186136,
+          "mean": 0.36689505
+        },
+        "same_module": {
+          "count": 70,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 49,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts",
         "apps/web/src/features/indexing/server/artifact-store.test.ts",
@@ -5312,7 +10393,79 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 472.0062079722993,
+      "latency_ms": 3315.5669160187244,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 21,
+      "miss_attribution": {
+        "packages/argus-search/__test__/kitedb.spec.ts": "expansion_omitted_duplicate_lower_score",
+        "packages/argus-search/index.d.ts": "expansion_omitted_duplicate_lower_score",
+        "packages/argus-search/src/core/kitedb_store.rs": "expansion_omitted_duplicate_lower_score",
+        "packages/argus-search/src/python/mod.rs": "expansion_omitted_duplicate_lower_score",
+        "packages/argus-search/src/typescript/mod.rs": "expansion_omitted_duplicate_lower_score",
+        "packages/argus-search/types.d.ts": "expansion_omitted_duplicate_lower_score"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 253,
+        "duplicate_lower_score": 2612
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 15996,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 9,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1169,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.89730537
+        },
+        "defines": {
+          "count": 10195,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 8396,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7107194
+        },
+        "tests": {
+          "count": 91,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "co_changed": {
+          "count": 239,
+          "min": 0.38775212,
+          "max": 0.48381174,
+          "mean": 0.3947378
+        },
+        "same_module": {
+          "count": 21,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 28,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "packages/argus-search/__test__/kitedb.spec.ts",
         "packages/argus-search/index.d.ts",
@@ -5378,7 +10531,77 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1033.3780000219122,
+      "latency_ms": 4824.835416977294,
+      "graph_recall_at_10": 0.25,
+      "graph_recall_at_25": 0.25,
+      "graph_path_found_rate": 0.75,
+      "graph_candidate_count": 67,
+      "miss_attribution": {
+        "apps/web/src/app/api/review/diff/stream/route.test.ts": "expansion_omitted_duplicate_lower_score",
+        "apps/web/src/lib/review/worker-runtime.test.ts": "selection_dropped",
+        "apps/web/src/lib/review/worker-runtime.ts": "ranking_buried_at_11"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 1967,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 23472
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 20090,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 29,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 1459,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.8966415
+        },
+        "defines": {
+          "count": 12678,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 8805,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.7582169
+        },
+        "tests": {
+          "count": 123,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8934959
+        },
+        "co_changed": {
+          "count": 1493,
+          "min": 0.3102139,
+          "max": 0.65578127,
+          "mean": 0.32828024
+        },
+        "same_module": {
+          "count": 41,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 33,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "apps/web/src/app/api/review/diff/stream/route.test.ts",
         "apps/web/src/app/api/review/diff/stream/route.ts",
@@ -5462,7 +10685,63 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 131.7734170006588,
+      "latency_ms": 1612.5163750257343,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 43,
+      "miss_attribution": {
+        "src/lib/db/schema/index.ts": "selection_dropped"
+      },
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 52,
+        "no_evidence_projection": 1,
+        "duplicate_lower_score": 2469
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 2033,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "encloses_hunk": {
+          "count": 21,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 239,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "defines": {
+          "count": 1267,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 928,
+          "min": 0.5,
+          "max": 0.9,
+          "mean": 0.8732758
+        },
+        "co_changed": {
+          "count": 20,
+          "min": 0.39702994,
+          "max": 0.39702994,
+          "mean": 0.39702994
+        },
+        "same_module": {
+          "count": 18,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        }
+      },
       "expected_paths": [
         "src/lib/db/schema/index.ts",
         "src/lib/db/schema/indexing.ts"
@@ -5536,7 +10815,48 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 58.8235294117647,
-      "latency_ms": 89.69904098194093,
+      "latency_ms": 1446.2802080088295,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 105,
+        "no_evidence_projection": 15
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "defines": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "co_changed": {
+          "count": 120,
+          "min": 0.31962922,
+          "max": 0.5258126,
+          "mean": 0.37425974
+        },
+        "same_module": {
+          "count": 1,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/secrets.rs"
       ],
@@ -5563,19 +10883,60 @@
       "recall_at_5": 1.0,
       "recall_at_10": 1.0,
       "recall_at_25": 1.0,
-      "ndcg_at_10": 1.0,
-      "tokens_to_first_relevant": 59,
+      "ndcg_at_10": 0.6309297535714575,
+      "tokens_to_first_relevant": 77,
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 9.433962264150942,
-      "latency_ms": 56.381958012934774,
+      "latency_ms": 1363.5969159658998,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 16,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "budget_exceeded": 105,
+        "no_evidence_projection": 15
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "defines": {
+          "count": 2,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "co_changed": {
+          "count": 120,
+          "min": 0.31962922,
+          "max": 0.5258126,
+          "mean": 0.37425974
+        },
+        "same_module": {
+          "count": 1,
+          "min": 0.4,
+          "max": 0.4,
+          "mean": 0.4
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "CONTEXT.md"
       ],
       "retrieved_paths": [
+        "Cargo.toml",
         "src/lib.rs",
         "CONTEXT.md",
-        "Cargo.toml",
         "src/secrets.rs"
       ],
       "missed_paths": [],
@@ -5607,7 +10968,53 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 11.494252873563218,
-      "latency_ms": 59.29499998455867,
+      "latency_ms": 1424.1395840072073,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 3,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "duplicate_lower_score": 3
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.725
+        },
+        "defines": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "tests/auth_token_test.rs"
       ],
@@ -5639,7 +11046,53 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 13.793103448275861,
-      "latency_ms": 54.96241699438542,
+      "latency_ms": 1407.8170839929953,
+      "graph_recall_at_10": 1.0,
+      "graph_recall_at_25": 1.0,
+      "graph_path_found_rate": 1.0,
+      "graph_candidate_count": 3,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "duplicate_lower_score": 3
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.725
+        },
+        "defines": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/routes.rs",
         "src/auth/token.rs"
@@ -5676,7 +11129,53 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 6.172839506172839,
-      "latency_ms": 57.46354098664597,
+      "latency_ms": 1442.3695409786887,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 3,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "duplicate_lower_score": 3
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.725
+        },
+        "defines": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -5711,7 +11210,53 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.717472118959108,
-      "latency_ms": 54.92058303207159,
+      "latency_ms": 1352.2762500215322,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 3,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "duplicate_lower_score": 3
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.725
+        },
+        "defines": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -5750,7 +11295,53 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 4.5662100456621,
-      "latency_ms": 53.77916700672358,
+      "latency_ms": 1434.739582997281,
+      "graph_recall_at_10": 0.0,
+      "graph_recall_at_25": 0.0,
+      "graph_path_found_rate": 0.0,
+      "graph_candidate_count": 3,
+      "miss_attribution": {},
+      "expansion_omitted_by_reason": {
+        "duplicate_lower_score": 3
+      },
+      "edge_confidence_by_kind": {
+        "contains": {
+          "count": 18,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "imports": {
+          "count": 2,
+          "min": 0.55,
+          "max": 0.9,
+          "mean": 0.725
+        },
+        "defines": {
+          "count": 8,
+          "min": 1.0,
+          "max": 1.0,
+          "mean": 1.0
+        },
+        "references": {
+          "count": 4,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "tests": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        },
+        "configures": {
+          "count": 1,
+          "min": 0.9,
+          "max": 0.9,
+          "mean": 0.9
+        }
+      },
       "expected_paths": [
         "src/auth/token.rs"
       ],

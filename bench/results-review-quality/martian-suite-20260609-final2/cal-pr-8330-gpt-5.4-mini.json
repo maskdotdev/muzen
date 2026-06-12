@@ -1,0 +1,166 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T01:30:46.388Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-09sULo/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-09sULo/frames.jsonl"
+  },
+  "review": {
+    "status": "partial",
+    "sessions": 1,
+    "completedSessions": 0,
+    "reviewUnits": 1,
+    "completedReviewUnits": 0,
+    "fileReviews": 0,
+    "fileReviewVerdicts": {},
+    "findings": 2,
+    "modelCalls": 8,
+    "toolCalls": 16,
+    "tokens": {
+      "inputTokens": 66568,
+      "outputTokens": 3446,
+      "totalTokens": 70014
+    },
+    "artifactStats": {
+      "artifacts": 7,
+      "artifactBytes": 71835
+    },
+    "elapsedMs": 34426
+  },
+  "benchmark": {
+    "elapsedMs": 34522,
+    "hitRate": 0.6666666666666666,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "7bd7b6a2fb4cddbc1d2fba798713148ef9f644b2d2b337eaa67a87013d2053d9",
+        "title": "Working-hours end boundary reuses the slot start minute, so duration is ignored"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "findingId": "30f4b77ec65db73a0a9d18b8913fae52951a528d3a830c4070e97ace575a8d15",
+        "title": "Zero-length override boundary is compared by object identity instead of value"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 2,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 4,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 2,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 0,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `checkIfIsAvailable`, the new working-hours guard computes both `start` and `end` from `slotStartTime` instead of using the slot's end instant. As a result, any slot whose start minute is inside working hours is treated as if its end is the same minute, so a slot that actually extends past closing time can be accepted.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "contentHash": "9d2a6bc0095b6ec22cc03ff0744160b221294496b0367fc8be8fa1f790c14d2c",
+          "evidenceId": "evidence-art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "7bd7b6a2fb4cddbc1d2fba798713148ef9f644b2d2b337eaa67a87013d2053d9",
+      "location": {
+        "endColumn": null,
+        "endLine": 137,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 134
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Working-hours end boundary reuses the slot start minute, so duration is ignored",
+      "validatedBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new date-override acceptance branch misclassifies zero-length overrides because it checks whether the shifted start and end Dayjs objects are the same object, not whether they represent the same instant. A zero-length override that should be treated as a matched boundary can be rejected as non-equal, causing the slot to fall through to later availability logic.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 1,
+      "id": "30f4b77ec65db73a0a9d18b8913fae52951a528d3a830c4070e97ace575a8d15",
+      "location": {
+        "endColumn": null,
+        "endLine": 112,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 108
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/lib/slots.ts"
+      ],
+      "severity": "low",
+      "title": "Zero-length override boundary is compared by object identity instead of value",
+      "validatedBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

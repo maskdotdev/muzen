@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T12:17:56.454Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-29282",
+    "baseRef": "muzen-bench/pr-29282-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 5,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-NwwaYk/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-NwwaYk/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 2,
+    "completedSessions": 2,
+    "reviewUnits": 2,
+    "completedReviewUnits": 2,
+    "fileReviews": 5,
+    "fileReviewVerdicts": {
+      "clean": 5
+    },
+    "findings": 0,
+    "modelCalls": 14,
+    "toolCalls": 19,
+    "tokens": {
+      "inputTokens": 198483,
+      "outputTokens": 673,
+      "totalTokens": 199156
+    },
+    "artifactStats": {
+      "artifacts": 18,
+      "artifactBytes": 229314
+    },
+    "elapsedMs": 23147
+  },
+  "benchmark": {
+    "elapsedMs": 23649,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 2,
+    "contractSeedCount": 16,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 10,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 5,
+    "skippedCount": 0
+  },
+  "findings": []
+}

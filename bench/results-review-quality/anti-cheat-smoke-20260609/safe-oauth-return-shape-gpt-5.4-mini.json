@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T00:45:39.610Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-anti-cheat-safe-oauth-return-shape-IkMcHv",
+    "baseRef": "HEAD~1",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 2,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-5kKDmD/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-5kKDmD/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 2,
+    "fileReviewVerdicts": {
+      "issue_found": 1,
+      "clean": 1
+    },
+    "findings": 1,
+    "modelCalls": 4,
+    "toolCalls": 8,
+    "tokens": {
+      "inputTokens": 9580,
+      "outputTokens": 914,
+      "totalTokens": 10494
+    },
+    "artifactStats": {
+      "artifacts": 7,
+      "artifactBytes": 3198
+    },
+    "elapsedMs": 10551
+  },
+  "benchmark": {
+    "elapsedMs": 10556,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 1,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The changed helper/caller pair does not show a concrete runtime contract break beyond the intentional addition of `expiry_date`; the caller in `packages/app-store/examplevideo/api/callback.ts` reads the same `access_token` field from the helper result and now also reads `expiry_date`, which is produced by `refreshOAuthTokens` in `packages/app-store/_utils/oauth/refreshOAuthTokens.ts`.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_51b98d33de1210c976bdd5cddf7f2a91bc044e17bf5946607a6368b7241fd3bb",
+          "contentHash": "f8bbb8e9bbc9f8297292dd91bab6f3b90ac7c886c54364771ca03c8e87ac1cba",
+          "evidenceId": "evidence-art_51b98d33de1210c976bdd5cddf7f2a91bc044e17bf5946607a6368b7241fd3bb",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_caed984a6b0dd4cf1d01e3edd087e8686fb75a564566ecd644d6311fbc33fc07",
+          "contentHash": "ac41d942656d7de2092a298868c2b67775520679e97ce461379dada9a052c3f2",
+          "evidenceId": "evidence-art_caed984a6b0dd4cf1d01e3edd087e8686fb75a564566ecd644d6311fbc33fc07",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cc68ec9efc15531b7c76bf0cfe2e80bc5fc9b14be6b187e387882dd2d2513676",
+          "contentHash": "3f28874a77ae89796064d1714bab33173784757a6cf2dec859cc33315e7f0c30",
+          "evidenceId": "evidence-art_cc68ec9efc15531b7c76bf0cfe2e80bc5fc9b14be6b187e387882dd2d2513676",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dc323cffca24a7a808afd93f57fa962ddfab1ee3fc2cb896e51ba0b095333f21",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_dc323cffca24a7a808afd93f57fa962ddfab1ee3fc2cb896e51ba0b095333f21",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "1dacf383b9389a67d824f77bd818930362cdde69216f92acc4f8d27f8a84bb44",
+      "location": {
+        "endColumn": null,
+        "endLine": 5,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 2
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/examplevideo/api/callback.ts"
+      ],
+      "severity": "low",
+      "title": "No additional actionable contract bug supported by the provided diff",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

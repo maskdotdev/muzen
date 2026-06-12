@@ -1,0 +1,208 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:12:02.388Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-Whvf03/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-Whvf03/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 2,
+      "issue_found": 2
+    },
+    "findings": 3,
+    "modelCalls": 12,
+    "toolCalls": 19,
+    "tokens": {
+      "inputTokens": 132005,
+      "outputTokens": 4035,
+      "totalTokens": 136040
+    },
+    "artifactStats": {
+      "artifacts": 10,
+      "artifactBytes": 53998
+    },
+    "elapsedMs": 43322
+  },
+  "benchmark": {
+    "elapsedMs": 43398,
+    "hitRate": 0.6666666666666666,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "232a8f277e646f60e7d2f5693f87cbac64594129dd79d0c4601e905751af55ba",
+        "title": "Working-hours end boundary reuses the slot start instead of the event end"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "findingId": "bc3f8b04e28d038cb92894d6a36dcedcacf36db46e80435aa96554afab238c0b",
+        "title": "Zero-length/all-day override detection uses Dayjs object identity instead of value equality"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 3,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 4,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 2,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 2,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `packages/lib/slots.ts`, the branch `dayjs(date.start).add(utcOffset, 'minutes') === dayjs(date.end).add(utcOffset, 'minutes')` is intended to detect a zero-length override, but it compares two different Dayjs instances with `===`. A zero-length override whose start and end are the same instant will therefore not take this branch and will be evaluated as a normal range instead of being classified as zero-length.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        },
+        {
+          "artifactId": "art_5c550787f5d678a6e06a6ad8c2f3f236e50fbc11246b8faeae481abfc0237bc8",
+          "contentHash": "fd7417a81694c3d053379b6e1acbf2af02cfa723b2d27b012c492e428883a12f",
+          "evidenceId": "evidence-art_5c550787f5d678a6e06a6ad8c2f3f236e50fbc11246b8faeae481abfc0237bc8",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "3060d85228b106eb5ea1258e1b049da85cd596a89e7b1259726590f9e303578e",
+      "location": {
+        "endColumn": null,
+        "endLine": 211,
+        "path": "packages/lib/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 211
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Zero-length date overrides are never recognized because the code compares Dayjs objects by identity",
+      "validatedBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new working-hours guard in `checkIfIsAvailable` misclassifies slots because it computes both `start` and `end` from `slotStartTime`. For a slot whose start is inside working hours but whose event duration pushes its end outside, the guard still evaluates `end` as the start minute and allows the slot when it should reject it.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 1,
+      "id": "232a8f277e646f60e7d2f5693f87cbac64594129dd79d0c4601e905751af55ba",
+      "location": {
+        "endColumn": null,
+        "endLine": 152,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 141
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/lib/slots.ts"
+      ],
+      "severity": "low",
+      "title": "Working-hours end boundary reuses the slot start instead of the event end",
+      "validatedBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new override branch in `checkIfIsAvailable` attempts to special-case zero-length overrides with `dayjs(date.start).add(utcOffset, \"minutes\") === dayjs(date.end).add(utcOffset, \"minutes\")`, but that compares two distinct Dayjs objects, so equal timestamps do not satisfy the condition. A zero-length override therefore falls through instead of being recognized as a zero-length/all-day override.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 1,
+      "id": "bc3f8b04e28d038cb92894d6a36dcedcacf36db46e80435aa96554afab238c0b",
+      "location": {
+        "endColumn": null,
+        "endLine": 121,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 109
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/lib/slots.ts"
+      ],
+      "severity": "low",
+      "title": "Zero-length/all-day override detection uses Dayjs object identity instead of value equality",
+      "validatedBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

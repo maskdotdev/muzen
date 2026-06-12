@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-martian-cal-8330-20260607T011411Z",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "aci-martian/pr-8330-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:14:35.994Z",
+    "finishedAtUtc": "2026-06-07T01:14:42.023Z",
+    "elapsedMs": 6029
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18430,
+    "outputTokens": 293,
+    "totalTokens": 18723,
+    "errors": [],
+    "finalContents": [
+      "{\n  \"summary\": \"The review identified potential issues related to time zone handling and availability checks in the scheduling logic. The changes introduced new logic for handling date overrides and working hours, which may lead to incorrect availability checks if not properly validated.\",\n  \"fileVerdicts\": {\n    \"apps/web/test/lib/getSchedule.test.ts\": \"clean\",\n    \"packages/lib/slots.ts\": \"dirty\",\n    \"packages/trpc/server/routers/viewer/slots.ts\": \"dirty\",\n    \"packages/types/schedule.d.ts\": \"clean\"\n  },\n  \"findings\": [\n    {\n      \"title\": \"Incorrect Time Zone Handling in Availability Checks\",\n      \"claim\": \"The new logic for calculating start and end times based on time zones may lead to incorrect availability checks if the time zone is not properly set or if the date overrides are not correctly applied.\",\n      \"path\": \"packages/lib/slots.ts\",\n      \"startLine\": 210,\n      \"endLine\": 222\n    },\n    {\n      \"title\": \"Potential Infinite Loop in Availability Check\",\n      \"claim\": \"The logic in checkIfIsAvailable may lead to an infinite loop or incorrect results if the date overrides are not handled correctly, especially when checking against busy times.\",\n      \"path\": \"packages/trpc/server/routers/viewer/slots.ts\",\n      \"startLine\": 89,\n      \"endLine\": 115\n    }\n  ]\n}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67420,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780794876297",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "ea3895611421c373e5e0145a2a293de78c7de824b731d055944da57d45714c29"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29901,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 5636,
+      "findings": 0,
+      "inputTokens": 18430,
+      "modelCalls": 3,
+      "outputTokens": 293,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18723
+    }
+  },
+  "reviewValid": false
+}

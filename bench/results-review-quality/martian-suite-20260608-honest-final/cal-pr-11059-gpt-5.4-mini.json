@@ -1,0 +1,222 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:39:49.876Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-pdV99m/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-pdV99m/frames.jsonl"
+  },
+  "review": {
+    "status": "partial",
+    "sessions": 11,
+    "completedSessions": 10,
+    "reviewUnits": 11,
+    "completedReviewUnits": 10,
+    "fileReviews": 28,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 9,
+      "needs_review": 18
+    },
+    "findings": 2,
+    "modelCalls": 71,
+    "toolCalls": 103,
+    "tokens": {
+      "inputTokens": 649251,
+      "outputTokens": 5047,
+      "totalTokens": 654298
+    },
+    "artifactStats": {
+      "artifacts": 64,
+      "artifactBytes": 306167
+    },
+    "elapsedMs": 135670
+  },
+  "benchmark": {
+    "elapsedMs": 135774,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "3d20af5f5e09f5514a153a35090ff2056cc976b280e3fd800f312e048726b3cb",
+        "title": "OAuth refresh helper now returns a fetch Response instead of token JSON in the credential-sharing branch"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 3,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 8,
+    "contractEvidenceFailures": 18,
+    "requiredEvidenceFailures": 18,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 24,
+    "importCount": 0,
+    "needsReviewCount": 18,
+    "cleanCount": 9,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "When `APP_CREDENTIAL_SHARING_ENABLED` and `CALCOM_CREDENTIAL_SYNC_ENDPOINT` are set, `refreshOAuthTokens` returns the raw `fetch()` Response (`return response;`) rather than the parsed JSON/token payload that callers consume. Callers such as `packages/app-store/googlecalendar/lib/CalendarService.ts` and `packages/app-store/zohocrm/lib/CalendarService.ts` pass that return value into `parseRefreshTokenResponse(...)` or read token fields from it, so the code path will fail to expose `access_token`/`refresh_token` and can throw `Invalid refreshed tokens were returned` or break field reads at runtime.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-005"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_042f4b2f31e047d93eee516dc756595fd013e6fb94459e5c0dd524df0c3e4cc0",
+          "contentHash": "4cc8cb81e16d317b9b75af03023f83ca7b81271135f48baf7244b5cfde2e5939",
+          "evidenceId": "evidence-art_042f4b2f31e047d93eee516dc756595fd013e6fb94459e5c0dd524df0c3e4cc0",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_449a4d0f03d10dc78086dcfff1e9328d3dd647c2c7be9e0d39aab6b83a72831f",
+          "contentHash": "996de4015333503950e1e582929161fa0b0f2898c357cb12117fc561a450e486",
+          "evidenceId": "evidence-art_449a4d0f03d10dc78086dcfff1e9328d3dd647c2c7be9e0d39aab6b83a72831f",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d95d30f0fa4496c4b65acef3d76d81617da38334ac37a561c0cd9163a8cd0f40",
+          "contentHash": "072714ac069b368a5296fb62f10a78e0d8e21b2757958e243e7300dd6f3880ca",
+          "evidenceId": "evidence-art_d95d30f0fa4496c4b65acef3d76d81617da38334ac37a561c0cd9163a8cd0f40",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "3d20af5f5e09f5514a153a35090ff2056cc976b280e3fd800f312e048726b3cb",
+      "location": {
+        "endColumn": null,
+        "endLine": 18,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 5
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "OAuth refresh helper now returns a fetch Response instead of token JSON in the credential-sharing branch",
+      "validatedBy": [
+        "unit-005-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "`parseRefreshTokenResponse` returns `refreshTokenResponse` directly, i.e. the `safeParse()` result object with `{ success, data }`, but its callers consume it as the parsed credential payload. That means downstream code that reads fields like `access_token`, `refresh_token`, or `expiry_date` from the helper result will now get `undefined` unless it first unwraps `.data`, which is a caller-visible contract break.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-008",
+        "unit-010"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_c1305eec1beb43a0feb718b14de14f6303f87c7bfaeebf870057149b11aff0d3",
+          "contentHash": "3f1fea011c7b751008a380617c07e3dab2a9f99f24b0a961cd7e6d7739e64d67",
+          "evidenceId": "evidence-art_c1305eec1beb43a0feb718b14de14f6303f87c7bfaeebf870057149b11aff0d3",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-008-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-008-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d061e253599985ad69da364518504c97f0e3287bf9473f438222557115d3ef89",
+          "contentHash": "f11ce7435c224c87eaa342b0cbf19113758ea3f7efeea33cca1e4257c00d4cab",
+          "evidenceId": "evidence-art_d061e253599985ad69da364518504c97f0e3287bf9473f438222557115d3ef89",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        },
+        {
+          "artifactId": "art_fa88e292681aea578bc5592d223499444ff576de6c220d0973f4760152ea5b31",
+          "contentHash": "28c650b3f0c957d0eba8cc908d0a52575a0b0e7d1436e32763aa33e97c87d90f",
+          "evidenceId": "evidence-art_fa88e292681aea578bc5592d223499444ff576de6c220d0973f4760152ea5b31",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "177e6d872e62a9118b785942235ebb8859ec9cdcae05cf99896bc2ed47edb47c",
+      "location": {
+        "endColumn": null,
+        "endLine": 29,
+        "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 21
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "OAuth refresh helper now returns the Zod parse wrapper instead of token fields",
+      "validatedBy": [
+        "unit-008-candidate-evidence",
+        "unit-010-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

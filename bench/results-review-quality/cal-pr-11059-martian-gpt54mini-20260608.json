@@ -1,0 +1,214 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T02:43:05.766Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-1ToGSV/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-1ToGSV/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 37,
+      "issue_found": 2
+    },
+    "findings": 2,
+    "modelCalls": 74,
+    "toolCalls": 106,
+    "tokens": {
+      "inputTokens": 584991,
+      "outputTokens": 4484,
+      "totalTokens": 589475
+    },
+    "artifactStats": {
+      "artifacts": 88,
+      "artifactBytes": 431739
+    },
+    "elapsedMs": 137207
+  },
+  "benchmark": {
+    "elapsedMs": 137764,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 2,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 0,
+    "contractSeedCount": 0,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 44,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 37,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`expiryDate` is stored as `Date.now() + expires_in`, but the rest of the service treats `expiryDate` as a millisecond timestamp compared against `Date.now()`. Zoho's `expires_in` is a duration in seconds, so this code extends token validity by ~1000x, causing expired access tokens to be reused instead of refreshed.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-004"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_000c0b2e7acedd2f62091cbfbd2e31bab9736afd5ceeb67ecde65768cb406c54",
+          "contentHash": "c423c8c812eedae7b25b74ce144e03bd91059591fe4b3986d14785be46c3127a",
+          "evidenceId": "evidence-art_000c0b2e7acedd2f62091cbfbd2e31bab9736afd5ceeb67ecde65768cb406c54",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-004-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d948d64cde823767a8b60f898b407e9adf718055586e7528c1b2d7244f988b1b",
+          "contentHash": "86a02b8b48133391a1795263b47c3d34fc07693f2037791340d90ca3a9feefe4",
+          "evidenceId": "evidence-art_d948d64cde823767a8b60f898b407e9adf718055586e7528c1b2d7244f988b1b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-004-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e0624ee589349ae4fea5af4c949d2b414f16a6448b143a5aee9d2f7125973a63",
+          "contentHash": "1d83cdf8bae0b081444ae85e20dc6371dec0256a914a018298e0e14660613f28",
+          "evidenceId": "evidence-art_e0624ee589349ae4fea5af4c949d2b414f16a6448b143a5aee9d2f7125973a63",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-004-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eadb61097e7aabb464a9ccbc3fe55db0df4540a980c3f19df2db3ccbe7337fde",
+          "contentHash": "0cde28c49e899b3dfaf23e5a6538bb9d2be030005f3f0696213786deba82bd8c",
+          "evidenceId": "evidence-art_eadb61097e7aabb464a9ccbc3fe55db0df4540a980c3f19df2db3ccbe7337fde",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-004-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-004-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "2a7b8fcebb382f0deed74342b5624fb25025d70f395603ac358e956a9f00d60d",
+      "location": {
+        "endColumn": null,
+        "endLine": 92,
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 92
+      },
+      "publishable": true,
+      "severity": "low",
+      "title": "Zoho Bigin refresh token expiry is computed in milliseconds instead of seconds",
+      "validatedBy": [
+        "unit-004-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The callback handler exchanges the authorization code using redirect_uri set to '/api/integrations/zoomvideo/callback', but the app-store Zoom callback lives under '/api/integrations/zoomvideo/api/callback'. This mismatch will cause Zoom's token exchange to fail because the redirect_uri no longer matches the route that initiated the OAuth flow.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-010"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_45ba197f948eab990a8f8d11febf0205f573d2fbba5dedb0e6adfc3974e88dcf",
+          "contentHash": "c366929f046b115ad773044b4378469be344905e498c0d407c016d9fc8e3158d",
+          "evidenceId": "evidence-art_45ba197f948eab990a8f8d11febf0205f573d2fbba5dedb0e6adfc3974e88dcf",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        },
+        {
+          "artifactId": "art_655ce97468fe35678f71d9b854610ac8aeab1f4db63e5ed6a3b961cdd071ba6e",
+          "contentHash": "917bde97899d7f0721b46a5e2eb13c0f32da59e46e9afcd6e2e7a6f4bf72e56b",
+          "evidenceId": "evidence-art_655ce97468fe35678f71d9b854610ac8aeab1f4db63e5ed6a3b961cdd071ba6e",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dbad57defb0697025bcd5b3f46105a728568b2f877ec5cea9af88bae5a695bd9",
+          "contentHash": "43c7054eb295ab9a669d501da5cdba761a79bcb2e41012e595542f1c2fdccc95",
+          "evidenceId": "evidence-art_dbad57defb0697025bcd5b3f46105a728568b2f877ec5cea9af88bae5a695bd9",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "04c2a4b27927311e1814d87023bdd64aa252a7cacdce36e0811bee2ef4024fa2",
+      "location": {
+        "endColumn": null,
+        "endLine": 7,
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 7
+      },
+      "publishable": true,
+      "severity": "low",
+      "title": "Zoom OAuth callback now posts to the wrong redirect URI path",
+      "validatedBy": [
+        "unit-010-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

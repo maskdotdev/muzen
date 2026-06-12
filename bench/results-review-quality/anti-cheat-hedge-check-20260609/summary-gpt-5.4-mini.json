@@ -1,0 +1,41 @@
+{
+  "generatedAtUtc": "2026-06-10T01:29:48.206Z",
+  "model": "gpt-5.4-mini",
+  "runnerPath": "target/release/muzen-runner",
+  "outputDir": "bench/results-review-quality/anti-cheat-hedge-check-20260609",
+  "passed": true,
+  "results": [
+    {
+      "fixture": "safe-credential-ownership",
+      "output": "bench/results-review-quality/anti-cheat-hedge-check-20260609/safe-credential-ownership-gpt-5.4-mini.json",
+      "findings": 0,
+      "findingTitles": [],
+      "contractPackCount": 1,
+      "passed": true
+    },
+    {
+      "fixture": "safe-oauth-return-shape",
+      "output": "bench/results-review-quality/anti-cheat-hedge-check-20260609/safe-oauth-return-shape-gpt-5.4-mini.json",
+      "findings": 0,
+      "findingTitles": [],
+      "contractPackCount": 1,
+      "passed": true
+    },
+    {
+      "fixture": "safe-slots-working-hours",
+      "output": "bench/results-review-quality/anti-cheat-hedge-check-20260609/safe-slots-working-hours-gpt-5.4-mini.json",
+      "findings": 0,
+      "findingTitles": [],
+      "contractPackCount": 1,
+      "passed": true
+    },
+    {
+      "fixture": "safe-sms-retry-cleanup",
+      "output": "bench/results-review-quality/anti-cheat-hedge-check-20260609/safe-sms-retry-cleanup-gpt-5.4-mini.json",
+      "findings": 0,
+      "findingTitles": [],
+      "contractPackCount": 1,
+      "passed": true
+    }
+  ]
+}
