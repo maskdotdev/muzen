@@ -258,6 +258,7 @@ pub struct OmittedContextCandidate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<RepoPath>,
     pub score: f32,
+    pub rank_index: usize,
     pub token_estimate: usize,
     pub reason: ContextOmissionReason,
 }

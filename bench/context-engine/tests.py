@@ -532,6 +532,7 @@ class SummaryProofTest(unittest.TestCase):
                         "kind": "file_span",
                         "path": "src/a.rs",
                         "score": 0.5,
+                        "rankIndex": 12,
                         "tokenEstimate": 100,
                         "reason": "budget_exhausted",
                     }

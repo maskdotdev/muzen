@@ -332,6 +332,7 @@ struct SelectedPackCandidate {
 fn omitted_candidate(
     evidence: &ContextEvidence,
     score: f32,
+    rank_index: usize,
     reason: ContextOmissionReason,
 ) -> OmittedContextCandidate {
     OmittedContextCandidate {
@@ -339,6 +340,7 @@ fn omitted_candidate(
         kind: evidence.kind,
         path: evidence.path.clone(),
         score,
+        rank_index,
         token_estimate: evidence.token_estimate,
         reason,
     }
@@ -365,6 +367,7 @@ fn select_ranked_pack_candidate(
         omitted_candidates.push(omitted_candidate(
             &evidence,
             score,
+            rank_index,
             ContextOmissionReason::Duplicate,
         ));
         return;
@@ -403,7 +406,7 @@ fn select_ranked_pack_candidate(
             evidence: evidence.clone(),
         });
     }
-    omitted_candidates.push(omitted_candidate(&evidence, score, reason));
+    omitted_candidates.push(omitted_candidate(&evidence, score, rank_index, reason));
 }
 
 fn selected_full_content_tokens(selected: &[SelectedPackCandidate]) -> usize {
@@ -552,6 +555,7 @@ fn apply_pack_repair_evictions(
         omitted_candidates.push(omitted_candidate(
             &removed.evidence,
             removed.score,
+            removed.rank_index,
             ContextOmissionReason::BudgetExhausted,
         ));
     }
@@ -834,6 +838,7 @@ mod pack_selection_tests {
         let mut omitted_candidates = vec![omitted_candidate(
             &candidate,
             budget_candidate.score,
+            budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
         )];
 
@@ -898,6 +903,7 @@ mod pack_selection_tests {
         let mut omitted_candidates = vec![omitted_candidate(
             &candidate,
             budget_candidate.score,
+            budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
         )];
 
@@ -981,6 +987,7 @@ mod pack_selection_tests {
         let mut omitted_candidates = vec![omitted_candidate(
             &candidate,
             budget_candidate.score,
+            budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
         )];
 
@@ -1051,6 +1058,7 @@ mod pack_selection_tests {
         let mut omitted_candidates = vec![omitted_candidate(
             &duplicate_candidate,
             budget_candidate.score,
+            budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
         )];
 
@@ -1664,6 +1672,7 @@ impl ContextEngine for SnapshotContextEngine {
                             serde_json::json!({
                                 "evidenceId": candidate.evidence_id.0,
                                 "score": candidate.score,
+                                "rankIndex": candidate.rank_index,
                                 "reason": candidate.reason,
                             })
                         })

@@ -857,6 +857,7 @@ mod tests {
                 kind: ContextEvidenceKind::FileSpan,
                 path: Some(crate::runtime::contracts::RepoPath::parse("src/omitted.rs").unwrap()),
                 score: 0.42,
+                rank_index: 9,
                 token_estimate: 320,
                 reason: ContextOmissionReason::BudgetExhausted,
             }],

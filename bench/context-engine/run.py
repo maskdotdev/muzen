@@ -867,6 +867,7 @@ def omitted_details_for_paths(
                 "kind": candidate.get("kind"),
                 "path": candidate.get("path"),
                 "score": candidate.get("score"),
+                "rankIndex": candidate.get("rankIndex"),
                 "tokenEstimate": candidate.get("tokenEstimate"),
                 "reason": candidate.get("reason"),
             }
