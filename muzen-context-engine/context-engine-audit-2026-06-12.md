@@ -74,6 +74,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
 - Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 90 cases with `--jobs 6` passed after baseline refresh.
 - Eval iteration now supports focused `--case-id` and `--case-glob` diagnostic runs. Filtered runs are marked diagnostic-only, skip regression gates, and cannot write `baseline.json`, so speed cannot masquerade as proof.
+- Eval iteration now has a deterministic summary comparator for experiment artifacts, so metric and case-level deltas can be inspected without ad hoc scripts while preserving the full-gate requirement.
 - Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, rank index, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
 - Packs now expose selected-candidate score and rank metadata, and weak cases report the selected tail beside missed candidates. This makes budget tradeoffs auditable: we can see which low-tail items consumed the budget that excluded a relevant candidate.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
@@ -111,9 +112,14 @@ The eval gate now tracks:
 - candidate-present missed omitted candidates with reason/score/rank/token diagnostics
 - selected-tail score/rank/token diagnostics for weak cases
 - public CLI signal ablations for proof runs
+- summary-to-summary metric and case-delta comparison for diagnostic artifacts
 
 Recent rejected experiments:
 
+- Diff-body lexical anchors: focused weak case improved (`recall@25 0 -> 0.5`), but broad pack diagnostics regressed recall@10/nDCG and increased noisy top-rank churn. Raw diff text, lower raw weight, path-like-only text, and lower path-like weight were all rejected.
+- Path proximity weight `0.05 -> 0.07`: improved recall@5 and tokens slightly, but candidate-present misses did not improve and recall@10/25 dipped.
+- Default local hash semantic mode: recall@25 and precision moved slightly positive, but recall@10/nDCG dropped and cold latency increased substantially.
+- Smaller skeleton reserve and high-confidence reserve borrowing: both improved isolated candidate-present misses but worsened tokens to first relevant and did not lift top-25 ranking enough to justify retention.
 - Compact full-content reserve: candidate-present miss improved `0.2509 -> 0.247`, but tokens to first relevant regressed `1650 -> 1846` and external regressed `2538 -> 2941`.
 - Path proximity weight `0.05 -> 0.03`: failed self recall@10 gate (`0.5983 -> 0.5756`).
 - Co-change weight `0.15 -> 0.20`: recall@25 and ttfr moved slightly positive, but self recall and present-miss case rates regressed.
