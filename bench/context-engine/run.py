@@ -144,6 +144,7 @@ class CaseResult:
     candidate_present_missed_paths: list[str]
     candidate_present_missed_omissions: list[dict[str, Any]]
     selected_tail_candidates: list[dict[str, Any]]
+    selected_evictable_candidates: list[dict[str, Any]]
     missed_paths: list[str]
     unexpected_paths: list[str]
     forbidden_content_hits: list[str]
@@ -1124,6 +1125,7 @@ def score_case(
         omitted, candidate_present_missed_paths
     )
     selected_tail_candidates = selected_tail_details(result, evidence)
+    selected_evictable_candidates = selected_evictable_details(result, evidence)
     graph_debug = None
     graph_timings = CaseTimings()
     if getattr(args, "include_graph_debug", False):
@@ -1188,6 +1190,7 @@ def score_case(
         candidate_present_missed_paths=candidate_present_missed_paths,
         candidate_present_missed_omissions=candidate_present_missed_omissions,
         selected_tail_candidates=selected_tail_candidates,
+        selected_evictable_candidates=selected_evictable_candidates,
         missed_paths=missed_paths,
         unexpected_paths=unexpected_paths,
         forbidden_content_hits=forbidden_content_hits,
@@ -1308,6 +1311,51 @@ def selected_tail_details(
             }
         )
     return details
+
+
+def selected_evictable_details(
+    result: dict[str, Any], evidence: list[dict[str, Any]], limit: int = 12
+) -> list[dict[str, Any]]:
+    selected_candidates = result.get("selectedCandidates")
+    if not isinstance(selected_candidates, list):
+        return []
+    evidence_by_id = {
+        entry.get("id"): entry
+        for entry in evidence
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    details = []
+    for candidate in selected_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        evidence_id = candidate.get("evidenceId")
+        entry = evidence_by_id.get(evidence_id) or {}
+        if entry.get("representation") != "full_content":
+            continue
+        if entry.get("kind") == "diff" or entry.get("isChangedSpan"):
+            continue
+        score = candidate.get("score")
+        if not isinstance(score, int | float) or score >= 0.5:
+            continue
+        details.append(
+            {
+                "evidenceId": evidence_id,
+                "kind": entry.get("kind"),
+                "path": entry.get("path"),
+                "score": score,
+                "rankIndex": candidate.get("rankIndex"),
+                "tokenEstimate": entry.get("tokenEstimate"),
+                "representation": entry.get("representation"),
+            }
+        )
+    details.sort(
+        key=lambda candidate: (
+            candidate["score"],
+            -(candidate.get("tokenEstimate") or 0),
+            candidate.get("rankIndex") or 0,
+        )
+    )
+    return details[:limit]
 
 
 def graph_debug_diagnostic(
@@ -1582,6 +1630,7 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             "candidatePresentMissedPaths": result.candidate_present_missed_paths,
             "candidatePresentMissedOmissions": result.candidate_present_missed_omissions,
             "selectedTailCandidates": result.selected_tail_candidates,
+            "selectedEvictableCandidates": result.selected_evictable_candidates,
             "selectedTokenBreakdown": result.selected_token_breakdown,
             "missedPaths": result.missed_paths,
             "sufficiencyStatus": result.sufficiency_status,
@@ -1787,6 +1836,7 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
         result for result in results if result.candidate_present_missed_paths
     ]
     score_beats_tail_cases = []
+    full_repair_shortfall_cases = []
     for result in cases_with_misses:
         case_omissions = result.candidate_present_missed_omissions
         omissions.extend(case_omissions)
@@ -1821,6 +1871,47 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
                     "tokensToFirstRelevant": result.tokens_to_first_relevant,
                 }
             )
+        full_repair_shortfalls = []
+        for omission in case_omissions:
+            token_estimate = omission.get("tokenEstimate")
+            score = omission.get("score")
+            if not isinstance(token_estimate, int) or not isinstance(score, int | float):
+                continue
+            evictable_tokens = sum(
+                candidate.get("tokenEstimate") or 0
+                for candidate in result.selected_evictable_candidates
+                if isinstance(candidate.get("score"), int | float)
+                and candidate["score"] < score
+            )
+            if evictable_tokens < token_estimate:
+                full_repair_shortfalls.append(
+                    {
+                        "path": omission.get("path"),
+                        "score": score,
+                        "tokenEstimate": token_estimate,
+                        "evictableTokensUnderScore": evictable_tokens,
+                        "shortfallTokens": token_estimate - evictable_tokens,
+                    }
+                )
+        if full_repair_shortfalls:
+            full_repair_shortfalls.sort(
+                key=lambda shortfall: (
+                    -shortfall["shortfallTokens"],
+                    shortfall.get("path") or "",
+                )
+            )
+            full_repair_shortfall_cases.append(
+                {
+                    "id": result.id,
+                    "sourceGroup": result.source_group,
+                    "truthSource": result.truth_source,
+                    "candidatePresentMissCount": len(
+                        result.candidate_present_missed_paths
+                    ),
+                    "shortfalls": full_repair_shortfalls[:3],
+                    "selectedEvictableCandidates": result.selected_evictable_candidates[:5],
+                }
+            )
 
     reason_counts: dict[str, int] = {}
     graph_path_omissions = 0
@@ -1847,6 +1938,12 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
             token_values.append(token_estimate)
 
     score_beats_tail_cases.sort(key=lambda case: (-case["margin"], case["id"]))
+    full_repair_shortfall_cases.sort(
+        key=lambda case: (
+            -max(shortfall["shortfallTokens"] for shortfall in case["shortfalls"]),
+            case["id"],
+        )
+    )
     return {
         "candidatePresentMissOmissions": {
             "count": len(omissions),
@@ -1861,6 +1958,8 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
             "meanTokenEstimate": mean_number(token_values),
             "scoreBeatsSelectedTailCaseCount": len(score_beats_tail_cases),
             "scoreBeatsSelectedTailCases": score_beats_tail_cases[:limit],
+            "fullRepairShortfallCaseCount": len(full_repair_shortfall_cases),
+            "fullRepairShortfallCases": full_repair_shortfall_cases[:limit],
         }
     }
 

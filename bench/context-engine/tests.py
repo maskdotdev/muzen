@@ -499,6 +499,7 @@ def case_result(
         candidate_present_missed_paths=[],
         candidate_present_missed_omissions=[],
         selected_tail_candidates=[],
+        selected_evictable_candidates=[],
         missed_paths=missed_paths or [],
         unexpected_paths=[],
         forbidden_content_hits=[],
@@ -563,6 +564,17 @@ class SummaryProofTest(unittest.TestCase):
                         "representation": "full_content",
                     }
                 ],
+                "selected_evictable_candidates": [
+                    {
+                        "evidenceId": "evictable-1",
+                        "kind": "file_span",
+                        "path": "src/evictable.rs",
+                        "score": 0.42,
+                        "rankIndex": 20,
+                        "tokenEstimate": 40,
+                        "representation": "full_content",
+                    }
+                ],
                 "selected_token_breakdown": {
                     "byRepresentation": {
                         "full_content": {"count": 2, "tokens": 900},
@@ -598,6 +610,10 @@ class SummaryProofTest(unittest.TestCase):
             summary["weakCases"][0]["selectedTailCandidates"][0]["evidenceId"],
             "tail-1",
         )
+        self.assertEqual(
+            summary["weakCases"][0]["selectedEvictableCandidates"][0]["evidenceId"],
+            "evictable-1",
+        )
         pressure = summary["diagnostics"]["omissionPressure"][
             "candidatePresentMissOmissions"
         ]
@@ -610,6 +626,11 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(pressure["meanTokenEstimate"], 100)
         self.assertEqual(pressure["scoreBeatsSelectedTailCaseCount"], 1)
         self.assertEqual(pressure["scoreBeatsSelectedTailCases"][0]["id"], "weak")
+        self.assertEqual(pressure["fullRepairShortfallCaseCount"], 1)
+        self.assertEqual(
+            pressure["fullRepairShortfallCases"][0]["shortfalls"][0]["shortfallTokens"],
+            60,
+        )
         ranked_causes = summary["diagnostics"]["rankedMissCauses"]
         self.assertEqual(ranked_causes["top25MissedPathCount"], 1)
         self.assertEqual(ranked_causes["selectedAfter25Count"], 0)
@@ -886,6 +907,64 @@ class SummaryProofTest(unittest.TestCase):
                             "path": "test path -> implementation path",
                         }
                     ],
+                }
+            ],
+        )
+
+    def test_selected_evictable_details_reports_low_score_full_content(self):
+        result = {
+            "selectedCandidates": [
+                {"evidenceId": "changed", "score": -0.1, "rankIndex": 0},
+                {"evidenceId": "skeleton", "score": 0.1, "rankIndex": 1},
+                {"evidenceId": "high", "score": 0.6, "rankIndex": 2},
+                {"evidenceId": "low", "score": 0.2, "rankIndex": 3},
+            ]
+        }
+        evidence = [
+            {
+                "id": "changed",
+                "kind": "symbol",
+                "path": "src/changed.rs",
+                "tokenEstimate": 10,
+                "representation": "full_content",
+                "isChangedSpan": True,
+            },
+            {
+                "id": "skeleton",
+                "kind": "file_span",
+                "path": "src/skeleton.rs",
+                "tokenEstimate": 20,
+                "representation": "skeleton",
+            },
+            {
+                "id": "high",
+                "kind": "file_span",
+                "path": "src/high.rs",
+                "tokenEstimate": 30,
+                "representation": "full_content",
+            },
+            {
+                "id": "low",
+                "kind": "file_span",
+                "path": "src/low.rs",
+                "tokenEstimate": 40,
+                "representation": "full_content",
+            },
+        ]
+
+        evictable = run.selected_evictable_details(result, evidence)
+
+        self.assertEqual(
+            evictable,
+            [
+                {
+                    "evidenceId": "low",
+                    "kind": "file_span",
+                    "path": "src/low.rs",
+                    "score": 0.2,
+                    "rankIndex": 3,
+                    "tokenEstimate": 40,
+                    "representation": "full_content",
                 }
             ],
         )
