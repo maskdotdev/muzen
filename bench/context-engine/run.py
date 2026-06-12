@@ -1171,6 +1171,7 @@ def graph_debug_diagnostic(
         omitted_expected_paths,
         omitted_expected_path_count,
         omitted_expected_paths_truncated,
+        omitted_expected_counts_by_reason,
     ) = graph_debug_omitted_details_for_paths(
         omitted,
         accepted_missed_paths,
@@ -1226,6 +1227,7 @@ def graph_debug_diagnostic(
         "omittedExpectedPathCount": omitted_expected_path_count,
         "omittedExpectedPaths": omitted_expected_paths,
         "omittedExpectedPathsTruncated": omitted_expected_paths_truncated,
+        "omittedExpectedCountsByReason": omitted_expected_counts_by_reason,
         "omittedCountsByReason": dict(sorted(omitted_counts.items())),
         "edgeKindCounts": dict(sorted(edge_kind_counts.items())),
     }
@@ -1233,16 +1235,19 @@ def graph_debug_diagnostic(
 
 def graph_debug_omitted_details_for_paths(
     omitted: Any, paths: list[str], limit: int = 40
-) -> tuple[list[dict[str, Any]], int, int]:
+) -> tuple[list[dict[str, Any]], int, int, dict[str, int]]:
     if not isinstance(omitted, list) or not paths:
-        return [], 0, 0
+        return [], 0, 0, {}
     missed = set(paths)
     details = []
     total = 0
+    reason_counts: dict[str, int] = {}
     for candidate in omitted:
         if not isinstance(candidate, dict) or candidate.get("path") not in missed:
             continue
         total += 1
+        reason = str(candidate.get("reason") or "unknown")
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
         if len(details) < limit:
             details.append(
                 {
@@ -1252,7 +1257,7 @@ def graph_debug_omitted_details_for_paths(
                     "reason": candidate.get("reason"),
                 }
             )
-    return details, total, max(0, total - len(details))
+    return details, total, max(0, total - len(details)), dict(sorted(reason_counts.items()))
 
 
 def metric_block(results: list[CaseResult]) -> dict[str, Any]:
@@ -1419,6 +1424,10 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
                     "omittedExpectedPathsTruncated",
                     0,
                 ),
+                "omittedExpectedCountsByReason": result.graph_debug.get(
+                    "omittedExpectedCountsByReason",
+                    {},
+                ),
             }
         cases.append(case)
     return cases
@@ -1487,12 +1496,20 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
     )
     edge_kind_counts: dict[str, int] = {}
     omitted_reason_counts: dict[str, int] = {}
+    omitted_expected_reason_counts: dict[str, int] = {}
     for result in graph_results:
         for kind, count in result.graph_debug["edgeKindCounts"].items():
             edge_kind_counts[kind] = edge_kind_counts.get(kind, 0) + count
         for reason, count in result.graph_debug["omittedCountsByReason"].items():
             if isinstance(count, int):
                 omitted_reason_counts[reason] = omitted_reason_counts.get(reason, 0) + count
+        for reason, count in result.graph_debug.get(
+            "omittedExpectedCountsByReason", {}
+        ).items():
+            if isinstance(count, int):
+                omitted_expected_reason_counts[reason] = (
+                    omitted_expected_reason_counts.get(reason, 0) + count
+                )
 
     weak = [
         {
@@ -1514,6 +1531,10 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
             "omittedExpectedPathsTruncated": result.graph_debug.get(
                 "omittedExpectedPathsTruncated",
                 0,
+            ),
+            "omittedExpectedCountsByReason": result.graph_debug.get(
+                "omittedExpectedCountsByReason",
+                {},
             ),
         }
         for result in sorted(
@@ -1572,6 +1593,9 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
         ),
         "edgeKindObservationCounts": dict(sorted(edge_kind_counts.items())),
         "omittedCountsByReason": dict(sorted(omitted_reason_counts.items())),
+        "omittedExpectedCountsByReason": dict(
+            sorted(omitted_expected_reason_counts.items())
+        ),
         "weakCases": weak[:limit],
     }
 

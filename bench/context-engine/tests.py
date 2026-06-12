@@ -876,7 +876,7 @@ class SummaryProofTest(unittest.TestCase):
                 }
             ],
             "truncatedOmissions": 1,
-            "omittedCountsByReason": {"depth_limit": 1},
+            "omittedCountsByReason": {"depth_limit": 1, "budget_exceeded": 3},
             "edgeConfidenceByKind": {
                 "imports": {"count": 2, "min": 0.5, "max": 1.0, "mean": 0.75}
             },
@@ -914,6 +914,7 @@ class SummaryProofTest(unittest.TestCase):
         )
         self.assertEqual(diagnostic["omittedExpectedPathCount"], 1)
         self.assertEqual(diagnostic["omittedExpectedPathsTruncated"], 0)
+        self.assertEqual(diagnostic["omittedExpectedCountsByReason"], {"depth_limit": 1})
         self.assertEqual(diagnostic["edgeKindCounts"], {"imports": 2})
 
     def test_summary_reports_graph_coverage_when_enabled(self):
@@ -937,6 +938,7 @@ class SummaryProofTest(unittest.TestCase):
                 {"path": "src/missed.rs", "reason": "depth_limit"}
             ],
             "omittedExpectedPathsTruncated": 0,
+            "omittedExpectedCountsByReason": {"depth_limit": 1},
             "omittedCountsByReason": {"depth_limit": 2},
             "edgeKindCounts": {"imports": 4},
         }
@@ -954,6 +956,9 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(coverage["omittedExpectedPathCount"], 1)
         self.assertEqual(coverage["edgeKindObservationCounts"], {"imports": 4})
         self.assertEqual(coverage["omittedCountsByReason"], {"depth_limit": 2})
+        self.assertEqual(
+            coverage["omittedExpectedCountsByReason"], {"depth_limit": 1}
+        )
         self.assertEqual(coverage["weakCases"][0]["id"], "graph-miss")
         self.assertEqual(
             summary["weakCases"][0]["graphDebug"]["acceptedMissedPaths"],
