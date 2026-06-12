@@ -14,6 +14,12 @@ Progress:
   model (no API key). Results committed under
   `bench/results-concurrent-compare/summary.md`: 10.4x at 10 units,
   12.6x at 50, 14.3x at 100, all sessions completing.
+- Phase 2 (kernel half) landed: `RunMode::DirectSessions` runs
+  user-supplied sessions straight through the generic agent loop
+  (`src/runtime/agent_sessions.rs`) — no unit planning, no evidence
+  obligations, no findings. Each session returns its final text in
+  `RunReport.session_outputs`. Still pending from Phase 2: runner
+  protocol mode flag and SDK `runSwarm` surface.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 

@@ -10,8 +10,10 @@ use crate::runtime::tools::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::contracts::{ChangeScopeV1, PathPolicyV1};
+use crate::contracts::{ChangeScopeV1, FileReviewV1, FindingV1, PathPolicyV1};
 use crate::events::EventEmitter;
+use crate::runtime::agent_sessions::AgentSessionRuntime;
+use crate::runtime::contracts::AgentSessionOutput;
 use crate::runtime::planned_units::{session_semaphore, PlannedReviewRuntime};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::repo::RepoSnapshot;
@@ -160,6 +162,7 @@ impl RunBuilder {
             .collect::<Vec<_>>();
         Ok(Run {
             run_id: self.spec.run_id,
+            mode: self.spec.mode,
             snapshot_handles,
             shards,
             limits,
@@ -173,6 +176,7 @@ impl RunBuilder {
 
 pub struct Run {
     run_id: String,
+    mode: RunMode,
     snapshot_handles: Vec<SnapshotHandle>,
     pub(crate) shards: Vec<RunShard>,
     limits: Arc<RuntimeLimits>,
@@ -188,6 +192,15 @@ pub(crate) struct RunShard {
     tools: Arc<ToolEngine>,
     review_revision_id: String,
     pub(crate) sessions: Vec<SessionScope>,
+}
+
+struct ShardOutcome {
+    index: usize,
+    metrics: crate::runtime::contracts::ConcurrentRunReport,
+    findings: Vec<FindingV1>,
+    file_reviews: Vec<FileReviewV1>,
+    session_outputs: Vec<AgentSessionOutput>,
+    tools: Arc<ToolEngine>,
 }
 
 impl Run {
@@ -223,6 +236,7 @@ impl Run {
         // within max_active_sessions. Results are re-ordered by shard index
         // before aggregation so the report stays deterministic.
         let active_sessions = session_semaphore(&self.limits);
+        let mode = self.mode;
         let mut joins = tokio::task::JoinSet::new();
         for (index, shard) in self.shards.into_iter().enumerate() {
             let event_sink = self.event_sink.clone();
@@ -234,41 +248,76 @@ impl Run {
             let active_sessions = Arc::clone(&active_sessions);
             let cancel = cancel.clone();
             joins.spawn(async move {
+                let snapshot_id = shard.snapshot_handle.snapshot_id.clone();
                 let shard_event_sink = event_sink.map(|sink| {
                     Arc::new(ContextualEventSink::new(
                         sink,
                         run_id,
-                        Some(shard.snapshot_handle.snapshot_id.clone()),
+                        Some(snapshot_id.clone()),
                     )) as Arc<dyn RuntimeEventSink>
                 });
                 if let Some(sink) = &shard_event_sink {
                     sink.emit(RuntimeEvent::SnapshotStarted {
-                        snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
+                        snapshot_id: snapshot_id.clone(),
                     });
                 }
-                let runtime = Arc::new(PlannedReviewRuntime {
-                    snapshot: shard.snapshot,
-                    model_router,
-                    tools: shard.tools,
-                    policy: reviewer_policy,
-                    limits,
-                    review_revision_id: shard.review_revision_id,
-                    session_templates: shard.sessions,
-                    events: RuntimeEventDispatcher::new(
-                        shard_event_sink.clone(),
-                        legacy_event_emitter,
-                    ),
-                    active_sessions,
-                });
-                let summary = Arc::clone(&runtime).run_with_cancel(cancel).await;
+                let events = RuntimeEventDispatcher::new(
+                    shard_event_sink.clone(),
+                    legacy_event_emitter,
+                );
+                let tools = Arc::clone(&shard.tools);
+                let outcome = match mode {
+                    RunMode::PlannedReview => {
+                        let runtime = Arc::new(PlannedReviewRuntime {
+                            snapshot: shard.snapshot,
+                            model_router,
+                            tools: shard.tools,
+                            policy: reviewer_policy,
+                            limits,
+                            review_revision_id: shard.review_revision_id,
+                            session_templates: shard.sessions,
+                            events,
+                            active_sessions,
+                        });
+                        let summary = Arc::clone(&runtime).run_with_cancel(cancel).await;
+                        ShardOutcome {
+                            index,
+                            metrics: summary.metrics,
+                            findings: summary.findings,
+                            file_reviews: summary.file_reviews,
+                            session_outputs: Vec::new(),
+                            tools,
+                        }
+                    }
+                    RunMode::DirectSessions => {
+                        let runtime = Arc::new(AgentSessionRuntime {
+                            model_router,
+                            tools: shard.tools,
+                            policy: reviewer_policy,
+                            limits,
+                            review_revision_id: shard.review_revision_id,
+                            events,
+                            active_sessions,
+                        });
+                        let report = runtime.run_with_cancel(shard.sessions, cancel).await;
+                        ShardOutcome {
+                            index,
+                            metrics: report.metrics,
+                            findings: Vec::new(),
+                            file_reviews: Vec::new(),
+                            session_outputs: report.outputs,
+                            tools,
+                        }
+                    }
+                };
                 if let Some(sink) = &shard_event_sink {
                     sink.emit(RuntimeEvent::SnapshotFinished {
-                        snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
-                        sessions: summary.metrics.sessions,
-                        completed_sessions: summary.metrics.completed_sessions,
+                        snapshot_id,
+                        sessions: outcome.metrics.sessions,
+                        completed_sessions: outcome.metrics.completed_sessions,
                     });
                 }
-                (index, summary, runtime)
+                outcome
             });
         }
         let mut shard_outcomes = Vec::new();
@@ -277,15 +326,17 @@ impl Run {
                 shard_outcomes.push(outcome);
             }
         }
-        shard_outcomes.sort_by_key(|(index, _, _)| *index);
+        shard_outcomes.sort_by_key(|outcome| outcome.index);
         let mut summaries = Vec::new();
         let mut findings = Vec::new();
         let mut file_reviews = Vec::new();
-        for (_, summary, runtime) in shard_outcomes {
-            aggregate_artifacts.merge_from(&runtime.tools.artifacts);
-            findings.extend(summary.findings);
-            file_reviews.extend(summary.file_reviews);
-            summaries.push(summary.metrics);
+        let mut session_outputs = Vec::new();
+        for outcome in shard_outcomes {
+            aggregate_artifacts.merge_from(&outcome.tools.artifacts);
+            findings.extend(outcome.findings);
+            file_reviews.extend(outcome.file_reviews);
+            session_outputs.extend(outcome.session_outputs);
+            summaries.push(outcome.metrics);
         }
         let metrics = merge_run_summaries(summaries);
         if let Some(sink) = &run_event_sink {
@@ -304,6 +355,7 @@ impl Run {
             summary: ReviewRunSummary::from_metrics(&metrics),
             metrics,
             artifacts: aggregate_artifacts,
+            session_outputs,
             snapshot_readers,
             findings,
             file_reviews,

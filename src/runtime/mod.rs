@@ -1,3 +1,4 @@
+pub(crate) mod agent_sessions;
 pub(crate) mod bench;
 pub(crate) mod contracts;
 pub(crate) mod dispatch;
