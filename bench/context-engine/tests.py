@@ -612,6 +612,16 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(summary["slowCases"][0]["omitted"], 17)
         self.assertEqual(summary["slowCases"][0]["candidatePresentMissCount"], 1)
 
+    def test_summary_performance_block_reports_wall_clock_throughput(self):
+        summary = run.summarize([case_result("a"), case_result("b")])
+
+        run.attach_performance(summary, elapsed_ms=4000.0, jobs=2)
+
+        self.assertEqual(summary["performance"]["wallClockMs"], 4000.0)
+        self.assertEqual(summary["performance"]["meanWallClockMsPerCase"], 2000.0)
+        self.assertEqual(summary["performance"]["casesPerSecond"], 0.5)
+        self.assertEqual(summary["performance"]["jobs"], 2)
+
     def test_selected_tail_details_join_scores_to_evidence(self):
         result = {
             "selectedCandidates": [

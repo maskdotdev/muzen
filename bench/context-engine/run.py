@@ -1674,6 +1674,20 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
     }
 
 
+def attach_performance(
+    summary: dict[str, Any], *, elapsed_ms: float, jobs: int
+) -> dict[str, Any]:
+    case_count = int(summary.get("caseCount") or 0)
+    elapsed_seconds = elapsed_ms / 1000.0
+    summary["performance"] = {
+        "wallClockMs": elapsed_ms,
+        "meanWallClockMsPerCase": elapsed_ms / case_count if case_count else None,
+        "casesPerSecond": case_count / elapsed_seconds if elapsed_seconds > 0 else None,
+        "jobs": jobs,
+    }
+    return summary
+
+
 def check_regression(
     summary: dict[str, Any], baseline_path: Path, tolerance: float
 ) -> list[str]:
@@ -1812,6 +1826,7 @@ def write_baseline(summary: dict[str, Any], baseline_path: Path) -> None:
 
 
 def run_suite(case_files: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    started = time.perf_counter()
     tasks = [
         (case_file, case)
         for case_file in case_files
@@ -1819,7 +1834,9 @@ def run_suite(case_files: list[dict[str, Any]], args: argparse.Namespace) -> dic
     ]
     if getattr(args, "jobs", 1) <= 1:
         results = [score_case(case_file, case, args) for case_file, case in tasks]
-        return summarize(results)
+        summary = summarize(results)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        return attach_performance(summary, elapsed_ms=elapsed_ms, jobs=getattr(args, "jobs", 1))
 
     prepare_corpus(case_files)
     results: list[CaseResult | None] = [None] * len(tasks)
@@ -1839,7 +1856,9 @@ def run_suite(case_files: list[dict[str, Any]], args: argparse.Namespace) -> dic
     completed_results = [result for result in results if result is not None]
     if len(completed_results) != len(tasks):
         raise SystemExit("parallel context eval finished without every case result")
-    return summarize(completed_results)
+    summary = summarize(completed_results)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    return attach_performance(summary, elapsed_ms=elapsed_ms, jobs=getattr(args, "jobs", 1))
 
 
 def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval") -> None:
@@ -1857,6 +1876,14 @@ def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval"
         f"mean precision {metrics['meanPrecision']:.3f}, "
         f"mean latency {metrics['meanLatencyMs']:.1f} ms"
     )
+    performance = summary.get("performance", {})
+    if performance.get("casesPerSecond") is not None:
+        print(
+            f"{label} performance: "
+            f"wall {performance['wallClockMs']:.1f} ms, "
+            f"throughput {performance['casesPerSecond']:.2f} cases/s, "
+            f"jobs {performance['jobs']}"
+        )
     graph = summary.get("diagnostics", {}).get("graphCoverage", {})
     if graph.get("enabled"):
         print(
