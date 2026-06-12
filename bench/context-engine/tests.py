@@ -467,6 +467,7 @@ def case_result(
     missed_paths: list[str] | None = None,
     sufficiency_status: str | None = None,
     false_sufficient: bool = False,
+    graph_debug: dict | None = None,
 ) -> run.CaseResult:
     return run.CaseResult(
         id=case_id,
@@ -507,6 +508,7 @@ def case_result(
         sufficiency_status=sufficiency_status,
         sufficiency_blocking_gaps=0,
         sufficiency_false_sufficient=false_sufficient,
+        graph_debug=graph_debug,
     )
 
 
@@ -718,6 +720,96 @@ class SummaryProofTest(unittest.TestCase):
                     ],
                 }
             ],
+        )
+
+    def test_graph_debug_diagnostic_reports_raw_graph_coverage(self):
+        export = {
+            "schemaVersion": run.GRAPH_DEBUG_SCHEMA_VERSION,
+            "nodeCount": 5,
+            "edgeCount": 7,
+            "changedAnchors": ["file:src/changed.rs"],
+            "candidates": [
+                {"path": "src/found.rs"},
+                {"path": "src/found.rs"},
+                {"path": "src/other.rs"},
+            ],
+            "truncatedCandidates": 2,
+            "omitted": [
+                {
+                    "node": "file:src/missed.rs",
+                    "path": "src/missed.rs",
+                    "anchor": "file:src/changed.rs",
+                    "reason": "depth_limit",
+                }
+            ],
+            "truncatedOmissions": 1,
+            "omittedCountsByReason": {"depth_limit": 1},
+            "edgeConfidenceByKind": {
+                "imports": {"count": 2, "min": 0.5, "max": 1.0, "mean": 0.75}
+            },
+        }
+
+        diagnostic = run.graph_debug_diagnostic(
+            export,
+            {"src/found.rs", "src/missed.rs"},
+            latency_ms=12.5,
+        )
+
+        self.assertEqual(diagnostic["recall"], 0.5)
+        self.assertEqual(diagnostic["candidateCount"], 5)
+        self.assertEqual(diagnostic["omittedCount"], 2)
+        self.assertEqual(diagnostic["candidatePathCount"], 2)
+        self.assertEqual(diagnostic["foundPaths"], ["src/found.rs"])
+        self.assertEqual(diagnostic["missedPaths"], ["src/missed.rs"])
+        self.assertEqual(
+            diagnostic["omittedExpectedPaths"],
+            [
+                {
+                    "node": "file:src/missed.rs",
+                    "path": "src/missed.rs",
+                    "anchor": "file:src/changed.rs",
+                    "reason": "depth_limit",
+                }
+            ],
+        )
+        self.assertEqual(diagnostic["omittedExpectedPathCount"], 1)
+        self.assertEqual(diagnostic["omittedExpectedPathsTruncated"], 0)
+        self.assertEqual(diagnostic["edgeKindCounts"], {"imports": 2})
+
+    def test_summary_reports_graph_coverage_when_enabled(self):
+        graph_debug = {
+            "latencyMs": 12.0,
+            "expectedPathCount": 2,
+            "candidatePathCount": 3,
+            "foundPathCount": 1,
+            "missedPathCount": 1,
+            "recall": 0.5,
+            "foundPaths": ["src/found.rs"],
+            "missedPaths": ["src/missed.rs"],
+            "omittedExpectedPathCount": 1,
+            "omittedExpectedPaths": [
+                {"path": "src/missed.rs", "reason": "depth_limit"}
+            ],
+            "omittedExpectedPathsTruncated": 0,
+            "omittedCountsByReason": {"depth_limit": 2},
+            "edgeKindCounts": {"imports": 4},
+        }
+        result = case_result("graph-miss", graph_debug=graph_debug)
+
+        summary = run.summarize([result])
+        coverage = summary["diagnostics"]["graphCoverage"]
+
+        self.assertTrue(coverage["enabled"])
+        self.assertEqual(coverage["caseCount"], 1)
+        self.assertEqual(coverage["pathRecall"], 0.5)
+        self.assertEqual(coverage["missedPathCount"], 1)
+        self.assertEqual(coverage["omittedExpectedPathCount"], 1)
+        self.assertEqual(coverage["edgeKindObservationCounts"], {"imports": 4})
+        self.assertEqual(coverage["omittedCountsByReason"], {"depth_limit": 2})
+        self.assertEqual(coverage["weakCases"][0]["id"], "graph-miss")
+        self.assertEqual(
+            summary["weakCases"][0]["graphDebug"]["missedPaths"],
+            ["src/missed.rs"],
         )
 
     def test_false_sufficient_is_a_failure(self):
@@ -979,6 +1071,112 @@ class ParallelSuiteTest(unittest.TestCase):
         self.assertEqual(metadata["semantic"]["forcedTier"], "local_onnx")
         self.assertEqual(metadata["semantic"]["localOnnxModelDir"], str(model_dir))
         self.assertFalse(metadata["rerank"]["enabled"])
+
+    def test_graph_debug_runs_public_cli_with_common_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            cache_root = root / "cache"
+            cache_root.mkdir()
+            binary = root / "muzen"
+            binary.write_text("bin")
+            args = type(
+                "Args",
+                (),
+                {
+                    "muzen_bin": binary,
+                    "local_onnx_model_dir": None,
+                    "hosted_semantic": False,
+                    "hosted_embedding_model": "text-embedding-3-small",
+                    "hosted_embedding_base_url": None,
+                    "hosted_max_embedding_inputs": 512,
+                    "rerank_base_url": None,
+                    "rerank_model": None,
+                    "rerank_credential_ref": None,
+                    "ablate_context_signal": ["graph"],
+                },
+            )()
+            case_file = {
+                "repoSource": {"kind": "fixture", "path": "unused"},
+                "changedFiles": ["src/changed.rs"],
+                "hostMetadata": {"ticket": "parent"},
+            }
+            case = {
+                "id": "graph-case",
+                "command": "pack",
+                "hostInstructions": [
+                    {"kind": "ticket", "text": "child", "trusted": True}
+                ],
+            }
+            original_materialize_repo = run.materialize_repo
+            original_materialize_diff = run.materialize_diff
+            original_cache_root = run.cache_root_for_repo
+            original_run = run.subprocess.run
+            calls = []
+            seen_host_metadata = None
+            seen_host_instructions = None
+
+            def fake_run(command, **kwargs):
+                nonlocal seen_host_metadata, seen_host_instructions
+                calls.append((command, kwargs))
+                metadata_path = Path(command[command.index("--host-metadata-json") + 1])
+                instructions_path = Path(
+                    command[command.index("--host-instruction-json") + 1]
+                )
+                seen_host_metadata = json.loads(metadata_path.read_text())
+                seen_host_instructions = json.loads(instructions_path.read_text())
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "schemaVersion": run.GRAPH_DEBUG_SCHEMA_VERSION,
+                            "nodeCount": 0,
+                            "edgeCount": 0,
+                            "changedAnchors": [],
+                            "candidates": [],
+                            "truncatedCandidates": 0,
+                            "omitted": [],
+                            "truncatedOmissions": 0,
+                            "omittedCountsByReason": {},
+                            "edgeConfidenceByKind": {},
+                        }
+                    ),
+                    stderr="",
+                )
+
+            try:
+                run.materialize_repo = lambda _source: repo
+                run.materialize_diff = lambda _source: None
+                run.cache_root_for_repo = lambda _repo: cache_root
+                run.subprocess.run = fake_run
+                run.run_context_graph_debug(case_file, case, args)
+            finally:
+                run.materialize_repo = original_materialize_repo
+                run.materialize_diff = original_materialize_diff
+                run.cache_root_for_repo = original_cache_root
+                run.subprocess.run = original_run
+
+        command, kwargs = calls[0]
+        self.assertEqual(command[:3], [str(binary), "context", "graph-debug"])
+        self.assertIn("--repo", command)
+        self.assertEqual(command[command.index("--repo") + 1], str(repo))
+        self.assertIn("--derived-cache-root", command)
+        self.assertEqual(
+            command[command.index("--derived-cache-root") + 1], str(cache_root)
+        )
+        self.assertIn("--changed-file", command)
+        self.assertEqual(command[command.index("--changed-file") + 1], "src/changed.rs")
+        self.assertIn("--ablate-context-signal", command)
+        self.assertEqual(command[command.index("--ablate-context-signal") + 1], "graph")
+        self.assertNotIn("--purpose", command)
+        self.assertEqual(kwargs["cwd"], run.ROOT)
+        self.assertEqual(seen_host_metadata, {"ticket": "parent"})
+        self.assertEqual(
+            seen_host_instructions,
+            [{"kind": "ticket", "text": "child", "trusted": True}],
+        )
 
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
