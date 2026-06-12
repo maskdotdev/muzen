@@ -16,12 +16,14 @@ export {
   sourceKey,
 } from "./sources.js";
 export {
+  anthropic,
   openai,
   isCallbackReviewModelSpec,
   isHostedReviewModelSpec,
   reviewOptionsRequireSecretResolver,
 } from "./models.js";
 export type {
+  AnthropicModelOptions,
   OpenAIModelOptions,
 } from "./models.js";
 export {
@@ -55,6 +57,7 @@ export type {
   ReviewProgressProjectionOptions,
 } from "./progress.js";
 export type {
+  AnthropicReviewModelSpec,
   CreateMuzenClientOptions,
   CreateMuzenOptions,
   CreateReviewSessionInput,
@@ -142,6 +145,13 @@ export type {
   ReviewToolResult,
   ReviewWorkerConcurrencyLimits,
   SourceProviderKind,
+  SwarmAgent,
+  SwarmAgentOutput,
+  SwarmAgentStatus,
+  SwarmOptions,
+  SwarmResult,
+  SwarmRunStatus,
+  SwarmUsage,
   WorkspaceProfileCollection,
 } from "./types.js";
 export type {

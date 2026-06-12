@@ -6,10 +6,9 @@ use std::sync::Arc;
 use crate::contracts::ToolCounts;
 use crate::runtime::contracts::{
     AgentSessionOutput, ArtifactId, ArtifactView, ConcurrentCounters, ConcurrentRunReport,
-    ModelMetricsSnapshot,
-    RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, RuntimeResult, SnapshotId,
-    ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
-    ToolProviderHealthState,
+    ModelMetricsSnapshot, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
+    RuntimeResult, SnapshotId, ToolCallId, ToolMetricKey, ToolMetricsSnapshot,
+    ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 
 use crate::contracts::{FileReviewV1, FindingV1, ReviewOutcomeV1};

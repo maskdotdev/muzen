@@ -23,8 +23,14 @@ Progress:
   `mode: "direct_sessions"` (unknown modes are rejected; direct mode
   skips review batch expansion and requires explicit sessions), and run
   results carry `sessionOutputs`. Schema fixture regenerated
-  (additive). Still pending from Phase 2: SDK `runSwarm` ergonomics in
-  TypeScript and Python.
+  (additive).
+- Phase 2 (SDK half) landed: `muzen.runSwarm(...)` (TypeScript) and
+  `Client.run_swarm(...)` (Python) take agents + tools + models over
+  one repo snapshot and return per-agent outputs plus usage; review
+  API unchanged on top. The exit-criteria proof is the TS integration
+  test that runs 20 heterogeneous agents with a custom host tool
+  through the generic loop, plus `examples/typescript/swarm/` and
+  `examples/python/swarm.py` showing per-agent BYO endpoints.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 
@@ -137,13 +143,23 @@ involved.
    (`src/runner/wiring.rs:170`); each model profile carries its own
    endpoint. Smallest, highest-leverage change — unlocks vLLM/Ollama/
    proxy mixes with the existing OpenAI-compatible client.
-2. Native Anthropic Messages client behind `ConcurrentModelClient`; add
-   `ProviderKind::Anthropic` and wire profile-layer Anthropic through.
-   Hard error (not silent fallback) for any unwired provider.
-3. SDK model factories: `anthropic()`, `openaiCompatible({ baseUrl,
-   model, credential })`; keep credential = `{env}` | `{secretRef}`.
+2. ~~Native Anthropic Messages client behind `ConcurrentModelClient`;
+   add `ProviderKind::Anthropic` and wire profile-layer Anthropic
+   through. Hard error (not silent fallback) for any unwired
+   provider.~~ Done: `src/runtime/model_anthropic.rs` implements the
+   Messages API (system string, tool_use/tool_result blocks,
+   `input_schema` tools, `x-api-key` + `anthropic-version` headers,
+   shared retryability classification); `provider: "anthropic"`
+   defaults to the `messages` protocol and `env:ANTHROPIC_API_KEY`,
+   and invalid provider/protocol combinations are hard errors.
+3. ~~SDK model factories: `anthropic()`; keep credential = `{env}` |
+   `{secretRef}`.~~ Done in TypeScript and Python (`openai({ baseUrl })`
+   already covers openai-compatible endpoints); the swarm examples mix
+   an Anthropic default with a local OpenAI-compatible override.
 4. Test matrix: one run, three agents, three providers/endpoints;
-   per-key limiter semaphores verified under load.
+   per-key limiter semaphores verified under load. (Mapping-level mixed
+   anthropic+openai coverage exists in both SDKs; a live three-endpoint
+   matrix run is still open.)
 5. Stretch: fallback chains (profile A → profile B on retryable
    exhaustion) and cheap/expensive tier hints in routing metadata.
 
@@ -152,22 +168,33 @@ endpoint, keys via env refs, all from a single SDK call.
 
 ### Phase 4 — Model-loop efficiency and resilience
 
-1. Retries: exponential backoff + jitter on retryable errors (429/5xx/
+1. ~~Retries: exponential backoff + jitter on retryable errors (429/5xx/
    timeouts), capped per turn and per budget; surface retry counts in
-   metrics. Today any model error silently kills the session
-   (`src/runtime/planned_units.rs:292`).
-2. Streaming: SSE for chat completions; stream tool-call deltas so tool
-   batches can start as soon as calls are complete; enables early
-   cancellation and cuts time-to-first-token.
+   metrics.~~ Done: `src/runtime/model_retry.rs` wraps every model turn
+   (direct sessions, planned units, final synthesis) with
+   `model_retry_max_attempts` / `model_retry_base_delay_ms` /
+   `model_retry_max_delay_ms` on `RuntimeLimits`; each failed attempt
+   emits `modelFailed { attempt, retrying }` and counts into
+   `modelMetrics.calls`/`errors`.
+2. Streaming (transport half landed): the chat-completions and
+   Anthropic Messages clients stream over SSE
+   (`src/runtime/model_sse.rs`) and accumulate deltas into the existing
+   turn contract — cancellation now interrupts mid-stream, a stalled
+   stream fails as retryable after an idle timeout instead of holding a
+   whole-request timeout, and providers that ignore `stream: true` fall
+   back to plain-JSON parsing. Still open: streaming for the Responses
+   protocol, and surfacing tool-call deltas to the engine so tool
+   batches start before the turn finishes.
 3. Transcript management: enforce `max_prompt_tokens` mid-loop
    (truncate oldest tool results first, keep system + objective stable);
    keep a stable message prefix for provider prompt caching (Anthropic
    `cache_control`, OpenAI automatic caching); stop re-serializing the
    full transcript every turn (incremental message assembly).
 
-Exit: bench shows reduced per-turn overhead at 7-turn depth; chaos test
-(injected 429s/timeouts) completes a 50-session swarm with retries
-instead of dropped sessions.
+Exit: bench shows reduced per-turn overhead at 7-turn depth; ~~chaos
+test (injected 429s/timeouts) completes a 50-session swarm with retries
+instead of dropped sessions~~ (done:
+`public_facade_chaos_swarm_completes_through_retries`).
 
 ### Phase 5 — Packaging and DX
 

@@ -49,6 +49,8 @@ import type {
   ReviewSource,
   ReviewSourceLike,
   ReviewStatus,
+  SwarmOptions,
+  SwarmResult,
   WorkspaceProfileCollection,
 } from "./types.js";
 
@@ -99,6 +101,12 @@ export class RemoteMuzen implements Muzen {
     });
     const snapshot = unwrapReviewSnapshot(response);
     return new RemoteReviewSession(this, snapshot);
+  }
+
+  async runSwarm(_options: SwarmOptions): Promise<SwarmResult> {
+    throw new MuzenUnsupportedFeatureError(
+      "remote swarm runs are not available yet; use createMuzen() to run swarms against a local muzen-runner",
+    );
   }
 
   async resumeReview(id: string): Promise<ReviewSession> {

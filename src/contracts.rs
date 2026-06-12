@@ -129,10 +129,11 @@ pub(crate) struct ModelProfileRefV1 {
     pub(crate) top_p: Option<f32>,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ProviderKind {
     OpenaiCompatible,
+    Anthropic,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,6 +141,8 @@ pub(crate) enum ProviderKind {
 pub enum ModelApiProtocol {
     ChatCompletions,
     Responses,
+    /// The Anthropic Messages API (`POST /v1/messages`).
+    Messages,
 }
 
 impl Default for ModelApiProtocol {

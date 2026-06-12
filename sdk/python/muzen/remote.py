@@ -17,6 +17,7 @@ from .runner_mapping import (
     _tool_to_runner,
 )
 from .sources import parse_review_source
+from .errors import MuzenUnsupportedFeatureError
 from .types import (
     ModelProfileInput,
     OpenAIReviewModelSpec,
@@ -31,6 +32,8 @@ from .types import (
     ReviewResult,
     ReviewSessionSnapshot,
     ReviewSourceLike,
+    SwarmOptions,
+    SwarmResult,
 )
 from .wire_validation import (
     _unwrap_artifact_export,
@@ -84,6 +87,11 @@ class RemoteClient:
         options: Optional[ReviewOptions] = None,
     ) -> "RemoteReviewSession":
         return await self.review(source, options)
+
+    async def run_swarm(self, options: SwarmOptions) -> SwarmResult:
+        raise MuzenUnsupportedFeatureError(
+            "remote swarm runs are not available yet; use create_muzen() to run swarms against a local muzen-runner"
+        )
 
     async def resume_review(self, review_id: str) -> "RemoteReviewSession":
         snapshot = _unwrap_review_snapshot(

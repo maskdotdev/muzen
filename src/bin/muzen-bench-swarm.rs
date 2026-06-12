@@ -105,9 +105,7 @@ async fn main() {
          {CONCURRENT_MAX_ACTIVE}."
     );
     println!();
-    println!(
-        "| Units | Sessions | Model calls | Sync ms | Concurrent ms | Speedup | Completed |"
-    );
+    println!("| Units | Sessions | Model calls | Sync ms | Concurrent ms | Speedup | Completed |");
     println!("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
     for units in UNIT_LADDER {
         let sync = run_case(units, 1).await;

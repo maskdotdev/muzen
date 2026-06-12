@@ -154,7 +154,22 @@ export interface OpenAIReviewModelSpec {
   topP?: number;
 }
 
-export type ReviewHostedModelSpec = OpenAIReviewModelSpec;
+export interface AnthropicReviewModelSpec {
+  kind: "provider";
+  provider: "anthropic";
+  model: string;
+  credential?: ReviewModelCredential;
+  baseUrl?: string;
+  apiProtocol?: "messages";
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  topP?: number;
+}
+
+export type ReviewHostedModelSpec =
+  | OpenAIReviewModelSpec
+  | AnthropicReviewModelSpec;
 
 export type ReviewModelCredential =
   | { env: string }
@@ -298,6 +313,65 @@ export interface ReviewLimits {
   maxActiveSessions?: number;
   maxFileBytes?: number;
   maxSearchMatches?: number;
+}
+
+/** One agent in a swarm run. Unlike review sessions, agents carry no review
+ * role or findings semantics; just an objective, optional instructions, and
+ * the tools/model/budget they run with. */
+export interface SwarmAgent {
+  id: string;
+  objective: string;
+  instructions?: ReviewInstruction[];
+  model?: ReviewModelSpec;
+  toolGrants?: string[];
+  budget?: ReviewAgentBudget;
+}
+
+export interface SwarmOptions {
+  agents: SwarmAgent[];
+  /** Root directory the agents' repo tools see (snapshotted at start). */
+  repo: string;
+  /** Paths surfaced to agents as the working set; defaults to none. */
+  files?: string[];
+  /** Default model for agents without their own. */
+  model?: ReviewModelSpec;
+  tools?: ReviewTool[];
+  limits?: ReviewLimits;
+  hooks?: ReviewHooks;
+  metadata?: Record<string, unknown>;
+  signal?: AbortSignal;
+}
+
+export type SwarmAgentStatus = "done" | "failed" | "cancelled" | "partial";
+
+/** "partial" means the run finished but not every agent completed; the
+ * per-agent outputs say which. */
+export type SwarmRunStatus = "completed" | "partial" | "failed" | "cancelled";
+
+export interface SwarmAgentOutput {
+  agentId: string;
+  status: SwarmAgentStatus;
+  completed: boolean;
+  /** The agent's final text turn; undefined when the agent did not finish. */
+  output?: string;
+}
+
+export interface SwarmUsage {
+  agents: number;
+  completedAgents: number;
+  modelCalls: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface SwarmResult {
+  runId: string;
+  status: SwarmRunStatus;
+  outputs: SwarmAgentOutput[];
+  usage: SwarmUsage;
+  metadata?: Record<string, unknown>;
 }
 
 export type ModelProviderKind =
@@ -599,6 +673,7 @@ export interface Muzen {
   readonly webhooks: MuzenWebhooks;
   readonly workers: MuzenWorkers;
   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
+  runSwarm(options: SwarmOptions): Promise<SwarmResult>;
   workspace(id: string): MuzenWorkspace;
   resumeReview(id: string): Promise<ReviewSession>;
   createReviewSession(input: {

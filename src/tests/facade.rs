@@ -66,6 +66,85 @@ fn public_facade_runs_direct_agent_sessions() {
     }
 }
 
+/// Phase 4 exit criteria: a 50-session swarm with injected 429s, 529s, and
+/// timeouts completes because the retry layer absorbs every transient
+/// failure — without retries every session would die on its first error.
+#[test]
+fn public_facade_chaos_swarm_completes_through_retries() {
+    const SESSIONS: usize = 50;
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("README.md"), "needle\n").unwrap();
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
+        temp.path().to_path_buf(),
+        crate::reviewer::snapshots::ChangeSpec::local(
+            "change-chaos",
+            "head-chaos",
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
+        ),
+    )
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let sessions = (0..SESSIONS)
+        .map(|index| {
+            crate::reviewer::spec::ReviewSessionSpec::review_read_only(
+                format!("chaos-agent-{index}"),
+                crate::contracts::Role::Generalist,
+                format!("Answer chaos task {index}."),
+                public_budget(),
+            )
+        })
+        .collect();
+    let mut limits =
+        crate::reviewer::adapters::runtime::RuntimeLimits::standard(SESSIONS, 64 * 1024, 20);
+    limits.model_retry_max_attempts = 3;
+    limits.model_retry_base_delay_ms = 1;
+    limits.model_retry_max_delay_ms = 2;
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
+        "chaos-swarm-run",
+        snapshot,
+        sessions,
+        crate::reviewer::spec::ReviewRunLimits::from_runtime_limits(limits),
+    )
+    .with_mode(crate::reviewer::spec::RunMode::DirectSessions);
+    let model = Arc::new(ChaosDirectSessionModel::default());
+    let run = crate::reviewer::run::Run::builder(spec)
+        .review_model(model.clone())
+        .build()
+        .unwrap();
+    let tokio = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let report = tokio.block_on(run.execute());
+
+    assert_eq!(report.summary.status, "completed");
+    assert_eq!(report.summary.sessions, SESSIONS);
+    assert_eq!(report.summary.completed_sessions, SESSIONS);
+    assert_eq!(report.session_outputs.len(), SESSIONS);
+    for (index, output) in report.session_outputs.iter().enumerate() {
+        assert!(output.completed, "session {index} survived the chaos");
+        assert_eq!(output.status, "done");
+        assert_eq!(
+            output.output.as_deref(),
+            Some(format!("answer:chaos-agent-{index}").as_str())
+        );
+    }
+
+    let expected_failures: usize = (0..SESSIONS)
+        .map(ChaosDirectSessionModel::failures_before_success)
+        .sum();
+    let expected_calls = SESSIONS + expected_failures;
+    assert_eq!(model.total_calls(), expected_calls);
+    assert_eq!(
+        report.summary.model_calls, expected_calls,
+        "summary counts every retried attempt"
+    );
+}
+
 #[test]
 fn public_reviewer_facade_runs_mock_review() {
     let temp = tempfile::tempdir().unwrap();
@@ -880,7 +959,9 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     assert_eq!(model_calls.load(Ordering::SeqCst), 1);
     assert_eq!(report.summary.sessions, 1);
     assert_eq!(report.summary.completed_sessions, 0);
-    assert_eq!(report.summary.model_calls, 0);
+    // The aborted call still counts: model_calls reports attempts made, not
+    // turns completed.
+    assert_eq!(report.summary.model_calls, 1);
     assert_eq!(report.summary.tool_calls, 0);
     let event_records = events.records();
     assert!(event_records.iter().any(|record| matches!(
