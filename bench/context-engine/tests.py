@@ -1811,6 +1811,24 @@ class SummaryCompareTest(unittest.TestCase):
         self.assertEqual(rows[0].deltas["recall_at_10"], 0.5)
         self.assertIsNone(rows[0].deltas["first_relevant_rank"])
         self.assertEqual(rows[0].candidate_present_miss_delta, -1)
+        self.assertEqual(rows[0].status, "improved")
+
+    def test_case_delta_status_summarizes_mixed_tradeoffs(self):
+        row = compare.CaseDelta(
+            case_id="case-a",
+            source_group="external",
+            truth_source="mined_followup",
+            deltas={
+                "recall_at_10": -0.5,
+                "recall_at_25": 0.0,
+                "ndcg_at_10": 0.0,
+                "first_relevant_rank": -2,
+                "tokens_to_first_relevant": 100,
+            },
+            candidate_present_miss_delta=-1,
+        )
+
+        self.assertEqual(row.status, "mixed(+2/-2)")
 
 
 class MinerDeterminismTest(unittest.TestCase):

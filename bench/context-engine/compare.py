@@ -37,6 +37,11 @@ CASE_FIELDS = [
     "first_relevant_rank",
     "tokens_to_first_relevant",
 ]
+CASE_LOWER_IS_BETTER_FIELDS = {
+    "first_relevant_rank",
+    "tokens_to_first_relevant",
+    "candidate_present_miss_delta",
+}
 
 COHORT_GROUPS = ["byKind", "bySourceGroup", "byTruthSource"]
 
@@ -75,6 +80,30 @@ class CaseDelta:
     truth_source: str | None
     deltas: dict[str, float | int | None]
     candidate_present_miss_delta: int
+
+    @property
+    def status(self) -> str:
+        statuses = [
+            case_delta_status(field, delta)
+            for field, delta in self.deltas.items()
+            if delta is not None and delta != 0
+        ]
+        if self.candidate_present_miss_delta:
+            statuses.append(
+                case_delta_status(
+                    "candidate_present_miss_delta",
+                    self.candidate_present_miss_delta,
+                )
+            )
+        improved = statuses.count("improved")
+        regressed = statuses.count("regressed")
+        if improved and regressed:
+            return f"mixed(+{improved}/-{regressed})"
+        if improved:
+            return "improved"
+        if regressed:
+            return "regressed"
+        return "flat"
 
 
 @dataclass(frozen=True)
@@ -226,6 +255,15 @@ def delta_status(metric: str, delta: float | int | None) -> str:
     return "improved" if improved else "regressed"
 
 
+def case_delta_status(field: str, delta: float | int | None) -> str:
+    if delta is None:
+        return "unknown"
+    if delta == 0:
+        return "flat"
+    improved = delta < 0 if field in CASE_LOWER_IS_BETTER_FIELDS else delta > 0
+    return "improved" if improved else "regressed"
+
+
 def format_number(value: Any) -> str:
     if value is None:
         return "None"
@@ -267,7 +305,8 @@ def print_case_deltas(rows: list[CaseDelta], limit: int) -> None:
     print("Changed cases")
     print(
         f"{'case':36} {'group':>9} {'truth':>15} "
-        f"{'r10':>8} {'r25':>8} {'ndcg10':>8} {'rank':>8} {'tokens':>8} {'miss':>6}"
+        f"{'r10':>8} {'r25':>8} {'ndcg10':>8} {'rank':>8} {'tokens':>8} "
+        f"{'miss':>6} {'status':>14}"
     )
     for row in rows[:limit]:
         print(
@@ -279,7 +318,8 @@ def print_case_deltas(rows: list[CaseDelta], limit: int) -> None:
             f"{format_number(row.deltas['ndcg_at_10']):>8} "
             f"{format_number(row.deltas['first_relevant_rank']):>8} "
             f"{format_number(row.deltas['tokens_to_first_relevant']):>8} "
-            f"{row.candidate_present_miss_delta:>6}"
+            f"{row.candidate_present_miss_delta:>6} "
+            f"{row.status:>14}"
         )
     if len(rows) > limit:
         print(f"... {len(rows) - limit} more changed cases")
