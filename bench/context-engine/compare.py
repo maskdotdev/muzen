@@ -38,6 +38,8 @@ CASE_FIELDS = [
     "tokens_to_first_relevant",
 ]
 
+COHORT_GROUPS = ["byKind", "bySourceGroup", "byTruthSource"]
+
 
 @dataclass(frozen=True)
 class MetricDelta:
@@ -59,6 +61,21 @@ class CaseDelta:
     truth_source: str | None
     deltas: dict[str, float | int | None]
     candidate_present_miss_delta: int
+
+
+@dataclass(frozen=True)
+class CohortDelta:
+    group: str
+    cohort: str
+    metric: str
+    baseline: float | int | None
+    candidate: float | int | None
+
+    @property
+    def delta(self) -> float | int | None:
+        if self.baseline is None or self.candidate is None:
+            return None
+        return self.candidate - self.baseline
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,6 +152,39 @@ def case_deltas(
     return rows
 
 
+def cohort_metric_deltas(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    metrics: list[str] | None = None,
+    groups: list[str] | None = None,
+) -> list[CohortDelta]:
+    names = metrics or DEFAULT_METRICS
+    group_names = groups or COHORT_GROUPS
+    baseline_cohorts = baseline.get("cohorts") or {}
+    candidate_cohorts = candidate.get("cohorts") or {}
+    rows: list[CohortDelta] = []
+    for group in group_names:
+        baseline_group = baseline_cohorts.get(group) or {}
+        candidate_group = candidate_cohorts.get(group) or {}
+        for cohort in sorted(set(baseline_group) & set(candidate_group)):
+            baseline_metrics = baseline_group[cohort].get("metrics") or {}
+            candidate_metrics = candidate_group[cohort].get("metrics") or {}
+            for metric in names:
+                if metric not in baseline_metrics and metric not in candidate_metrics:
+                    continue
+                row = CohortDelta(
+                    group=group,
+                    cohort=cohort,
+                    metric=metric,
+                    baseline=baseline_metrics.get(metric),
+                    candidate=candidate_metrics.get(metric),
+                )
+                if row.delta not in (None, 0):
+                    rows.append(row)
+    rows.sort(key=lambda row: (row.group, row.cohort, row.metric))
+    return rows
+
+
 def value_delta(base: Any, candidate: Any) -> float | int | None:
     if base is None or candidate is None:
         if base == candidate:
@@ -200,12 +250,33 @@ def print_case_deltas(rows: list[CaseDelta], limit: int) -> None:
         print(f"... {len(rows) - limit} more changed cases")
 
 
+def print_cohort_deltas(rows: list[CohortDelta]) -> None:
+    if not rows:
+        return
+    print()
+    print("Cohort metric deltas")
+    print(
+        f"{'group':14} {'cohort':16} {'metric':36} "
+        f"{'baseline':>12} {'candidate':>12} {'delta':>12}"
+    )
+    for row in rows:
+        print(
+            f"{row.group:14} "
+            f"{row.cohort:16} "
+            f"{row.metric:36} "
+            f"{format_number(row.baseline):>12} "
+            f"{format_number(row.candidate):>12} "
+            f"{format_number(row.delta):>12}"
+        )
+
+
 def main() -> int:
     args = parse_args()
     baseline = load_summary(args.baseline)
     candidate = load_summary(args.candidate)
     print_scope_warning(baseline, candidate)
     print_metric_deltas(metric_deltas(baseline, candidate))
+    print_cohort_deltas(cohort_metric_deltas(baseline, candidate))
     print_case_deltas(case_deltas(baseline, candidate, kind=args.kind), args.case_limit)
     return 0
 

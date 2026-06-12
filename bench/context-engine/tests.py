@@ -1711,6 +1711,47 @@ class SummaryCompareTest(unittest.TestCase):
         self.assertAlmostEqual(deltas[0].delta, 0.1)
         self.assertAlmostEqual(deltas[1].delta, -0.05)
 
+    def test_cohort_metric_deltas_compare_common_cohorts(self):
+        baseline = {
+            "cohorts": {
+                "bySourceGroup": {
+                    "external": {
+                        "metrics": {
+                            "meanRecallAt10": 0.4,
+                            "candidatePresentMissRate": 0.3,
+                        }
+                    }
+                }
+            }
+        }
+        candidate = {
+            "cohorts": {
+                "bySourceGroup": {
+                    "external": {
+                        "metrics": {
+                            "meanRecallAt10": 0.5,
+                            "candidatePresentMissRate": 0.25,
+                        }
+                    }
+                }
+            }
+        }
+
+        rows = compare.cohort_metric_deltas(
+            baseline,
+            candidate,
+            metrics=["meanRecallAt10", "candidatePresentMissRate"],
+            groups=["bySourceGroup"],
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].group, "bySourceGroup")
+        self.assertEqual(rows[0].cohort, "external")
+        self.assertEqual(rows[0].metric, "candidatePresentMissRate")
+        self.assertAlmostEqual(rows[0].delta, -0.05)
+        self.assertEqual(rows[1].metric, "meanRecallAt10")
+        self.assertAlmostEqual(rows[1].delta, 0.1)
+
     def test_case_deltas_include_present_miss_delta(self):
         baseline = {
             "cases": [
