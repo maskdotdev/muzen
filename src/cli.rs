@@ -1131,12 +1131,10 @@ async fn run_context_eval_batch(args: &ContextEvalBatchArgs) -> Result<ContextEv
         );
     }
     let snapshot_args = context_eval_batch_snapshot_args(&input.snapshot)?;
-    let (engine, snapshot, index, _manifest, shared_timings) = index_context_snapshot_with_host(
-        &snapshot_args,
-        Some(input.snapshot.host_metadata.clone()),
-        Some(input.snapshot.host_instructions.clone()),
-    )
-    .await?;
+    let host_metadata = non_empty_host_metadata(&input.snapshot.host_metadata);
+    let host_instructions = non_empty_host_instructions(&input.snapshot.host_instructions);
+    let (engine, snapshot, index, _manifest, shared_timings) =
+        index_context_snapshot_with_host(&snapshot_args, host_metadata, host_instructions).await?;
     let graph_export_needed = input.cases.iter().any(|case| case.include_graph_debug);
     let graph_debug = if graph_export_needed {
         Some(ContextGraphDebugExport::collect(
@@ -1283,6 +1281,26 @@ fn context_eval_batch_snapshot_args(
         host_instruction_json: None,
         output: None,
     })
+}
+
+fn non_empty_host_metadata(
+    value: &BTreeMap<String, serde_json::Value>,
+) -> Option<BTreeMap<String, serde_json::Value>> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.clone())
+    }
+}
+
+fn non_empty_host_instructions(
+    value: &[crate::runtime::contracts::SessionInstruction],
+) -> Option<Vec<crate::runtime::contracts::SessionInstruction>> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_vec())
+    }
 }
 
 fn context_eval_batch_query_arguments(
@@ -3519,6 +3537,22 @@ fn write_canary_proof_report(path: &Path, report: &CanaryProofReport) -> Result<
 #[cfg(test)]
 mod context_cli_tests {
     use super::*;
+
+    #[test]
+    fn eval_batch_empty_host_context_is_absent() {
+        let metadata = BTreeMap::new();
+        let instructions = Vec::new();
+
+        assert!(non_empty_host_metadata(&metadata).is_none());
+        assert!(non_empty_host_instructions(&instructions).is_none());
+    }
+
+    #[test]
+    fn eval_batch_non_empty_host_metadata_is_preserved() {
+        let metadata = BTreeMap::from([("ticket".to_string(), serde_json::json!("T-123"))]);
+
+        assert_eq!(non_empty_host_metadata(&metadata), Some(metadata));
+    }
 
     #[test]
     fn context_signal_ablation_flags_adjust_snapshot_config() {
