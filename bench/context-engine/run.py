@@ -29,6 +29,7 @@ import argparse
 import concurrent.futures
 import fnmatch
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -169,10 +170,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--jobs",
         type=positive_int,
-        default=1,
+        default=default_eval_jobs(),
         help=(
-            "Run independent cases in parallel. Cases sharing one derived cache "
-            "are serialized so cache writes stay deterministic."
+            "Run independent cases in parallel. Defaults to bounded CPU "
+            "parallelism. Cases sharing one derived cache are serialized so "
+            "cache writes stay deterministic."
         ),
     )
     parser.add_argument(
@@ -278,6 +280,10 @@ def positive_int(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be >= 1")
     return parsed
+
+
+def default_eval_jobs() -> int:
+    return max(1, min(os.cpu_count() or 1, 4))
 
 
 def load_case_files(cases_dir: Path) -> list[dict[str, Any]]:

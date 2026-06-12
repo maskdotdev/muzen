@@ -29,6 +29,8 @@ python3 bench/context-engine/run.py
 
 When `--muzen-bin` is omitted, the runner builds `muzen` once with
 `cargo build --bin muzen` and reuses `target/debug/muzen` for every case.
+By default the runner uses bounded CPU parallelism (`min(cpu_count, 4)`) for
+independent cases; pass `--jobs 1` when debugging serialized output.
 
 For iteration, build once and run focused diagnostic cases:
 
