@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "curated-rust-invoice",
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/rust-invoice"
+  },
+  "truthSource": "curated",
+  "changedFiles": [
+    "src/payments/settlement.rs"
+  ],
+  "description": "Strict Rust causal fixture: changed invoice settlement should retrieve the API caller and integration test through module import graph facts despite refund and inventory distractors.",
+  "cases": [
+    {
+      "id": "curated-rust-invoice-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 500,
+      "strict": true,
+      "expectedPaths": [
+        "src/api/invoices.rs",
+        "tests/settlement_invoice_flow.rs"
+      ]
+    }
+  ]
+}

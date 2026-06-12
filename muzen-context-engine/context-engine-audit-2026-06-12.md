@@ -8,18 +8,18 @@ It is strongest as a deterministic, trust-aware retrieval primitive: evidence ha
 
 ## Current Default Metrics
 
-Source: `bench/results-context-engine/context-engine-summary.json`, 89 deterministic cases.
+Source: `bench/results-context-engine/context-engine-summary.json`, 90 deterministic cases.
 
 Overall:
 
-- recall@10: `0.5393`
-- nDCG@10: `0.3844`
-- recall@25: `0.6655`
+- recall@10: `0.5444`
+- nDCG@10: `0.3850`
+- recall@25: `0.6692`
 - candidate recall: `0.9934`
-- candidate-present miss rate: `0.2438`
+- candidate-present miss rate: `0.2421`
 - first relevant rate: `0.9326`
-- tokens to first relevant: `1615`
-- useful evidence per 1k tokens: `1.5593`
+- tokens to first relevant: `1598`
+- useful evidence per 1k tokens: `1.5891`
 - sufficiency insufficient when incomplete: `1.0`
 
 External corpus:
@@ -37,7 +37,7 @@ This shape matters: indexing usually finds ground truth, but pack order and budg
 
 Truth-source split:
 
-- curated: 2 cases, recall@10 `1.0000`, nDCG@10 `0.4974`, candidate-present miss `0.0000`, tokens to first relevant `217`
+- curated: 3 cases, recall@10 `1.0000`, nDCG@10 `0.4787`, candidate-present miss `0.0000`, tokens to first relevant `202`
 - fixture: 8 cases, recall@10 `1.0000`, nDCG@10 `1.0000`, candidate-present miss `0.0000`, tokens to first relevant `52`
 - mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2546`, tokens to first relevant `1825`
 
@@ -49,11 +49,11 @@ Source: `bench/results-context-engine/context-engine-ablation-summary.json`. Eac
 
 | Disabled signal | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
 | --- | ---: | ---: | ---: | ---: |
-| graph | `-0.0984` | `-0.0814` | `+0.0707` | `+548` |
-| co-change | `-0.0658` | `-0.0592` | `+0.0707` | `+339` |
-| test coverage | `-0.0415` | `-0.0335` | `+0.0071` | `+472` |
-| lexical change | `-0.0238` | `-0.0008` | `+0.0106` | `+22` |
-| path proximity | `-0.0147` | `-0.0040` | `+0.0106` | `+85` |
+| graph | `-0.1028` | `-0.0833` | `+0.0702` | `+541` |
+| co-change | `-0.0651` | `-0.0586` | `+0.0702` | `+335` |
+| test coverage | `-0.0410` | `-0.0331` | `+0.0070` | `+467` |
+| lexical change | `-0.0236` | `-0.0008` | `+0.0105` | `+22` |
+| path proximity | `-0.0146` | `-0.0040` | `+0.0140` | `+84` |
 | semantic change | `+0.0000` | `+0.0000` | `+0.0000` | `+0` |
 
 This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
@@ -71,7 +71,8 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Public signal ablation now exists through `muzen context --ablate-context-signal ...`; the bench harness can pass it through and write ablation deltas without hidden hooks.
 - Strict curated fixture `curated-checkout-flow` now proves changed checkout logic retrieves direct API callers and route tests through import graph facts under a 4k pack budget.
 - Strict curated fixture `curated-python-billing` now proves Python import graph facts retrieve a changed settlement module, API caller, and API test under a 3.5k pack budget despite unrelated payment/API/test distractors.
-- Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Proof run: 89 cases with `--jobs 6` passed in `31.4s` wall time after baseline refresh.
+- Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
+- Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 90 cases with `--jobs 6` passed after baseline refresh.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
 
@@ -79,7 +80,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 
 1. **External rank quality.** External recall@10/nDCG are too low. Candidate recall says this is not mostly an indexing problem.
 2. **Pack optimizer.** First-pass path diversity helps, but pack selection is still not a true bounded optimizer over utility, tokens, skeletons, and path coverage.
-3. **Strict causal labels.** Two curated strict causal cases now exist across TypeScript and Python, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
+3. **Strict causal labels.** Three curated strict causal cases now exist across TypeScript, Python, and Rust, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
 4. **Framework context.** Route/layout/app-shell/shared-store relationships still need general graph edges, but previous path-convention attempts added noise.
 5. **Semantic default proof.** Real embeddings improve metrics, but default deterministic path remains no-vector. Need a clear quality-tier story: no-vector baseline, local ONNX private tier, hosted/rerank best tier.
 6. **Optimizer proof.** Signal ablations identify useful inputs, but not best allocation. Need optimizer ablations: greedy rank, path-diverse greedy, skeleton reserve, and bounded token utility.

@@ -1,59 +1,59 @@
 {
   "schemaVersion": "muzen.context-eval-summary.v2",
-  "generatedAtUnixMs": 1781266429320,
-  "caseCount": 89,
+  "generatedAtUnixMs": 1781267018998,
+  "caseCount": 90,
   "ok": true,
   "failures": [],
   "metrics": {
-    "meanRecall": 0.8175348995573715,
-    "meanPrecision": 0.07978510044925842,
-    "meanRecallAt5": 0.366840961784782,
-    "meanRecallAt10": 0.5393177359469494,
-    "meanRecallAt25": 0.6654822705384503,
-    "meanNdcgAt10": 0.3844033932941857,
-    "meanCandidateRecall": 0.9934456928838952,
-    "candidatePresentMissRate": 0.24381625441696114,
-    "candidatePresentMissCaseRate": 0.3258426966292135,
-    "meanCandidatePresentMissRate": 0.17591079332652368,
-    "firstRelevantRate": 0.9325842696629213,
-    "meanTokensToFirstRelevant": 1615.0602409638554,
+    "meanRecall": 0.8195622895622896,
+    "meanPrecision": 0.0807504511850074,
+    "meanRecallAt5": 0.36832050665384,
+    "meanRecallAt10": 0.5444364277697611,
+    "meanRecallAt25": 0.6691991341991342,
+    "meanNdcgAt10": 0.3850356601393241,
+    "meanCandidateRecall": 0.9935185185185186,
+    "candidatePresentMissRate": 0.24210526315789474,
+    "candidatePresentMissCaseRate": 0.32222222222222224,
+    "meanCandidatePresentMissRate": 0.17395622895622895,
+    "firstRelevantRate": 0.9333333333333333,
+    "meanTokensToFirstRelevant": 1597.904761904762,
     "secretRedactionCorrectRate": 1.0,
     "promptInjectionResistanceRate": 1.0,
-    "meanUsefulEvidencePer1kTokens": 1.5593261159686072,
-    "meanLatencyMs": 1873.7270140450114,
-    "maxLatencyMs": 5477.262708998751,
-    "totalOmittedCandidates": 282644,
+    "meanUsefulEvidencePer1kTokens": 1.5890812495199917,
+    "meanLatencyMs": 2026.4002203682644,
+    "maxLatencyMs": 6040.174791007303,
+    "totalOmittedCandidates": 282646,
     "sufficiencyGapRecall": 1.0,
     "sufficiencyInsufficientWhenIncomplete": 1.0,
-    "sufficiencySufficientWhenComplete": 0.07547169811320754,
+    "sufficiencySufficientWhenComplete": 0.07407407407407407,
     "sufficiencyFalseSufficientCount": 0
   },
   "cohorts": {
     "byKind": {
       "pack": {
-        "caseCount": 83,
+        "caseCount": 84,
         "metrics": {
-          "meanRecall": 0.8043446513326032,
-          "meanPrecision": 0.040371975180530116,
-          "meanRecallAt5": 0.32107042890175425,
-          "meanRecallAt10": 0.506015403605765,
-          "meanRecallAt25": 0.6413002659990612,
-          "meanNdcgAt10": 0.3399024337732835,
-          "meanCandidateRecall": 0.9929718875502008,
-          "candidatePresentMissRate": 0.2490974729241877,
-          "candidatePresentMissCaseRate": 0.3493975903614458,
-          "meanCandidatePresentMissRate": 0.18862723621759767,
-          "firstRelevantRate": 0.927710843373494,
-          "meanTokensToFirstRelevant": 1736.987012987013,
+          "meanRecall": 0.8066738816738818,
+          "meanPrecision": 0.04187548341250793,
+          "meanRecallAt5": 0.3232005428434,
+          "meanRecallAt10": 0.5118961726104583,
+          "meanRecallAt25": 0.6455705009276438,
+          "meanNdcgAt10": 0.3411096358635615,
+          "meanCandidateRecall": 0.9930555555555556,
+          "candidatePresentMissRate": 0.24731182795698925,
+          "candidatePresentMissCaseRate": 0.34523809523809523,
+          "meanCandidatePresentMissRate": 0.18638167388167387,
+          "firstRelevantRate": 0.9285714285714286,
+          "meanTokensToFirstRelevant": 1716.948717948718,
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
-          "meanUsefulEvidencePer1kTokens": 0.4844893604434723,
-          "meanLatencyMs": 2004.0903112518668,
-          "maxLatencyMs": 5477.262708998751,
-          "totalOmittedCandidates": 282632,
+          "meanUsefulEvidencePer1kTokens": 0.5291655363381121,
+          "meanLatencyMs": 2165.3509112158126,
+          "maxLatencyMs": 6040.174791007303,
+          "totalOmittedCandidates": 282634,
           "sufficiencyGapRecall": 1.0,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
-          "sufficiencySufficientWhenComplete": 0.07547169811320754,
+          "sufficiencySufficientWhenComplete": 0.07407407407407407,
           "sufficiencyFalseSufficientCount": 0
         }
       },
@@ -75,8 +75,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 58.8235294117647,
-          "meanLatencyMs": 119.18795801466331,
-          "maxLatencyMs": 119.18795801466331,
+          "meanLatencyMs": 139.43187496624887,
+          "maxLatencyMs": 139.43187496624887,
           "totalOmittedCandidates": 0,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
@@ -102,8 +102,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 13.793103448275861,
-          "meanLatencyMs": 61.65633304044604,
-          "maxLatencyMs": 61.65633304044604,
+          "meanLatencyMs": 69.67183301458135,
+          "maxLatencyMs": 69.67183301458135,
           "totalOmittedCandidates": 0,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
@@ -129,8 +129,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 11.494252873563218,
-          "meanLatencyMs": 67.0577910495922,
-          "maxLatencyMs": 67.0577910495922,
+          "meanLatencyMs": 77.89750001393259,
+          "maxLatencyMs": 77.89750001393259,
           "totalOmittedCandidates": 0,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
@@ -156,8 +156,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 4.818840556931349,
-          "meanLatencyMs": 58.10211133211851,
-          "maxLatencyMs": 59.14104200201109,
+          "meanLatencyMs": 66.51402767359589,
+          "maxLatencyMs": 67.59787502232939,
           "totalOmittedCandidates": 12,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
@@ -185,8 +185,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 0.1479375866555746,
-          "meanLatencyMs": 3222.1987739714677,
-          "maxLatencyMs": 5477.262708998751,
+          "meanLatencyMs": 3522.5279906298965,
+          "maxLatencyMs": 6040.174791007303,
           "totalOmittedCandidates": 223510,
           "sufficiencyGapRecall": 1.0,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
@@ -195,29 +195,29 @@
         }
       },
       "fixture": {
-        "caseCount": 10,
+        "caseCount": 11,
         "metrics": {
           "meanRecall": 1.0,
-          "meanPrecision": 0.4722727272727273,
-          "meanRecallAt5": 0.9,
+          "meanPrecision": 0.4444903581267218,
+          "meanRecallAt5": 0.8636363636363636,
           "meanRecallAt10": 1.0,
           "meanRecallAt25": 1.0,
-          "meanNdcgAt10": 0.8994768877137993,
+          "meanNdcgAt10": 0.8578251169540573,
           "meanCandidateRecall": 1.0,
           "candidatePresentMissRate": 0.0,
           "candidatePresentMissCaseRate": 0.0,
           "meanCandidatePresentMissRate": 0.0,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 84.8,
+          "meanTokensToFirstRelevant": 92.9090909090909,
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
-          "meanUsefulEvidencePer1kTokens": 12.211141590293462,
-          "meanLatencyMs": 68.78696641651914,
-          "maxLatencyMs": 119.18795801466331,
-          "totalOmittedCandidates": 20,
+          "meanUsefulEvidencePer1kTokens": 11.486245821684347,
+          "meanLatencyMs": 89.16538627818227,
+          "maxLatencyMs": 139.43187496624887,
+          "totalOmittedCandidates": 22,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
-          "sufficiencySufficientWhenComplete": 1.0,
+          "sufficiencySufficientWhenComplete": 0.8,
           "sufficiencyFalseSufficientCount": 0
         }
       },
@@ -239,8 +239,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 0.2756693577448317,
-          "meanLatencyMs": 953.4841955636437,
-          "maxLatencyMs": 1603.6114579765126,
+          "meanLatencyMs": 1038.3097681766137,
+          "maxLatencyMs": 1817.0003750128672,
           "totalOmittedCandidates": 59114,
           "sufficiencyGapRecall": 1.0,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
@@ -251,29 +251,29 @@
     },
     "byTruthSource": {
       "curated": {
-        "caseCount": 2,
+        "caseCount": 3,
         "metrics": {
           "meanRecall": 1.0,
-          "meanPrecision": 0.23636363636363636,
+          "meanPrecision": 0.21313131313131314,
           "meanRecallAt5": 0.5,
           "meanRecallAt10": 1.0,
           "meanRecallAt25": 1.0,
-          "meanNdcgAt10": 0.4973844385689961,
+          "meanNdcgAt10": 0.4786920954982103,
           "meanCandidateRecall": 1.0,
           "candidatePresentMissRate": 0.0,
           "candidatePresentMissCaseRate": 0.0,
           "meanCandidatePresentMissRate": 0.0,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 216.5,
+          "meanTokensToFirstRelevant": 202.33333333333334,
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
-          "meanUsefulEvidencePer1kTokens": 3.405388080696569,
-          "meanLatencyMs": 75.87339551537298,
-          "maxLatencyMs": 77.48233299935237,
-          "totalOmittedCandidates": 8,
+          "meanUsefulEvidencePer1kTokens": 3.6826880989954525,
+          "meanLatencyMs": 116.90472235204652,
+          "maxLatencyMs": 120.243749988731,
+          "totalOmittedCandidates": 10,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
-          "sufficiencySufficientWhenComplete": 1.0,
+          "sufficiencySufficientWhenComplete": 0.6666666666666666,
           "sufficiencyFalseSufficientCount": 0
         }
       },
@@ -295,8 +295,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 14.412579967692684,
-          "meanLatencyMs": 67.01535914180567,
-          "maxLatencyMs": 119.18795801466331,
+          "meanLatencyMs": 78.76313525048317,
+          "maxLatencyMs": 139.43187496624887,
           "totalOmittedCandidates": 12,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
@@ -322,8 +322,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 0.2109950432692585,
-          "meanLatencyMs": 2102.200437795453,
-          "maxLatencyMs": 5477.262708998751,
+          "meanLatencyMs": 2296.1417795453644,
+          "maxLatencyMs": 6040.174791007303,
           "totalOmittedCandidates": 282624,
           "sufficiencyGapRecall": 1.0,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
@@ -351,8 +351,8 @@
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
           "meanUsefulEvidencePer1kTokens": 0.2109950432692585,
-          "meanLatencyMs": 2102.200437795453,
-          "maxLatencyMs": 5477.262708998751,
+          "meanLatencyMs": 2296.1417795453644,
+          "maxLatencyMs": 6040.174791007303,
           "totalOmittedCandidates": 282624,
           "sufficiencyGapRecall": 1.0,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
@@ -361,29 +361,29 @@
         }
       },
       "True": {
-        "caseCount": 10,
+        "caseCount": 11,
         "metrics": {
           "meanRecall": 1.0,
-          "meanPrecision": 0.4722727272727273,
-          "meanRecallAt5": 0.9,
+          "meanPrecision": 0.4444903581267218,
+          "meanRecallAt5": 0.8636363636363636,
           "meanRecallAt10": 1.0,
           "meanRecallAt25": 1.0,
-          "meanNdcgAt10": 0.8994768877137993,
+          "meanNdcgAt10": 0.8578251169540573,
           "meanCandidateRecall": 1.0,
           "candidatePresentMissRate": 0.0,
           "candidatePresentMissCaseRate": 0.0,
           "meanCandidatePresentMissRate": 0.0,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 84.8,
+          "meanTokensToFirstRelevant": 92.9090909090909,
           "secretRedactionCorrectRate": 1.0,
           "promptInjectionResistanceRate": 1.0,
-          "meanUsefulEvidencePer1kTokens": 12.211141590293462,
-          "meanLatencyMs": 68.78696641651914,
-          "maxLatencyMs": 119.18795801466331,
-          "totalOmittedCandidates": 20,
+          "meanUsefulEvidencePer1kTokens": 11.486245821684347,
+          "meanLatencyMs": 89.16538627818227,
+          "maxLatencyMs": 139.43187496624887,
+          "totalOmittedCandidates": 22,
           "sufficiencyGapRecall": null,
           "sufficiencyInsufficientWhenIncomplete": null,
-          "sufficiencySufficientWhenComplete": 1.0,
+          "sufficiencySufficientWhenComplete": 0.8,
           "sufficiencyFalseSufficientCount": 0
         }
       }
@@ -712,7 +712,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.7926675094816686,
-      "latency_ms": 77.48233299935237,
+      "latency_ms": 113.39125002268702,
       "expected_paths": [
         "src/orders/checkout.ts",
         "src/api/checkout-route.ts",
@@ -783,7 +783,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.0181086519114686,
-      "latency_ms": 74.26445803139359,
+      "latency_ms": 120.243749988731,
       "expected_paths": [
         "app/payments/settlement.py",
         "app/api/invoices.py",
@@ -827,6 +827,71 @@
       "sufficiency_false_sufficient": false
     },
     {
+      "id": "curated-rust-invoice-pack",
+      "case_set": "curated-rust-invoice",
+      "source_kind": "fixture",
+      "source_group": "fixture",
+      "truth_source": "curated",
+      "kind": "pack",
+      "strict": true,
+      "recall": 1.0,
+      "precision": 0.16666666666666666,
+      "recall_at_5": 0.5,
+      "recall_at_10": 1.0,
+      "recall_at_25": 1.0,
+      "ndcg_at_10": 0.44130740935663865,
+      "candidate_recall": 1.0,
+      "first_relevant_rank": 4,
+      "tokens_to_first_relevant": 174,
+      "secret_redaction_correct": true,
+      "prompt_injection_resistant": true,
+      "useful_evidence_per_1k_tokens": 4.237288135593221,
+      "latency_ms": 117.07916704472154,
+      "expected_paths": [
+        "src/api/invoices.rs",
+        "tests/settlement_invoice_flow.rs"
+      ],
+      "candidate_expected_count": 2,
+      "retrieved_paths": [
+        "src/payments/mod.rs",
+        "src/payments/taxes.rs",
+        "src/payments/refunds.rs",
+        "src/payments/settlement.rs",
+        "src/api/invoices.rs",
+        "src/inventory/reserve.rs",
+        "src/api/mod.rs",
+        "src/inventory/mod.rs",
+        "src/lib.rs",
+        "src/inventory/release.rs",
+        "tests/settlement_invoice_flow.rs",
+        "Cargo.toml"
+      ],
+      "candidate_missed_paths": [],
+      "candidate_present_missed_paths": [],
+      "missed_paths": [],
+      "unexpected_paths": [
+        "Cargo.toml",
+        "src/api/mod.rs",
+        "src/inventory/mod.rs",
+        "src/inventory/release.rs",
+        "src/inventory/reserve.rs",
+        "src/lib.rs",
+        "src/payments/mod.rs",
+        "src/payments/refunds.rs",
+        "src/payments/settlement.rs",
+        "src/payments/taxes.rs"
+      ],
+      "forbidden_content_hits": [],
+      "missing_required_content": [],
+      "trusted_forbidden_paths": [],
+      "missing_expected_ranges": [],
+      "token_estimate": 472,
+      "omitted": 2,
+      "sufficiency_status": "insufficient",
+      "sufficiency_blocking_gaps": 0,
+      "sufficiency_false_sufficient": false
+    },
+    {
       "id": "mined-09932635efcc-pack",
       "case_set": "mined-09932635efcc",
       "source_kind": "git",
@@ -846,7 +911,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 971.8405839521438,
+      "latency_ms": 1085.64624999417,
       "expected_paths": [
         "src/runtime/model.rs"
       ],
@@ -1069,7 +1134,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 1603.6114579765126,
+      "latency_ms": 1817.0003750128672,
       "expected_paths": [
         "src/context_engine/syntax.rs"
       ],
@@ -1282,7 +1347,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.2501459184524306,
-      "latency_ms": 860.2752080187201,
+      "latency_ms": 970.3222920070402,
       "expected_paths": [
         "src/review_session/options.rs",
         "src/runner/execution.rs",
@@ -1503,7 +1568,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 781.0597500065342,
+      "latency_ms": 842.5629999837838,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server/store.ts",
         "examples/tanstack-durable-review/src/server/worker.ts"
@@ -1690,7 +1755,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 576.6070840181783,
+      "latency_ms": 620.4932919936255,
       "expected_paths": [
         "src/review_session.rs",
         "src/review_session/profiles.rs",
@@ -1861,7 +1926,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25002083506958916,
-      "latency_ms": 909.1626669978723,
+      "latency_ms": 998.1460410053842,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -2087,7 +2152,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1200.5442919908091,
+      "latency_ms": 1307.6645829714835,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/tests.rs"
@@ -2324,7 +2389,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.833472245374229,
-      "latency_ms": 1390.5201670131646,
+      "latency_ms": 1542.9805419989862,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -2543,7 +2608,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 859.4728329917416,
+      "latency_ms": 947.1627499442548,
       "expected_paths": [
         "src/review_session/store.rs"
       ],
@@ -2720,7 +2785,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.33338889814969164,
-      "latency_ms": 990.3872499708086,
+      "latency_ms": 1076.5650839894079,
       "expected_paths": [
         "src/runtime/dispatch.rs",
         "src/runtime/tools/authorization.rs",
@@ -2929,7 +2994,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16698672455539784,
-      "latency_ms": 725.8234160253778,
+      "latency_ms": 791.1826249910519,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
         "sdk/typescript/packages/muzen-sdk/src/types.ts"
@@ -3124,7 +3189,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 916.8563749990426,
+      "latency_ms": 1037.898958020378,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts"
       ],
@@ -3305,7 +3370,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.7500625052087674,
-      "latency_ms": 857.8113329713233,
+      "latency_ms": 952.3615000071004,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -3542,7 +3607,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 665.6538330134936,
+      "latency_ms": 739.284334005788,
       "expected_paths": [
         "examples/tanstack-durable-review/src/server.ts",
         "examples/tanstack-durable-review/src/server/store.ts",
@@ -3765,7 +3830,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.8333333333333334,
-      "latency_ms": 1003.0706659890711,
+      "latency_ms": 1121.0501660243608,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -3938,7 +4003,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 573.6310000065714,
+      "latency_ms": 637.5493750092573,
       "expected_paths": [
         "src/runner.rs"
       ],
@@ -4079,7 +4144,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 1182.1707090130076,
+      "latency_ms": 1275.006374984514,
       "expected_paths": [
         "src/context_engine/engine.rs",
         "src/context_engine/index.rs",
@@ -4332,7 +4397,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 856.9652079604566,
+      "latency_ms": 928.3920419984497,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
@@ -4497,7 +4562,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 647.9347500135191,
+      "latency_ms": 709.2405830044299,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
@@ -4659,7 +4724,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 911.8307500029914,
+      "latency_ms": 975.4964169696905,
       "expected_paths": [
         "src/review_session/store.rs",
         "src/review_session/worker.rs"
@@ -4844,7 +4909,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5,
-      "latency_ms": 1064.7398750297725,
+      "latency_ms": 1139.426583016757,
       "expected_paths": [
         "sdk/python/muzen/client.py",
         "sdk/python/tests/test_client.py",
@@ -5016,7 +5081,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 1217.9189160233364,
+      "latency_ms": 1296.8204999924637,
       "expected_paths": [
         "src/context_engine/store.rs"
       ],
@@ -5207,7 +5272,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08334722453742291,
-      "latency_ms": 795.7339590066113,
+      "latency_ms": 842.6594579941593,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/index.ts"
       ],
@@ -5374,7 +5439,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 861.6067499970086,
+      "latency_ms": 911.2081669736654,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -5601,7 +5666,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 807.4292499804869,
+      "latency_ms": 850.8020410081372,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -5782,7 +5847,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 1474.6035839780234,
+      "latency_ms": 1588.327958015725,
       "expected_paths": [
         "src/context_engine/store.rs",
         "src/context_engine/tests.rs"
@@ -5985,7 +6050,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 1015.9355420037173,
+      "latency_ms": 1091.5185839985497,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -6176,7 +6241,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 839.1657919855788,
+      "latency_ms": 916.1912499694154,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -6353,7 +6418,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.6667222268522376,
-      "latency_ms": 832.7136670122854,
+      "latency_ms": 913.9072920079343,
       "expected_paths": [
         "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
         "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
@@ -6528,7 +6593,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16669444907484582,
-      "latency_ms": 1188.8514999882318,
+      "latency_ms": 1277.7174160000868,
       "expected_paths": [
         "src/context_engine/index.rs",
         "src/context_engine/tests.rs"
@@ -6769,7 +6834,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.7501250208368062,
-      "latency_ms": 853.3919170149602,
+      "latency_ms": 910.8627079986036,
       "expected_paths": [
         "src/cli.rs",
         "src/review_session/outcome.rs",
@@ -7004,7 +7069,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.2500416736122687,
-      "latency_ms": 748.1464999727905,
+      "latency_ms": 777.0114589948207,
       "expected_paths": [
         "src/review_session/tests.rs",
         "src/review_units.rs",
@@ -7241,7 +7306,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.6666666666666666,
-      "latency_ms": 1120.642957976088,
+      "latency_ms": 1199.2319590062834,
       "expected_paths": [
         "sdk/python/muzen/local.py",
         "sdk/python/muzen/remote.py",
@@ -7475,7 +7540,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 835.9005830134265,
+      "latency_ms": 927.0766659756191,
       "expected_paths": [
         "src/review_session/worker.rs"
       ],
@@ -7652,7 +7717,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5000416701391783,
-      "latency_ms": 857.3278340045363,
+      "latency_ms": 914.7323750075884,
       "expected_paths": [
         "src/review_session/http.rs",
         "src/runner.rs",
@@ -7835,7 +7900,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 758.0838330322877,
+      "latency_ms": 837.5362500082701,
       "expected_paths": [
         "src/review_session.rs"
       ],
@@ -7976,7 +8041,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 867.3035000101663,
+      "latency_ms": 938.1860420107841,
       "expected_paths": [
         "sdk/python/muzen/__init__.py",
         "sdk/python/muzen/types.py",
@@ -8145,7 +8210,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0833402783565297,
-      "latency_ms": 1600.3877919865772,
+      "latency_ms": 1735.2041249978356,
       "expected_paths": [
         "src/context_engine/semantic.rs"
       ],
@@ -8338,7 +8403,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 960.7705420348793,
+      "latency_ms": 1049.6535419952124,
       "expected_paths": [
         "src/review_session/http.rs"
       ],
@@ -8503,7 +8568,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5150.015708000865,
+      "latency_ms": 5612.14475001907,
       "expected_paths": [
         "apps/web/src/features/review/server/review-argus-agent.test.ts",
         "apps/web/src/features/review/server/review-argus-agent.ts",
@@ -8757,7 +8822,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 3112.521458999254,
+      "latency_ms": 3377.9709590016864,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
         "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
@@ -8982,7 +9047,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5080.008708988316,
+      "latency_ms": 5486.4887919975445,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
         "apps/web/src/features/review/server/persist-review-run.ts"
@@ -9226,7 +9291,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 3296.340290980879,
+      "latency_ms": 3579.0171250118874,
       "expected_paths": [
         "apps/web/src/components/site-header.tsx",
         "apps/web/src/features/review/components/diff/panel.tsx"
@@ -9545,7 +9610,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 2942.775291041471,
+      "latency_ms": 3197.288541996386,
       "expected_paths": [
         "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts",
         "apps/web/src/app/api/onboarding/track/route.test.ts",
@@ -9816,7 +9881,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25002083506958916,
-      "latency_ms": 5147.577625000849,
+      "latency_ms": 5673.512917011976,
       "expected_paths": [
         "apps/web/src/features/review/server/flow-run-claim.ts",
         "apps/web/src/features/review/server/flow-run-dedupe.ts",
@@ -10034,7 +10099,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08385744234800838,
-      "latency_ms": 4704.979165981058,
+      "latency_ms": 5157.662749988958,
       "expected_paths": [
         "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
       ],
@@ -10301,7 +10366,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5,
-      "latency_ms": 4100.10483302176,
+      "latency_ms": 4493.663750006817,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/gitlab-proxy/handlers.ts",
         "apps/web/src/features/gitlab/server/gitlab-proxy/types.ts",
@@ -10598,7 +10663,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 732.8263749950565,
+      "latency_ms": 793.1123750167899,
       "expected_paths": [
         "src/app/layout.tsx",
         "src/components/merge-request-diff/merge-request-diff-panel.tsx",
@@ -10840,7 +10905,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 4217.463416978717,
+      "latency_ms": 4637.488666048739,
       "expected_paths": [
         "packages/argus-agent/src/runtime/argus-index.test.ts",
         "packages/argus-agent/src/runtime/argus-index.ts"
@@ -11093,7 +11158,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 1327.71679101279,
+      "latency_ms": 1510.4588749818504,
       "expected_paths": [
         "src/app/layout.tsx",
         "src/components/site-header.tsx"
@@ -11345,7 +11410,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5449.076291988604,
+      "latency_ms": 6006.449792010244,
       "expected_paths": [
         "apps/web/src/features/review/server/comment-publish.test.ts",
         "apps/web/src/features/review/server/comment-publish.ts"
@@ -11581,7 +11646,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5477.262708998751,
+      "latency_ms": 6040.174791007303,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
         "apps/web/src/features/gitlab/server/integration-connect.ts",
@@ -11856,7 +11921,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 4751.652542036027,
+      "latency_ms": 5226.852249994408,
       "expected_paths": [
         "apps/web/src/app/(app)/layout.tsx",
         "apps/web/src/components/app-shell.tsx",
@@ -12189,7 +12254,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 2140.5927920131944,
+      "latency_ms": 2364.3837080453523,
       "expected_paths": [
         "apps/web/src/components/app-sidebar.tsx"
       ],
@@ -12430,7 +12495,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5081.094791996293,
+      "latency_ms": 5564.835584023967,
       "expected_paths": [
         "apps/web/src/features/review/components/diff/panel.tsx"
       ],
@@ -12669,7 +12734,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 2829.916750022676,
+      "latency_ms": 3089.985375001561,
       "expected_paths": [
         "apps/web/src/app/api/ai/test/route.test.ts",
         "apps/web/src/app/api/command-palette/chat/route.test.ts",
@@ -12924,7 +12989,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 2918.059582996648,
+      "latency_ms": 3170.679332979489,
       "expected_paths": [
         "apps/web/src/app/(app)/analytics/_components/page-content.tsx",
         "apps/web/src/app/(app)/analytics/page.tsx"
@@ -13163,7 +13228,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 3072.5101659772918,
+      "latency_ms": 3340.0123339961283,
       "expected_paths": [
         "apps/web/src/components/merge-request-diff/hooks/use-merge-request-ai-review.ts",
         "apps/web/src/components/merge-request-diff/merge-request-review-process.tsx",
@@ -13367,7 +13432,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 5263.658999989275,
+      "latency_ms": 5786.065499996766,
       "expected_paths": [
         "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
         "apps/web/src/features/review/components/diff/linked-issue-context.tsx",
@@ -13718,7 +13783,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08334722453742291,
-      "latency_ms": 954.0014999802224,
+      "latency_ms": 1033.819707983639,
       "expected_paths": [
         "packages/services/indexer/src/main.test.ts"
       ],
@@ -14007,7 +14072,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 2982.883791963104,
+      "latency_ms": 3244.7189170052297,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/cleanup-internal-gitlab-jobs.ts",
         "apps/web/src/features/gitlab/server/run-internal-gitlab-jobs.ts"
@@ -14190,7 +14255,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.3333333333333333,
-      "latency_ms": 4151.225208013784,
+      "latency_ms": 4547.905915998854,
       "expected_paths": [
         "apps/web/src/app/(settings)/settings/page-client.tsx",
         "apps/web/src/components/app-sidebar.tsx",
@@ -14431,7 +14496,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 803.4186669974588,
+      "latency_ms": 884.9881250062026,
       "expected_paths": [
         "src/lib/indexing/stores/artifact-store.fs.ts",
         "src/lib/indexing/stores/artifact-store.s3.ts"
@@ -14686,7 +14751,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5255.043959012255,
+      "latency_ms": 5762.360458029434,
       "expected_paths": [
         "apps/web/src/features/gitlab/server/integration-connect.test.ts",
         "apps/web/src/features/issues/server/providers/gitlab.ts",
@@ -14916,7 +14981,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16670834375260482,
-      "latency_ms": 1426.45916598849,
+      "latency_ms": 1541.813958028797,
       "expected_paths": [
         "apps/web/src/app/api/review/impact/route.ts",
         "apps/web/src/lib/review/impact-service.test.ts",
@@ -15192,7 +15257,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 4912.958791013807,
+      "latency_ms": 5376.644959033001,
       "expected_paths": [
         "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts"
       ],
@@ -15435,7 +15500,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 3095.054999983404,
+      "latency_ms": 3372.0247089513578,
       "expected_paths": [
         "apps/web/src/app/(app)/analytics/page.tsx",
         "apps/web/src/app/(app)/layout.tsx",
@@ -15677,7 +15742,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 2859.2248749919236,
+      "latency_ms": 3130.0235830130987,
       "expected_paths": [
         "apps/web/src/app/(app)/settings/page.tsx",
         "apps/web/src/components/app-sidebar-repo-dialog.tsx",
@@ -15924,7 +15989,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 3773.980040976312,
+      "latency_ms": 4102.220666012727,
       "expected_paths": [
         "apps/indexer/src/lib/indexing/processors/ingest.ts",
         "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
@@ -16170,7 +16235,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 5117.149084049743,
+      "latency_ms": 5601.091500022449,
       "expected_paths": [
         "apps/web/src/features/review/server/review-argus-agent.ts"
       ],
@@ -16487,7 +16552,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 118.91595897031948,
+      "latency_ms": 138.7477500247769,
       "expected_paths": [
         "src/lib/db/schema/auth/index.ts"
       ],
@@ -16639,7 +16704,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.08333333333333333,
-      "latency_ms": 2937.533667020034,
+      "latency_ms": 3203.8095419993624,
       "expected_paths": [
         "apps/mcp/src/main.ts"
       ],
@@ -16944,7 +17009,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.5,
-      "latency_ms": 1230.6983749731444,
+      "latency_ms": 1339.4170830142684,
       "expected_paths": [
         "apps/web/src/app/api/gitlab/route.test.ts",
         "apps/web/src/app/api/gitlab/route.ts",
@@ -17224,7 +17289,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25020850708924103,
-      "latency_ms": 167.60533396154642,
+      "latency_ms": 181.84141698293388,
       "expected_paths": [
         "src/components/app-sidebar.tsx",
         "src/components/nav-user.tsx",
@@ -17377,7 +17442,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.1666805567130594,
-      "latency_ms": 4018.8313749968074,
+      "latency_ms": 4357.633000006899,
       "expected_paths": [
         "apps/review-worker/src/runtime-resources.ts",
         "apps/review-worker/src/worker-runtime.ts"
@@ -17578,7 +17643,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.0,
-      "latency_ms": 3238.496000005398,
+      "latency_ms": 3544.756207964383,
       "expected_paths": [
         "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts",
         "apps/web/src/features/indexing/server/artifact-store.test.ts",
@@ -17831,7 +17896,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.25,
-      "latency_ms": 1632.0350829628296,
+      "latency_ms": 1806.7099999752827,
       "expected_paths": [
         "packages/argus-search/__test__/kitedb.spec.ts",
         "packages/argus-search/index.d.ts",
@@ -18085,7 +18150,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 3069.7544579743408,
+      "latency_ms": 3242.2134579974227,
       "expected_paths": [
         "apps/web/src/app/api/review/diff/stream/route.test.ts",
         "apps/web/src/app/api/review/diff/stream/route.ts",
@@ -18350,7 +18415,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 0.16666666666666666,
-      "latency_ms": 346.526334004011,
+      "latency_ms": 380.13050000881776,
       "expected_paths": [
         "src/lib/db/schema/index.ts",
         "src/lib/db/schema/indexing.ts"
@@ -18529,7 +18594,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 58.8235294117647,
-      "latency_ms": 119.18795801466331,
+      "latency_ms": 139.43187496624887,
       "expected_paths": [
         "src/secrets.rs"
       ],
@@ -18571,7 +18636,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 9.433962264150942,
-      "latency_ms": 56.39004101976752,
+      "latency_ms": 71.04291598079726,
       "expected_paths": [
         "CONTEXT.md"
       ],
@@ -18620,7 +18685,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 7.299270072992701,
-      "latency_ms": 57.524416013620794,
+      "latency_ms": 72.51887500751764,
       "expected_paths": [
         "src/lib.rs"
       ],
@@ -18669,7 +18734,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 11.494252873563218,
-      "latency_ms": 67.0577910495922,
+      "latency_ms": 77.89750001393259,
       "expected_paths": [
         "tests/auth_token_test.rs"
       ],
@@ -18711,7 +18776,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 13.793103448275861,
-      "latency_ms": 61.65633304044604,
+      "latency_ms": 69.67183301458135,
       "expected_paths": [
         "src/routes.rs",
         "src/auth/token.rs"
@@ -18758,7 +18823,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 6.172839506172839,
-      "latency_ms": 59.14104200201109,
+      "latency_ms": 66.12887501250952,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -18803,7 +18868,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 3.717472118959108,
-      "latency_ms": 57.786500023212284,
+      "latency_ms": 67.59787502232939,
       "expected_paths": [
         "src/auth/token.rs"
       ],
@@ -18852,7 +18917,7 @@
       "secret_redaction_correct": true,
       "prompt_injection_resistant": true,
       "useful_evidence_per_1k_tokens": 4.5662100456621,
-      "latency_ms": 57.37879197113216,
+      "latency_ms": 65.81533298594877,
       "expected_paths": [
         "src/auth/token.rs"
       ],
