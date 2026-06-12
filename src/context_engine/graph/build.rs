@@ -25,6 +25,8 @@ const NAME_FALLBACK_MAX_DEFINERS: usize = 4;
 const FEATURE_SLICE_MAX_SIBLINGS: usize = 48;
 const DOCUMENT_LINK_CONFIDENCE: f32 = 0.85;
 const DOCUMENT_LINK_MAX_TARGETS_PER_DOC: usize = 64;
+const NEXT_APP_LAYOUT_CONFIDENCE: f32 = 0.75;
+const NEXT_APP_MAX_LAYOUT_EDGES_PER_CHANGED: usize = 4;
 
 /// Cap on chunk-level `References` edges per (importer, symbol): the
 /// earliest referencing chunks carry the relationship; more add noise.
@@ -238,6 +240,7 @@ impl ContextGraph {
         // ---- Import, reference, and test edges from resolvers.
         build_reference_edges(&mut graph, &input, &provenance);
         build_document_link_edges(&mut graph, &input, &provenance);
+        build_next_app_layout_edges(&mut graph, &input, &provenance);
 
         // ---- Same-module siblings of changed files, stored once with
         // ordered endpoints.
@@ -974,6 +977,95 @@ fn resolve_absolute_or_suffix_link(target: &str, paths: &BTreeSet<RepoPath>) -> 
     } else {
         None
     }
+}
+
+fn build_next_app_layout_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    for changed in input.changed_paths {
+        if !is_next_app_leaf_path(changed) {
+            continue;
+        }
+        let mut emitted = 0usize;
+        for layout in next_app_ancestor_layouts(changed, &graph.file_paths) {
+            if emitted >= NEXT_APP_MAX_LAYOUT_EDGES_PER_CHANGED {
+                break;
+            }
+            if layout == *changed {
+                continue;
+            }
+            let from = ContextNodeId::File {
+                path: layout.clone(),
+            };
+            let to = ContextNodeId::File {
+                path: changed.clone(),
+            };
+            let detail = format!("next app layout for {}", changed.display());
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &to, ContextEdgeKind::Configures, &detail),
+                from,
+                to,
+                kind: ContextEdgeKind::Configures,
+                confidence: NEXT_APP_LAYOUT_CONFIDENCE,
+                reason: format!(
+                    "{} configures app route {}",
+                    layout.display(),
+                    changed.display()
+                ),
+                provenance: provenance(ContextGraphSource::SnapshotManifest, detail),
+            });
+            emitted += 1;
+        }
+    }
+}
+
+fn is_next_app_leaf_path(path: &RepoPath) -> bool {
+    let text = path.display();
+    let parts = text.split('/').collect::<Vec<_>>();
+    if !parts.iter().any(|part| *part == "app") {
+        return false;
+    }
+    let Some(file_name) = parts.last() else {
+        return false;
+    };
+    next_app_leaf_stem(file_name).is_some()
+}
+
+fn next_app_leaf_stem(file_name: &str) -> Option<&str> {
+    let stem = file_name.split('.').next()?;
+    matches!(
+        stem,
+        "page" | "route" | "layout" | "template" | "loading" | "error" | "not-found" | "default"
+    )
+    .then_some(stem)
+}
+
+fn next_app_ancestor_layouts(changed: &RepoPath, file_paths: &BTreeSet<RepoPath>) -> Vec<RepoPath> {
+    let text = changed.display();
+    let Some((dir, _file_name)) = text.rsplit_once('/') else {
+        return Vec::new();
+    };
+    let mut dirs = dir.split('/').collect::<Vec<_>>();
+    let Some(app_index) = dirs.iter().position(|part| *part == "app") else {
+        return Vec::new();
+    };
+    let mut layouts = Vec::new();
+    while dirs.len() > app_index {
+        let candidate_dir = dirs.join("/");
+        for extension in ["tsx", "jsx", "ts", "js"] {
+            let candidate = format!("{candidate_dir}/layout.{extension}");
+            if let Ok(path) = RepoPath::parse(&candidate) {
+                if file_paths.contains(&path) {
+                    layouts.push(path);
+                    break;
+                }
+            }
+        }
+        dirs.pop();
+    }
+    layouts
 }
 
 // ---------------------------------------------------------------------
