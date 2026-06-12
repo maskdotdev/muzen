@@ -494,6 +494,7 @@ def case_result(
         candidate_missed_paths=[],
         candidate_present_missed_paths=[],
         candidate_present_missed_omissions=[],
+        selected_tail_candidates=[],
         missed_paths=missed_paths or [],
         unexpected_paths=[],
         forbidden_content_hits=[],
@@ -535,6 +536,17 @@ class SummaryProofTest(unittest.TestCase):
                         "reason": "budget_exhausted",
                     }
                 ],
+                "selected_tail_candidates": [
+                    {
+                        "evidenceId": "tail-1",
+                        "kind": "file_span",
+                        "path": "src/tail.rs",
+                        "score": 0.42,
+                        "rankIndex": 20,
+                        "tokenEstimate": 300,
+                        "representation": "full_content",
+                    }
+                ],
             }
         )
         summary = run.summarize([good, weak])
@@ -556,6 +568,51 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(
             summary["weakCases"][0]["candidatePresentMissedOmissions"][0]["reason"],
             "budget_exhausted",
+        )
+        self.assertEqual(
+            summary["weakCases"][0]["selectedTailCandidates"][0]["evidenceId"],
+            "tail-1",
+        )
+
+    def test_selected_tail_details_join_scores_to_evidence(self):
+        result = {
+            "selectedCandidates": [
+                {"evidenceId": "a", "score": 0.9, "rankIndex": 0},
+                {"evidenceId": "b", "score": 0.4, "rankIndex": 20},
+            ]
+        }
+        evidence = [
+            {
+                "id": "a",
+                "kind": "file_span",
+                "path": "src/a.rs",
+                "tokenEstimate": 100,
+                "representation": "full_content",
+            },
+            {
+                "id": "b",
+                "kind": "test",
+                "path": "tests/b.rs",
+                "tokenEstimate": 50,
+                "representation": "skeleton",
+            },
+        ]
+
+        tail = run.selected_tail_details(result, evidence, limit=1)
+
+        self.assertEqual(
+            tail,
+            [
+                {
+                    "evidenceId": "b",
+                    "kind": "test",
+                    "path": "tests/b.rs",
+                    "score": 0.4,
+                    "rankIndex": 20,
+                    "tokenEstimate": 50,
+                    "representation": "skeleton",
+                }
+            ],
         )
 
     def test_false_sufficient_is_a_failure(self):

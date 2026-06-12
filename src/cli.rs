@@ -787,10 +787,16 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
                     "packId": pack.id.0,
                     "purpose": pack.purpose,
                     "included": pack.evidence.iter().map(|evidence| {
+                        let selected_candidate = pack
+                            .selected_candidates
+                            .iter()
+                            .find(|candidate| candidate.evidence_id == evidence.id);
                         serde_json::json!({
                             "evidenceId": evidence.id.0,
                             "kind": evidence.kind,
                             "path": evidence.path.as_ref().map(|path| path.display()),
+                            "score": selected_candidate.map(|candidate| candidate.score),
+                            "rankIndex": selected_candidate.map(|candidate| candidate.rank_index),
                             "why": ["included in context pack"]
                         })
                     }).collect::<Vec<_>>(),

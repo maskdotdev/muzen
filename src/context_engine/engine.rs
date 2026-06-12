@@ -23,7 +23,7 @@ use super::{
     ContextQueryKind, ContextQueryResult, ContextRange, ContextSufficiencyStatus,
     FileContextDerivedCache, FileContextLearningStore, InMemoryContextDerivedCache,
     InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
-    CONTEXT_ENGINE_VERSION,
+    SelectedContextCandidate, CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -1179,6 +1179,14 @@ impl ContextEngine for SnapshotContextEngine {
             &budget_omitted_candidates,
             &mut selected_by_path,
         );
+        let selected_candidates = selected
+            .iter()
+            .map(|selected| SelectedContextCandidate {
+                evidence_id: selected.evidence.id.clone(),
+                score: selected.score,
+                rank_index: selected.rank_index,
+            })
+            .collect::<Vec<_>>();
         let selected = selected
             .into_iter()
             .map(|selected| selected.evidence)
@@ -1237,6 +1245,7 @@ impl ContextEngine for SnapshotContextEngine {
             session_id: request.session_id,
             purpose: request.purpose,
             evidence: selected,
+            selected_candidates,
             relationships,
             omitted_candidates,
             budget: ContextBudgetUsage {
@@ -1615,6 +1624,10 @@ impl ContextEngine for SnapshotContextEngine {
                     .evidence
                     .iter()
                     .map(|evidence| {
+                        let selected_candidate = pack
+                            .selected_candidates
+                            .iter()
+                            .find(|candidate| candidate.evidence_id == evidence.id);
                         // Graph paths are the source of explainability:
                         // typed relationships carry the rendered Context
                         // Graph path that connected this evidence to the
@@ -1635,7 +1648,10 @@ impl ContextEngine for SnapshotContextEngine {
                             .collect::<Vec<_>>();
                         serde_json::json!({
                             "evidenceId": evidence.id.0,
-                            "score": score_for_purpose(evidence, pack.purpose, &self.config),
+                            "score": selected_candidate
+                                .map(|candidate| candidate.score)
+                                .unwrap_or_else(|| score_for_purpose(evidence, pack.purpose, &self.config)),
+                            "rankIndex": selected_candidate.map(|candidate| candidate.rank_index),
                             "why": explain_selected_evidence(evidence, pack.purpose),
                             "graphPaths": graph_paths,
                         })

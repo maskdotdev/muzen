@@ -113,6 +113,7 @@ class CaseResult:
     candidate_missed_paths: list[str]
     candidate_present_missed_paths: list[str]
     candidate_present_missed_omissions: list[dict[str, Any]]
+    selected_tail_candidates: list[dict[str, Any]]
     missed_paths: list[str]
     unexpected_paths: list[str]
     forbidden_content_hits: list[str]
@@ -767,6 +768,7 @@ def score_case(
     candidate_present_missed_omissions = omitted_details_for_paths(
         omitted, candidate_present_missed_paths
     )
+    selected_tail_candidates = selected_tail_details(result, evidence)
     sufficiency = result.get("sufficiency") or {}
     sufficiency_blocking_gaps = sum(
         1
@@ -804,6 +806,7 @@ def score_case(
         candidate_missed_paths=candidate_missed_paths,
         candidate_present_missed_paths=candidate_present_missed_paths,
         candidate_present_missed_omissions=candidate_present_missed_omissions,
+        selected_tail_candidates=selected_tail_candidates,
         missed_paths=missed_paths,
         unexpected_paths=unexpected_paths,
         forbidden_content_hits=forbidden_content_hits,
@@ -866,6 +869,37 @@ def omitted_details_for_paths(
                 "score": candidate.get("score"),
                 "tokenEstimate": candidate.get("tokenEstimate"),
                 "reason": candidate.get("reason"),
+            }
+        )
+    return details
+
+
+def selected_tail_details(
+    result: dict[str, Any], evidence: list[dict[str, Any]], limit: int = 8
+) -> list[dict[str, Any]]:
+    selected_candidates = result.get("selectedCandidates")
+    if not isinstance(selected_candidates, list):
+        return []
+    evidence_by_id = {
+        entry.get("id"): entry
+        for entry in evidence
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    details = []
+    for candidate in selected_candidates[-limit:]:
+        if not isinstance(candidate, dict):
+            continue
+        evidence_id = candidate.get("evidenceId")
+        entry = evidence_by_id.get(evidence_id) or {}
+        details.append(
+            {
+                "evidenceId": evidence_id,
+                "kind": entry.get("kind"),
+                "path": entry.get("path"),
+                "score": candidate.get("score"),
+                "rankIndex": candidate.get("rankIndex"),
+                "tokenEstimate": entry.get("tokenEstimate"),
+                "representation": entry.get("representation"),
             }
         )
     return details
@@ -999,6 +1033,7 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             "candidateMissedPaths": result.candidate_missed_paths,
             "candidatePresentMissedPaths": result.candidate_present_missed_paths,
             "candidatePresentMissedOmissions": result.candidate_present_missed_omissions,
+            "selectedTailCandidates": result.selected_tail_candidates,
             "missedPaths": result.missed_paths,
             "sufficiencyStatus": result.sufficiency_status,
         }
