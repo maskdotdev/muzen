@@ -102,6 +102,7 @@ pub enum ContextGraphSource {
     SyntaxTree,
     ImportResolver,
     IdentifierScan,
+    DocumentLink,
     TestConvention,
     GitHistory,
     HostMetadata,

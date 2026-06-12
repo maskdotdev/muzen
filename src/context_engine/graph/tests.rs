@@ -964,6 +964,118 @@ fn stem_convention_tests_surface_without_imports() {
     );
 }
 
+#[test]
+fn markdown_links_create_document_edges_to_repo_paths() {
+    let mut files = BTreeMap::new();
+    files.insert(repo_path("docs/billing.md"), parsed(&[], Vec::new()));
+    files.insert(
+        repo_path("src/billing/settlement.ts"),
+        parsed(&["settle"], Vec::new()),
+    );
+    files.insert(
+        repo_path("tests/billing/settlement.test.ts"),
+        parsed(&["testSettlement"], Vec::new()),
+    );
+    let graph = GraphSpec::new(&files)
+        .with_contents(contents(&[(
+            "docs/billing.md",
+            "See [settlement](../src/billing/settlement.ts) and [test][settlement-test].\n\
+             Autolink: <../tests/billing/settlement.test.ts:12>.\n\n\
+             [settlement-test]: ../tests/billing/settlement.test.ts#contract",
+        )]))
+        .with_changed(&["docs/billing.md"])
+        .build();
+
+    let edges: Vec<_> = graph
+        .file_references(&repo_path("docs/billing.md"))
+        .filter(|edge| edge.kind == ContextEdgeKind::Documents)
+        .collect();
+    let targets = edges
+        .iter()
+        .filter_map(|edge| edge.to_path().map(RepoPath::display))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        vec![
+            "src/billing/settlement.ts",
+            "tests/billing/settlement.test.ts"
+        ]
+    );
+    assert!(edges
+        .iter()
+        .all(|edge| edge.provenance.source == ContextGraphSource::DocumentLink));
+
+    let expansion = graph.expand(default_request());
+    assert!(expansion.candidates.iter().any(|candidate| {
+        candidate.node_id.path() == Some(&repo_path("src/billing/settlement.ts"))
+            && candidate
+                .path
+                .steps
+                .iter()
+                .any(|step| step.kind == ContextEdgeKind::Documents)
+    }));
+}
+
+#[test]
+fn rst_links_create_document_edges_to_repo_paths() {
+    let mut files = BTreeMap::new();
+    files.insert(repo_path("docs/runtime.rst"), parsed(&[], Vec::new()));
+    files.insert(
+        repo_path("src/runtime/retry_policy.py"),
+        parsed(&["retry_policy"], Vec::new()),
+    );
+    files.insert(
+        repo_path("tests/test_retry_policy.py"),
+        parsed(&["test_retry_policy"], Vec::new()),
+    );
+    let graph = GraphSpec::new(&files)
+        .with_contents(contents(&[(
+            "docs/runtime.rst",
+            "See `retry policy <../src/runtime/retry_policy.py>`_.\n\
+             .. _retry tests: ../tests/test_retry_policy.py",
+        )]))
+        .build();
+
+    let targets = graph
+        .file_references(&repo_path("docs/runtime.rst"))
+        .filter(|edge| edge.kind == ContextEdgeKind::Documents)
+        .filter_map(|edge| edge.to_path().map(RepoPath::display))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        targets,
+        vec!["src/runtime/retry_policy.py", "tests/test_retry_policy.py"]
+    );
+}
+
+#[test]
+fn absolute_doc_links_resolve_only_unique_repo_suffixes() {
+    let mut files = BTreeMap::new();
+    files.insert(repo_path("docs/index.md"), parsed(&[], Vec::new()));
+    files.insert(
+        repo_path("apps/web/src/config.ts"),
+        parsed(&["web"], Vec::new()),
+    );
+    files.insert(
+        repo_path("packages/api/src/config.ts"),
+        parsed(&["api"], Vec::new()),
+    );
+    let graph = GraphSpec::new(&files)
+        .with_contents(contents(&[(
+            "docs/index.md",
+            "[web](/tmp/workspace/apps/web/src/config.ts) [ambiguous](/tmp/config.ts)",
+        )]))
+        .build();
+
+    let targets = graph
+        .file_references(&repo_path("docs/index.md"))
+        .filter(|edge| edge.kind == ContextEdgeKind::Documents)
+        .filter_map(|edge| edge.to_path().map(RepoPath::display))
+        .collect::<Vec<_>>();
+
+    assert_eq!(targets, vec!["apps/web/src/config.ts"]);
+}
+
 // ---- co-change ----------------------------------------------------------
 
 #[test]

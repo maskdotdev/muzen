@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "curated-doc-contract",
+  "truthSource": "curated",
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/doc-contract"
+  },
+  "changedFiles": [
+    "docs/retry-contract.md"
+  ],
+  "description": "Strict causal fixture: a changed contract doc must surface explicitly linked implementation and regression test through document graph facts, despite unrelated doc/code/test distractors.",
+  "cases": [
+    {
+      "id": "doc-contract-pack-linked-implementation",
+      "command": "pack",
+      "purpose": "architecture",
+      "maxTokens": 1200,
+      "expectedPaths": [
+        "docs/retry-contract.md",
+        "src/runtime/retry-policy.ts",
+        "tests/retry-policy.test.ts"
+      ],
+      "strict": true
+    }
+  ]
+}
