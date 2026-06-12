@@ -132,6 +132,7 @@ Recent rejected experiments:
 - Broad budget-repair swapping: fixed one self case but introduced one external candidate-present miss and failed external present-miss gate (`0.4779 -> 0.4853`); narrowed to low-confidence-tail evictions only.
 - Broad skeleton-tail swapping: improved candidate-present miss `0.2473 -> 0.2403`, but external tokens to first relevant regressed `2538 -> 2790` and self candidate-present misses worsened. A score-margin-only version still failed (`external ttfr 2779`, self miss regressions). Final retained rule requires new path coverage plus score margin.
 - Skeleton-tail repair margin `0.10 -> 0.05`: exact `*-pack` diagnostics improved candidate-present miss `0.2518 -> 0.2482` with flat recall/nDCG, but the full gate failed external tokens-to-first-relevant (`2747.2 > 2537.8 + 128`), so the stricter margin stays.
+- Skeleton single-eviction repair: fixed the obvious local objective mismatch by trying the lowest-total-score single skeleton eviction before score-density multi-eviction. It improved overall candidate-present miss (`0.242 -> 0.235`) and fixed two external budget misses, but the full gate failed external tokens-to-first-relevant (`2742.3 > 2537.8 + 128`) because one added first relevant item landed around `9.6k` tokens. Late recall is not enough; pack repair must optimize early usefulness too.
 
 ## Next Work To Reach Great
 
