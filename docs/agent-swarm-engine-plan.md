@@ -176,18 +176,25 @@ endpoint, keys via env refs, all from a single SDK call.
    `model_retry_max_delay_ms` on `RuntimeLimits`; each failed attempt
    emits `modelFailed { attempt, retrying }` and counts into
    `modelMetrics.calls`/`errors`.
-2. Streaming: SSE for chat completions; stream tool-call deltas so tool
-   batches can start as soon as calls are complete; enables early
-   cancellation and cuts time-to-first-token.
+2. Streaming (transport half landed): the chat-completions and
+   Anthropic Messages clients stream over SSE
+   (`src/runtime/model_sse.rs`) and accumulate deltas into the existing
+   turn contract — cancellation now interrupts mid-stream, a stalled
+   stream fails as retryable after an idle timeout instead of holding a
+   whole-request timeout, and providers that ignore `stream: true` fall
+   back to plain-JSON parsing. Still open: streaming for the Responses
+   protocol, and surfacing tool-call deltas to the engine so tool
+   batches start before the turn finishes.
 3. Transcript management: enforce `max_prompt_tokens` mid-loop
    (truncate oldest tool results first, keep system + objective stable);
    keep a stable message prefix for provider prompt caching (Anthropic
    `cache_control`, OpenAI automatic caching); stop re-serializing the
    full transcript every turn (incremental message assembly).
 
-Exit: bench shows reduced per-turn overhead at 7-turn depth; chaos test
-(injected 429s/timeouts) completes a 50-session swarm with retries
-instead of dropped sessions.
+Exit: bench shows reduced per-turn overhead at 7-turn depth; ~~chaos
+test (injected 429s/timeouts) completes a 50-session swarm with retries
+instead of dropped sessions~~ (done:
+`public_facade_chaos_swarm_completes_through_retries`).
 
 ### Phase 5 — Packaging and DX
 

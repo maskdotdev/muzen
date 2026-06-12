@@ -16,9 +16,10 @@ use tokio_util::sync::CancellationToken;
 use crate::contracts::{ModelProfileRefV1, TokenUsage, ToolCallingMode};
 use crate::runtime::contracts::*;
 use crate::runtime::model::{
-    model_alias_for_tool, provider_http_error, ConcurrentModelClient, CredentialResolver,
-    ModelLimiter,
+    model_alias_for_tool, provider_error_message, provider_http_error, ConcurrentModelClient,
+    CredentialResolver, ModelLimiter,
 };
+use crate::runtime::model_sse::{next_streaming_data, SseStream, STREAM_REQUEST_TIMEOUT};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
 
@@ -87,16 +88,18 @@ impl ConcurrentModelClient for AnthropicMessagesClient {
                 &scope.id,
             )
             .await?;
-        let body = anthropic_request_body(
+        let mut body = anthropic_request_body(
             &self.profile,
             &self.reviewer_policy,
             &self.tool_registry,
             scope,
             transcript,
         )?;
+        body["stream"] = json!(true);
         let response = self
             .http
             .post(format!("{}/messages", self.base_url))
+            .timeout(STREAM_REQUEST_TIMEOUT)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
@@ -110,13 +113,132 @@ impl ConcurrentModelClient for AnthropicMessagesClient {
         if !status.is_success() {
             return Err(provider_http_error(status, response).await);
         }
-        let decoded: AnthropicMessageResponse =
-            response.json().await.map_err(|_| RuntimeError::Provider {
-                status: None,
-                retryable: false,
-            })?;
+        let decoded = anthropic_message_from_stream(response, &cancel).await?;
         parse_anthropic_response(decoded, &self.tool_registry)
     }
+}
+
+struct StreamingContentBlock {
+    start: Value,
+    text: String,
+    input_json: String,
+}
+
+impl StreamingContentBlock {
+    fn into_value(self) -> Value {
+        let mut block = self.start;
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let opening = block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                block["text"] = json!(format!("{opening}{}", self.text));
+            }
+            Some("tool_use") => {
+                if !self.input_json.is_empty() {
+                    block["input"] =
+                        serde_json::from_str(&self.input_json).unwrap_or_else(|_| json!({}));
+                }
+            }
+            _ => {}
+        }
+        block
+    }
+}
+
+/// Accumulates Messages API stream events into the non-streaming response
+/// shape. Providers that ignored `stream: true` and answered with one plain
+/// JSON body are detected (no SSE events seen) and parsed directly.
+async fn anthropic_message_from_stream(
+    response: reqwest::Response,
+    cancel: &CancellationToken,
+) -> RuntimeResult<AnthropicMessageResponse> {
+    let mut sse = SseStream::new(response);
+    let mut blocks: std::collections::BTreeMap<u64, StreamingContentBlock> =
+        std::collections::BTreeMap::new();
+    let mut input_tokens: Option<u64> = None;
+    let mut output_tokens: Option<u64> = None;
+    loop {
+        let Some(data) = next_streaming_data(&mut sse, cancel).await? else {
+            break;
+        };
+        let event: Value = serde_json::from_str(&data).map_err(|_| RuntimeError::Provider {
+            status: None,
+            retryable: false,
+        })?;
+        let index = event.get("index").and_then(Value::as_u64).unwrap_or(0);
+        match event.get("type").and_then(Value::as_str) {
+            Some("message_start") => {
+                let usage = &event["message"]["usage"];
+                input_tokens = usage["input_tokens"].as_u64().or(input_tokens);
+                output_tokens = usage["output_tokens"].as_u64().or(output_tokens);
+            }
+            Some("content_block_start") => {
+                blocks.insert(
+                    index,
+                    StreamingContentBlock {
+                        start: event["content_block"].clone(),
+                        text: String::new(),
+                        input_json: String::new(),
+                    },
+                );
+            }
+            Some("content_block_delta") => {
+                let Some(block) = blocks.get_mut(&index) else {
+                    continue;
+                };
+                let delta = &event["delta"];
+                match delta.get("type").and_then(Value::as_str) {
+                    Some("text_delta") => {
+                        if let Some(text) = delta.get("text").and_then(Value::as_str) {
+                            block.text.push_str(text);
+                        }
+                    }
+                    Some("input_json_delta") => {
+                        if let Some(json_text) = delta.get("partial_json").and_then(Value::as_str) {
+                            block.input_json.push_str(json_text);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Some("message_delta") => {
+                output_tokens = event["usage"]["output_tokens"].as_u64().or(output_tokens);
+            }
+            Some("error") => {
+                let error = &event["error"];
+                let error_type = error.get("type").and_then(Value::as_str).unwrap_or("");
+                let retryable = matches!(
+                    error_type,
+                    "overloaded_error" | "rate_limit_error" | "api_error"
+                );
+                return Err(RuntimeError::ProviderMessage {
+                    status: None,
+                    retryable,
+                    message: provider_error_message(error.to_string()),
+                });
+            }
+            // ping, content_block_stop, message_stop carry no turn payload.
+            _ => {}
+        }
+    }
+    if !sse.yielded_events() {
+        return serde_json::from_slice(&sse.into_raw_body()).map_err(|_| RuntimeError::Provider {
+            status: None,
+            retryable: false,
+        });
+    }
+    Ok(AnthropicMessageResponse {
+        content: blocks
+            .into_values()
+            .map(StreamingContentBlock::into_value)
+            .collect(),
+        usage: Some(AnthropicUsage {
+            input_tokens,
+            output_tokens,
+        }),
+    })
 }
 
 /// System turns become the top-level `system` string; assistant tool calls
@@ -638,6 +760,137 @@ mod tests {
             &registry,
         );
         assert!(duplicate.is_err(), "duplicate call ids are rejected");
+    }
+
+    #[test]
+    fn live_loopback_streams_sse_events_into_a_tool_call_turn() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+        let address = listener.local_addr().expect("address");
+        let (_registry, _, model_alias) = aliased_registry();
+        let events = [
+            json!({"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_stream","name":model_alias.as_str(),"input":{}}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"value\""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":":\"ok\"}"}}),
+            json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}),
+            json!({"type":"message_stop"}),
+        ];
+        let body = events
+            .iter()
+            .map(|event| format!("data: {event}\n\n"))
+            .collect::<String>();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let request = read_http_request(&mut stream);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("response");
+            request
+        });
+
+        let (registry, internal_tool, _) = aliased_registry();
+        let client = AnthropicMessagesClient::from_profile(
+            anthropic_profile(ToolCallingMode::Auto),
+            format!("http://{address}/v1"),
+            Arc::new(ModelLimiter::new(1)),
+            Arc::new(registry),
+            Arc::new(ReviewerPolicy::new()),
+            Arc::new(StaticCredentialResolver),
+        )
+        .expect("client");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let turn = runtime
+            .block_on(client.complete(
+                &test_scope(),
+                &[ConversationItem::User {
+                    content: "Hello".to_string(),
+                }],
+                TurnId(0),
+                CancellationToken::new(),
+            ))
+            .expect("completion");
+
+        let request = server.join().expect("server thread");
+        let (_, request_body) = split_http_body(&request);
+        let request_json: Value = serde_json::from_slice(request_body).expect("request json");
+        assert_eq!(request_json["stream"], true);
+
+        let ModelTurn::ToolCalls { calls, usage } = turn else {
+            panic!("expected tool call turn");
+        };
+        assert_eq!(calls[0].name, internal_tool);
+        assert_eq!(calls[0].call_id.0, "toolu_stream");
+        assert_eq!(calls[0].raw_arguments, r#"{"value":"ok"}"#);
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 7);
+        assert_eq!(usage.total_tokens, 17);
+    }
+
+    #[test]
+    fn live_loopback_cancels_mid_stream_without_waiting_for_the_server() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let _ = read_http_request(&mut stream);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n",
+                )
+                .expect("first event");
+            stream.flush().expect("flush");
+            // Hold the connection open well past the cancellation point.
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        });
+
+        let (registry, _, _) = aliased_registry();
+        let client = AnthropicMessagesClient::from_profile(
+            anthropic_profile(ToolCallingMode::Auto),
+            format!("http://{address}/v1"),
+            Arc::new(ModelLimiter::new(1)),
+            Arc::new(registry),
+            Arc::new(ReviewerPolicy::new()),
+            Arc::new(StaticCredentialResolver),
+        )
+        .expect("client");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let started = std::time::Instant::now();
+        let result = runtime.block_on(async {
+            let cancel = CancellationToken::new();
+            let canceller = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                canceller.cancel();
+            });
+            client
+                .complete(
+                    &test_scope(),
+                    &[ConversationItem::User {
+                        content: "Hello".to_string(),
+                    }],
+                    TurnId(0),
+                    cancel,
+                )
+                .await
+        });
+        assert!(
+            matches!(result, Err(RuntimeError::Cancelled)),
+            "cancellation interrupts the stream"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "cancel returns promptly instead of waiting out the server"
+        );
+        drop(server);
     }
 
     #[test]

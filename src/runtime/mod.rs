@@ -6,6 +6,7 @@ pub(crate) mod effects;
 pub(crate) mod model;
 pub(crate) mod model_anthropic;
 pub(crate) mod model_retry;
+pub(crate) mod model_sse;
 pub(crate) mod planned_units;
 pub(crate) mod policy;
 pub(crate) mod repo;
