@@ -275,7 +275,7 @@ fn trusted_run_context_bonus(evidence: &ContextEvidence, purpose: ContextPackPur
             | ContextPackPurpose::Correctness
             | ContextPackPurpose::Validator,
             ContextEvidenceKind::Ticket,
-        ) => 0.41,
+        ) => 0.44,
         (
             ContextPackPurpose::GeneralReview
             | ContextPackPurpose::Correctness
