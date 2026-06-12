@@ -232,7 +232,7 @@ impl Run {
                     snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
                 });
             }
-            let runtime = PlannedReviewRuntime {
+            let runtime = Arc::new(PlannedReviewRuntime {
                 snapshot: Arc::clone(&shard.snapshot),
                 model_router: Arc::clone(&self.model_router),
                 tools: Arc::clone(&shard.tools),
@@ -244,8 +244,8 @@ impl Run {
                     shard_event_sink.clone(),
                     self.legacy_event_emitter.clone(),
                 ),
-            };
-            let summary = runtime.run_with_cancel(cancel.clone()).await;
+            });
+            let summary = Arc::clone(&runtime).run_with_cancel(cancel.clone()).await;
             aggregate_artifacts.merge_from(&runtime.tools.artifacts);
             findings.extend(summary.findings);
             file_reviews.extend(summary.file_reviews);
