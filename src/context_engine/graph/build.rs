@@ -23,6 +23,8 @@ use super::model::{
 /// would otherwise create noise edges.
 const NAME_FALLBACK_MAX_DEFINERS: usize = 4;
 const FEATURE_SLICE_MAX_SIBLINGS: usize = 48;
+const DOCUMENT_LINK_CONFIDENCE: f32 = 0.85;
+const DOCUMENT_LINK_MAX_TARGETS_PER_DOC: usize = 64;
 
 /// Cap on chunk-level `References` edges per (importer, symbol): the
 /// earliest referencing chunks carry the relationship; more add noise.
@@ -235,6 +237,7 @@ impl ContextGraph {
 
         // ---- Import, reference, and test edges from resolvers.
         build_reference_edges(&mut graph, &input, &provenance);
+        build_document_link_edges(&mut graph, &input, &provenance);
 
         // ---- Same-module siblings of changed files, stored once with
         // ordered endpoints.
@@ -309,6 +312,43 @@ impl ContextGraph {
         build_test_convention_edges(&mut graph, &input, &provenance);
 
         graph
+    }
+}
+
+fn build_document_link_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    for (doc_path, content) in input.file_contents {
+        if !is_document_path(&doc_path.display()) || !graph.file_paths.contains(doc_path) {
+            continue;
+        }
+        let from = ContextNodeId::File {
+            path: doc_path.clone(),
+        };
+        for (index, target) in document_link_targets(doc_path, content, &graph.file_paths)
+            .into_iter()
+            .take(DOCUMENT_LINK_MAX_TARGETS_PER_DOC)
+            .enumerate()
+        {
+            if target == *doc_path {
+                continue;
+            }
+            let to = ContextNodeId::File {
+                path: target.clone(),
+            };
+            let detail = format!("{} link {}", doc_path.display(), index + 1);
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &to, ContextEdgeKind::Documents, &detail),
+                from: from.clone(),
+                to,
+                kind: ContextEdgeKind::Documents,
+                confidence: DOCUMENT_LINK_CONFIDENCE,
+                reason: format!("{} links to {}", doc_path.display(), target.display()),
+                provenance: provenance(ContextGraphSource::DocumentLink, detail),
+            });
+        }
     }
 }
 
@@ -780,6 +820,160 @@ fn is_identifier_byte(byte: u8) -> bool {
 pub(crate) fn is_test_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.contains("test") || lower.contains("spec") || lower.contains("__tests__")
+}
+
+fn is_document_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".md") || lower.ends_with(".mdx") || lower.ends_with(".rst")
+}
+
+fn document_link_targets(
+    doc_path: &RepoPath,
+    content: &str,
+    paths: &BTreeSet<RepoPath>,
+) -> Vec<RepoPath> {
+    let mut targets = BTreeSet::new();
+    let mut raw_targets = Vec::new();
+    collect_markdown_inline_targets(content, &mut raw_targets);
+    collect_markdown_reference_targets(content, &mut raw_targets);
+    collect_angle_targets(content, &mut raw_targets);
+    collect_rst_hyperlink_targets(content, &mut raw_targets);
+    for raw in raw_targets {
+        if let Some(target) = document_link_target(&raw)
+            .and_then(|target| resolve_document_link(doc_path, &target, paths))
+        {
+            targets.insert(target);
+        }
+    }
+    targets.into_iter().collect()
+}
+
+fn collect_markdown_inline_targets(content: &str, raw_targets: &mut Vec<String>) {
+    let mut rest = content;
+    while let Some(start) = rest.find("](") {
+        let after_open = &rest[start + 2..];
+        let Some(end) = after_open.find(')') else {
+            break;
+        };
+        raw_targets.push(after_open[..end].to_string());
+        rest = &after_open[end + 1..];
+    }
+}
+
+fn collect_markdown_reference_targets(content: &str, raw_targets: &mut Vec<String>) {
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('[') {
+            continue;
+        }
+        let Some((_label, target)) = trimmed.split_once("]:") else {
+            continue;
+        };
+        raw_targets.push(target.trim().to_string());
+    }
+}
+
+fn collect_angle_targets(content: &str, raw_targets: &mut Vec<String>) {
+    let mut rest = content;
+    while let Some(start) = rest.find('<') {
+        let after_open = &rest[start + 1..];
+        let Some(end) = after_open.find('>') else {
+            break;
+        };
+        raw_targets.push(after_open[..end].to_string());
+        rest = &after_open[end + 1..];
+    }
+}
+
+fn collect_rst_hyperlink_targets(content: &str, raw_targets: &mut Vec<String>) {
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix(".. ") else {
+            continue;
+        };
+        if !rest.starts_with('_') {
+            continue;
+        }
+        let Some((_label, target)) = rest.split_once(':') else {
+            continue;
+        };
+        raw_targets.push(target.trim().to_string());
+    }
+}
+
+fn document_link_target(raw: &str) -> Option<String> {
+    let token = raw.trim().split_whitespace().next()?;
+    let target = token
+        .trim_matches('<')
+        .trim_matches('>')
+        .trim_matches('"')
+        .trim_matches('\'');
+    let lower = target.to_ascii_lowercase();
+    if target.is_empty()
+        || target.starts_with('#')
+        || target.starts_with("//")
+        || lower.contains("://")
+        || lower.starts_with("mailto:")
+    {
+        return None;
+    }
+    let target = target
+        .split_once('#')
+        .map(|(path, _)| path)
+        .unwrap_or(target)
+        .split_once('?')
+        .map(|(path, _)| path)
+        .unwrap_or(target);
+    let target = strip_line_suffix(target);
+    (!target.is_empty()).then(|| target.to_string())
+}
+
+fn strip_line_suffix(path: &str) -> &str {
+    let Some((prefix, suffix)) = path.rsplit_once(':') else {
+        return path;
+    };
+    if suffix.chars().all(|char| char.is_ascii_digit()) {
+        prefix
+    } else {
+        path
+    }
+}
+
+fn resolve_document_link(
+    doc_path: &RepoPath,
+    target: &str,
+    paths: &BTreeSet<RepoPath>,
+) -> Option<RepoPath> {
+    if target.starts_with('/') {
+        return resolve_absolute_or_suffix_link(target, paths);
+    }
+    let doc_text = doc_path.display();
+    let base_dir = doc_text.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let joined = normalize_join(base_dir, target)?;
+    try_paths([joined], paths)
+}
+
+fn resolve_absolute_or_suffix_link(target: &str, paths: &BTreeSet<RepoPath>) -> Option<RepoPath> {
+    let trimmed = target.trim_start_matches('/');
+    if let Some(path) = try_paths([trimmed.to_string()], paths) {
+        return Some(path);
+    }
+    let target = target.replace('\\', "/");
+    let mut matches = paths
+        .iter()
+        .filter(|path| {
+            let display = path.display();
+            target == display || target.ends_with(&format!("/{display}"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    if matches.len() == 1 {
+        matches.pop()
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------

@@ -8,18 +8,18 @@ It is strongest as a deterministic, trust-aware retrieval primitive: evidence ha
 
 ## Current Default Metrics
 
-Source: `bench/results-context-engine/context-engine-summary.json`, 90 deterministic cases.
+Source: latest public-CLI proof run `/tmp/context-doclinks-rst-full.json`, 91 deterministic cases.
 
 Overall:
 
-- recall@10: `0.5444`
-- nDCG@10: `0.3850`
-- recall@25: `0.6692`
-- candidate recall: `0.9934`
-- candidate-present miss rate: `0.2421`
-- first relevant rate: `0.9326`
-- tokens to first relevant: `1598`
-- useful evidence per 1k tokens: `1.5891`
+- recall@10: `0.5494`
+- nDCG@10: `0.3884`
+- recall@25: `0.6728`
+- candidate recall: `0.9936`
+- candidate-present miss rate: `0.2404`
+- first relevant rate: `0.9341`
+- tokens to first relevant: `1581`
+- useful evidence per 1k tokens: `1.6584`
 - sufficiency insufficient when incomplete: `1.0`
 
 External corpus:
@@ -37,7 +37,7 @@ This shape matters: indexing usually finds ground truth, but pack order and budg
 
 Truth-source split:
 
-- curated: 3 cases, recall@10 `1.0000`, nDCG@10 `0.4787`, candidate-present miss `0.0000`, tokens to first relevant `202`
+- curated: 4 cases, recall@10 `1.0000`, nDCG@10 `0.5324`, candidate-present miss `0.0000`, tokens to first relevant `182`
 - fixture: 8 cases, recall@10 `1.0000`, nDCG@10 `1.0000`, candidate-present miss `0.0000`, tokens to first relevant `52`
 - mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2546`, tokens to first relevant `1825`
 
@@ -72,7 +72,8 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Strict curated fixture `curated-checkout-flow` now proves changed checkout logic retrieves direct API callers and route tests through import graph facts under a 4k pack budget.
 - Strict curated fixture `curated-python-billing` now proves Python import graph facts retrieve a changed settlement module, API caller, and API test under a 3.5k pack budget despite unrelated payment/API/test distractors.
 - Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
-- Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 90 cases with `--jobs 6` passed after baseline refresh.
+- Strict curated fixture `curated-doc-contract` now proves explicit Markdown doc links retrieve linked implementation and test files under a 1.2k pack budget with adjacent contract/runtime/test distractors.
+- Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 91 cases with `--jobs 6` passed after document-link graph expansion.
 - Eval iteration now builds the default `muzen` binary once when `--muzen-bin` is omitted, then reuses `target/debug/muzen` for every case. This preserves public-CLI proof while removing repeated `cargo run` overhead from default runs.
 - Eval iteration now rejects stale `target/debug/muzen` binaries when `--muzen-bin` is provided explicitly and Rust build inputs are newer. Full gates therefore prove the current implementation, not an accidentally stale local build.
 - Eval summaries now include run metadata for the evaluated binary, binary mtime, git head, git dirty flag, and whether local binary freshness was checked. Metric artifacts are now self-identifying enough to audit later.
@@ -82,6 +83,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, rank index, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
 - Packs now expose selected-candidate score and rank metadata, and weak cases report the selected tail beside missed candidates with graph paths where relationships exist. This makes budget tradeoffs auditable: we can see which low-tail items consumed the budget that excluded a relevant candidate and whether those tail items had strong structural support.
 - Runtime explain-pack diagnostics now also include graph paths for omitted candidates when `includeOmitted` is requested. This lets us audit why graph-connected evidence lost the budget fight instead of only explaining selected evidence.
+- Context Graph now includes source-backed `Documents` edges from explicit Markdown/RST document links to existing repo files. The resolver handles relative links, absolute workspace suffixes, fragments, queries, and line suffixes, and rejects ambiguous suffix links instead of guessing.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
 
@@ -89,7 +91,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 
 1. **External rank quality.** External recall@10/nDCG are too low. Candidate recall says this is not mostly an indexing problem.
 2. **Pack optimizer.** First-pass path diversity helps, but pack selection is still not a true bounded optimizer over utility, tokens, skeletons, and path coverage.
-3. **Strict causal labels.** Three curated strict causal cases now exist across TypeScript, Python, and Rust, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
+3. **Strict causal labels.** Four curated strict causal cases now exist across TypeScript, Python, Rust, and doc-to-code contract links, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
 4. **Framework context.** Route/layout/app-shell/shared-store relationships still need general graph edges, but previous path-convention attempts added noise.
 5. **Semantic default proof.** Real embeddings improve metrics, but default deterministic path remains no-vector. Need a clear quality-tier story: no-vector baseline, local ONNX private tier, hosted/rerank best tier.
 6. **Optimizer proof.** Signal ablations identify useful inputs, but not best allocation. Need optimizer ablations: greedy rank, path-diverse greedy, skeleton reserve, and bounded token utility.
