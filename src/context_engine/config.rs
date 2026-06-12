@@ -106,7 +106,7 @@ impl ContextEngineConfig {
             enable_rank_diversity: true,
             enable_token_efficiency_bonus: true,
             weight_changed_span: 0.25,
-            weight_graph_proximity: 0.20,
+            weight_graph_proximity: 0.22,
             weight_co_change: 0.15,
             weight_path_proximity: 0.05,
             weight_lexical_change: 0.20,
