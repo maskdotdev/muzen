@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import fnmatch
 import json
 import shutil
 import subprocess
@@ -168,6 +169,24 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Run independent cases in parallel. Cases sharing one derived cache "
             "are serialized so cache writes stay deterministic."
+        ),
+    )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help=(
+            "Run one exact case id. Repeatable. Filtered runs are diagnostic: "
+            "they may not write baselines and skip the regression gate."
+        ),
+    )
+    parser.add_argument(
+        "--case-glob",
+        action="append",
+        default=[],
+        help=(
+            "Run case ids matching a shell glob, for example '*-pack'. "
+            "Repeatable. Filtered runs are diagnostic only."
         ),
     )
     parser.add_argument(
@@ -399,6 +418,68 @@ def prepare_corpus(case_files: list[dict[str, Any]]) -> None:
         seen.add(key)
         materialize_repo(source)
         materialize_diff(source)
+
+
+def case_selection_active(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "case_id", []) or getattr(args, "case_glob", []))
+
+
+def case_matches_selection(case: dict[str, Any], args: argparse.Namespace) -> bool:
+    if not case_selection_active(args):
+        return True
+    case_id = str(case.get("id", ""))
+    exact_ids = set(getattr(args, "case_id", []) or [])
+    if case_id in exact_ids:
+        return True
+    return any(
+        fnmatch.fnmatchcase(case_id, pattern)
+        for pattern in (getattr(args, "case_glob", []) or [])
+    )
+
+
+def select_case_files(
+    case_files: list[dict[str, Any]], args: argparse.Namespace
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    total_count = sum(len(case_file["cases"]) for case_file in case_files)
+    if not case_selection_active(args):
+        return case_files, None
+
+    requested_ids = set(getattr(args, "case_id", []) or [])
+    seen_requested_ids: set[str] = set()
+    selected: list[dict[str, Any]] = []
+    selected_count = 0
+    for case_file in case_files:
+        selected_cases = []
+        for case in case_file["cases"]:
+            case_id = str(case.get("id", ""))
+            if case_id in requested_ids:
+                seen_requested_ids.add(case_id)
+            if case_matches_selection(case, args):
+                selected_cases.append(case)
+        if selected_cases:
+            selected.append({**case_file, "cases": selected_cases})
+            selected_count += len(selected_cases)
+
+    missing = sorted(requested_ids - seen_requested_ids)
+    if missing:
+        raise SystemExit("case selection referenced unknown case id(s): " + ", ".join(missing))
+    if selected_count == 0:
+        raise SystemExit("case selection matched no cases")
+
+    return selected, {
+        "caseIds": list(getattr(args, "case_id", []) or []),
+        "caseGlobs": list(getattr(args, "case_glob", []) or []),
+        "selectedCaseCount": selected_count,
+        "totalCaseCount": total_count,
+        "diagnosticOnly": True,
+    }
+
+
+def validate_case_selection_mode(
+    args: argparse.Namespace, case_selection: dict[str, Any] | None
+) -> None:
+    if case_selection and args.write_baseline:
+        raise SystemExit("filtered diagnostic runs cannot write the regression baseline")
 
 
 def base_command(muzen_bin: Path | None) -> list[str]:
@@ -1236,7 +1317,12 @@ def run_ablation_report(
 def main() -> int:
     args = parse_args()
     case_files = load_case_files(args.cases_dir)
+    case_files, case_selection = select_case_files(case_files, args)
+    validate_case_selection_mode(args, case_selection)
+
     summary = run_suite(case_files, args)
+    if case_selection:
+        summary["caseSelection"] = case_selection
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -1249,11 +1335,16 @@ def main() -> int:
     if summary["failures"]:
         print("failed cases: " + ", ".join(summary["failures"]), file=sys.stderr)
         exit_code = 1
-    for regression in check_regression(summary, args.baseline, args.tolerance):
-        print(regression, file=sys.stderr)
-        exit_code = 1
+    if case_selection:
+        print("filtered diagnostic run: regression gate skipped", file=sys.stderr)
+    else:
+        for regression in check_regression(summary, args.baseline, args.tolerance):
+            print(regression, file=sys.stderr)
+            exit_code = 1
     if args.ablation_report:
         report = run_ablation_report(case_files, args, summary)
+        if case_selection:
+            report["caseSelection"] = case_selection
         args.ablation_report.parent.mkdir(parents=True, exist_ok=True)
         args.ablation_report.write_text(json.dumps(report, indent=2) + "\n")
         print(f"ablation report written to {args.ablation_report}")
