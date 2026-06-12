@@ -16,6 +16,7 @@ use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
+use crate::runtime::model_retry::complete_model_turn;
 use crate::runtime::planned_units::{add_model_metrics, elapsed_ms, record_usage};
 use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tool_batch::ToolBatchRunner;
@@ -200,40 +201,31 @@ impl AgentSessionRuntime {
             } else {
                 scope.clone()
             };
-            let turn = match tokio::time::timeout(
-                std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
-                model.complete(&model_scope, &transcript, turn_id, cancel.child_token()),
+            let outcome = complete_model_turn(
+                &*model,
+                &self.policy,
+                &self.events,
+                &self.limits,
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                &cancel,
             )
-            .await
-            {
-                Ok(Ok(turn)) => turn,
-                Ok(Err(error)) => {
-                    model_metrics.calls += 1;
-                    model_metrics.errors += 1;
-                    self.events.emit_planned_runtime(
-                        self.policy
-                            .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
-                    );
-                    status = "failed";
-                    break;
+            .await;
+            model_calls += outcome.attempts;
+            model_metrics.calls += outcome.attempts;
+            let turn = match outcome.result {
+                Ok(turn) => {
+                    model_metrics.errors += outcome.attempts - 1;
+                    turn
                 }
                 Err(_) => {
-                    model_metrics.calls += 1;
-                    model_metrics.errors += 1;
-                    self.events
-                        .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
-                            &scope,
-                            turn_id,
-                            1,
-                            false,
-                            &RuntimeError::Timeout,
-                        ));
+                    model_metrics.errors += outcome.attempts;
                     status = "failed";
                     break;
                 }
             };
-            model_calls += 1;
-            model_metrics.calls += 1;
             model_metrics.successes += 1;
             model_metrics.latency_ms += elapsed_ms(model_started);
             model_metrics.max_latency_ms =

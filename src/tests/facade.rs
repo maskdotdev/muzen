@@ -880,7 +880,9 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     assert_eq!(model_calls.load(Ordering::SeqCst), 1);
     assert_eq!(report.summary.sessions, 1);
     assert_eq!(report.summary.completed_sessions, 0);
-    assert_eq!(report.summary.model_calls, 0);
+    // The aborted call still counts: model_calls reports attempts made, not
+    // turns completed.
+    assert_eq!(report.summary.model_calls, 1);
     assert_eq!(report.summary.tool_calls, 0);
     let event_records = events.records();
     assert!(event_records.iter().any(|record| matches!(

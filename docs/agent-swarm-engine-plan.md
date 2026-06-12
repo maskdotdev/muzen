@@ -152,10 +152,14 @@ endpoint, keys via env refs, all from a single SDK call.
 
 ### Phase 4 — Model-loop efficiency and resilience
 
-1. Retries: exponential backoff + jitter on retryable errors (429/5xx/
+1. ~~Retries: exponential backoff + jitter on retryable errors (429/5xx/
    timeouts), capped per turn and per budget; surface retry counts in
-   metrics. Today any model error silently kills the session
-   (`src/runtime/planned_units.rs:292`).
+   metrics.~~ Done: `src/runtime/model_retry.rs` wraps every model turn
+   (direct sessions, planned units, final synthesis) with
+   `model_retry_max_attempts` / `model_retry_base_delay_ms` /
+   `model_retry_max_delay_ms` on `RuntimeLimits`; each failed attempt
+   emits `modelFailed { attempt, retrying }` and counts into
+   `modelMetrics.calls`/`errors`.
 2. Streaming: SSE for chat completions; stream tool-call deltas so tool
    batches can start as soon as calls are complete; enables early
    cancellation and cuts time-to-first-token.
