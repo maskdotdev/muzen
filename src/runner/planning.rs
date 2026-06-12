@@ -11,7 +11,7 @@ use crate::reviewer::snapshots::{
     ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
     SnapshotPathPolicy, SnapshotSpec,
 };
-use crate::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
+use crate::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunMode, RunSpec};
 use crate::runtime::contracts::{
     FsScope, ProviderResourceId, RepoPath, SessionInstruction, ToolEffects,
 };
@@ -87,7 +87,11 @@ pub(crate) fn plan_run_start(
             .as_ref()
             .and_then(|limits| limits.max_active_sessions),
     );
+    let mode = parse_run_mode(params.mode.as_deref())?;
     let sessions = if params.sessions.is_empty() {
+        if mode == RunMode::DirectSessions {
+            anyhow::bail!("direct_sessions mode requires at least one session");
+        }
         vec![RunSessionParams {
             id: "generalist".to_string(),
             role: Role::Generalist,
@@ -101,7 +105,14 @@ pub(crate) fn plan_run_start(
     } else {
         params.sessions
     };
-    let sessions = expand_sessions_for_changed_file_batches(sessions, &change.changed_files);
+    // Batch expansion shapes review-unit templates; direct sessions run
+    // exactly as the host supplied them.
+    let sessions = match mode {
+        RunMode::PlannedReview => {
+            expand_sessions_for_changed_file_batches(sessions, &change.changed_files)
+        }
+        RunMode::DirectSessions => sessions,
+    };
     let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
         SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
     );
@@ -118,11 +129,20 @@ pub(crate) fn plan_run_start(
     Ok(RunnerPlan {
         run_id: run_id.clone(),
         metadata,
-        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, limits),
+        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, limits).with_mode(mode),
         max_active_sessions,
         #[cfg(test)]
         target_path,
     })
+}
+
+fn parse_run_mode(mode: Option<&str>) -> Result<RunMode> {
+    match mode.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(RunMode::default()),
+        Some("planned_review") => Ok(RunMode::PlannedReview),
+        Some("direct_sessions") => Ok(RunMode::DirectSessions),
+        Some(unknown) => anyhow::bail!("unsupported run mode {unknown}"),
+    }
 }
 
 fn expand_sessions_for_changed_file_batches(

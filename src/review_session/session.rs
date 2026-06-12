@@ -342,6 +342,7 @@ impl CreateReviewSessionInput {
             model: self.options.runner_model(),
             tools: self.options.runner_tools(),
             heartbeat: None,
+            mode: None,
         })
     }
 }

@@ -18,8 +18,13 @@ Progress:
   user-supplied sessions straight through the generic agent loop
   (`src/runtime/agent_sessions.rs`) — no unit planning, no evidence
   obligations, no findings. Each session returns its final text in
-  `RunReport.session_outputs`. Still pending from Phase 2: runner
-  protocol mode flag and SDK `runSwarm` surface.
+  `RunReport.session_outputs`.
+- Phase 2 (protocol half) landed: `run.start` accepts
+  `mode: "direct_sessions"` (unknown modes are rejected; direct mode
+  skips review batch expansion and requires explicit sessions), and run
+  results carry `sessionOutputs`. Schema fixture regenerated
+  (additive). Still pending from Phase 2: SDK `runSwarm` ergonomics in
+  TypeScript and Python.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 
