@@ -409,6 +409,7 @@ struct ContextEvalBatchPerformance {
     index_build_ms: f64,
     case_action_ms: f64,
     graph_debug_ms: f64,
+    output_serialization_ms: f64,
 }
 
 fn default_context_max_file_kb() -> usize {
@@ -1166,6 +1167,7 @@ async fn run_context_eval_batch(args: &ContextEvalBatchArgs) -> Result<ContextEv
             snapshot_build_ms: shared_timings.snapshot_build_ms,
             index_build_ms: shared_timings.index_build_ms,
             action_ms,
+            output_serialization_ms: 0.0,
         };
         if let serde_json::Value::Object(object) = &mut result {
             object.insert(
@@ -1534,6 +1536,7 @@ struct ContextCliTimings {
     snapshot_build_ms: f64,
     index_build_ms: f64,
     action_ms: f64,
+    output_serialization_ms: f64,
 }
 
 fn elapsed_ms(started: Instant) -> f64 {
@@ -1557,9 +1560,15 @@ fn write_context_output<T: Serialize>(output: Option<&PathBuf>, value: &T) -> Re
 fn write_context_output_with_performance<T: Serialize>(
     output: Option<&PathBuf>,
     value: &T,
-    timings: ContextCliTimings,
+    mut timings: ContextCliTimings,
 ) -> Result<()> {
     let mut value = serde_json::to_value(value)?;
+    if let serde_json::Value::Object(object) = &mut value {
+        object.insert("performance".to_string(), serde_json::to_value(timings)?);
+    }
+    let serialization_started = Instant::now();
+    let _json_for_timing = serde_json::to_string_pretty(&value)?;
+    timings.output_serialization_ms = elapsed_ms(serialization_started);
     if let serde_json::Value::Object(object) = &mut value {
         object.insert("performance".to_string(), serde_json::to_value(timings)?);
     }
@@ -1578,8 +1587,11 @@ fn write_context_output_with_performance<T: Serialize>(
 
 fn write_context_eval_batch_output(
     output: Option<&PathBuf>,
-    value: ContextEvalBatchOutput,
+    mut value: ContextEvalBatchOutput,
 ) -> Result<()> {
+    let serialization_started = Instant::now();
+    let _json_for_timing = serde_json::to_string_pretty(&value)?;
+    value.performance.output_serialization_ms = elapsed_ms(serialization_started);
     let json = serde_json::to_string_pretty(&value)?;
     if let Some(path) = output {
         if let Some(parent) = path.parent() {
