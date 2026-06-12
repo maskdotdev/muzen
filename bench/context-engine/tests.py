@@ -536,6 +536,7 @@ class SummaryProofTest(unittest.TestCase):
                         "rankIndex": 12,
                         "tokenEstimate": 100,
                         "reason": "budget_exhausted",
+                        "graphPaths": [{"kind": "imports"}],
                     }
                 ],
                 "selected_tail_candidates": [
@@ -575,6 +576,18 @@ class SummaryProofTest(unittest.TestCase):
             summary["weakCases"][0]["selectedTailCandidates"][0]["evidenceId"],
             "tail-1",
         )
+        pressure = summary["diagnostics"]["omissionPressure"][
+            "candidatePresentMissOmissions"
+        ]
+        self.assertEqual(pressure["count"], 1)
+        self.assertEqual(pressure["caseCount"], 1)
+        self.assertEqual(pressure["byReason"], {"budget_exhausted": 1})
+        self.assertEqual(pressure["withGraphPathCount"], 1)
+        self.assertEqual(pressure["medianRankIndex"], 12)
+        self.assertEqual(pressure["p90RankIndex"], 12)
+        self.assertEqual(pressure["meanTokenEstimate"], 100)
+        self.assertEqual(pressure["scoreBeatsSelectedTailCaseCount"], 1)
+        self.assertEqual(pressure["scoreBeatsSelectedTailCases"][0]["id"], "weak")
 
     def test_summary_reports_slowest_cases(self):
         fast = case_result("fast")

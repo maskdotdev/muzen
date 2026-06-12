@@ -1163,6 +1163,102 @@ def slow_cases(results: list[CaseResult], limit: int = 10) -> list[dict[str, Any
     ]
 
 
+def mean_number(values: list[float | int]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def percentile_number(values: list[float | int], percentile: float) -> float | int | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = round((len(ordered) - 1) * percentile)
+    return ordered[index]
+
+
+def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
+    omissions: list[dict[str, Any]] = []
+    cases_with_misses = [
+        result for result in results if result.candidate_present_missed_paths
+    ]
+    score_beats_tail_cases = []
+    for result in cases_with_misses:
+        case_omissions = result.candidate_present_missed_omissions
+        omissions.extend(case_omissions)
+        missed_scores = [
+            omission["score"]
+            for omission in case_omissions
+            if isinstance(omission.get("score"), int | float)
+        ]
+        tail_scores = [
+            candidate["score"]
+            for candidate in result.selected_tail_candidates
+            if isinstance(candidate.get("score"), int | float)
+        ]
+        if not missed_scores or not tail_scores:
+            continue
+        best_missed_score = max(missed_scores)
+        worst_tail_score = min(tail_scores)
+        margin = best_missed_score - worst_tail_score
+        if margin > 0:
+            score_beats_tail_cases.append(
+                {
+                    "id": result.id,
+                    "sourceGroup": result.source_group,
+                    "truthSource": result.truth_source,
+                    "bestMissedScore": best_missed_score,
+                    "worstTailScore": worst_tail_score,
+                    "margin": margin,
+                    "candidatePresentMissCount": len(
+                        result.candidate_present_missed_paths
+                    ),
+                    "firstRelevantRank": result.first_relevant_rank,
+                    "tokensToFirstRelevant": result.tokens_to_first_relevant,
+                }
+            )
+
+    reason_counts: dict[str, int] = {}
+    graph_path_omissions = 0
+    total_graph_paths = 0
+    rank_values: list[int] = []
+    score_values: list[float] = []
+    token_values: list[int] = []
+    for omission in omissions:
+        reason = omission.get("reason")
+        if isinstance(reason, str):
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        graph_paths = omission.get("graphPaths")
+        if isinstance(graph_paths, list) and graph_paths:
+            graph_path_omissions += 1
+            total_graph_paths += len(graph_paths)
+        rank_index = omission.get("rankIndex")
+        if isinstance(rank_index, int):
+            rank_values.append(rank_index)
+        score = omission.get("score")
+        if isinstance(score, int | float):
+            score_values.append(float(score))
+        token_estimate = omission.get("tokenEstimate")
+        if isinstance(token_estimate, int):
+            token_values.append(token_estimate)
+
+    score_beats_tail_cases.sort(key=lambda case: (-case["margin"], case["id"]))
+    return {
+        "candidatePresentMissOmissions": {
+            "count": len(omissions),
+            "caseCount": len(cases_with_misses),
+            "byReason": dict(sorted(reason_counts.items())),
+            "withGraphPathCount": graph_path_omissions,
+            "withoutGraphPathCount": len(omissions) - graph_path_omissions,
+            "totalGraphPaths": total_graph_paths,
+            "meanScore": mean_number(score_values),
+            "medianRankIndex": percentile_number(rank_values, 0.5),
+            "p90RankIndex": percentile_number(rank_values, 0.9),
+            "meanTokenEstimate": mean_number(token_values),
+            "scoreBeatsSelectedTailCaseCount": len(score_beats_tail_cases),
+            "scoreBeatsSelectedTailCases": score_beats_tail_cases[:limit],
+        }
+    }
+
+
 def summarize(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
     failures = sorted(
@@ -1190,6 +1286,9 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         },
         "weakCases": weak_cases(results),
         "slowCases": slow_cases(results),
+        "diagnostics": {
+            "omissionPressure": omission_pressure(results),
+        },
         "cases": [result.__dict__ for result in results],
     }
 
