@@ -27,6 +27,9 @@ Run the evaluation suite:
 python3 bench/context-engine/run.py
 ```
 
+When `--muzen-bin` is omitted, the runner builds `muzen` once with
+`cargo build --bin muzen` and reuses `target/debug/muzen` for every case.
+
 For iteration, build once and run focused diagnostic cases:
 
 ```sh
@@ -59,11 +62,10 @@ python3 bench/context-engine/compare.py \
 Use artifacts with the same case selection for summary-level metric deltas.
 When selections differ, the case-delta rows are still useful for diagnostics.
 
-The runner drives `cargo run --bin muzen -- context query` or
-`cargo run --bin muzen -- context pack` for each case in
-`bench/context-engine/cases/`, computes recall, precision, token efficiency,
-omissions, redaction correctness, prompt-injection trust checks, expected range
-coverage, and latency, then writes
+The runner drives the public `muzen context query` or `muzen context pack` CLI
+for each case in `bench/context-engine/cases/`, computes recall, precision,
+token efficiency, omissions, redaction correctness, prompt-injection trust
+checks, expected range coverage, and latency, then writes
 `bench/results-context-engine/context-engine-summary.json`.
 Weak-case diagnostics include candidate-present missed omissions and the
 selected tail candidates with score, rank index, representation, and token

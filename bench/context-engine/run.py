@@ -144,7 +144,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--muzen-bin",
         type=Path,
-        help="Existing muzen binary. Defaults to cargo run --bin muzen.",
+        help=(
+            "Existing muzen binary. Defaults to one cargo build --bin muzen, "
+            "then reuses target/debug/muzen for every case."
+        ),
     )
     parser.add_argument(
         "--baseline",
@@ -483,10 +486,20 @@ def validate_case_selection_mode(
         raise SystemExit("filtered diagnostic runs cannot write the regression baseline")
 
 
-def base_command(muzen_bin: Path | None) -> list[str]:
+def default_muzen_binary() -> Path:
+    suffix = ".exe" if sys.platform == "win32" else ""
+    return ROOT / "target" / "debug" / f"muzen{suffix}"
+
+
+def resolve_muzen_bin(muzen_bin: Path | None) -> Path:
     if muzen_bin:
-        return [str(muzen_bin)]
-    return ["cargo", "run", "--quiet", "--bin", "muzen", "--"]
+        return muzen_bin
+    subprocess.run(["cargo", "build", "--quiet", "--bin", "muzen"], cwd=ROOT, check=True)
+    return default_muzen_binary()
+
+
+def base_command(muzen_bin: Path) -> list[str]:
+    return [str(muzen_bin)]
 
 
 def run_context_case(
@@ -1352,6 +1365,7 @@ def run_ablation_report(
 
 def main() -> int:
     args = parse_args()
+    args.muzen_bin = resolve_muzen_bin(args.muzen_bin)
     case_files = load_case_files(args.cases_dir)
     case_files, case_selection = select_case_files(case_files, args)
     validate_case_selection_mode(args, case_selection)
