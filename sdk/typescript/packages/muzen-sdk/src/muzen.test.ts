@@ -114,6 +114,97 @@ describe("runner-backed Muzen preview", () => {
       });
     },
   );
+
+  it(
+    "runs a 20-agent swarm with custom tools through the generic loop",
+    { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
+    async () => {
+      const repo = await mkdtemp(join(tmpdir(), "muzen-swarm-"));
+      tempDirs.push(repo);
+      await writeFile(
+        join(repo, "Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+      );
+      muzen ??= await createMuzen({ runnerPath });
+      const lookups = new Set<string>();
+
+      const result = await muzen.runSwarm({
+        repo,
+        files: ["Cargo.toml"],
+        model: {
+          kind: "callback",
+          handler: (request) => {
+            const toolResults = request.transcript.filter(
+              (item) => isRecord(item) && item.kind === "tool_result",
+            );
+            if (toolResults.length === 0) {
+              return {
+                toolCalls: [
+                  {
+                    toolId: "host.lookup",
+                    arguments: { key: request.sessionId },
+                  },
+                ],
+                usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+              };
+            }
+            return {
+              content: JSON.stringify({
+                agent: request.sessionId,
+                objective: request.objective,
+              }),
+              usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+            };
+          },
+        },
+        tools: [
+          {
+            id: "host.lookup",
+            description: "Look up a host-side value by key.",
+            parameters: {
+              type: "object",
+              properties: { key: { type: "string" } },
+              required: ["key"],
+              additionalProperties: false,
+            },
+            effects: ["read_host"],
+            handler: (_context, args) => {
+              const key = (args as { key: string }).key;
+              lookups.add(key);
+              return { data: { value: `host-value-for-${key}` } };
+            },
+          },
+        ],
+        agents: Array.from({ length: 20 }, (_, index) => ({
+          id: `agent-${index}`,
+          objective: `Report objective ${index}.`,
+          budget: {
+            maxTurns: 3,
+            maxToolCalls: 2,
+            maxPromptTokens: 32_000,
+            maxOutputTokens: 1_024,
+          },
+        })),
+      });
+
+      assert.equal(result.status, "completed");
+      assert.equal(result.outputs.length, 20);
+      assert.equal(result.usage.agents, 20);
+      assert.equal(result.usage.completedAgents, 20);
+      assert.equal(lookups.size, 20);
+      for (const [index, output] of result.outputs.entries()) {
+        assert.equal(output.agentId, `agent-${index}`);
+        assert.equal(output.completed, true);
+        assert.equal(output.status, "done");
+        const parsed = JSON.parse(output.output ?? "{}") as {
+          agent: string;
+          objective: string;
+        };
+        assert.equal(parsed.agent, `agent-${index}`);
+        assert.equal(parsed.objective, `Report objective ${index}.`);
+      }
+    },
+  );
 });
 
 function smokeReviewModel(path: string): ReviewOptions["model"] {
@@ -133,10 +224,20 @@ function smokeReviewModel(path: string): ReviewOptions["model"] {
           usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         };
       }
+      // A unit completes on a structured text result; the clean verdict is
+      // accepted because the read_file call above recorded file evidence.
       return {
-        toolCalls: [
-          { toolId: "finish", arguments: { reason: "smoke review completed" } },
-        ],
+        content: JSON.stringify({
+          summary: "Smoke review completed.",
+          fileVerdicts: [
+            {
+              path,
+              verdict: "clean",
+              summary: "No issues found in the fixture manifest.",
+            },
+          ],
+          findings: [],
+        }),
         usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
       };
     },

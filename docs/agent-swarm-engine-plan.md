@@ -23,8 +23,14 @@ Progress:
   `mode: "direct_sessions"` (unknown modes are rejected; direct mode
   skips review batch expansion and requires explicit sessions), and run
   results carry `sessionOutputs`. Schema fixture regenerated
-  (additive). Still pending from Phase 2: SDK `runSwarm` ergonomics in
-  TypeScript and Python.
+  (additive).
+- Phase 2 (SDK half) landed: `muzen.runSwarm(...)` (TypeScript) and
+  `Client.run_swarm(...)` (Python) take agents + tools + models over
+  one repo snapshot and return per-agent outputs plus usage; review
+  API unchanged on top. The exit-criteria proof is the TS integration
+  test that runs 20 heterogeneous agents with a custom host tool
+  through the generic loop, plus `examples/typescript/swarm/` and
+  `examples/python/swarm.py` showing per-agent BYO endpoints.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 
