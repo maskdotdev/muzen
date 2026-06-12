@@ -56,6 +56,7 @@ CONTEXT_SIGNAL_ABLATIONS = (
     "lexical-change",
     "test-coverage",
     "semantic-change",
+    "pack-repair",
 )
 GATED_METRICS = (
     "meanRecallAt5",

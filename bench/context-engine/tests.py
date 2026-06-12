@@ -987,7 +987,7 @@ class AblationReportTest(unittest.TestCase):
         args = type(
             "Args",
             (),
-            {"ablate_context_signal": ["graph", "co-change"]},
+            {"ablate_context_signal": ["graph", "pack-repair"]},
         )()
 
         self.assertEqual(
@@ -996,7 +996,7 @@ class AblationReportTest(unittest.TestCase):
                 "--ablate-context-signal",
                 "graph",
                 "--ablate-context-signal",
-                "co-change",
+                "pack-repair",
             ],
         )
 

@@ -45,7 +45,7 @@ This split is now part of the gate. Fixture/security cases prove basic behavior 
 
 Signal ablations:
 
-Source: `bench/results-context-engine/context-engine-ablation-summary.json`. Each row disables one signal through the same public CLI with `--ablate-context-signal`.
+Source: `bench/results-context-engine/context-engine-ablation-summary.json`; pack-repair row from `/tmp/context-pack-repair-ablation-report.json`. Each row disables one signal through the same public CLI with `--ablate-context-signal`.
 
 | Disabled signal | recall@10 delta | nDCG@10 delta | present-miss delta | tokens-to-first delta |
 | --- | ---: | ---: | ---: | ---: |
@@ -54,9 +54,10 @@ Source: `bench/results-context-engine/context-engine-ablation-summary.json`. Eac
 | test coverage | `-0.0410` | `-0.0331` | `+0.0070` | `+467` |
 | lexical change | `-0.0236` | `-0.0008` | `+0.0105` | `+22` |
 | path proximity | `-0.0146` | `-0.0040` | `+0.0140` | `+84` |
+| pack repair | `+0.0000` | `+0.0000` | `+0.0035` | `+0` |
 | semantic change | `+0.0000` | `+0.0000` | `+0.0000` | `+0` |
 
-This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
+This proves graph and co-change are carrying real retrieval value across repos. Test coverage is valuable for rank/order but not candidate-present misses. Pack repair measurably reduces budget omissions without changing rank metrics. Path and lexical signals are mixed: they improve recall slightly, but delay the first relevant item less when removed, so weights need tuning. Semantic-change is inert in the default no-vector tier, as expected.
 
 ## What Is Already Strong
 
@@ -68,7 +69,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Real semantic tiers exist: hosted `text-embedding-3-small` and local ONNX `jina-embeddings-v2-base-code` previously improved recall/nDCG versus no-vector baseline.
 - The pack compiler now gives first-pass priority to one full-content item per path before spending tail budget on duplicate chunks. This reduced candidate-present misses from `0.2903` to `0.2509` overall and from `0.5147` to `0.4779` on external cases without changing recall@10/nDCG@10.
 - The eval harness now labels truth source as `fixture`, `mined_followup`, or `curated`, reports cohorts, includes truth source on weak cases, and gates fixture/mined performance separately.
-- Public signal ablation now exists through `muzen context --ablate-context-signal ...`; the bench harness can pass it through and write ablation deltas without hidden hooks.
+- Public signal/optimizer ablation now exists through `muzen context --ablate-context-signal ...`; the bench harness can pass it through and write ablation deltas without hidden hooks.
 - Strict curated fixture `curated-checkout-flow` now proves changed checkout logic retrieves direct API callers and route tests through import graph facts under a 4k pack budget.
 - Strict curated fixture `curated-python-billing` now proves Python import graph facts retrieve a changed settlement module, API caller, and API test under a 3.5k pack budget despite unrelated payment/API/test distractors.
 - Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
@@ -122,7 +123,7 @@ The eval gate now tracks:
 - candidate-present missed omitted candidates with reason/score/rank/token diagnostics
 - selected-tail score/rank/token/graph-path diagnostics for weak cases
 - aggregate omission-pressure diagnostics
-- public CLI signal ablations for proof runs
+- public CLI signal and pack-repair ablations for proof runs
 - summary-to-summary metric and case-delta comparison for diagnostic artifacts
 
 Recent rejected experiments:

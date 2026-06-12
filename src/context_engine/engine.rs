@@ -1178,15 +1178,17 @@ impl ContextEngine for SnapshotContextEngine {
                 candidate,
             );
         }
-        repair_budget_exhausted_pack_candidates(
-            request.purpose,
-            request.max_tokens,
-            &mut used_tokens,
-            &mut selected,
-            &mut omitted_candidates,
-            &budget_omitted_candidates,
-            &mut selected_by_path,
-        );
+        if self.config.enable_pack_repair {
+            repair_budget_exhausted_pack_candidates(
+                request.purpose,
+                request.max_tokens,
+                &mut used_tokens,
+                &mut selected,
+                &mut omitted_candidates,
+                &budget_omitted_candidates,
+                &mut selected_by_path,
+            );
+        }
         let selected_candidates = selected
             .iter()
             .map(|selected| SelectedContextCandidate {
