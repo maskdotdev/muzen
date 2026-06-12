@@ -8,7 +8,7 @@ It is strongest as a deterministic, trust-aware retrieval primitive: evidence ha
 
 ## Current Default Metrics
 
-Source: latest public-CLI proof run `/tmp/context-omitted-graphpaths-full.json`, 91 deterministic cases.
+Source: latest public-CLI proof run `/tmp/context-next-layout-full.json`, 91 deterministic cases.
 
 Overall:
 
@@ -16,10 +16,10 @@ Overall:
 - nDCG@10: `0.3884`
 - recall@25: `0.6728`
 - candidate recall: `0.9936`
-- candidate-present miss rate: `0.2404`
+- candidate-present miss rate: `0.2334`
 - first relevant rate: `0.9341`
 - tokens to first relevant: `1581`
-- useful evidence per 1k tokens: `1.6584`
+- useful evidence per 1k tokens: `1.6603`
 - sufficiency insufficient when incomplete: `1.0`
 
 External corpus:
@@ -28,10 +28,10 @@ External corpus:
 - nDCG@10: `0.2273`
 - recall@25: `0.4672`
 - candidate recall: `0.9917`
-- candidate-present miss rate: `0.4706`
+- candidate-present miss rate: `0.4559`
 - first relevant rate: `0.8500`
 - tokens to first relevant: `2538`
-- useful evidence per 1k tokens: `0.1479`
+- useful evidence per 1k tokens: `0.1521`
 
 This shape matters: indexing usually finds ground truth, but pack order and budget still fail too often, especially outside this repo.
 
@@ -39,7 +39,7 @@ Truth-source split:
 
 - curated: 4 cases, recall@10 `1.0000`, nDCG@10 `0.5324`, candidate-present miss `0.0000`, tokens to first relevant `182`
 - fixture: 8 cases, recall@10 `1.0000`, nDCG@10 `1.0000`, candidate-present miss `0.0000`, tokens to first relevant `52`
-- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2546`, tokens to first relevant `1825`
+- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2472`, tokens to first relevant `1825`
 
 This split is now part of the gate. Fixture/security cases prove basic behavior stays intact, curated strict cases prove causal behavior without future labels, and mined follow-up cases remain the hard stress set that cannot be averaged away.
 
@@ -85,6 +85,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Runtime explain-pack diagnostics now also include graph paths for omitted candidates when `includeOmitted` is requested. This lets us audit why graph-connected evidence lost the budget fight instead of only explaining selected evidence.
 - Bench weak-case summaries now preserve omitted-candidate graph paths from runtime explain-pack output. Latest 91-case run had `258` weak-case omitted details and `0` graph paths on those misses, which means current worst misses are candidate-found but not source-backed by graph paths.
 - Context Graph now includes source-backed `Documents` edges from explicit Markdown/RST document links to existing repo files. The resolver handles relative links, absolute workspace suffixes, fragments, queries, and line suffixes, and rejects ambiguous suffix links instead of guessing.
+- Context Graph now includes source-backed Next App Router layout edges from ancestor `layout.*` files to changed `app/**/{page,route,...}.*` leaves. The edge is scoped to changed app-route leaves and capped at four ancestor layouts, which reduced candidate-present miss `0.2404 -> 0.2334` and external candidate-present miss `0.4706 -> 0.4559` with recall/nDCG/tokens unchanged.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
 
@@ -93,7 +94,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 1. **External rank quality.** External recall@10/nDCG are too low. Candidate recall says this is not mostly an indexing problem.
 2. **Pack optimizer.** First-pass path diversity helps, but pack selection is still not a true bounded optimizer over utility, tokens, skeletons, and path coverage.
 3. **Strict causal labels.** Four curated strict causal cases now exist across TypeScript, Python, Rust, and doc-to-code contract links, but most hard cases still use future commits as useful stress labels. Need more curated causal cases across frameworks and languages.
-4. **Framework context.** Route/layout/app-shell/shared-store relationships still need general graph edges, but previous path-convention attempts added noise.
+4. **Framework context.** Next App Router layout edges now cover one strong framework contract. Route/app-shell/shared-store relationships still need source-backed facts; previous broad path-convention attempts added noise.
 5. **Semantic default proof.** Real embeddings improve metrics, but default deterministic path remains no-vector. Need a clear quality-tier story: no-vector baseline, local ONNX private tier, hosted/rerank best tier.
 6. **Optimizer proof.** Signal ablations identify useful inputs, but not best allocation. Need optimizer ablations: greedy rank, path-diverse greedy, skeleton reserve, and bounded token utility.
 

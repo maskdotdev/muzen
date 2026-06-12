@@ -1076,6 +1076,61 @@ fn absolute_doc_links_resolve_only_unique_repo_suffixes() {
     assert_eq!(targets, vec!["apps/web/src/config.ts"]);
 }
 
+#[test]
+fn next_app_layouts_configure_changed_route_leaves() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("apps/web/src/app/layout.tsx"),
+        parsed(&["RootLayout"], Vec::new()),
+    );
+    files.insert(
+        repo_path("apps/web/src/app/(app)/layout.tsx"),
+        parsed(&["AppLayout"], Vec::new()),
+    );
+    files.insert(
+        repo_path("apps/web/src/app/(app)/settings/page.tsx"),
+        parsed(&["SettingsPage"], Vec::new()),
+    );
+    let changed = "apps/web/src/app/(app)/settings/page.tsx";
+    let graph = GraphSpec::new(&files).with_changed(&[changed]).build();
+
+    let targets = graph
+        .file_referencers(&repo_path(changed))
+        .filter(|edge| edge.kind == ContextEdgeKind::Configures)
+        .filter_map(|edge| edge.from_path().map(RepoPath::display))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        vec![
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/app/layout.tsx"
+        ]
+    );
+
+    let expansion = graph.expand(default_request());
+    assert!(expansion.candidates.iter().any(|candidate| {
+        candidate.node_id.path() == Some(&repo_path("apps/web/src/app/layout.tsx"))
+            && candidate.relationship_kind() == ContextRelationshipKind::Configures
+    }));
+}
+
+#[test]
+fn next_app_layout_edges_ignore_non_app_route_files() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("src/layout.tsx"),
+        parsed(&["RootLayout"], Vec::new()),
+    );
+    files.insert(repo_path("src/route.ts"), parsed(&["route"], Vec::new()));
+    let graph = GraphSpec::new(&files)
+        .with_changed(&["src/route.ts"])
+        .build();
+
+    assert!(graph
+        .file_referencers(&repo_path("src/route.ts"))
+        .all(|edge| edge.kind != ContextEdgeKind::Configures));
+}
+
 // ---- co-change ----------------------------------------------------------
 
 #[test]
