@@ -943,6 +943,9 @@ def omitted_details_for_paths(
     for candidate in omitted:
         if not isinstance(candidate, dict) or candidate.get("path") not in missed:
             continue
+        graph_paths = candidate.get("graphPaths")
+        if not isinstance(graph_paths, list):
+            graph_paths = []
         details.append(
             {
                 "evidenceId": candidate.get("evidenceId"),
@@ -952,6 +955,7 @@ def omitted_details_for_paths(
                 "rankIndex": candidate.get("rankIndex"),
                 "tokenEstimate": candidate.get("tokenEstimate"),
                 "reason": candidate.get("reason"),
+                "graphPaths": graph_paths,
             }
         )
     return details
