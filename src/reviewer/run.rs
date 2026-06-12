@@ -12,7 +12,7 @@ use crate::runtime::tools::{
 
 use crate::contracts::{ChangeScopeV1, PathPolicyV1};
 use crate::events::EventEmitter;
-use crate::runtime::planned_units::PlannedReviewRuntime;
+use crate::runtime::planned_units::{session_semaphore, PlannedReviewRuntime};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tools::ToolEngine;
@@ -214,48 +214,77 @@ impl Run {
             });
         }
         let aggregate_artifacts = Arc::new(RuntimeArtifactStore::default());
-        let mut snapshot_readers = Vec::new();
+        let snapshot_readers = self
+            .shards
+            .iter()
+            .map(|shard| SnapshotReader::new(Arc::clone(&shard.snapshot)))
+            .collect::<Vec<_>>();
+        // Shards run concurrently; the shared semaphore keeps the whole run
+        // within max_active_sessions. Results are re-ordered by shard index
+        // before aggregation so the report stays deterministic.
+        let active_sessions = session_semaphore(&self.limits);
+        let mut joins = tokio::task::JoinSet::new();
+        for (index, shard) in self.shards.into_iter().enumerate() {
+            let event_sink = self.event_sink.clone();
+            let legacy_event_emitter = self.legacy_event_emitter.clone();
+            let run_id = self.run_id.clone();
+            let model_router = Arc::clone(&self.model_router);
+            let reviewer_policy = Arc::clone(&self.reviewer_policy);
+            let limits = Arc::clone(&self.limits);
+            let active_sessions = Arc::clone(&active_sessions);
+            let cancel = cancel.clone();
+            joins.spawn(async move {
+                let shard_event_sink = event_sink.map(|sink| {
+                    Arc::new(ContextualEventSink::new(
+                        sink,
+                        run_id,
+                        Some(shard.snapshot_handle.snapshot_id.clone()),
+                    )) as Arc<dyn RuntimeEventSink>
+                });
+                if let Some(sink) = &shard_event_sink {
+                    sink.emit(RuntimeEvent::SnapshotStarted {
+                        snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
+                    });
+                }
+                let runtime = Arc::new(PlannedReviewRuntime {
+                    snapshot: shard.snapshot,
+                    model_router,
+                    tools: shard.tools,
+                    policy: reviewer_policy,
+                    limits,
+                    review_revision_id: shard.review_revision_id,
+                    session_templates: shard.sessions,
+                    events: RuntimeEventDispatcher::new(
+                        shard_event_sink.clone(),
+                        legacy_event_emitter,
+                    ),
+                    active_sessions,
+                });
+                let summary = Arc::clone(&runtime).run_with_cancel(cancel).await;
+                if let Some(sink) = &shard_event_sink {
+                    sink.emit(RuntimeEvent::SnapshotFinished {
+                        snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
+                        sessions: summary.metrics.sessions,
+                        completed_sessions: summary.metrics.completed_sessions,
+                    });
+                }
+                (index, summary, runtime)
+            });
+        }
+        let mut shard_outcomes = Vec::new();
+        while let Some(result) = joins.join_next().await {
+            if let Ok(outcome) = result {
+                shard_outcomes.push(outcome);
+            }
+        }
+        shard_outcomes.sort_by_key(|(index, _, _)| *index);
         let mut summaries = Vec::new();
         let mut findings = Vec::new();
         let mut file_reviews = Vec::new();
-        for shard in self.shards {
-            snapshot_readers.push(SnapshotReader::new(Arc::clone(&shard.snapshot)));
-            let shard_event_sink = self.event_sink.as_ref().map(|sink| {
-                Arc::new(ContextualEventSink::new(
-                    Arc::clone(sink),
-                    self.run_id.clone(),
-                    Some(shard.snapshot_handle.snapshot_id.clone()),
-                )) as Arc<dyn RuntimeEventSink>
-            });
-            if let Some(sink) = &shard_event_sink {
-                sink.emit(RuntimeEvent::SnapshotStarted {
-                    snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
-                });
-            }
-            let runtime = Arc::new(PlannedReviewRuntime {
-                snapshot: Arc::clone(&shard.snapshot),
-                model_router: Arc::clone(&self.model_router),
-                tools: Arc::clone(&shard.tools),
-                policy: Arc::clone(&self.reviewer_policy),
-                limits: Arc::clone(&self.limits),
-                review_revision_id: shard.review_revision_id.clone(),
-                session_templates: shard.sessions,
-                events: RuntimeEventDispatcher::new(
-                    shard_event_sink.clone(),
-                    self.legacy_event_emitter.clone(),
-                ),
-            });
-            let summary = Arc::clone(&runtime).run_with_cancel(cancel.clone()).await;
+        for (_, summary, runtime) in shard_outcomes {
             aggregate_artifacts.merge_from(&runtime.tools.artifacts);
             findings.extend(summary.findings);
             file_reviews.extend(summary.file_reviews);
-            if let Some(sink) = &shard_event_sink {
-                sink.emit(RuntimeEvent::SnapshotFinished {
-                    snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
-                    sessions: summary.metrics.sessions,
-                    completed_sessions: summary.metrics.completed_sessions,
-                });
-            }
             summaries.push(summary.metrics);
         }
         let metrics = merge_run_summaries(summaries);
