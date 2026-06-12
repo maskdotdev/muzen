@@ -1139,6 +1139,26 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
     ]
 
 
+def slow_cases(results: list[CaseResult], limit: int = 10) -> list[dict[str, Any]]:
+    ranked = sorted(results, key=lambda result: (-result.latency_ms, result.id))
+    return [
+        {
+            "id": result.id,
+            "caseSet": result.case_set,
+            "sourceGroup": result.source_group,
+            "truthSource": result.truth_source,
+            "kind": result.kind,
+            "latencyMs": result.latency_ms,
+            "tokenEstimate": result.token_estimate,
+            "omitted": result.omitted,
+            "recallAt10": result.recall_at_10,
+            "recallAt25": result.recall_at_25,
+            "candidatePresentMissCount": len(result.candidate_present_missed_paths),
+        }
+        for result in ranked[:limit]
+    ]
+
+
 def summarize(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
     failures = sorted(
@@ -1165,6 +1185,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
             "byStrict": cohort_summary(results, "strict"),
         },
         "weakCases": weak_cases(results),
+        "slowCases": slow_cases(results),
         "cases": [result.__dict__ for result in results],
     }
 

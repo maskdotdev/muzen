@@ -576,6 +576,27 @@ class SummaryProofTest(unittest.TestCase):
             "tail-1",
         )
 
+    def test_summary_reports_slowest_cases(self):
+        fast = case_result("fast")
+        slow = run.CaseResult(
+            **{
+                **case_result("slow", source_group="external").__dict__,
+                "latency_ms": 42.0,
+                "token_estimate": 1200,
+                "omitted": 17,
+                "candidate_present_missed_paths": ["src/missed.rs"],
+            }
+        )
+
+        summary = run.summarize([fast, slow])
+
+        self.assertEqual(summary["slowCases"][0]["id"], "slow")
+        self.assertEqual(summary["slowCases"][0]["sourceGroup"], "external")
+        self.assertEqual(summary["slowCases"][0]["latencyMs"], 42.0)
+        self.assertEqual(summary["slowCases"][0]["tokenEstimate"], 1200)
+        self.assertEqual(summary["slowCases"][0]["omitted"], 17)
+        self.assertEqual(summary["slowCases"][0]["candidatePresentMissCount"], 1)
+
     def test_selected_tail_details_join_scores_to_evidence(self):
         result = {
             "selectedCandidates": [
