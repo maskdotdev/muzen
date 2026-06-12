@@ -354,6 +354,7 @@ fn omitted_candidate(
         evidence_id: evidence.id.clone(),
         kind: evidence.kind,
         path: evidence.path.clone(),
+        signals: evidence.signals,
         score,
         rank_index,
         token_estimate: evidence.token_estimate,

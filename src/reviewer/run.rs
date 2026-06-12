@@ -856,6 +856,7 @@ mod tests {
                 evidence_id: crate::runtime::contracts::EvidenceId("ev_omitted".to_string()),
                 kind: ContextEvidenceKind::FileSpan,
                 path: Some(crate::runtime::contracts::RepoPath::parse("src/omitted.rs").unwrap()),
+                signals: ContextRankSignals::default(),
                 score: 0.42,
                 rank_index: 9,
                 token_estimate: 320,
