@@ -106,12 +106,21 @@ pub struct ContextPack {
     pub session_id: Option<SessionId>,
     pub purpose: ContextPackPurpose,
     pub evidence: Vec<ContextEvidence>,
+    pub selected_candidates: Vec<SelectedContextCandidate>,
     pub relationships: Vec<ContextRelationship>,
     pub omitted_candidates: Vec<OmittedContextCandidate>,
     pub budget: ContextBudgetUsage,
     pub sufficiency: ContextSufficiency,
     pub compiler_version: String,
     pub created_at_utc: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectedContextCandidate {
+    pub evidence_id: crate::runtime::contracts::EvidenceId,
+    pub score: f32,
+    pub rank_index: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

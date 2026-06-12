@@ -850,6 +850,7 @@ mod tests {
                 created_at_utc: None,
                 expires_at_utc: None,
             }],
+            selected_candidates: Vec::new(),
             relationships: Vec::new(),
             omitted_candidates: vec![OmittedContextCandidate {
                 evidence_id: crate::runtime::contracts::EvidenceId("ev_omitted".to_string()),

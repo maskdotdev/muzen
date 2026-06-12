@@ -54,6 +54,9 @@ The runner drives `cargo run --bin muzen -- context query` or
 omissions, redaction correctness, prompt-injection trust checks, expected range
 coverage, and latency, then writes
 `bench/results-context-engine/context-engine-summary.json`.
+Weak-case diagnostics include candidate-present missed omissions and the
+selected tail candidates with score, rank index, representation, and token
+estimate, so pack-selection tradeoffs can be inspected directly.
 
 Case files may set `localSemantic: true` or `hostedSemantic: true` and
 `maxEmbeddingInputs` to exercise semantic indexing. Hosted cases can also set
