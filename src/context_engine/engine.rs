@@ -1672,6 +1672,21 @@ impl ContextEngine for SnapshotContextEngine {
                     pack.omitted_candidates
                         .iter()
                         .map(|candidate| {
+                            let graph_paths = index
+                                .relationships
+                                .iter()
+                                .filter(|relationship| {
+                                    relationship.from == candidate.evidence_id
+                                        || relationship.to == candidate.evidence_id
+                                })
+                                .map(|relationship| {
+                                    serde_json::json!({
+                                        "kind": relationship.kind,
+                                        "confidence": relationship.confidence,
+                                        "path": relationship.reason,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
                             serde_json::json!({
                                 "evidenceId": candidate.evidence_id.0,
                                 "kind": candidate.kind,
@@ -1680,6 +1695,7 @@ impl ContextEngine for SnapshotContextEngine {
                                 "rankIndex": candidate.rank_index,
                                 "tokenEstimate": candidate.token_estimate,
                                 "reason": candidate.reason,
+                                "graphPaths": graph_paths,
                             })
                         })
                         .collect::<Vec<_>>()

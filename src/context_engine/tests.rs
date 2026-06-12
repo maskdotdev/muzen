@@ -1098,6 +1098,96 @@ async fn pack_sufficiency_is_insufficient_when_ranked_candidates_are_omitted() {
 }
 
 #[tokio::test]
+async fn explain_pack_includes_graph_paths_for_omitted_candidates() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/core.ts"),
+        "export function changedFn() {\n  return 1\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/caller.ts"),
+        format!(
+            "import {{ changedFn }} from \"./core\"\n\nexport function caller() {{\n  changedFn()\n{}\n}}\n",
+            (0..220)
+                .map(|line| format!("  const value{line} = {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    )
+    .unwrap();
+    let diff = "diff --git a/src/core.ts b/src/core.ts\n--- a/src/core.ts\n+++ b/src/core.ts\n@@ -2,1 +2,1 @@\n+  return 1\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/core.ts"], diff);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens: 350,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        pack.omitted_candidates.iter().any(|candidate| candidate
+            .path
+            .as_ref()
+            .is_some_and(|path| path.display() == "src/caller.ts")),
+        "caller full content should be omitted or downgraded under the small pack budget"
+    );
+
+    let explanation = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::StandaloneQuery),
+                kind: ContextQueryKind::ExplainPack,
+                arguments: serde_json::json!({
+                    "packId": pack.id.0,
+                    "includeOmitted": true,
+                }),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let explanation_data = explanation.data.expect("explain pack data");
+    let omitted = explanation_data
+        .get("omitted")
+        .and_then(serde_json::Value::as_array)
+        .expect("omitted candidates are an array");
+    assert!(
+        omitted.iter().any(|candidate| {
+            candidate.get("path").and_then(serde_json::Value::as_str) == Some("src/caller.ts")
+                && candidate
+                    .get("graphPaths")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|paths| !paths.is_empty())
+        }),
+        "omitted graph-connected candidates should explain the graph path that made them relevant"
+    );
+}
+
+#[tokio::test]
 async fn budget_exhaustion_stays_insufficient_with_recorded_gaps() {
     let (engine, snapshot, _repo) = sufficiency_fixture().await;
     let pack = engine
