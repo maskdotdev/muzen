@@ -764,6 +764,18 @@ class ParallelSuiteTest(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             run.positive_int("0")
 
+    def test_default_eval_jobs_uses_bounded_cpu_parallelism(self):
+        original_cpu_count = run.os.cpu_count
+        try:
+            run.os.cpu_count = lambda: 12
+            self.assertEqual(run.default_eval_jobs(), 4)
+            run.os.cpu_count = lambda: 2
+            self.assertEqual(run.default_eval_jobs(), 2)
+            run.os.cpu_count = lambda: None
+            self.assertEqual(run.default_eval_jobs(), 1)
+        finally:
+            run.os.cpu_count = original_cpu_count
+
 
 class AblationReportTest(unittest.TestCase):
     def test_context_ablation_args_pass_through_to_cli(self):
