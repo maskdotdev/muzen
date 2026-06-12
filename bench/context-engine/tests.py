@@ -694,6 +694,31 @@ class CaseSelectionTest(unittest.TestCase):
 
 
 class ParallelSuiteTest(unittest.TestCase):
+    def test_explicit_muzen_binary_skips_cargo_build(self):
+        explicit = Path("/tmp/custom-muzen")
+
+        self.assertEqual(run.resolve_muzen_bin(explicit), explicit)
+
+    def test_default_muzen_binary_builds_once(self):
+        original_run = run.subprocess.run
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        try:
+            run.subprocess.run = fake_run
+            resolved = run.resolve_muzen_bin(None)
+        finally:
+            run.subprocess.run = original_run
+
+        self.assertEqual(resolved, run.default_muzen_binary())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], ["cargo", "build", "--quiet", "--bin", "muzen"])
+        self.assertEqual(calls[0][1]["cwd"], run.ROOT)
+        self.assertTrue(calls[0][1]["check"])
+
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
             {

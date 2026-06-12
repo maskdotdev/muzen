@@ -73,6 +73,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Strict curated fixture `curated-python-billing` now proves Python import graph facts retrieve a changed settlement module, API caller, and API test under a 3.5k pack budget despite unrelated payment/API/test distractors.
 - Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
 - Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 90 cases with `--jobs 6` passed after baseline refresh.
+- Eval iteration now builds the default `muzen` binary once when `--muzen-bin` is omitted, then reuses `target/debug/muzen` for every case. This preserves public-CLI proof while removing repeated `cargo run` overhead from default runs.
 - Eval iteration now supports focused `--case-id` and `--case-glob` diagnostic runs. Filtered runs are marked diagnostic-only, skip regression gates, and cannot write `baseline.json`, so speed cannot masquerade as proof.
 - Eval iteration now has a deterministic summary comparator for experiment artifacts, so metric and case-level deltas can be inspected without ad hoc scripts while preserving the full-gate requirement.
 - Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, rank index, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
@@ -117,6 +118,7 @@ The eval gate now tracks:
 Recent rejected experiments:
 
 - Diff-body lexical anchors: focused weak case improved (`recall@25 0 -> 0.5`), but broad pack diagnostics regressed recall@10/nDCG and increased noisy top-rank churn. Raw diff text, lower raw weight, path-like-only text, and lower path-like weight were all rejected.
+- Changed-summary lexical anchors: focused weak case improved (`recall@25 0 -> 0.5`), but broad pack diagnostics rejected both summary-head and symbol-only variants. Full summary heads regressed pack recall@10 to `0.381` and nDCG@10 to `0.277`; symbol-only heads at weight `2.0` regressed recall@10 to `0.385` and candidate-present miss to `0.296`; symbol-only heads at weight `0.25` still regressed recall@10 to `0.427`, nDCG@10 to `0.302`, and candidate-present miss to `0.288`.
 - Path proximity weight `0.05 -> 0.07`: improved recall@5 and tokens slightly, but candidate-present misses did not improve and recall@10/25 dipped.
 - Default local hash semantic mode: recall@25 and precision moved slightly positive, but recall@10/nDCG dropped and cold latency increased substantially.
 - Smaller skeleton reserve and high-confidence reserve borrowing: both improved isolated candidate-present misses but worsened tokens to first relevant and did not lift top-25 ranking enough to justify retention.
