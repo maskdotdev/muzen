@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::context_engine::chunking::FileChunk;
-use crate::context_engine::syntax::{ImportStatement, ParsedSymbols};
+use crate::context_engine::syntax::{parse_symbols, ImportStatement, ParsedSymbols};
 use crate::context_engine::{ContextRange, ContextRelationshipKind};
 use crate::runtime::contracts::{RepoPath, SnapshotId};
 
@@ -531,6 +531,68 @@ fn resolves_workspace_package_through_exports_map() {
         "provenance names the package route: {}",
         edges[0].provenance.detail
     );
+}
+
+#[test]
+fn create_require_package_import_reaches_manifest_types() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("apps/web/src/sdk-client.ts"),
+        parse_symbols(
+            "apps/web/src/sdk-client.ts",
+            "import { createRequire } from 'node:module';\n\
+             const requireFromModule = createRequire(import.meta.url);\n\
+             export const sdk = requireFromModule('@argus/search');\n",
+        ),
+    );
+    files.insert(
+        repo_path("packages/search/package.json"),
+        parsed(&[], Vec::new()),
+    );
+    files.insert(repo_path("packages/search/sdk.js"), parsed(&[], Vec::new()));
+    files.insert(
+        repo_path("packages/search/types.d.ts"),
+        parsed(&["SearchSdk"], Vec::new()),
+    );
+    let configs = contents(&[(
+        "packages/search/package.json",
+        r#"{ "name": "@argus/search", "main": "sdk.js", "types": "types.d.ts", "exports": { ".": { "types": "./types.d.ts", "require": "./sdk.js", "default": "./sdk.js" } } }"#,
+    )]);
+    let graph = GraphSpec::new(&files)
+        .with_contents(configs)
+        .with_changed(&["apps/web/src/sdk-client.ts"])
+        .build();
+
+    let runtime_referencers = graph
+        .file_referencers(&repo_path("packages/search/sdk.js"))
+        .collect::<Vec<_>>();
+    assert!(runtime_referencers.iter().any(|edge| {
+        edge.kind == ContextEdgeKind::Imports
+            && edge.from_path() == Some(&repo_path("apps/web/src/sdk-client.ts"))
+    }));
+    assert!(runtime_referencers.iter().any(|edge| {
+        edge.kind == ContextEdgeKind::GeneratedFrom
+            && edge.from_path() == Some(&repo_path("packages/search/types.d.ts"))
+    }));
+    let type_referencers = graph
+        .file_referencers(&repo_path("packages/search/types.d.ts"))
+        .collect::<Vec<_>>();
+    assert!(type_referencers.iter().any(|edge| {
+        edge.kind == ContextEdgeKind::Imports
+            && edge.from_path() == Some(&repo_path("apps/web/src/sdk-client.ts"))
+            && edge.provenance.detail.contains("types")
+    }));
+
+    let expansion = graph.expand(default_request());
+    assert!(expansion.candidates.iter().any(|candidate| {
+        candidate.repo_path() == Some(&repo_path("packages/search/types.d.ts"))
+            && candidate.path.steps.iter().any(|step| {
+                matches!(
+                    step.kind,
+                    ContextEdgeKind::Imports | ContextEdgeKind::GeneratedFrom
+                )
+            })
+    }));
 }
 
 #[test]
