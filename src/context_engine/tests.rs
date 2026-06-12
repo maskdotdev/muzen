@@ -21,6 +21,7 @@ fn config_defaults_to_disabled() {
     let config = ContextEngineConfig::default();
     assert_eq!(config.mode, ContextEngineMode::Disabled);
     assert_eq!(config.semantic.mode, ContextSemanticMode::NoVector);
+    assert!(config.enable_pack_repair);
     assert!(config.include_repository_guidance);
     assert!(!config.include_host_context);
 }

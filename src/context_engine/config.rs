@@ -58,6 +58,10 @@ pub struct ContextEngineConfig {
     /// applied to `ContextRankSignals::semantic_change_score`, which is
     /// zero in no-vector mode.
     pub weight_semantic_change: f32,
+    /// Enable deterministic post-greedy pack repair for higher-value candidates
+    /// that initially lost budget. Public eval ablations can disable this to
+    /// measure optimizer value.
+    pub enable_pack_repair: bool,
     pub include_repository_guidance: bool,
     pub include_host_context: bool,
     pub strict_evidence_required: bool,
@@ -96,6 +100,7 @@ impl ContextEngineConfig {
             weight_lexical_change: 0.20,
             weight_test_coverage: 0.30,
             weight_semantic_change: 0.10,
+            enable_pack_repair: true,
             include_repository_guidance: true,
             include_host_context: false,
             strict_evidence_required: false,

@@ -337,6 +337,7 @@ pub(crate) enum ContextSignalAblationArg {
     LexicalChange,
     TestCoverage,
     SemanticChange,
+    PackRepair,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -950,6 +951,9 @@ fn apply_context_signal_ablation(
         }
         ContextSignalAblationArg::SemanticChange => {
             config.weight_semantic_change = 0.0;
+        }
+        ContextSignalAblationArg::PackRepair => {
+            config.enable_pack_repair = false;
         }
     }
 }
@@ -2971,6 +2975,8 @@ mod context_cli_tests {
             "graph",
             "--ablate-context-signal",
             "co-change",
+            "--ablate-context-signal",
+            "pack-repair",
         ])
         .expect("valid context command");
         let Command::Context(context) = cli.command else {
@@ -2987,6 +2993,7 @@ mod context_cli_tests {
         assert_eq!(config.weight_graph_proximity, 0.0);
         assert_eq!(config.co_change_commit_limit, 0);
         assert_eq!(config.weight_co_change, 0.0);
+        assert!(!config.enable_pack_repair);
         assert_eq!(
             config.weight_path_proximity,
             ContextEngineConfig::snapshot_v0().weight_path_proximity
@@ -3004,5 +3011,6 @@ mod context_cli_tests {
             config.weight_test_coverage,
             ContextEngineConfig::snapshot_v0().weight_test_coverage
         );
+        assert!(config.enable_pack_repair);
     }
 }
