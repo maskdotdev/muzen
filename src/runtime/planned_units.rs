@@ -2638,7 +2638,7 @@ const GENERIC_CODE_TOKENS: &[&str] = &[
     "this", "that", "item", "items", "value", "values",
 ];
 
-fn record_usage(
+pub(crate) fn record_usage(
     tokens: &mut TokenUsage,
     model_metrics: &mut ModelMetricsSnapshot,
     model: &dyn crate::runtime::model::ConcurrentModelClient,
@@ -2658,7 +2658,7 @@ fn record_usage(
     }
 }
 
-fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &ModelMetricsSnapshot) {
+pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &ModelMetricsSnapshot) {
     target.calls += report.calls;
     target.successes += report.successes;
     target.errors += report.errors;
@@ -2738,7 +2738,7 @@ fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
     failures
 }
 
-fn elapsed_ms(started: Instant) -> u64 {
+pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
 }
 

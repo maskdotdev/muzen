@@ -13,6 +13,21 @@ pub struct RunSpec {
     pub snapshots: Vec<SnapshotSpec>,
     pub sessions: Vec<ReviewSessionSpec>,
     pub limits: ReviewRunLimits,
+    pub mode: RunMode,
+}
+
+/// How a run turns its sessions into work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    /// Plan review units from the snapshot diff and run the review pipeline
+    /// (evidence obligations, findings, synthesis). Sessions act as
+    /// templates for unit scopes.
+    #[default]
+    PlannedReview,
+    /// Run each supplied session directly through the generic agent loop and
+    /// return its final text output. No review planning or findings.
+    DirectSessions,
 }
 
 impl RunSpec {
@@ -27,7 +42,13 @@ impl RunSpec {
             snapshots: vec![snapshot],
             sessions,
             limits: limits.into(),
+            mode: RunMode::default(),
         }
+    }
+
+    pub fn with_mode(mut self, mode: RunMode) -> Self {
+        self.mode = mode;
+        self
     }
 }
 

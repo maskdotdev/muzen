@@ -1414,6 +1414,17 @@ pub struct SessionCompletionDiagnostic {
     pub tool_counts: ToolCounts,
 }
 
+/// Final result of one directly executed agent session: the model's last
+/// text response, untouched by any review-domain projection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionOutput {
+    pub session_id: String,
+    pub status: String,
+    pub completed: bool,
+    pub output: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotMetricsSnapshot {
