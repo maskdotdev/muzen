@@ -581,7 +581,16 @@ class SummaryProofTest(unittest.TestCase):
             "selectedCandidates": [
                 {"evidenceId": "a", "score": 0.9, "rankIndex": 0},
                 {"evidenceId": "b", "score": 0.4, "rankIndex": 20},
-            ]
+            ],
+            "relationships": [
+                {
+                    "from": "a",
+                    "to": "b",
+                    "kind": "tests",
+                    "confidence": 0.8,
+                    "reason": "test path -> implementation path",
+                }
+            ],
         }
         evidence = [
             {
@@ -613,6 +622,13 @@ class SummaryProofTest(unittest.TestCase):
                     "rankIndex": 20,
                     "tokenEstimate": 50,
                     "representation": "skeleton",
+                    "graphPaths": [
+                        {
+                            "kind": "tests",
+                            "confidence": 0.8,
+                            "path": "test path -> implementation path",
+                        }
+                    ],
                 }
             ],
         )

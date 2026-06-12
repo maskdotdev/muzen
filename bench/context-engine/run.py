@@ -900,6 +900,20 @@ def selected_tail_details(
     selected_candidates = result.get("selectedCandidates")
     if not isinstance(selected_candidates, list):
         return []
+    relationships = result.get("relationships")
+    graph_paths_by_id: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(relationships, list):
+        for relationship in relationships:
+            if not isinstance(relationship, dict):
+                continue
+            graph_path = {
+                "kind": relationship.get("kind"),
+                "confidence": relationship.get("confidence"),
+                "path": relationship.get("reason"),
+            }
+            for endpoint in (relationship.get("from"), relationship.get("to")):
+                if isinstance(endpoint, str):
+                    graph_paths_by_id.setdefault(endpoint, []).append(graph_path)
     evidence_by_id = {
         entry.get("id"): entry
         for entry in evidence
@@ -920,6 +934,7 @@ def selected_tail_details(
                 "rankIndex": candidate.get("rankIndex"),
                 "tokenEstimate": entry.get("tokenEstimate"),
                 "representation": entry.get("representation"),
+                "graphPaths": graph_paths_by_id.get(evidence_id, []),
             }
         )
     return details
