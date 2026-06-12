@@ -17,6 +17,7 @@ use crate::contracts::{
 };
 use crate::runtime::contracts::*;
 use crate::runtime::model_anthropic::{anthropic_default_base_url, AnthropicMessagesClient};
+use crate::runtime::model_sse::{next_streaming_data, SseStream, STREAM_REQUEST_TIMEOUT};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
 use crate::util::{redact_known_secrets, resolve_credential_ref, timestamp_utc};
@@ -935,9 +936,12 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
         if !(self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with('o')) {
             body["temperature"] = json!(self.profile.temperature.unwrap_or(0.0));
         }
+        body["stream"] = json!(true);
+        body["stream_options"] = json!({ "include_usage": true });
         let response = self
             .http
             .post(format!("{}/chat/completions", self.base_url))
+            .timeout(STREAM_REQUEST_TIMEOUT)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
@@ -950,13 +954,95 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
         if !status.is_success() {
             return Err(provider_http_error(status, response).await);
         }
-        let decoded: ChatCompletionResponse =
-            response.json().await.map_err(|_| RuntimeError::Provider {
-                status: None,
-                retryable: false,
-            })?;
+        let decoded = chat_completion_from_stream(response, &cancel).await?;
         parse_chat_response(decoded, &self.tool_registry)
     }
+}
+
+/// Accumulates chat-completion stream deltas into the non-streaming response
+/// shape. Providers that ignored `stream: true` and answered with one plain
+/// JSON body are detected (no SSE events seen) and parsed directly.
+async fn chat_completion_from_stream(
+    response: reqwest::Response,
+    cancel: &CancellationToken,
+) -> RuntimeResult<ChatCompletionResponse> {
+    let mut sse = SseStream::new(response);
+    let mut content: Option<String> = None;
+    let mut tool_calls: std::collections::BTreeMap<u64, ChatToolCall> =
+        std::collections::BTreeMap::new();
+    let mut usage: Option<ChatUsage> = None;
+    loop {
+        let Some(data) = next_streaming_data(&mut sse, cancel).await? else {
+            break;
+        };
+        if data.trim() == "[DONE]" {
+            break;
+        }
+        let chunk: Value = serde_json::from_str(&data).map_err(|_| RuntimeError::Provider {
+            status: None,
+            retryable: false,
+        })?;
+        if let Some(chunk_usage) = chunk.get("usage").filter(|value| value.is_object()) {
+            if let Ok(parsed) = serde_json::from_value::<ChatUsage>(chunk_usage.clone()) {
+                usage = Some(parsed);
+            }
+        }
+        let Some(delta) = chunk
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("delta"))
+        else {
+            continue;
+        };
+        if let Some(text) = delta.get("content").and_then(Value::as_str) {
+            content.get_or_insert_with(String::new).push_str(text);
+        }
+        let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) else {
+            continue;
+        };
+        for call in calls {
+            let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
+            let entry = tool_calls.entry(index).or_insert_with(|| ChatToolCall {
+                id: String::new(),
+                call_type: "function".to_string(),
+                function: ChatToolFunction {
+                    name: String::new(),
+                    arguments: String::new(),
+                },
+            });
+            if let Some(id) = call.get("id").and_then(Value::as_str) {
+                entry.id.push_str(id);
+            }
+            if let Some(call_type) = call.get("type").and_then(Value::as_str) {
+                entry.call_type = call_type.to_string();
+            }
+            if let Some(function) = call.get("function") {
+                if let Some(name) = function.get("name").and_then(Value::as_str) {
+                    entry.function.name.push_str(name);
+                }
+                if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                    entry.function.arguments.push_str(arguments);
+                }
+            }
+        }
+    }
+    if !sse.yielded_events() {
+        return serde_json::from_slice(&sse.into_raw_body()).map_err(|_| RuntimeError::Provider {
+            status: None,
+            retryable: false,
+        });
+    }
+    let calls: Vec<ChatToolCall> = tool_calls.into_values().collect();
+    Ok(ChatCompletionResponse {
+        choices: vec![ChatChoice {
+            message: ChatMessage {
+                content,
+                tool_calls: if calls.is_empty() { None } else { Some(calls) },
+            },
+        }],
+        usage,
+    })
 }
 
 #[derive(Debug)]
@@ -1066,7 +1152,7 @@ pub(crate) async fn provider_http_error(
     }
 }
 
-fn provider_error_message(body: String) -> String {
+pub(crate) fn provider_error_message(body: String) -> String {
     let redacted = redact_known_secrets(body.trim(), &[]);
     truncate_chars(&redacted, 1_000)
 }
@@ -1617,6 +1703,82 @@ mod tests {
         )
         .expect("responses turn");
         assert_tool_call_turn(responses_turn, &internal_tool, "call_responses", 7, 4, 11);
+    }
+
+    #[test]
+    fn chat_completions_loopback_assembles_streamed_tool_call_deltas() {
+        use std::io::Write;
+
+        use crate::tests::support::{read_http_request, split_http_body};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+        let address = listener.local_addr().expect("address");
+        let (_registry, _, model_alias) = aliased_registry();
+        let chunks = [
+            json!({"choices":[{"delta":{"role":"assistant","content":null}}]}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_stream","type":"function","function":{"name":model_alias.as_str(),"arguments":"{\"value\":"}}]}}]}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ok\"}"}}]}}]}),
+            json!({"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":4,"total_tokens":13}}),
+        ];
+        let body = chunks
+            .iter()
+            .map(|chunk| format!("data: {chunk}\n\n"))
+            .collect::<String>()
+            + "data: [DONE]\n\n";
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let request = read_http_request(&mut stream);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("response");
+            request
+        });
+
+        let (registry, internal_tool, _) = aliased_registry();
+        let client = OpenAiChatCompletionsClient::from_profile(
+            profile_with_base_url("stream", Some(&format!("http://{address}/v1"))),
+            format!("http://{address}/v1"),
+            Arc::new(ModelLimiter::new(1)),
+            Arc::new(registry),
+            Arc::new(ReviewerPolicy::new()),
+            Arc::new(StaticCredentialResolver),
+        )
+        .expect("client");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let scope = openai_provider_canary_scope("stream".to_string(), 64);
+        let turn = runtime
+            .block_on(client.complete(
+                &scope,
+                &[ConversationItem::User {
+                    content: "Hello".to_string(),
+                }],
+                TurnId(0),
+                CancellationToken::new(),
+            ))
+            .expect("completion");
+
+        let request = server.join().expect("server thread");
+        let (_, request_body) = split_http_body(&request);
+        let request_json: Value = serde_json::from_slice(request_body).expect("request json");
+        assert_eq!(request_json["stream"], true);
+        assert_eq!(request_json["stream_options"]["include_usage"], true);
+
+        let ModelTurn::ToolCalls { calls, usage } = turn else {
+            panic!("expected tool call turn");
+        };
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, internal_tool);
+        assert_eq!(calls[0].call_id.0, "call_stream");
+        assert_eq!(calls[0].raw_arguments, r#"{"value":"ok"}"#);
+        assert_eq!(usage.input_tokens, 9);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.total_tokens, 13);
     }
 
     #[test]
