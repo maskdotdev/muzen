@@ -214,6 +214,14 @@ pub struct ContextRelationship {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextCandidateGraphPath {
+    pub kind: ContextRelationshipKind,
+    pub confidence: f32,
+    pub path: String,
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextOmissionReason {
@@ -261,6 +269,14 @@ pub struct OmittedContextCandidate {
     pub rank_index: usize,
     pub token_estimate: usize,
     pub reason: ContextOmissionReason,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graph_paths: Vec<ContextCandidateGraphPath>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub graph_paths_truncated: usize,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

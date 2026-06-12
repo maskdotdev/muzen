@@ -14,16 +14,16 @@ use super::{explain_selected_evidence, purpose_name, rank_for_purpose, score_for
 use super::{learning_is_expired, redact_context_content};
 use super::{path_stem, related_symbol_score, related_symbol_terms};
 use super::{
-    ContextBudgetUsage, ContextDerivedCache, ContextEngineConfig, ContextEngineMode,
-    ContextEvidence, ContextEvidenceKind, ContextEvidenceRepresentation, ContextFeedback,
-    ContextFeedbackReceipt, ContextIndex, ContextIndexReport, ContextIndexRequest,
+    ContextBudgetUsage, ContextCandidateGraphPath, ContextDerivedCache, ContextEngineConfig,
+    ContextEngineMode, ContextEvidence, ContextEvidenceKind, ContextEvidenceRepresentation,
+    ContextFeedback, ContextFeedbackReceipt, ContextIndex, ContextIndexReport, ContextIndexRequest,
     ContextIndexStore, ContextLearning, ContextLearningApproval, ContextLearningApprovalReceipt,
     ContextLearningScope, ContextLearningSource, ContextLearningStatus, ContextOmissionReason,
     ContextPack, ContextPackId, ContextPackPurpose, ContextPackRequest, ContextQuery,
-    ContextQueryKind, ContextQueryResult, ContextRange, ContextSufficiencyStatus,
-    FileContextDerivedCache, FileContextLearningStore, InMemoryContextDerivedCache,
-    InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
-    SelectedContextCandidate, CONTEXT_ENGINE_VERSION,
+    ContextQueryKind, ContextQueryResult, ContextRange, ContextRelationship,
+    ContextSufficiencyStatus, FileContextDerivedCache, FileContextLearningStore,
+    InMemoryContextDerivedCache, InMemoryContextIndexStore, InMemoryContextLearningStore,
+    OmittedContextCandidate, SelectedContextCandidate, CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -358,6 +358,8 @@ fn omitted_candidate(
         rank_index,
         token_estimate: evidence.token_estimate,
         reason,
+        graph_paths: Vec::new(),
+        graph_paths_truncated: 0,
     }
 }
 
@@ -693,6 +695,53 @@ fn remove_omitted_candidate(
     {
         omitted_candidates.remove(index);
     }
+}
+
+const OMITTED_GRAPH_PATH_LIMIT: usize = 8;
+
+fn graph_paths_for_omitted_candidate(
+    relationships: &[ContextRelationship],
+    evidence_paths_by_id: &BTreeMap<&str, &crate::runtime::contracts::RepoPath>,
+    candidate: &OmittedContextCandidate,
+) -> (Vec<ContextCandidateGraphPath>, usize) {
+    let all_paths = relationships
+        .iter()
+        .filter(|relationship| {
+            relationship_matches_omitted_candidate(relationship, evidence_paths_by_id, candidate)
+        })
+        .map(|relationship| ContextCandidateGraphPath {
+            kind: relationship.kind,
+            confidence: relationship.confidence,
+            path: relationship.reason.clone(),
+        })
+        .collect::<Vec<_>>();
+    let paths = all_paths
+        .iter()
+        .take(OMITTED_GRAPH_PATH_LIMIT)
+        .cloned()
+        .collect::<Vec<_>>();
+    let truncated = all_paths.len().saturating_sub(paths.len());
+    (paths, truncated)
+}
+
+fn relationship_matches_omitted_candidate(
+    relationship: &ContextRelationship,
+    evidence_paths_by_id: &BTreeMap<&str, &crate::runtime::contracts::RepoPath>,
+    candidate: &OmittedContextCandidate,
+) -> bool {
+    if relationship.from == candidate.evidence_id || relationship.to == candidate.evidence_id {
+        return true;
+    }
+    let Some(candidate_path) = candidate.path.as_ref() else {
+        return false;
+    };
+    [relationship.from.0.as_str(), relationship.to.0.as_str()]
+        .iter()
+        .any(|evidence_id| {
+            evidence_paths_by_id
+                .get(evidence_id)
+                .is_some_and(|path| *path == candidate_path)
+        })
 }
 
 #[cfg(test)]
@@ -1270,6 +1319,25 @@ impl ContextEngine for SnapshotContextEngine {
             })
             .cloned()
             .collect();
+        let evidence_paths_by_id: BTreeMap<&str, &crate::runtime::contracts::RepoPath> = index
+            .evidence
+            .iter()
+            .filter_map(|evidence| {
+                evidence
+                    .path
+                    .as_ref()
+                    .map(|path| (evidence.id.0.as_str(), path))
+            })
+            .collect();
+        for omitted in &mut omitted_candidates {
+            let (graph_paths, truncated) = graph_paths_for_omitted_candidate(
+                &index.relationships,
+                &evidence_paths_by_id,
+                omitted,
+            );
+            omitted.graph_paths = graph_paths;
+            omitted.graph_paths_truncated = truncated;
+        }
         // Both reasons mean full content did not fit within budget.
         let budget_exhausted = omitted_candidates.iter().any(|candidate| {
             matches!(
@@ -1730,21 +1798,6 @@ impl ContextEngine for SnapshotContextEngine {
                     pack.omitted_candidates
                         .iter()
                         .map(|candidate| {
-                            let graph_paths = index
-                                .relationships
-                                .iter()
-                                .filter(|relationship| {
-                                    relationship.from == candidate.evidence_id
-                                        || relationship.to == candidate.evidence_id
-                                })
-                                .map(|relationship| {
-                                    serde_json::json!({
-                                        "kind": relationship.kind,
-                                        "confidence": relationship.confidence,
-                                        "path": relationship.reason,
-                                    })
-                                })
-                                .collect::<Vec<_>>();
                             serde_json::json!({
                                 "evidenceId": candidate.evidence_id.0,
                                 "kind": candidate.kind,
@@ -1753,7 +1806,8 @@ impl ContextEngine for SnapshotContextEngine {
                                 "rankIndex": candidate.rank_index,
                                 "tokenEstimate": candidate.token_estimate,
                                 "reason": candidate.reason,
-                                "graphPaths": graph_paths,
+                                "graphPaths": candidate.graph_paths,
+                                "graphPathsTruncated": candidate.graph_paths_truncated,
                             })
                         })
                         .collect::<Vec<_>>()
