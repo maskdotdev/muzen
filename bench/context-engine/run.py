@@ -1265,8 +1265,8 @@ def metric_block(results: list[CaseResult]) -> dict[str, Any]:
         if result.tokens_to_first_relevant is not None
     ]
     # Sufficiency calibration (R6): packs missing ground truth should
-    # report blocking gaps; packs containing all ground truth should not
-    # report insufficient.
+    # report blocking gaps; packs containing all ground truth should only
+    # claim strict sufficiency when the engine can prove coverage.
     with_sufficiency = [r for r in results if r.sufficiency_status is not None]
     incomplete = [r for r in with_sufficiency if r.missed_paths]
     complete = [r for r in with_sufficiency if not r.missed_paths]
@@ -1281,7 +1281,17 @@ def metric_block(results: list[CaseResult]) -> dict[str, Any]:
         else None
     )
     sufficient_when_complete = (
+        sum(1 for r in complete if r.sufficiency_status == "sufficient") / len(complete)
+        if complete
+        else None
+    )
+    not_insufficient_when_complete = (
         sum(1 for r in complete if r.sufficiency_status != "insufficient") / len(complete)
+        if complete
+        else None
+    )
+    probably_sufficient_when_complete = (
+        sum(1 for r in complete if r.sufficiency_status == "probably_sufficient") / len(complete)
         if complete
         else None
     )
@@ -1341,6 +1351,8 @@ def metric_block(results: list[CaseResult]) -> dict[str, Any]:
         "sufficiencyGapRecall": gap_recall,
         "sufficiencyInsufficientWhenIncomplete": insufficient_when_incomplete,
         "sufficiencySufficientWhenComplete": sufficient_when_complete,
+        "sufficiencyProbablySufficientWhenComplete": probably_sufficient_when_complete,
+        "sufficiencyNotInsufficientWhenComplete": not_insufficient_when_complete,
         "sufficiencyFalseSufficientCount": sum(
             1 for result in results if result.sufficiency_false_sufficient
         ),
