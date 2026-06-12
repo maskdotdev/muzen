@@ -39,6 +39,11 @@ pub struct ContextEngineConfig {
     /// Entry cap per section (files, vectors) of the durable derived-data
     /// cache (R9); least-recently-used entries are pruned at flush.
     pub derived_cache_max_entries: usize,
+    /// Enable second-pass rank penalties for repeated paths and dense test
+    /// frontiers.
+    pub enable_rank_diversity: bool,
+    /// Enable small bounded score bonus for cheaper evidence.
+    pub enable_token_efficiency_bonus: bool,
     /// Ranking weight for evidence overlapping changed lines.
     pub weight_changed_span: f32,
     /// Ranking weight for reference-graph proximity to the change;
@@ -98,6 +103,8 @@ impl ContextEngineConfig {
             graph_max_candidates_per_anchor: 64,
             co_change_commit_limit: 500,
             derived_cache_max_entries: 100_000,
+            enable_rank_diversity: true,
+            enable_token_efficiency_bonus: true,
             weight_changed_span: 0.25,
             weight_graph_proximity: 0.20,
             weight_co_change: 0.15,

@@ -146,7 +146,9 @@ pub(crate) fn rank_for_purpose(
         .map(|evidence| (score_for_purpose(&evidence, purpose, config), evidence))
         .collect::<Vec<_>>();
     ranked.sort_by(rank_candidate_order);
-    apply_rank_diversity(&mut ranked, purpose);
+    if config.enable_rank_diversity {
+        apply_rank_diversity(&mut ranked, purpose);
+    }
     ranked
 }
 
@@ -243,6 +245,11 @@ pub(crate) fn score_for_purpose(
         _ => 0.05,
     };
     let semantic_bonus = config.weight_semantic_change * signals.semantic_change_score;
+    let token_efficiency_bonus = if config.enable_token_efficiency_bonus {
+        token_efficiency_bonus(evidence.token_estimate)
+    } else {
+        0.0
+    };
     changed_bonus
         + graph_bonus
         + co_change_bonus
@@ -251,7 +258,7 @@ pub(crate) fn score_for_purpose(
         + test_coverage_bonus
         + run_context_bonus
         + kind_bonus
-        + token_efficiency_bonus(evidence.token_estimate)
+        + token_efficiency_bonus
         + semantic_bonus
 }
 
@@ -644,6 +651,36 @@ mod tests {
     }
 
     #[test]
+    fn token_efficiency_bonus_can_be_disabled_for_ablation() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let mut no_token_bonus = config.clone();
+        no_token_bonus.enable_token_efficiency_bonus = false;
+        let mut large = evidence_with_path(
+            "large",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals::default(),
+            "src/large.rs",
+        );
+        large.token_estimate = 2_000;
+        let mut small = evidence_with_path(
+            "small",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals::default(),
+            "src/small.rs",
+        );
+        small.token_estimate = 200;
+
+        assert!(
+            score_for_purpose(&small, ContextPackPurpose::GeneralReview, &config)
+                > score_for_purpose(&large, ContextPackPurpose::GeneralReview, &config)
+        );
+        assert_eq!(
+            score_for_purpose(&small, ContextPackPurpose::GeneralReview, &no_token_bonus),
+            score_for_purpose(&large, ContextPackPurpose::GeneralReview, &no_token_bonus)
+        );
+    }
+
+    #[test]
     fn trusted_run_ticket_prioritized_without_beating_changed_code() {
         let config = ContextEngineConfig::snapshot_v0();
         let ticket = trusted_run_context("ticket", ContextEvidenceKind::Ticket);
@@ -708,6 +745,8 @@ mod tests {
     #[test]
     fn general_review_test_density_preserves_implementation_after_test_frontier() {
         let config = ContextEngineConfig::snapshot_v0();
+        let mut no_rank_diversity = config.clone();
+        no_rank_diversity.enable_rank_diversity = false;
         let signals = ContextRankSignals {
             graph_distance: Some(1),
             path_proximity: 1.0,
@@ -744,6 +783,20 @@ mod tests {
         assert!(
             impl_position < tenth_test_position,
             "generic review packs should keep graph-near tests first-class without letting test density bury implementation context"
+        );
+
+        let no_diversity_ranked = rank_for_purpose(
+            &evidence,
+            ContextPackPurpose::GeneralReview,
+            &no_rank_diversity,
+        );
+        let no_diversity_impl_position = no_diversity_ranked
+            .iter()
+            .position(|(_, evidence)| evidence.id.0 == "impl")
+            .expect("implementation ranked");
+        assert_eq!(
+            no_diversity_impl_position, 12,
+            "rank-diversity ablation disables test-density frontier"
         );
     }
 
