@@ -526,27 +526,11 @@ fn step_cost(
                 extendable: false,
             })
         }
-        ContextEdgeKind::Configures => {
-            // Config linkage is lateral context, not blast radius:
-            // first-hop only and terminal, so a manifest never becomes a
-            // hub connecting unrelated targets. A changed config reaching
-            // its governed targets (forward) carries full weight; a
-            // changed file pulling in its config (reverse) carries less.
-            if hops_so_far > 0 {
-                return None;
-            }
-            Some(StepCost {
-                value: edge.confidence * if forward { 1.0 } else { 0.5 },
-                hop_cost: 1,
-                extendable: false,
-            })
-        }
-        // Contract coverage is a sufficiency fact queried directly from
-        // the file node; traversing it would only reach the repo node.
-        ContextEdgeKind::ExternalContract => None,
         ContextEdgeKind::Convention
+        | ContextEdgeKind::Configures
         | ContextEdgeKind::DependsOn
         | ContextEdgeKind::Documents
+        | ContextEdgeKind::ExternalContract
         | ContextEdgeKind::GeneratedFrom => Some(StepCost {
             value: edge.confidence,
             hop_cost: 1,
