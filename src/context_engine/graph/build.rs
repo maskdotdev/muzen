@@ -27,6 +27,8 @@ const DOCUMENT_LINK_CONFIDENCE: f32 = 0.85;
 const DOCUMENT_LINK_MAX_TARGETS_PER_DOC: usize = 64;
 const NEXT_APP_LAYOUT_CONFIDENCE: f32 = 0.75;
 const NEXT_APP_MAX_LAYOUT_EDGES_PER_CHANGED: usize = 4;
+const NEXT_APP_ROUTE_PARAM_CONFIDENCE: f32 = 0.62;
+const NEXT_APP_MAX_ROUTE_PARAM_EDGES_PER_CHANGED: usize = 32;
 const PACKAGE_DECLARATION_CONFIDENCE: f32 = 0.85;
 
 /// Cap on chunk-level `References` edges per (importer, symbol): the
@@ -243,6 +245,7 @@ impl ContextGraph {
         build_package_artifact_edges(&mut graph, &input, &provenance);
         build_document_link_edges(&mut graph, &input, &provenance);
         build_next_app_layout_edges(&mut graph, &input, &provenance);
+        build_next_app_route_param_edges(&mut graph, &input, &provenance);
 
         // ---- Same-module siblings of changed files, stored once with
         // ordered endpoints.
@@ -1066,6 +1069,62 @@ fn build_next_app_layout_edges(
     }
 }
 
+fn build_next_app_route_param_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    for changed in input.changed_paths {
+        let route_tokens = next_app_route_param_tokens(changed);
+        if route_tokens.is_empty() {
+            continue;
+        }
+        let mut targets = graph
+            .file_paths
+            .iter()
+            .filter(|path| {
+                *path != changed
+                    && !input.changed_paths.contains(*path)
+                    && feature_slice_root(path).is_some()
+                    && !path_tokens(path).is_disjoint(&route_tokens)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        targets.sort_by(|left, right| {
+            route_param_target_score(&route_tokens, right)
+                .total_cmp(&route_param_target_score(&route_tokens, left))
+                .then_with(|| left.display().cmp(&right.display()))
+        });
+        targets.truncate(NEXT_APP_MAX_ROUTE_PARAM_EDGES_PER_CHANGED);
+        for target in targets {
+            let from = ContextNodeId::File {
+                path: target.clone(),
+            };
+            let to = ContextNodeId::File {
+                path: changed.clone(),
+            };
+            let detail = format!(
+                "next app route params [{}] for {}",
+                route_tokens.iter().cloned().collect::<Vec<_>>().join(", "),
+                changed.display()
+            );
+            graph.add_edge(ContextEdge {
+                id: edge_id(&from, &to, ContextEdgeKind::Convention, &detail),
+                from,
+                to,
+                kind: ContextEdgeKind::Convention,
+                confidence: NEXT_APP_ROUTE_PARAM_CONFIDENCE,
+                reason: format!(
+                    "{} shares route parameter domain tokens with {}",
+                    target.display(),
+                    changed.display()
+                ),
+                provenance: provenance(ContextGraphSource::SnapshotManifest, detail),
+            });
+        }
+    }
+}
+
 fn is_next_app_leaf_path(path: &RepoPath) -> bool {
     let text = path.display();
     let parts = text.split('/').collect::<Vec<_>>();
@@ -1111,6 +1170,58 @@ fn next_app_ancestor_layouts(changed: &RepoPath, file_paths: &BTreeSet<RepoPath>
         dirs.pop();
     }
     layouts
+}
+
+fn next_app_route_param_tokens(path: &RepoPath) -> BTreeSet<String> {
+    let text = path.display();
+    let parts = text.split('/').collect::<Vec<_>>();
+    if !parts.iter().any(|part| *part == "app") {
+        return BTreeSet::new();
+    }
+    let mut tokens = BTreeSet::new();
+    for part in parts {
+        let Some(raw) = part
+            .strip_prefix('[')
+            .and_then(|part| part.strip_suffix(']'))
+        else {
+            continue;
+        };
+        for token in split_domain_token(raw) {
+            if !is_common_feature_path_token(&token) {
+                tokens.insert(token);
+            }
+        }
+    }
+    tokens
+}
+
+fn route_param_target_score(route_tokens: &BTreeSet<String>, path: &RepoPath) -> f32 {
+    let path_tokens = path_tokens(path);
+    let overlap = route_tokens.intersection(&path_tokens).count() as f32;
+    overlap / route_tokens.len().max(1) as f32
+}
+
+fn split_domain_token(raw: &str) -> Vec<String> {
+    let mut normalized = String::new();
+    let mut previous_lowercase = false;
+    for character in raw.chars() {
+        if character == '-' || character == '_' || character == '.' {
+            normalized.push(' ');
+            previous_lowercase = false;
+            continue;
+        }
+        if character.is_ascii_uppercase() && previous_lowercase {
+            normalized.push(' ');
+        }
+        previous_lowercase = character.is_ascii_lowercase() || character.is_ascii_digit();
+        normalized.push(character.to_ascii_lowercase());
+    }
+    normalized
+        .split_whitespace()
+        .filter(|token| token.len() >= 3)
+        .filter(|token| *token != "id")
+        .map(str::to_string)
+        .collect()
 }
 
 // ---------------------------------------------------------------------
