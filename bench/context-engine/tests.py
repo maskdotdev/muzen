@@ -735,6 +735,77 @@ class ParallelSuiteTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["cwd"], run.ROOT)
         self.assertTrue(calls[0][1]["check"])
 
+    def test_default_muzen_binary_rejects_stale_local_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / "target" / "debug" / "muzen"
+            source = root / "src" / "lib.rs"
+            binary.parent.mkdir(parents=True)
+            source.parent.mkdir(parents=True)
+            binary.write_text("bin")
+            source.write_text("src")
+            run.os.utime(binary, (10, 10))
+            run.os.utime(source, (20, 20))
+            original_default = run.default_muzen_binary
+            original_inputs = run.muzen_build_input_paths
+
+            try:
+                run.default_muzen_binary = lambda: binary
+                run.muzen_build_input_paths = lambda: [source]
+                with self.assertRaises(SystemExit) as raised:
+                    run.validate_muzen_binary_freshness(binary)
+            finally:
+                run.default_muzen_binary = original_default
+                run.muzen_build_input_paths = original_inputs
+
+        self.assertIn("older than", str(raised.exception))
+
+    def test_default_muzen_binary_accepts_fresh_local_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / "target" / "debug" / "muzen"
+            source = root / "src" / "lib.rs"
+            binary.parent.mkdir(parents=True)
+            source.parent.mkdir(parents=True)
+            binary.write_text("bin")
+            source.write_text("src")
+            run.os.utime(source, (10, 10))
+            run.os.utime(binary, (20, 20))
+            original_default = run.default_muzen_binary
+            original_inputs = run.muzen_build_input_paths
+
+            try:
+                run.default_muzen_binary = lambda: binary
+                run.muzen_build_input_paths = lambda: [source]
+                run.validate_muzen_binary_freshness(binary)
+            finally:
+                run.default_muzen_binary = original_default
+                run.muzen_build_input_paths = original_inputs
+
+    def test_custom_muzen_binary_skips_local_freshness_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            default_binary = root / "target" / "debug" / "muzen"
+            custom_binary = root / "custom-muzen"
+            source = root / "src" / "lib.rs"
+            default_binary.parent.mkdir(parents=True)
+            source.parent.mkdir(parents=True)
+            default_binary.write_text("default")
+            custom_binary.write_text("custom")
+            source.write_text("src")
+            run.os.utime(custom_binary, (10, 10))
+            run.os.utime(source, (20, 20))
+            original_default = run.default_muzen_binary
+            original_inputs = run.muzen_build_input_paths
+
+            try:
+                run.default_muzen_binary = lambda: default_binary
+                run.muzen_build_input_paths = lambda: [source]
+                run.validate_muzen_binary_freshness(custom_binary)
+            finally:
+                run.default_muzen_binary = original_default
+                run.muzen_build_input_paths = original_inputs
+
     def test_parallel_suite_preserves_case_order(self):
         case_files = [
             {

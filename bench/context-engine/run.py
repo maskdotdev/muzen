@@ -497,11 +497,43 @@ def default_muzen_binary() -> Path:
     return ROOT / "target" / "debug" / f"muzen{suffix}"
 
 
+def muzen_build_input_paths(root: Path = ROOT) -> list[Path]:
+    paths = [root / "Cargo.toml", root / "Cargo.lock"]
+    for source_root in [root / "src", root / "crates"]:
+        if source_root.exists():
+            paths.extend(source_root.rglob("*.rs"))
+    return [path for path in paths if path.exists()]
+
+
 def resolve_muzen_bin(muzen_bin: Path | None) -> Path:
     if muzen_bin:
         return muzen_bin
     subprocess.run(["cargo", "build", "--quiet", "--bin", "muzen"], cwd=ROOT, check=True)
     return default_muzen_binary()
+
+
+def validate_muzen_binary_freshness(muzen_bin: Path) -> None:
+    default_binary = default_muzen_binary().resolve()
+    if muzen_bin.resolve() != default_binary:
+        return
+    if not muzen_bin.exists():
+        raise SystemExit(f"muzen binary not found at {muzen_bin}")
+    inputs = muzen_build_input_paths()
+    if not inputs:
+        return
+    binary_mtime = muzen_bin.stat().st_mtime
+    newest_input = max(inputs, key=lambda path: path.stat().st_mtime)
+    newest_mtime = newest_input.stat().st_mtime
+    if newest_mtime > binary_mtime + 0.001:
+        try:
+            newest_display = newest_input.relative_to(ROOT)
+        except ValueError:
+            newest_display = newest_input
+        raise SystemExit(
+            f"{muzen_bin} is older than {newest_display}; "
+            "run `cargo build --bin muzen` or omit --muzen-bin so the eval "
+            "runner builds the binary once."
+        )
 
 
 def base_command(muzen_bin: Path) -> list[str]:
@@ -1387,6 +1419,7 @@ def run_ablation_report(
 def main() -> int:
     args = parse_args()
     args.muzen_bin = resolve_muzen_bin(args.muzen_bin)
+    validate_muzen_binary_freshness(args.muzen_bin)
     case_files = load_case_files(args.cases_dir)
     case_files, case_selection = select_case_files(case_files, args)
     validate_case_selection_mode(args, case_selection)
