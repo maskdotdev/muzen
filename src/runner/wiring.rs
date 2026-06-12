@@ -136,7 +136,7 @@ fn hosted_model_router(
         .clone()
         .or_else(|| profiles.first().map(|profile| profile.id.clone()))
         .ok_or_else(|| RuntimeError::InvalidInput("hosted model requires a profile".to_string()))?;
-    let base_url = hosted_model_base_url(model, &default_profile_id)?;
+    let base_url = hosted_model_default_base_url(model);
     ProfileModelRouter::from_profiles(
         &profiles,
         default_profile_id,
@@ -151,11 +151,13 @@ fn hosted_model_router(
     )
 }
 
-fn hosted_model_base_url(
-    model: &RunModelParams,
-    default_profile_id: &str,
-) -> runtime::RuntimeResult<String> {
-    let mut configured_base_url: Option<&str> = None;
+/// Default base URL for profiles that do not configure their own. Profiles
+/// with an explicit baseUrl always use it (mixed endpoints per run are
+/// supported); when every configured profile agrees on one URL it doubles as
+/// the default so legacy single-URL runs keep their old behavior.
+fn hosted_model_default_base_url(model: &RunModelParams) -> String {
+    let mut configured: Option<&str> = None;
+    let mut mixed = false;
     for profile in &model.model_profiles {
         let Some(base_url) = profile
             .base_url
@@ -165,30 +167,20 @@ fn hosted_model_base_url(
         else {
             continue;
         };
-        if let Some(existing) = configured_base_url {
-            if existing != base_url {
-                return Err(RuntimeError::InvalidInput(
-                    "runner v1 hosted model profiles must share one baseUrl".to_string(),
-                ));
-            }
+        match configured {
+            Some(existing) if existing != base_url => mixed = true,
+            _ => configured = Some(base_url),
         }
-        configured_base_url = Some(base_url);
     }
-    Ok(configured_base_url
-        .map(ToString::to_string)
-        .or_else(|| {
-            model
-                .model_profiles
-                .iter()
-                .find(|profile| profile.id == default_profile_id)
-                .and_then(|profile| profile.base_url.clone())
-        })
-        .or_else(|| {
-            std::env::var("OAI_BASE_URL")
-                .or_else(|_| std::env::var("OPENAI_BASE_URL"))
-                .ok()
-        })
-        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()))
+    if !mixed {
+        if let Some(base_url) = configured {
+            return base_url.to_string();
+        }
+    }
+    std::env::var("OAI_BASE_URL")
+        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+        .ok()
+        .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
 }
 
 fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
@@ -216,6 +208,12 @@ fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<M
         provider_profile_id: params.provider.clone(),
         credential_ref: credential_ref(params.credential.as_ref())?,
         model: params.model.clone(),
+        base_url: params
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
         max_input_tokens: params.max_input_tokens.unwrap_or(128_000),
         max_output_tokens: params.max_output_tokens.unwrap_or(8_000),
         tool_calling_mode: ToolCallingMode::Auto,
@@ -287,5 +285,57 @@ impl CredentialResolver for RunnerCredentialResolver {
             ));
         }
         Ok(result.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile_params(id: &str, base_url: Option<&str>) -> RunModelProfileParams {
+        RunModelProfileParams {
+            id: id.to_string(),
+            provider: "openai".to_string(),
+            model: "test-model".to_string(),
+            credential: None,
+            base_url: base_url.map(ToString::to_string),
+            api_protocol: None,
+            max_input_tokens: None,
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+        }
+    }
+
+    fn model_params(profiles: Vec<RunModelProfileParams>) -> RunModelParams {
+        RunModelParams {
+            callback: false,
+            default_model_profile_id: None,
+            model_profiles: profiles,
+        }
+    }
+
+    #[test]
+    fn agreeing_profile_base_urls_become_the_run_default() {
+        let model = model_params(vec![
+            profile_params("a", Some("https://proxy.internal/v1")),
+            profile_params("b", None),
+            profile_params("c", Some("https://proxy.internal/v1")),
+        ]);
+        assert_eq!(
+            hosted_model_default_base_url(&model),
+            "https://proxy.internal/v1"
+        );
+    }
+
+    #[test]
+    fn mixed_profile_base_urls_are_allowed_and_fall_back_to_global_default() {
+        let model = model_params(vec![
+            profile_params("a", Some("https://proxy.internal/v1")),
+            profile_params("b", Some("http://127.0.0.1:8000/v1")),
+        ]);
+        let default = hosted_model_default_base_url(&model);
+        assert_ne!(default, "https://proxy.internal/v1");
+        assert_ne!(default, "http://127.0.0.1:8000/v1");
     }
 }
