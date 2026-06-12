@@ -1138,16 +1138,33 @@ def graph_debug_diagnostic(
             if isinstance(candidate, dict) and isinstance(candidate.get("path"), str)
         )
     )
+    omitted = export.get("omitted")
+    omitted_paths = list(
+        dict.fromkeys(
+            candidate.get("path")
+            for candidate in omitted
+            if isinstance(candidate, dict) and isinstance(candidate.get("path"), str)
+        )
+        if isinstance(omitted, list)
+        else []
+    )
     candidate_path_set = set(candidate_paths)
-    found_paths = sorted(expected_paths & candidate_path_set)
-    missed_paths = sorted(expected_paths - candidate_path_set)
+    omitted_path_set = set(omitted_paths)
+    reachable_path_set = candidate_path_set | omitted_path_set
+    accepted_found_paths = sorted(expected_paths & candidate_path_set)
+    accepted_missed_paths = sorted(expected_paths - candidate_path_set)
+    reachable_found_paths = sorted(expected_paths & reachable_path_set)
+    reachable_missed_paths = sorted(expected_paths - reachable_path_set)
+    omitted_only_expected_paths = sorted(
+        (expected_paths & omitted_path_set) - candidate_path_set
+    )
     (
         omitted_expected_paths,
         omitted_expected_path_count,
         omitted_expected_paths_truncated,
     ) = graph_debug_omitted_details_for_paths(
-        export.get("omitted"),
-        missed_paths,
+        omitted,
+        accepted_missed_paths,
         limit=omitted_sample_limit,
     )
     edge_confidence = export.get("edgeConfidenceByKind")
@@ -1169,7 +1186,7 @@ def graph_debug_diagnostic(
         "changedAnchorCount": len(export.get("changedAnchors") or []),
         "candidateCount": len(candidates)
         + int(export.get("truncatedCandidates") or 0),
-        "omittedCount": len(export.get("omitted") or [])
+        "omittedCount": len(omitted or [])
         + int(export.get("truncatedOmissions") or 0),
         "truncatedNodes": int(export.get("truncatedNodes") or 0),
         "truncatedEdges": int(export.get("truncatedEdges") or 0),
@@ -1177,11 +1194,22 @@ def graph_debug_diagnostic(
         "truncatedOmissions": int(export.get("truncatedOmissions") or 0),
         "expectedPathCount": len(expected_paths),
         "candidatePathCount": len(candidate_paths),
-        "foundPathCount": len(found_paths),
-        "missedPathCount": len(missed_paths),
-        "recall": (len(found_paths) / len(expected_paths)) if expected_paths else 1.0,
-        "foundPaths": found_paths,
-        "missedPaths": missed_paths,
+        "omittedPathCount": len(omitted_paths),
+        "acceptedFoundPathCount": len(accepted_found_paths),
+        "acceptedMissedPathCount": len(accepted_missed_paths),
+        "acceptedPathRecall": (
+            len(accepted_found_paths) / len(expected_paths) if expected_paths else 1.0
+        ),
+        "reachableFoundPathCount": len(reachable_found_paths),
+        "reachableMissedPathCount": len(reachable_missed_paths),
+        "reachablePathRecall": (
+            len(reachable_found_paths) / len(expected_paths) if expected_paths else 1.0
+        ),
+        "acceptedFoundPaths": accepted_found_paths,
+        "acceptedMissedPaths": accepted_missed_paths,
+        "reachableFoundPaths": reachable_found_paths,
+        "reachableMissedPaths": reachable_missed_paths,
+        "omittedOnlyExpectedPaths": omitted_only_expected_paths,
         "candidatePathSample": candidate_paths[:candidate_sample_limit],
         "candidatePathSampleTruncated": max(
             0, len(candidate_paths) - candidate_sample_limit
@@ -1353,9 +1381,14 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
         }
         if result.graph_debug is not None:
             case["graphDebug"] = {
-                "recall": result.graph_debug["recall"],
+                "acceptedPathRecall": result.graph_debug["acceptedPathRecall"],
+                "reachablePathRecall": result.graph_debug["reachablePathRecall"],
                 "candidatePathCount": result.graph_debug["candidatePathCount"],
-                "missedPaths": result.graph_debug["missedPaths"],
+                "acceptedMissedPaths": result.graph_debug["acceptedMissedPaths"],
+                "reachableMissedPaths": result.graph_debug["reachableMissedPaths"],
+                "omittedOnlyExpectedPaths": result.graph_debug[
+                    "omittedOnlyExpectedPaths"
+                ],
                 "omittedExpectedPathCount": result.graph_debug.get(
                     "omittedExpectedPathCount",
                     len(result.graph_debug["omittedExpectedPaths"]),
@@ -1412,8 +1445,18 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
     expected_count = sum(
         result.graph_debug["expectedPathCount"] for result in graph_results
     )
-    found_count = sum(result.graph_debug["foundPathCount"] for result in graph_results)
-    missed_count = sum(result.graph_debug["missedPathCount"] for result in graph_results)
+    accepted_found_count = sum(
+        result.graph_debug["acceptedFoundPathCount"] for result in graph_results
+    )
+    accepted_missed_count = sum(
+        result.graph_debug["acceptedMissedPathCount"] for result in graph_results
+    )
+    reachable_found_count = sum(
+        result.graph_debug["reachableFoundPathCount"] for result in graph_results
+    )
+    reachable_missed_count = sum(
+        result.graph_debug["reachableMissedPathCount"] for result in graph_results
+    )
     omitted_expected_count = sum(
         result.graph_debug.get(
             "omittedExpectedPathCount",
@@ -1436,9 +1479,12 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
             "sourceGroup": result.source_group,
             "truthSource": result.truth_source,
             "kind": result.kind,
-            "recall": result.graph_debug["recall"],
+            "acceptedPathRecall": result.graph_debug["acceptedPathRecall"],
+            "reachablePathRecall": result.graph_debug["reachablePathRecall"],
             "candidatePathCount": result.graph_debug["candidatePathCount"],
-            "missedPaths": result.graph_debug["missedPaths"],
+            "acceptedMissedPaths": result.graph_debug["acceptedMissedPaths"],
+            "reachableMissedPaths": result.graph_debug["reachableMissedPaths"],
+            "omittedOnlyExpectedPaths": result.graph_debug["omittedOnlyExpectedPaths"],
             "omittedExpectedPathCount": result.graph_debug.get(
                 "omittedExpectedPathCount",
                 len(result.graph_debug["omittedExpectedPaths"]),
@@ -1452,27 +1498,49 @@ def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]
         for result in sorted(
             graph_results,
             key=lambda result: (
-                result.graph_debug["recall"],
+                result.graph_debug["reachablePathRecall"],
+                result.graph_debug["acceptedPathRecall"],
                 result.graph_debug["candidatePathCount"],
                 result.id,
             ),
         )
-        if result.graph_debug["missedPathCount"]
+        if (
+            result.graph_debug["reachableMissedPathCount"]
+            or result.graph_debug["acceptedMissedPathCount"]
+        )
     ]
 
     return {
         "enabled": True,
         "caseCount": len(graph_results),
         "expectedPathCount": expected_count,
-        "foundPathCount": found_count,
-        "missedPathCount": missed_count,
-        "pathRecall": found_count / expected_count if expected_count else 1.0,
-        "meanCaseRecall": sum(
-            result.graph_debug["recall"] for result in graph_results
+        "acceptedFoundPathCount": accepted_found_count,
+        "acceptedMissedPathCount": accepted_missed_count,
+        "acceptedPathRecall": (
+            accepted_found_count / expected_count if expected_count else 1.0
+        ),
+        "reachableFoundPathCount": reachable_found_count,
+        "reachableMissedPathCount": reachable_missed_count,
+        "reachablePathRecall": (
+            reachable_found_count / expected_count if expected_count else 1.0
+        ),
+        "meanAcceptedPathRecall": sum(
+            result.graph_debug["acceptedPathRecall"] for result in graph_results
         )
         / len(graph_results),
-        "missedCaseCount": sum(
-            1 for result in graph_results if result.graph_debug["missedPathCount"]
+        "meanReachablePathRecall": sum(
+            result.graph_debug["reachablePathRecall"] for result in graph_results
+        )
+        / len(graph_results),
+        "acceptedMissedCaseCount": sum(
+            1
+            for result in graph_results
+            if result.graph_debug["acceptedMissedPathCount"]
+        ),
+        "reachableMissedCaseCount": sum(
+            1
+            for result in graph_results
+            if result.graph_debug["reachableMissedPathCount"]
         ),
         "omittedExpectedPathCount": omitted_expected_count,
         "meanCandidatePathCount": mean_number(
@@ -1793,8 +1861,9 @@ def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval"
     if graph.get("enabled"):
         print(
             f"{label} graph-debug: "
-            f"path-recall {graph['pathRecall']:.3f}, "
-            f"missed paths {graph['missedPathCount']}, "
+            f"accepted-recall {graph['acceptedPathRecall']:.3f}, "
+            f"reachable-recall {graph['reachablePathRecall']:.3f}, "
+            f"reachable missed paths {graph['reachableMissedPathCount']}, "
             f"mean latency {graph['meanLatencyMs']:.1f} ms"
         )
 
