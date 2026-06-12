@@ -1726,6 +1726,31 @@ def ranked_miss_causes(results: list[CaseResult], limit: int = 12) -> dict[str, 
     }
 
 
+def false_sufficient_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any]]:
+    cases = [
+        result for result in results if result.sufficiency_false_sufficient
+    ]
+    cases.sort(key=lambda result: (result.source_group, result.truth_source, result.id))
+    return [
+        {
+            "id": result.id,
+            "caseSet": result.case_set,
+            "sourceGroup": result.source_group,
+            "truthSource": result.truth_source,
+            "kind": result.kind,
+            "sufficiencyStatus": result.sufficiency_status,
+            "sufficiencyBlockingGaps": result.sufficiency_blocking_gaps,
+            "missedPaths": result.missed_paths,
+            "candidateMissedPaths": result.candidate_missed_paths,
+            "candidatePresentMissedPaths": result.candidate_present_missed_paths,
+            "candidatePresentMissedOmissions": result.candidate_present_missed_omissions,
+            "firstRelevantRank": result.first_relevant_rank,
+            "tokensToFirstRelevant": result.tokens_to_first_relevant,
+        }
+        for result in cases[:limit]
+    ]
+
+
 def summarize(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
     failures = sorted(
@@ -1756,6 +1781,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         "diagnostics": {
             "omissionPressure": omission_pressure(results),
             "rankedMissCauses": ranked_miss_causes(results),
+            "falseSufficientCases": false_sufficient_cases(results),
             "graphCoverage": graph_coverage(results),
         },
         "cases": [result.__dict__ for result in results],
