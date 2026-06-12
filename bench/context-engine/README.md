@@ -48,6 +48,17 @@ Filtered runs are diagnostic only: they skip the committed regression gate and
 cannot write `baseline.json`. Use the full unfiltered suite before accepting
 or committing quality changes.
 
+Compare two summary artifacts after an experiment:
+
+```sh
+python3 bench/context-engine/compare.py \
+  bench/results-context-engine/context-engine-summary.json \
+  /tmp/context-engine-summary-candidate.json
+```
+
+Use artifacts with the same case selection for summary-level metric deltas.
+When selections differ, the case-delta rows are still useful for diagnostics.
+
 The runner drives `cargo run --bin muzen -- context query` or
 `cargo run --bin muzen -- context pack` for each case in
 `bench/context-engine/cases/`, computes recall, precision, token efficiency,

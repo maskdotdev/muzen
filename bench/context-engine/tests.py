@@ -30,6 +30,7 @@ def load_module(name: str, path: Path):
 
 
 run = load_module("context_eval_run", HERE / "run.py")
+compare = load_module("context_eval_compare", HERE / "compare.py")
 
 
 class RankingMetricsTest(unittest.TestCase):
@@ -798,6 +799,62 @@ class AblationReportTest(unittest.TestCase):
             0,
         )
         self.assertIn("weakCases", entry)
+
+
+class SummaryCompareTest(unittest.TestCase):
+    def test_metric_deltas_compare_common_metrics(self):
+        baseline = {"metrics": {"meanRecallAt10": 0.5, "meanNdcgAt10": 0.25}}
+        candidate = {"metrics": {"meanRecallAt10": 0.6, "meanNdcgAt10": 0.20}}
+
+        deltas = compare.metric_deltas(
+            baseline, candidate, ["meanRecallAt10", "meanNdcgAt10"]
+        )
+
+        self.assertEqual(deltas[0].name, "meanRecallAt10")
+        self.assertAlmostEqual(deltas[0].delta, 0.1)
+        self.assertAlmostEqual(deltas[1].delta, -0.05)
+
+    def test_case_deltas_include_present_miss_delta(self):
+        baseline = {
+            "cases": [
+                {
+                    "id": "case-a",
+                    "kind": "pack",
+                    "source_group": "external",
+                    "truth_source": "mined_followup",
+                    "recall_at_10": 0.0,
+                    "recall_at_25": 0.0,
+                    "ndcg_at_10": 0.0,
+                    "first_relevant_rank": None,
+                    "tokens_to_first_relevant": None,
+                    "candidate_present_missed_paths": ["src/a.rs"],
+                }
+            ]
+        }
+        candidate = {
+            "cases": [
+                {
+                    "id": "case-a",
+                    "kind": "pack",
+                    "source_group": "external",
+                    "truth_source": "mined_followup",
+                    "recall_at_10": 0.5,
+                    "recall_at_25": 0.5,
+                    "ndcg_at_10": 0.2,
+                    "first_relevant_rank": 3,
+                    "tokens_to_first_relevant": 200,
+                    "candidate_present_missed_paths": [],
+                }
+            ]
+        }
+
+        rows = compare.case_deltas(baseline, candidate, kind="pack")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].case_id, "case-a")
+        self.assertEqual(rows[0].deltas["recall_at_10"], 0.5)
+        self.assertIsNone(rows[0].deltas["first_relevant_rank"])
+        self.assertEqual(rows[0].candidate_present_miss_delta, -1)
 
 
 class MinerDeterminismTest(unittest.TestCase):
