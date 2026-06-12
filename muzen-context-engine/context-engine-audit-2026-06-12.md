@@ -74,7 +74,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Strict curated fixture `curated-rust-invoice` now proves Rust module import graph facts retrieve a changed settlement module's API caller and integration test under a 500-token pack budget with refund/inventory distractors.
 - Eval iteration can now run the same public CLI/gate in parallel with `--jobs N`. Same derived-cache root is serialized per repo to avoid cache write races, and result ordering stays stable for committed artifacts. Latest proof run: 90 cases with `--jobs 6` passed after baseline refresh.
 - Eval iteration now supports focused `--case-id` and `--case-glob` diagnostic runs. Filtered runs are marked diagnostic-only, skip regression gates, and cannot write `baseline.json`, so speed cannot masquerade as proof.
-- Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
+- Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, rank index, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
 - Packs now expose selected-candidate score and rank metadata, and weak cases report the selected tail beside missed candidates. This makes budget tradeoffs auditable: we can see which low-tail items consumed the budget that excluded a relevant candidate.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
@@ -108,7 +108,7 @@ The eval gate now tracks:
 - useful evidence per 1k tokens
 - sufficiency honesty
 - truth-source cohorts and weak-case truth source
-- candidate-present missed omitted candidates with reason/score/token diagnostics
+- candidate-present missed omitted candidates with reason/score/rank/token diagnostics
 - selected-tail score/rank/token diagnostics for weak cases
 - public CLI signal ablations for proof runs
 
