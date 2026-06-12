@@ -36,6 +36,13 @@ pub(crate) struct PlannedReviewRuntime {
     pub(crate) review_revision_id: String,
     pub(crate) events: RuntimeEventDispatcher,
     pub(crate) session_templates: Vec<SessionScope>,
+    /// Bounds concurrently active sessions. Shared across shards of one run
+    /// so multi-snapshot runs cannot multiply max_active_sessions.
+    pub(crate) active_sessions: Arc<Semaphore>,
+}
+
+pub(crate) fn session_semaphore(limits: &RuntimeLimits) -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(limits.max_active_sessions.max(1)))
 }
 
 impl PlannedReviewRuntime {
@@ -77,7 +84,7 @@ impl PlannedReviewRuntime {
         // re-ordered by unit index before aggregation so findings, file
         // reviews, and synthesis input stay deterministic regardless of
         // completion order.
-        let active = Arc::new(Semaphore::new(self.limits.max_active_sessions.max(1)));
+        let active = Arc::clone(&self.active_sessions);
         let mut joins = JoinSet::new();
         for (index, unit) in unit_plan.units.iter().enumerate() {
             let runtime = Arc::clone(&self);
@@ -3572,6 +3579,7 @@ mod tests {
     ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
         let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
+        let active_sessions = session_semaphore(&limits);
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = Arc::new(PlannedReviewRuntime {
             snapshot,
@@ -3584,6 +3592,7 @@ mod tests {
             review_revision_id: "head".to_string(),
             events: RuntimeEventDispatcher::new(None, None),
             session_templates,
+            active_sessions,
         });
 
         runtime.run_with_cancel(CancellationToken::new()).await
@@ -3669,6 +3678,7 @@ mod tests {
             .collect();
         let snapshot = build_owned_test_snapshot(files);
         let limits = Arc::new(RuntimeLimits::standard(4, 64 * 1024, 20));
+        let active_sessions = session_semaphore(&limits);
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let max_in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -3684,6 +3694,7 @@ mod tests {
             review_revision_id: "head".to_string(),
             events: RuntimeEventDispatcher::new(None, None),
             session_templates: Vec::new(),
+            active_sessions,
         });
 
         let report = runtime.run_with_cancel(CancellationToken::new()).await;
