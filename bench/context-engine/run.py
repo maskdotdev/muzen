@@ -2363,15 +2363,29 @@ def run_context_eval_batch(
     divisor = max(1, len(cases))
     graph_count = max(1, sum(1 for case in cases if getattr(args, "include_graph_debug", False)))
     batch_perf = batch_result.get("performance") or {}
+    batch_output_serialization_ms = float(
+        batch_perf.get("outputSerializationMs") or 0.0
+    )
     results = []
     for case in cases:
         output = outputs_by_id[case["id"]]
         result = output["result"]
         cli_performance = result.get("performance") or output.get("performance") or {}
+        if isinstance(cli_performance, dict):
+            cli_performance = {
+                **cli_performance,
+                "outputSerializationMs": float(
+                    cli_performance.get("outputSerializationMs") or 0.0
+                )
+                + (batch_output_serialization_ms / divisor),
+            }
+            if isinstance(result, dict):
+                result["performance"] = cli_performance
         latency_ms = (
             float(cli_performance.get("snapshotBuildMs") or 0.0)
             + float(cli_performance.get("indexBuildMs") or 0.0)
             + float(cli_performance.get("actionMs") or 0.0)
+            + float(cli_performance.get("outputSerializationMs") or 0.0)
         )
         timings = CaseTimings(
             corpus_prep_ms=corpus_prep_ms / divisor,
