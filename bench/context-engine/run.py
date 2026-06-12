@@ -49,6 +49,7 @@ CORPUS_CACHE = ROOT / "bench" / "context-engine" / "corpus"
 CASE_SCHEMA_VERSION = "muzen.context-eval-case.v2"
 SUMMARY_SCHEMA_VERSION = "muzen.context-eval-summary.v2"
 ABLATION_SCHEMA_VERSION = "muzen.context-eval-ablation.v1"
+GRAPH_DEBUG_SCHEMA_VERSION = "muzen.context-graph-debug.v1"
 CONTEXT_SIGNAL_ABLATIONS = (
     "graph",
     "co-change",
@@ -131,6 +132,7 @@ class CaseResult:
     sufficiency_status: str | None
     sufficiency_blocking_gaps: int
     sufficiency_false_sufficient: bool
+    graph_debug: dict[str, Any] | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -275,6 +277,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Signal or optimizer component to include in --ablation-report. "
             "Repeatable; defaults to all supported ablations."
+        ),
+    )
+    parser.add_argument(
+        "--include-graph-debug",
+        action="store_true",
+        help=(
+            "Run public `muzen context graph-debug` for each case and report "
+            "raw graph candidate coverage. This is diagnostic and slower; it "
+            "does not affect ranking metrics or regression gates."
         ),
     )
     return parser.parse_args()
@@ -572,6 +583,7 @@ def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
             "model": getattr(args, "rerank_model", None),
         },
         "ablateContextSignals": list(getattr(args, "ablate_context_signal", []) or []),
+        "includeGraphDebug": bool(getattr(args, "include_graph_debug", False)),
     }
     head = git_output(["rev-parse", "HEAD"])
     if head:
@@ -599,25 +611,22 @@ def base_command(muzen_bin: Path) -> list[str]:
     return [str(muzen_bin)]
 
 
-def run_context_case(
-    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
-) -> tuple[dict[str, Any], float]:
-    repo = materialize_repo(case_file["repoSource"])
-    command = base_command(args.muzen_bin)
-    command.append("context")
-    if case.get("command") == "pack":
-        command.append("pack")
-    else:
-        command.append("query")
-    command.extend(["--repo", str(repo)])
-    # Durable derived-data cache (R9): repeated invocations over the same
-    # checkout re-derive only what changed. Keyed per corpus checkout.
+def cache_root_for_repo(repo: Path) -> Path:
     cache_root = CORPUS_CACHE / "derived" / repo.name
     cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root
+
+
+def append_common_context_args(
+    command: list[str],
+    case_file: dict[str, Any],
+    case: dict[str, Any],
+    args: argparse.Namespace,
+    repo: Path,
+    cache_root: Path,
+) -> None:
+    command.extend(["--repo", str(repo)])
     command.extend(["--derived-cache-root", str(cache_root)])
-    cache_lock = derived_cache_lock(cache_root)
-    host_metadata = merged_host_metadata(case_file, case)
-    host_instructions = merged_host_instructions(case_file, case)
     for changed_file in case_file["changedFiles"]:
         command.extend(["--changed-file", changed_file])
     diff_path = materialize_diff(case_file["repoSource"])
@@ -674,6 +683,41 @@ def run_context_case(
         if args.rerank_credential_ref:
             command.extend(["--rerank-credential-ref", args.rerank_credential_ref])
     command.extend(context_ablation_command_args(args))
+
+
+def append_host_context_args(
+    command: list[str],
+    case_file: dict[str, Any],
+    case: dict[str, Any],
+    host_tmp_path: Path,
+) -> None:
+    host_metadata = merged_host_metadata(case_file, case)
+    host_instructions = merged_host_instructions(case_file, case)
+    if host_metadata:
+        metadata_path = host_tmp_path / "host-metadata.json"
+        metadata_path.write_text(json.dumps(host_metadata, sort_keys=True))
+        command.extend(["--host-metadata-json", str(metadata_path)])
+    if host_instructions:
+        instructions_path = host_tmp_path / "host-instructions.json"
+        instructions_path.write_text(json.dumps(host_instructions, sort_keys=True))
+        command.extend(["--host-instruction-json", str(instructions_path)])
+
+
+def run_context_case(
+    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+) -> tuple[dict[str, Any], float]:
+    repo = materialize_repo(case_file["repoSource"])
+    command = base_command(args.muzen_bin)
+    command.append("context")
+    if case.get("command") == "pack":
+        command.append("pack")
+    else:
+        command.append("query")
+    # Durable derived-data cache (R9): repeated invocations over the same
+    # checkout re-derive only what changed. Keyed per corpus checkout.
+    cache_root = cache_root_for_repo(repo)
+    cache_lock = derived_cache_lock(cache_root)
+    append_common_context_args(command, case_file, case, args, repo, cache_root)
     if case.get("command") == "pack":
         command.extend(["--purpose", case.get("purpose", "general-review")])
         command.extend(["--max-tokens", str(case.get("maxTokens", 12000))])
@@ -691,14 +735,7 @@ def run_context_case(
     host_tmp = tempfile.TemporaryDirectory(prefix="muzen-context-host-")
     try:
         host_tmp_path = Path(host_tmp.name)
-        if host_metadata:
-            metadata_path = host_tmp_path / "host-metadata.json"
-            metadata_path.write_text(json.dumps(host_metadata, sort_keys=True))
-            command.extend(["--host-metadata-json", str(metadata_path)])
-        if host_instructions:
-            instructions_path = host_tmp_path / "host-instructions.json"
-            instructions_path.write_text(json.dumps(host_instructions, sort_keys=True))
-            command.extend(["--host-instruction-json", str(instructions_path)])
+        append_host_context_args(command, case_file, case, host_tmp_path)
 
         with cache_lock:
             started = time.perf_counter()
@@ -719,6 +756,46 @@ def run_context_case(
             f"stderr:\n{completed.stderr}"
         )
     return json.loads(completed.stdout), latency_ms
+
+
+def run_context_graph_debug(
+    case_file: dict[str, Any], case: dict[str, Any], args: argparse.Namespace
+) -> tuple[dict[str, Any], float]:
+    repo = materialize_repo(case_file["repoSource"])
+    command = base_command(args.muzen_bin)
+    command.extend(["context", "graph-debug"])
+    cache_root = cache_root_for_repo(repo)
+    cache_lock = derived_cache_lock(cache_root)
+    append_common_context_args(command, case_file, case, args, repo, cache_root)
+
+    host_tmp = tempfile.TemporaryDirectory(prefix="muzen-context-host-")
+    try:
+        append_host_context_args(command, case_file, case, Path(host_tmp.name))
+        with cache_lock:
+            started = time.perf_counter()
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+    finally:
+        host_tmp.cleanup()
+    latency_ms = (time.perf_counter() - started) * 1000
+    if completed.returncode != 0:
+        raise SystemExit(
+            f"context graph-debug failed for {case['id']} with code {completed.returncode}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    export = json.loads(completed.stdout)
+    if export.get("schemaVersion") != GRAPH_DEBUG_SCHEMA_VERSION:
+        raise SystemExit(
+            f"context graph-debug for {case['id']} returned unsupported "
+            f"schemaVersion {export.get('schemaVersion')!r}"
+        )
+    return export, latency_ms
 
 
 def derived_cache_lock(cache_root: Path) -> threading.Lock:
@@ -879,6 +956,14 @@ def score_case(
         omitted, candidate_present_missed_paths
     )
     selected_tail_candidates = selected_tail_details(result, evidence)
+    graph_debug = None
+    if getattr(args, "include_graph_debug", False):
+        graph_export, graph_latency_ms = run_context_graph_debug(case_file, case, args)
+        graph_debug = graph_debug_diagnostic(
+            graph_export,
+            candidate_expected,
+            graph_latency_ms,
+        )
     sufficiency = result.get("sufficiency") or {}
     sufficiency_blocking_gaps = sum(
         1
@@ -928,6 +1013,7 @@ def score_case(
         sufficiency_status=sufficiency.get("status"),
         sufficiency_blocking_gaps=sufficiency_blocking_gaps,
         sufficiency_false_sufficient=false_sufficient,
+        graph_debug=graph_debug,
     )
 
 
@@ -1033,6 +1119,103 @@ def selected_tail_details(
             }
         )
     return details
+
+
+def graph_debug_diagnostic(
+    export: dict[str, Any],
+    expected_paths: set[str],
+    latency_ms: float,
+    candidate_sample_limit: int = 40,
+    omitted_sample_limit: int = 40,
+) -> dict[str, Any]:
+    candidates = export.get("candidates")
+    if not isinstance(candidates, list):
+        candidates = []
+    candidate_paths = list(
+        dict.fromkeys(
+            candidate.get("path")
+            for candidate in candidates
+            if isinstance(candidate, dict) and isinstance(candidate.get("path"), str)
+        )
+    )
+    candidate_path_set = set(candidate_paths)
+    found_paths = sorted(expected_paths & candidate_path_set)
+    missed_paths = sorted(expected_paths - candidate_path_set)
+    (
+        omitted_expected_paths,
+        omitted_expected_path_count,
+        omitted_expected_paths_truncated,
+    ) = graph_debug_omitted_details_for_paths(
+        export.get("omitted"),
+        missed_paths,
+        limit=omitted_sample_limit,
+    )
+    edge_confidence = export.get("edgeConfidenceByKind")
+    if not isinstance(edge_confidence, dict):
+        edge_confidence = {}
+    edge_kind_counts = {
+        str(kind): summary["count"]
+        for kind, summary in edge_confidence.items()
+        if isinstance(summary, dict) and isinstance(summary.get("count"), int)
+    }
+    omitted_counts = export.get("omittedCountsByReason")
+    if not isinstance(omitted_counts, dict):
+        omitted_counts = {}
+
+    return {
+        "latencyMs": latency_ms,
+        "nodeCount": int(export.get("nodeCount", 0)),
+        "edgeCount": int(export.get("edgeCount", 0)),
+        "changedAnchorCount": len(export.get("changedAnchors") or []),
+        "candidateCount": len(candidates)
+        + int(export.get("truncatedCandidates") or 0),
+        "omittedCount": len(export.get("omitted") or [])
+        + int(export.get("truncatedOmissions") or 0),
+        "truncatedNodes": int(export.get("truncatedNodes") or 0),
+        "truncatedEdges": int(export.get("truncatedEdges") or 0),
+        "truncatedCandidates": int(export.get("truncatedCandidates") or 0),
+        "truncatedOmissions": int(export.get("truncatedOmissions") or 0),
+        "expectedPathCount": len(expected_paths),
+        "candidatePathCount": len(candidate_paths),
+        "foundPathCount": len(found_paths),
+        "missedPathCount": len(missed_paths),
+        "recall": (len(found_paths) / len(expected_paths)) if expected_paths else 1.0,
+        "foundPaths": found_paths,
+        "missedPaths": missed_paths,
+        "candidatePathSample": candidate_paths[:candidate_sample_limit],
+        "candidatePathSampleTruncated": max(
+            0, len(candidate_paths) - candidate_sample_limit
+        ),
+        "omittedExpectedPathCount": omitted_expected_path_count,
+        "omittedExpectedPaths": omitted_expected_paths,
+        "omittedExpectedPathsTruncated": omitted_expected_paths_truncated,
+        "omittedCountsByReason": dict(sorted(omitted_counts.items())),
+        "edgeKindCounts": dict(sorted(edge_kind_counts.items())),
+    }
+
+
+def graph_debug_omitted_details_for_paths(
+    omitted: Any, paths: list[str], limit: int = 40
+) -> tuple[list[dict[str, Any]], int, int]:
+    if not isinstance(omitted, list) or not paths:
+        return [], 0, 0
+    missed = set(paths)
+    details = []
+    total = 0
+    for candidate in omitted:
+        if not isinstance(candidate, dict) or candidate.get("path") not in missed:
+            continue
+        total += 1
+        if len(details) < limit:
+            details.append(
+                {
+                    "node": candidate.get("node"),
+                    "path": candidate.get("path"),
+                    "anchor": candidate.get("anchor"),
+                    "reason": candidate.get("reason"),
+                }
+            )
+    return details, total, max(0, total - len(details))
 
 
 def metric_block(results: list[CaseResult]) -> dict[str, Any]:
@@ -1147,8 +1330,9 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             result.id,
         ),
     )
-    return [
-        {
+    cases = []
+    for result in ranked[:limit]:
+        case = {
             "id": result.id,
             "caseSet": result.case_set,
             "sourceGroup": result.source_group,
@@ -1167,8 +1351,23 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             "missedPaths": result.missed_paths,
             "sufficiencyStatus": result.sufficiency_status,
         }
-        for result in ranked[:limit]
-    ]
+        if result.graph_debug is not None:
+            case["graphDebug"] = {
+                "recall": result.graph_debug["recall"],
+                "candidatePathCount": result.graph_debug["candidatePathCount"],
+                "missedPaths": result.graph_debug["missedPaths"],
+                "omittedExpectedPathCount": result.graph_debug.get(
+                    "omittedExpectedPathCount",
+                    len(result.graph_debug["omittedExpectedPaths"]),
+                ),
+                "omittedExpectedPaths": result.graph_debug["omittedExpectedPaths"],
+                "omittedExpectedPathsTruncated": result.graph_debug.get(
+                    "omittedExpectedPathsTruncated",
+                    0,
+                ),
+            }
+        cases.append(case)
+    return cases
 
 
 def slow_cases(results: list[CaseResult], limit: int = 10) -> list[dict[str, Any]]:
@@ -1201,6 +1400,91 @@ def percentile_number(values: list[float | int], percentile: float) -> float | i
     ordered = sorted(values)
     index = round((len(ordered) - 1) * percentile)
     return ordered[index]
+
+
+def graph_coverage(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
+    graph_results = [
+        result for result in results if result.graph_debug is not None
+    ]
+    if not graph_results:
+        return {"enabled": False}
+
+    expected_count = sum(
+        result.graph_debug["expectedPathCount"] for result in graph_results
+    )
+    found_count = sum(result.graph_debug["foundPathCount"] for result in graph_results)
+    missed_count = sum(result.graph_debug["missedPathCount"] for result in graph_results)
+    omitted_expected_count = sum(
+        result.graph_debug.get(
+            "omittedExpectedPathCount",
+            len(result.graph_debug["omittedExpectedPaths"]),
+        )
+        for result in graph_results
+    )
+    edge_kind_counts: dict[str, int] = {}
+    omitted_reason_counts: dict[str, int] = {}
+    for result in graph_results:
+        for kind, count in result.graph_debug["edgeKindCounts"].items():
+            edge_kind_counts[kind] = edge_kind_counts.get(kind, 0) + count
+        for reason, count in result.graph_debug["omittedCountsByReason"].items():
+            if isinstance(count, int):
+                omitted_reason_counts[reason] = omitted_reason_counts.get(reason, 0) + count
+
+    weak = [
+        {
+            "id": result.id,
+            "sourceGroup": result.source_group,
+            "truthSource": result.truth_source,
+            "kind": result.kind,
+            "recall": result.graph_debug["recall"],
+            "candidatePathCount": result.graph_debug["candidatePathCount"],
+            "missedPaths": result.graph_debug["missedPaths"],
+            "omittedExpectedPathCount": result.graph_debug.get(
+                "omittedExpectedPathCount",
+                len(result.graph_debug["omittedExpectedPaths"]),
+            ),
+            "omittedExpectedPaths": result.graph_debug["omittedExpectedPaths"],
+            "omittedExpectedPathsTruncated": result.graph_debug.get(
+                "omittedExpectedPathsTruncated",
+                0,
+            ),
+        }
+        for result in sorted(
+            graph_results,
+            key=lambda result: (
+                result.graph_debug["recall"],
+                result.graph_debug["candidatePathCount"],
+                result.id,
+            ),
+        )
+        if result.graph_debug["missedPathCount"]
+    ]
+
+    return {
+        "enabled": True,
+        "caseCount": len(graph_results),
+        "expectedPathCount": expected_count,
+        "foundPathCount": found_count,
+        "missedPathCount": missed_count,
+        "pathRecall": found_count / expected_count if expected_count else 1.0,
+        "meanCaseRecall": sum(
+            result.graph_debug["recall"] for result in graph_results
+        )
+        / len(graph_results),
+        "missedCaseCount": sum(
+            1 for result in graph_results if result.graph_debug["missedPathCount"]
+        ),
+        "omittedExpectedPathCount": omitted_expected_count,
+        "meanCandidatePathCount": mean_number(
+            [result.graph_debug["candidatePathCount"] for result in graph_results]
+        ),
+        "meanLatencyMs": mean_number(
+            [result.graph_debug["latencyMs"] for result in graph_results]
+        ),
+        "edgeKindObservationCounts": dict(sorted(edge_kind_counts.items())),
+        "omittedCountsByReason": dict(sorted(omitted_reason_counts.items())),
+        "weakCases": weak[:limit],
+    }
 
 
 def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, Any]:
@@ -1316,6 +1600,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         "slowCases": slow_cases(results),
         "diagnostics": {
             "omissionPressure": omission_pressure(results),
+            "graphCoverage": graph_coverage(results),
         },
         "cases": [result.__dict__ for result in results],
     }
@@ -1504,6 +1789,14 @@ def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval"
         f"mean precision {metrics['meanPrecision']:.3f}, "
         f"mean latency {metrics['meanLatencyMs']:.1f} ms"
     )
+    graph = summary.get("diagnostics", {}).get("graphCoverage", {})
+    if graph.get("enabled"):
+        print(
+            f"{label} graph-debug: "
+            f"path-recall {graph['pathRecall']:.3f}, "
+            f"missed paths {graph['missedPathCount']}, "
+            f"mean latency {graph['meanLatencyMs']:.1f} ms"
+        )
 
 
 def numeric_delta(current: Any, baseline: Any) -> float | None:
