@@ -432,9 +432,9 @@ pub(crate) fn purpose_name(purpose: ContextPackPurpose) -> &'static str {
 
 fn token_efficiency_bonus(tokens: usize) -> f32 {
     if tokens <= 250 {
-        0.045
+        0.03
     } else if tokens <= 1_000 {
-        0.0225
+        0.015
     } else {
         0.0
     }
@@ -684,8 +684,8 @@ mod tests {
     fn token_efficiency_bonus_is_bounded_below_structural_signals() {
         let config = ContextEngineConfig::snapshot_v0();
 
-        assert_eq!(token_efficiency_bonus(250), 0.045);
-        assert_eq!(token_efficiency_bonus(1_000), 0.0225);
+        assert_eq!(token_efficiency_bonus(250), 0.03);
+        assert_eq!(token_efficiency_bonus(1_000), 0.015);
         assert_eq!(token_efficiency_bonus(1_001), 0.0);
         assert!(token_efficiency_bonus(250) < config.weight_graph_proximity);
         assert!(token_efficiency_bonus(250) < config.weight_lexical_change);
