@@ -1281,6 +1281,44 @@ fn next_app_layout_edges_ignore_non_app_route_files() {
         .all(|edge| edge.kind != ContextEdgeKind::Configures));
 }
 
+#[test]
+fn next_app_route_params_connect_matching_feature_files() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("apps/web/src/app/repos/[integrationId]/_components/viewer.tsx"),
+        parsed(&["RepoViewer"], Vec::new()),
+    );
+    files.insert(
+        repo_path("apps/web/src/features/gitlab/server/integration-connect.ts"),
+        parsed(&["connectGitlabIntegration"], Vec::new()),
+    );
+    files.insert(
+        repo_path("apps/web/src/features/review/server/review-agent.ts"),
+        parsed(&["reviewAgent"], Vec::new()),
+    );
+    let changed = "apps/web/src/app/repos/[integrationId]/_components/viewer.tsx";
+    let graph = GraphSpec::new(&files).with_changed(&[changed]).build();
+
+    let convention_targets = graph
+        .file_referencers(&repo_path(changed))
+        .filter(|edge| edge.kind == ContextEdgeKind::Convention)
+        .filter_map(|edge| edge.from_path().map(RepoPath::display))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        convention_targets,
+        vec!["apps/web/src/features/gitlab/server/integration-connect.ts"]
+    );
+
+    let expansion = graph.expand(default_request());
+    assert!(expansion.candidates.iter().any(|candidate| {
+        candidate.node_id.path()
+            == Some(&repo_path(
+                "apps/web/src/features/gitlab/server/integration-connect.ts",
+            ))
+            && candidate.hop_count == 1
+    }));
+}
+
 // ---- co-change ----------------------------------------------------------
 
 #[test]
