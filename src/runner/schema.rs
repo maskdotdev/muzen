@@ -1031,6 +1031,17 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("score", "number"),
                 required("tokenEstimate", "integer"),
                 required("reason", "ContextOmissionReason"),
+                optional("budgetState", "OmittedContextBudgetState"),
+            ],
+        ),
+        object(
+            "OmittedContextBudgetState",
+            vec![
+                required("remainingTokens", "integer"),
+                required("fullContentRemainingTokens", "integer"),
+                required("fullContentShortfallTokens", "integer"),
+                optional("skeletonTokenEstimate", "integer"),
+                optional("skeletonShortfallTokens", "integer"),
             ],
         ),
         enum_definition(

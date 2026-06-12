@@ -1262,6 +1262,7 @@ def omitted_details_for_paths(
                 "rankIndex": candidate.get("rankIndex"),
                 "tokenEstimate": candidate.get("tokenEstimate"),
                 "reason": candidate.get("reason"),
+                "budgetState": candidate.get("budgetState"),
                 "graphPaths": graph_paths,
             }
         )
@@ -1920,6 +1921,13 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
     rank_values: list[int] = []
     score_values: list[float] = []
     token_values: list[int] = []
+    remaining_token_values: list[int] = []
+    full_content_remaining_values: list[int] = []
+    full_content_shortfall_values: list[int] = []
+    skeleton_token_values: list[int] = []
+    skeleton_shortfall_values: list[int] = []
+    skeleton_available_count = 0
+    skeleton_fits_remaining_count = 0
     signal_values: dict[str, list[float]] = {
         "coChangeScore": [],
         "pathProximity": [],
@@ -1944,6 +1952,26 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
         token_estimate = omission.get("tokenEstimate")
         if isinstance(token_estimate, int):
             token_values.append(token_estimate)
+        budget_state = omission.get("budgetState")
+        if isinstance(budget_state, dict):
+            remaining = budget_state.get("remainingTokens")
+            if isinstance(remaining, int):
+                remaining_token_values.append(remaining)
+            full_remaining = budget_state.get("fullContentRemainingTokens")
+            if isinstance(full_remaining, int):
+                full_content_remaining_values.append(full_remaining)
+            full_shortfall = budget_state.get("fullContentShortfallTokens")
+            if isinstance(full_shortfall, int):
+                full_content_shortfall_values.append(full_shortfall)
+            skeleton_tokens = budget_state.get("skeletonTokenEstimate")
+            if isinstance(skeleton_tokens, int):
+                skeleton_available_count += 1
+                skeleton_token_values.append(skeleton_tokens)
+                skeleton_shortfall = budget_state.get("skeletonShortfallTokens")
+                if isinstance(skeleton_shortfall, int):
+                    skeleton_shortfall_values.append(skeleton_shortfall)
+                    if skeleton_shortfall == 0:
+                        skeleton_fits_remaining_count += 1
         signals = omission.get("signals")
         if isinstance(signals, dict):
             graph_distance = signals.get("graphDistance")
@@ -1977,6 +2005,21 @@ def omission_pressure(results: list[CaseResult], limit: int = 12) -> dict[str, A
             "medianRankIndex": percentile_number(rank_values, 0.5),
             "p90RankIndex": percentile_number(rank_values, 0.9),
             "meanTokenEstimate": mean_number(token_values),
+            "budgetState": {
+                "meanRemainingTokens": mean_number(remaining_token_values),
+                "meanFullContentRemainingTokens": mean_number(
+                    full_content_remaining_values
+                ),
+                "meanFullContentShortfallTokens": mean_number(
+                    full_content_shortfall_values
+                ),
+                "skeletonAvailableCount": skeleton_available_count,
+                "skeletonFitsRemainingCount": skeleton_fits_remaining_count,
+                "meanSkeletonTokenEstimate": mean_number(skeleton_token_values),
+                "meanSkeletonShortfallTokens": mean_number(
+                    skeleton_shortfall_values
+                ),
+            },
             "signals": {
                 "graphDistanceCounts": dict(sorted(graph_distance_counts.items())),
                 "meanCoChangeScore": mean_number(signal_values["coChangeScore"]),
