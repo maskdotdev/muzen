@@ -631,6 +631,53 @@ class SummaryProofTest(unittest.TestCase):
             1.0,
         )
 
+    def test_summary_reports_sufficiency_calibration_buckets(self):
+        budget_only = run.CaseResult(
+            **{
+                **case_result(
+                    "budget-only",
+                    sufficiency_status="insufficient",
+                ).__dict__,
+                "omitted": 7,
+            }
+        )
+        complete_with_gaps = run.CaseResult(
+            **{
+                **case_result(
+                    "complete-with-gaps",
+                    sufficiency_status="insufficient",
+                ).__dict__,
+                "sufficiency_blocking_gaps": 2,
+                "omitted": 3,
+            }
+        )
+        incomplete_gapless = case_result(
+            "incomplete-gapless",
+            missed_paths=["src/a.rs"],
+            sufficiency_status="insufficient",
+        )
+
+        summary = run.summarize([budget_only, complete_with_gaps, incomplete_gapless])
+        calibration = summary["diagnostics"]["sufficiencyCalibration"]
+
+        self.assertEqual(calibration["caseCount"], 3)
+        self.assertEqual(calibration["pathCompleteCount"], 2)
+        self.assertEqual(calibration["pathIncompleteCount"], 1)
+        self.assertEqual(calibration["completeStatusCounts"], {"insufficient": 2})
+        self.assertEqual(calibration["incompleteStatusCounts"], {"insufficient": 1})
+        self.assertEqual(calibration["completeInsufficientCount"], 2)
+        self.assertEqual(calibration["completeInsufficientWithBlockingGapsCount"], 1)
+        self.assertEqual(calibration["completeInsufficientBudgetOnlyCount"], 1)
+        self.assertEqual(calibration["incompleteWithoutBlockingGapsCount"], 1)
+        self.assertEqual(
+            calibration["completeInsufficientBudgetOnlyCases"][0]["id"],
+            "budget-only",
+        )
+        self.assertEqual(
+            calibration["incompleteWithoutBlockingGapsCases"][0]["id"],
+            "incomplete-gapless",
+        )
+
     def test_summary_reports_slowest_cases(self):
         fast = case_result("fast")
         slow = run.CaseResult(
