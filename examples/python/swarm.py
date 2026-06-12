@@ -2,7 +2,7 @@
 # model endpoint, and collect their final outputs.
 #
 #   MUZEN_RUNNER_PATH=target/debug/muzen-runner \
-#   OPENAI_API_KEY=... python examples/python/swarm.py .
+#   ANTHROPIC_API_KEY=... python examples/python/swarm.py .
 import asyncio
 import os
 import sys
@@ -13,6 +13,7 @@ from muzen import (
     ReviewModelCredential,
     SwarmAgent,
     SwarmOptions,
+    anthropic,
     openai,
 )
 
@@ -22,7 +23,7 @@ async def main() -> None:
 
     # The run-level model is the default; any agent can override it with its
     # own provider, base URL, and credential (vLLM, Ollama, a proxy, ...).
-    hosted_default = openai(model="gpt-5.4-mini")
+    hosted_default = anthropic(model="claude-opus-4-8")
     local_endpoint = openai(
         model="qwen3-coder",
         base_url=os.environ.get("LOCAL_MODEL_BASE_URL", "http://127.0.0.1:8000/v1"),

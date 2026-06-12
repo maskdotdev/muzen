@@ -143,13 +143,23 @@ involved.
    (`src/runner/wiring.rs:170`); each model profile carries its own
    endpoint. Smallest, highest-leverage change — unlocks vLLM/Ollama/
    proxy mixes with the existing OpenAI-compatible client.
-2. Native Anthropic Messages client behind `ConcurrentModelClient`; add
-   `ProviderKind::Anthropic` and wire profile-layer Anthropic through.
-   Hard error (not silent fallback) for any unwired provider.
-3. SDK model factories: `anthropic()`, `openaiCompatible({ baseUrl,
-   model, credential })`; keep credential = `{env}` | `{secretRef}`.
+2. ~~Native Anthropic Messages client behind `ConcurrentModelClient`;
+   add `ProviderKind::Anthropic` and wire profile-layer Anthropic
+   through. Hard error (not silent fallback) for any unwired
+   provider.~~ Done: `src/runtime/model_anthropic.rs` implements the
+   Messages API (system string, tool_use/tool_result blocks,
+   `input_schema` tools, `x-api-key` + `anthropic-version` headers,
+   shared retryability classification); `provider: "anthropic"`
+   defaults to the `messages` protocol and `env:ANTHROPIC_API_KEY`,
+   and invalid provider/protocol combinations are hard errors.
+3. ~~SDK model factories: `anthropic()`; keep credential = `{env}` |
+   `{secretRef}`.~~ Done in TypeScript and Python (`openai({ baseUrl })`
+   already covers openai-compatible endpoints); the swarm examples mix
+   an Anthropic default with a local OpenAI-compatible override.
 4. Test matrix: one run, three agents, three providers/endpoints;
-   per-key limiter semaphores verified under load.
+   per-key limiter semaphores verified under load. (Mapping-level mixed
+   anthropic+openai coverage exists in both SDKs; a live three-endpoint
+   matrix run is still open.)
 5. Stretch: fallback chains (profile A → profile B on retryable
    exhaustion) and cheap/expensive tier hints in routing metadata.
 

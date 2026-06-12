@@ -17,6 +17,7 @@ from muzen import (
     ReviewTool,
     SwarmAgent,
     SwarmOptions,
+    anthropic,
     create_webhook_response,
     create_muzen_client,
     local,
@@ -141,6 +142,41 @@ class RunnerMappingTests(unittest.TestCase):
             {"secretRef": "tenant:acme/openai"},
         )
         self.assertEqual(params["sessions"][1]["modelProfileId"], "session:security")
+
+    def test_anthropic_models_are_mapped_to_messages_profiles(self) -> None:
+        params = _to_runner_start_params(
+            "review-1",
+            local("/repo", changed_files=["src/auth.py"]),
+            ReviewOptions(
+                model=anthropic("claude-opus-4-8"),
+                sessions=[
+                    ReviewAgentSession(
+                        id="generalist",
+                        role="generalist",
+                        objective="Review the change.",
+                    ),
+                    ReviewAgentSession(
+                        id="local",
+                        role="generalist",
+                        objective="Review on the local endpoint.",
+                        model=openai(
+                            "qwen3-coder",
+                            base_url="http://127.0.0.1:8000/v1",
+                            credential={"env": "VLLM_API_KEY"},
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+        profiles = params["model"]["modelProfiles"]
+        self.assertEqual(params["model"]["defaultModelProfileId"], "default")
+        self.assertEqual(profiles[0]["provider"], "anthropic")
+        self.assertEqual(profiles[0]["apiProtocol"], "messages")
+        self.assertEqual(profiles[0]["credential"], {"env": "ANTHROPIC_API_KEY"})
+        self.assertEqual(profiles[1]["provider"], "openai")
+        self.assertEqual(profiles[1]["baseUrl"], "http://127.0.0.1:8000/v1")
+        self.assertEqual(params["sessions"][1]["modelProfileId"], "session:local")
 
     def test_runner_result_preserves_finding_provenance(self) -> None:
         result = _map_runner_result(

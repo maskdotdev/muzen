@@ -154,7 +154,22 @@ export interface OpenAIReviewModelSpec {
   topP?: number;
 }
 
-export type ReviewHostedModelSpec = OpenAIReviewModelSpec;
+export interface AnthropicReviewModelSpec {
+  kind: "provider";
+  provider: "anthropic";
+  model: string;
+  credential?: ReviewModelCredential;
+  baseUrl?: string;
+  apiProtocol?: "messages";
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  topP?: number;
+}
+
+export type ReviewHostedModelSpec =
+  | OpenAIReviewModelSpec
+  | AnthropicReviewModelSpec;
 
 export type ReviewModelCredential =
   | { env: string }
