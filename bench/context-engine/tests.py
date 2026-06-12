@@ -654,6 +654,59 @@ class SummaryProofTest(unittest.TestCase):
             ],
         )
 
+    def test_omitted_details_preserve_graph_paths(self):
+        omitted = [
+            {
+                "evidenceId": "missed-1",
+                "kind": "file_span",
+                "path": "src/missed.rs",
+                "score": 0.5,
+                "rankIndex": 12,
+                "tokenEstimate": 100,
+                "reason": "budget_exhausted",
+                "graphPaths": [
+                    {
+                        "kind": "imports",
+                        "confidence": 0.9,
+                        "path": "src/changed.rs imports src/missed.rs",
+                    }
+                ],
+            },
+            {
+                "evidenceId": "other-1",
+                "kind": "file_span",
+                "path": "src/other.rs",
+                "score": 0.4,
+                "rankIndex": 13,
+                "tokenEstimate": 90,
+                "reason": "budget_exhausted",
+            },
+        ]
+
+        details = run.omitted_details_for_paths(omitted, ["src/missed.rs"])
+
+        self.assertEqual(
+            details,
+            [
+                {
+                    "evidenceId": "missed-1",
+                    "kind": "file_span",
+                    "path": "src/missed.rs",
+                    "score": 0.5,
+                    "rankIndex": 12,
+                    "tokenEstimate": 100,
+                    "reason": "budget_exhausted",
+                    "graphPaths": [
+                        {
+                            "kind": "imports",
+                            "confidence": 0.9,
+                            "path": "src/changed.rs imports src/missed.rs",
+                        }
+                    ],
+                }
+            ],
+        )
+
     def test_false_sufficient_is_a_failure(self):
         result = case_result(
             "false-sufficient",

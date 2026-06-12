@@ -8,7 +8,7 @@ It is strongest as a deterministic, trust-aware retrieval primitive: evidence ha
 
 ## Current Default Metrics
 
-Source: latest public-CLI proof run `/tmp/context-doclinks-rst-full.json`, 91 deterministic cases.
+Source: latest public-CLI proof run `/tmp/context-omitted-graphpaths-full.json`, 91 deterministic cases.
 
 Overall:
 
@@ -83,6 +83,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Weak cases now include omitted-candidate diagnostics for candidate-present misses: evidence id, kind, path, score, rank index, token estimate, and omission reason. This turns "candidate existed but missed" from a vague ranking failure into a concrete proof target such as `budget_exhausted`.
 - Packs now expose selected-candidate score and rank metadata, and weak cases report the selected tail beside missed candidates with graph paths where relationships exist. This makes budget tradeoffs auditable: we can see which low-tail items consumed the budget that excluded a relevant candidate and whether those tail items had strong structural support.
 - Runtime explain-pack diagnostics now also include graph paths for omitted candidates when `includeOmitted` is requested. This lets us audit why graph-connected evidence lost the budget fight instead of only explaining selected evidence.
+- Bench weak-case summaries now preserve omitted-candidate graph paths from runtime explain-pack output. Latest 91-case run had `258` weak-case omitted details and `0` graph paths on those misses, which means current worst misses are candidate-found but not source-backed by graph paths.
 - Context Graph now includes source-backed `Documents` edges from explicit Markdown/RST document links to existing repo files. The resolver handles relative links, absolute workspace suffixes, fragments, queries, and line suffixes, and rejects ambiguous suffix links instead of guessing.
 - The pack compiler has a narrow budget-repair pass that may replace only low-confidence full-content tail evidence with a higher-scoring budget-exhausted candidate when score, token, path-limit, and protected-evidence invariants hold. Broad repair was rejected; the narrowed form preserved all external metrics and slightly improved mean per-case candidate-present miss rate and precision.
 - The pack compiler now has a second, narrower skeleton-tail repair: when full-content reserve has room but total budget is blocked by low-value skeleton breadth, a budget-exhausted full-content candidate can replace skeletons only if it adds a new path and clears a score-margin check. This reduced candidate-present miss `0.2473 -> 0.2438` overall and `0.4779 -> 0.4706` on external cases while preserving recall@10, nDCG@10, recall@25, self metrics, and tokens to first relevant.
