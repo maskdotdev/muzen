@@ -1,6 +1,14 @@
 # Agent Swarm Engine Plan
 
-Status: proposed (2026-06-12)
+Status: in progress (2026-06-12)
+
+Progress:
+
+- Phase 1 (scheduler core) landed: planned units now run concurrently on a
+  JoinSet bounded by `max_active_sessions`, with deterministic report
+  ordering and a concurrency proof test. Shards still run sequentially.
+- Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
+  endpoints in one run are supported.
 
 ## Goal
 
