@@ -4,6 +4,7 @@ pub(crate) mod contracts;
 pub(crate) mod dispatch;
 pub(crate) mod effects;
 pub(crate) mod model;
+pub(crate) mod model_anthropic;
 pub(crate) mod model_retry;
 pub(crate) mod planned_units;
 pub(crate) mod policy;

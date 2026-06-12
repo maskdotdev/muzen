@@ -1,4 +1,5 @@
 import type {
+  AnthropicReviewModelSpec,
   OpenAIReviewModelSpec,
   ReviewAgentSession,
   ReviewHostedModelSpec,
@@ -18,6 +19,16 @@ export interface OpenAIModelOptions {
   topP?: number;
 }
 
+export interface AnthropicModelOptions {
+  model: string;
+  credential?: ReviewModelCredential;
+  baseUrl?: string;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  topP?: number;
+}
+
 export function openai(options: OpenAIModelOptions): OpenAIReviewModelSpec {
   validateOpenAIOptions(options);
   return {
@@ -27,6 +38,24 @@ export function openai(options: OpenAIModelOptions): OpenAIReviewModelSpec {
     credential: options.credential ?? { env: "OPENAI_API_KEY" },
     baseUrl: trimmedOptional(options.baseUrl),
     apiProtocol: options.apiProtocol ?? "responses",
+    maxInputTokens: options.maxInputTokens,
+    maxOutputTokens: options.maxOutputTokens,
+    temperature: options.temperature,
+    topP: options.topP,
+  };
+}
+
+export function anthropic(
+  options: AnthropicModelOptions,
+): AnthropicReviewModelSpec {
+  validateHostedOptions("anthropic", options);
+  return {
+    kind: "provider",
+    provider: "anthropic",
+    model: options.model.trim(),
+    credential: options.credential ?? { env: "ANTHROPIC_API_KEY" },
+    baseUrl: trimmedOptional(options.baseUrl),
+    apiProtocol: "messages",
     maxInputTokens: options.maxInputTokens,
     maxOutputTokens: options.maxOutputTokens,
     temperature: options.temperature,
@@ -65,22 +94,29 @@ function modelUsesSecretRef(
 }
 
 function validateOpenAIOptions(options: OpenAIModelOptions): void {
+  validateHostedOptions("openai", options);
+}
+
+function validateHostedOptions(
+  factory: "openai" | "anthropic",
+  options: OpenAIModelOptions | AnthropicModelOptions,
+): void {
   const record = options as unknown as Record<string, unknown>;
   for (const field of ["apiKey", "token", "key"]) {
     if (field in record) {
       throw new Error(
-        `openai(...) does not accept inline ${field}; use credential: { env } or credential: { secretRef }`,
+        `${factory}(...) does not accept inline ${field}; use credential: { env } or credential: { secretRef }`,
       );
     }
   }
   if (typeof options.model !== "string" || options.model.trim().length === 0) {
-    throw new Error("openai(...) requires a non-empty model");
+    throw new Error(`${factory}(...) requires a non-empty model`);
   }
   validateCredential(options.credential);
-  validatePositiveInteger(options.maxInputTokens, "maxInputTokens");
-  validatePositiveInteger(options.maxOutputTokens, "maxOutputTokens");
-  validateRange(options.temperature, "temperature", 0, 2);
-  validateRange(options.topP, "topP", 0, 1);
+  validatePositiveInteger(factory, options.maxInputTokens, "maxInputTokens");
+  validatePositiveInteger(factory, options.maxOutputTokens, "maxOutputTokens");
+  validateRange(factory, options.temperature, "temperature", 0, 2);
+  validateRange(factory, options.topP, "topP", 0, 1);
 }
 
 function validateCredential(credential: ReviewModelCredential | undefined): void {
@@ -101,6 +137,7 @@ function validateCredential(credential: ReviewModelCredential | undefined): void
 }
 
 function validatePositiveInteger(
+  factory: string,
   value: number | undefined,
   field: string,
 ): void {
@@ -108,11 +145,12 @@ function validatePositiveInteger(
     return;
   }
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`openai(...) ${field} must be a positive integer`);
+    throw new Error(`${factory}(...) ${field} must be a positive integer`);
   }
 }
 
 function validateRange(
+  factory: string,
   value: number | undefined,
   field: string,
   min: number,
@@ -122,7 +160,7 @@ function validateRange(
     return;
   }
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(`openai(...) ${field} must be between ${min} and ${max}`);
+    throw new Error(`${factory}(...) ${field} must be between ${min} and ${max}`);
   }
 }
 

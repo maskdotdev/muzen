@@ -1,5 +1,5 @@
 from .client import Client, RemoteClient, create_muzen, create_muzen_client
-from .models import openai
+from .models import anthropic, openai
 from .sources import (
     custom_source,
     github,
@@ -14,6 +14,7 @@ from .types import (
     ModelProfile,
     ModelProfileInput,
     ModelProviderKind,
+    AnthropicReviewModelSpec,
     OpenAIReviewModelSpec,
     ProviderProfile,
     ProviderProfileInput,
@@ -63,6 +64,7 @@ __all__ = [
     "ModelProfile",
     "ModelProfileInput",
     "ModelProviderKind",
+    "AnthropicReviewModelSpec",
     "OpenAIReviewModelSpec",
     "ProviderProfile",
     "ProviderProfileInput",
@@ -102,6 +104,7 @@ __all__ = [
     "WEBHOOK_STATUS_OK",
     "WebhookDelivery",
     "WebhookHttpResponse",
+    "anthropic",
     "create_muzen",
     "create_muzen_client",
     "create_webhook_response",

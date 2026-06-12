@@ -124,7 +124,23 @@ class OpenAIReviewModelSpec:
     top_p: Optional[float] = None
 
 
-ReviewModelSpec = OpenAIReviewModelSpec
+@dataclass(frozen=True)
+class AnthropicReviewModelSpec:
+    kind: Literal["provider"]
+    provider: Literal["anthropic"]
+    model: str
+    credential: ReviewModelCredential = field(
+        default_factory=lambda: ReviewModelCredential(env="ANTHROPIC_API_KEY")
+    )
+    base_url: Optional[str] = None
+    api_protocol: Literal["messages"] = "messages"
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+
+
+ReviewModelSpec = Union[OpenAIReviewModelSpec, AnthropicReviewModelSpec]
 
 
 @dataclass(frozen=True)

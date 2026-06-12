@@ -7,7 +7,7 @@ import {
   toRunnerStartParams,
   toSwarmStartParams,
 } from "./runner-mapping.js";
-import { openai } from "./models.js";
+import { anthropic, openai } from "./models.js";
 import { local } from "./sources.js";
 
 describe("runner mapping", () => {
@@ -280,6 +280,59 @@ describe("runner mapping", () => {
       },
     ]);
     assert.equal(params.sessions[0].modelProfileId, undefined);
+    assert.equal(params.sessions[1].modelProfileId, "session:security");
+  });
+
+  it("maps mixed Anthropic and OpenAI models into one profile set", () => {
+    const params = toRunnerStartParams(
+      "review-1",
+      local("/repo", { changedFiles: ["src/auth.ts"] }),
+      {
+        model: anthropic({ model: "claude-opus-4-8" }),
+        sessions: [
+          {
+            id: "generalist",
+            role: "generalist",
+            objective: "Review the change.",
+          },
+          {
+            id: "security",
+            role: "security",
+            objective: "Review security risk.",
+            model: openai({
+              model: "qwen3-coder",
+              baseUrl: "http://127.0.0.1:8000/v1",
+              credential: { env: "VLLM_API_KEY" },
+            }),
+          },
+        ],
+      },
+    ) as {
+      model: {
+        defaultModelProfileId: string;
+        modelProfiles: Array<Record<string, unknown>>;
+      };
+      sessions: Array<Record<string, unknown>>;
+    };
+
+    assert.equal(params.model.defaultModelProfileId, "default");
+    assert.deepEqual(params.model.modelProfiles[0], {
+      id: "default",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      credential: { env: "ANTHROPIC_API_KEY" },
+      baseUrl: undefined,
+      apiProtocol: "messages",
+      maxInputTokens: undefined,
+      maxOutputTokens: undefined,
+      temperature: undefined,
+      topP: undefined,
+    });
+    assert.equal(params.model.modelProfiles[1].provider, "openai");
+    assert.equal(
+      params.model.modelProfiles[1].baseUrl,
+      "http://127.0.0.1:8000/v1",
+    );
     assert.equal(params.sessions[1].modelProfileId, "session:security");
   });
 

@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { openai, reviewOptionsRequireSecretResolver } from "./models.js";
+import {
+  anthropic,
+  openai,
+  reviewOptionsRequireSecretResolver,
+} from "./models.js";
 
 describe("hosted model helpers", () => {
   it("creates an OpenAI provider model with a default env credential", () => {
@@ -17,6 +21,25 @@ describe("hosted model helpers", () => {
       temperature: undefined,
       topP: undefined,
     });
+  });
+
+  it("creates an Anthropic provider model on the messages protocol", () => {
+    assert.deepEqual(anthropic({ model: " claude-opus-4-8 " }), {
+      kind: "provider",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      credential: { env: "ANTHROPIC_API_KEY" },
+      baseUrl: undefined,
+      apiProtocol: "messages",
+      maxInputTokens: undefined,
+      maxOutputTokens: undefined,
+      temperature: undefined,
+      topP: undefined,
+    });
+    assert.throws(
+      () => anthropic({ model: "claude-opus-4-8", apiKey: "sk-ant" } as never),
+      /anthropic\(\.\.\.\) does not accept inline apiKey/,
+    );
   });
 
   it("rejects inline credential material", () => {

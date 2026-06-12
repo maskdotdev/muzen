@@ -16,6 +16,7 @@ use crate::contracts::{
     ToolCallingMode,
 };
 use crate::runtime::contracts::*;
+use crate::runtime::model_anthropic::{anthropic_default_base_url, AnthropicMessagesClient};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
 use crate::util::{redact_known_secrets, resolve_credential_ref, timestamp_utc};
@@ -105,17 +106,26 @@ impl ProfileModelRouter {
         }
         let mut clients = HashMap::new();
         for profile in profiles {
-            match profile.provider_kind {
-                ProviderKind::OpenaiCompatible => {}
-            }
-            let client = openai_client_from_profile(
-                profile.clone(),
-                profile_base_url(profile, &default_base_url),
-                Arc::clone(&limiter),
-                Arc::clone(&tool_registry),
-                Arc::clone(&reviewer_policy),
-                Arc::clone(&credential_resolver),
-            )?;
+            let client = match profile.provider_kind {
+                ProviderKind::OpenaiCompatible => openai_client_from_profile(
+                    profile.clone(),
+                    profile_base_url(profile, &default_base_url),
+                    Arc::clone(&limiter),
+                    Arc::clone(&tool_registry),
+                    Arc::clone(&reviewer_policy),
+                    Arc::clone(&credential_resolver),
+                )?,
+                ProviderKind::Anthropic => anthropic_client_from_profile(
+                    profile.clone(),
+                    // Anthropic profiles never fall back to the run-level
+                    // OpenAI-compatible endpoint.
+                    profile_base_url(profile, &anthropic_default_base_url()),
+                    Arc::clone(&limiter),
+                    Arc::clone(&tool_registry),
+                    Arc::clone(&reviewer_policy),
+                    Arc::clone(&credential_resolver),
+                )?,
+            };
             clients.insert(profile.id.clone(), client);
         }
         if !clients.contains_key(&default_profile_id) {
@@ -372,7 +382,35 @@ fn openai_client_from_profile(
             reviewer_policy,
             credential_resolver,
         )?)),
+        ModelApiProtocol::Messages => Err(RuntimeError::InvalidInput(format!(
+            "model profile {} is openai_compatible but uses the messages protocol; use provider anthropic",
+            profile.id
+        ))),
     }
+}
+
+fn anthropic_client_from_profile(
+    profile: ModelProfileRefV1,
+    base_url: String,
+    limiter: Arc<ModelLimiter>,
+    tool_registry: Arc<ToolRegistry>,
+    reviewer_policy: Arc<ReviewerPolicy>,
+    credential_resolver: Arc<dyn CredentialResolver>,
+) -> RuntimeResult<Arc<dyn ConcurrentModelClient>> {
+    if profile.api_protocol != ModelApiProtocol::Messages {
+        return Err(RuntimeError::InvalidInput(format!(
+            "model profile {} is anthropic and must use the messages protocol",
+            profile.id
+        )));
+    }
+    Ok(Arc::new(AnthropicMessagesClient::from_profile(
+        profile,
+        base_url,
+        limiter,
+        tool_registry,
+        reviewer_policy,
+        credential_resolver,
+    )?))
 }
 
 const OPENAI_PROVIDER_CANARY_PROMPT: &str = "Return the word ready.";
@@ -841,6 +879,7 @@ fn openai_provider_canary_protocol_slug(protocol: ModelApiProtocol) -> &'static 
     match protocol {
         ModelApiProtocol::ChatCompletions => "chat_completions",
         ModelApiProtocol::Responses => "responses",
+        ModelApiProtocol::Messages => "messages",
     }
 }
 
@@ -1009,7 +1048,7 @@ impl ConcurrentModelClient for OpenAiResponsesClient {
     }
 }
 
-async fn provider_http_error(
+pub(crate) async fn provider_http_error(
     status: reqwest::StatusCode,
     response: reqwest::Response,
 ) -> RuntimeError {
@@ -1199,6 +1238,9 @@ fn openai_tools_for_protocol(
             .into_iter()
             .map(response_tool_from_chat_tool)
             .collect::<RuntimeResult<Vec<_>>>(),
+        ModelApiProtocol::Messages => Err(RuntimeError::Invariant(
+            "the messages protocol does not use OpenAI tool schemas",
+        )),
     }
 }
 
@@ -1233,7 +1275,10 @@ fn response_tool_from_chat_tool(tool: Value) -> RuntimeResult<Value> {
     }))
 }
 
-fn model_alias_for_tool(tool_registry: &ToolRegistry, tool_id: &ToolId) -> RuntimeResult<ToolId> {
+pub(crate) fn model_alias_for_tool(
+    tool_registry: &ToolRegistry,
+    tool_id: &ToolId,
+) -> RuntimeResult<ToolId> {
     tool_registry
         .alias_table()?
         .alias_for(tool_id)

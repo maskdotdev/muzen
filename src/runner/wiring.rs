@@ -151,14 +151,19 @@ fn hosted_model_router(
     )
 }
 
-/// Default base URL for profiles that do not configure their own. Profiles
-/// with an explicit baseUrl always use it (mixed endpoints per run are
-/// supported); when every configured profile agrees on one URL it doubles as
-/// the default so legacy single-URL runs keep their old behavior.
+/// Default base URL for OpenAI-compatible profiles that do not configure
+/// their own. Profiles with an explicit baseUrl always use it (mixed
+/// endpoints per run are supported); when every configured OpenAI-compatible
+/// profile agrees on one URL it doubles as the default so legacy single-URL
+/// runs keep their old behavior. Anthropic profiles have their own default
+/// and never participate here.
 fn hosted_model_default_base_url(model: &RunModelParams) -> String {
     let mut configured: Option<&str> = None;
     let mut mixed = false;
     for profile in &model.model_profiles {
+        if profile.provider == "anthropic" {
+            continue;
+        }
         let Some(base_url) = profile
             .base_url
             .as_deref()
@@ -186,27 +191,48 @@ fn hosted_model_default_base_url(model: &RunModelParams) -> String {
 fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
     let provider_kind = match params.provider.as_str() {
         "openai" | "openai_compatible" => ProviderKind::OpenaiCompatible,
+        "anthropic" => ProviderKind::Anthropic,
         unknown => {
             return Err(RuntimeError::InvalidInput(format!(
                 "unsupported model provider {unknown}"
             )))
         }
     };
-    let api_protocol = match params.api_protocol.as_deref().unwrap_or("responses") {
+    let default_protocol = match provider_kind {
+        ProviderKind::OpenaiCompatible => "responses",
+        ProviderKind::Anthropic => "messages",
+    };
+    let api_protocol = match params.api_protocol.as_deref().unwrap_or(default_protocol) {
         "responses" => ModelApiProtocol::Responses,
         "chat_completions" => ModelApiProtocol::ChatCompletions,
+        "messages" => ModelApiProtocol::Messages,
         unknown => {
             return Err(RuntimeError::InvalidInput(format!(
                 "unsupported model apiProtocol {unknown}"
             )))
         }
     };
+    match (provider_kind, api_protocol) {
+        (ProviderKind::Anthropic, protocol) if protocol != ModelApiProtocol::Messages => {
+            return Err(RuntimeError::InvalidInput(format!(
+                "model profile {} is anthropic and must use the messages apiProtocol",
+                params.id
+            )));
+        }
+        (ProviderKind::OpenaiCompatible, ModelApiProtocol::Messages) => {
+            return Err(RuntimeError::InvalidInput(format!(
+                "model profile {} uses the messages apiProtocol; set provider to anthropic",
+                params.id
+            )));
+        }
+        _ => {}
+    }
     Ok(ModelProfileRefV1 {
         id: params.id.clone(),
         provider_kind,
         api_protocol,
         provider_profile_id: params.provider.clone(),
-        credential_ref: credential_ref(params.credential.as_ref())?,
+        credential_ref: credential_ref(provider_kind, params.credential.as_ref())?,
         model: params.model.clone(),
         base_url: params
             .base_url
@@ -222,9 +248,15 @@ fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<M
     })
 }
 
-fn credential_ref(credential: Option<&RunModelCredentialParams>) -> runtime::RuntimeResult<String> {
+fn credential_ref(
+    provider_kind: ProviderKind,
+    credential: Option<&RunModelCredentialParams>,
+) -> runtime::RuntimeResult<String> {
     let Some(credential) = credential else {
-        return Ok("env:OPENAI_API_KEY".to_string());
+        return Ok(match provider_kind {
+            ProviderKind::OpenaiCompatible => "env:OPENAI_API_KEY".to_string(),
+            ProviderKind::Anthropic => "env:ANTHROPIC_API_KEY".to_string(),
+        });
     };
     match (
         credential

@@ -2,15 +2,15 @@
 // model endpoint, and collect their final outputs.
 //
 //   MUZEN_RUNNER_PATH=target/debug/muzen-runner \
-//   OPENAI_API_KEY=... npx tsx examples/typescript/swarm/index.ts .
-import { createMuzen, openai, type SwarmAgent } from "@muzen/sdk";
+//   ANTHROPIC_API_KEY=... npx tsx examples/typescript/swarm/index.ts .
+import { anthropic, createMuzen, openai, type SwarmAgent } from "@muzen/sdk";
 
 const runnerPath = process.env.MUZEN_RUNNER_PATH;
 const repo = process.argv[2] ?? ".";
 
 // The run-level model is the default; any agent can override it with its own
 // provider, base URL, and credential (vLLM, Ollama, a proxy, ...).
-const hostedDefault = openai({ model: "gpt-5.4-mini" });
+const hostedDefault = anthropic({ model: "claude-opus-4-8" });
 const localEndpoint = openai({
   model: "qwen3-coder",
   baseUrl: process.env.LOCAL_MODEL_BASE_URL ?? "http://127.0.0.1:8000/v1",

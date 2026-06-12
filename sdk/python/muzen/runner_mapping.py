@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .sources import source_key
 from .types import (
+    AnthropicReviewModelSpec,
     OpenAIReviewModelSpec,
     ReviewArtifact,
     ReviewCoverage,
@@ -116,14 +117,17 @@ def _session_to_runner(
     return payload
 
 
+_HOSTED_MODEL_SPECS = (OpenAIReviewModelSpec, AnthropicReviewModelSpec)
+
+
 def _model_plan(options: ReviewOptions) -> Dict[str, Any]:
     profiles: Dict[str, Dict[str, Any]] = {}
     session_profiles: Dict[str, str] = {}
     default_profile_id: Optional[str] = None
-    if isinstance(options.model, OpenAIReviewModelSpec):
+    if isinstance(options.model, _HOSTED_MODEL_SPECS):
         default_profile_id = _add_hosted_profile(profiles, "default", options.model)
     for session in options.sessions:
-        if isinstance(session.model, OpenAIReviewModelSpec):
+        if isinstance(session.model, _HOSTED_MODEL_SPECS):
             profile_id = _add_hosted_profile(
                 profiles, f"session:{session.id}", session.model
             )
@@ -142,7 +146,7 @@ def _model_plan(options: ReviewOptions) -> Dict[str, Any]:
 
 
 def _add_hosted_profile(
-    profiles: Dict[str, Dict[str, Any]], profile_id: str, model: OpenAIReviewModelSpec
+    profiles: Dict[str, Dict[str, Any]], profile_id: str, model: Any
 ) -> str:
     key = repr(
         (

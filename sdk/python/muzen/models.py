@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from .types import OpenAIReviewModelSpec, ReviewModelCredential
+from .types import (
+    AnthropicReviewModelSpec,
+    OpenAIReviewModelSpec,
+    ReviewModelCredential,
+)
 
 
 def openai(
@@ -40,11 +44,45 @@ def openai(
     )
 
 
+def anthropic(
+    model: str,
+    *,
+    credential: Optional[Union[ReviewModelCredential, dict]] = None,
+    base_url: Optional[str] = None,
+    max_input_tokens: Optional[int] = None,
+    max_output_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+) -> AnthropicReviewModelSpec:
+    model = model.strip()
+    if not model:
+        raise ValueError("anthropic(...) requires a non-empty model")
+    resolved_credential = _credential(credential, default_env="ANTHROPIC_API_KEY")
+    _validate_positive_integer(max_input_tokens, "max_input_tokens")
+    _validate_positive_integer(max_output_tokens, "max_output_tokens")
+    _validate_range(temperature, "temperature", 0, 2)
+    _validate_range(top_p, "top_p", 0, 1)
+    return AnthropicReviewModelSpec(
+        kind="provider",
+        provider="anthropic",
+        model=model,
+        credential=resolved_credential,
+        base_url=base_url.strip() if base_url and base_url.strip() else None,
+        api_protocol="messages",
+        max_input_tokens=max_input_tokens,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        top_p=top_p,
+    )
+
+
 def _credential(
-    credential: Optional[Union[ReviewModelCredential, dict]]
+    credential: Optional[Union[ReviewModelCredential, dict]],
+    *,
+    default_env: str = "OPENAI_API_KEY",
 ) -> ReviewModelCredential:
     if credential is None:
-        return ReviewModelCredential(env="OPENAI_API_KEY")
+        return ReviewModelCredential(env=default_env)
     if isinstance(credential, ReviewModelCredential):
         resolved = credential
     else:
