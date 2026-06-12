@@ -33,6 +33,15 @@ Progress:
   `examples/python/swarm.py` showing per-agent BYO endpoints.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
+- Phase 4.3 (budget + caching halves) landed: mid-loop
+  `max_prompt_tokens` enforcement with oldest-tool-result eviction
+  (`src/runtime/transcript.rs`) and Anthropic `cache_control`
+  breakpoints on the system block and newest tool_result.
+- Review-adapter quality (outside this plan's phases): high-risk units
+  fan out across distinct-role lens sessions with lens-focused prompts;
+  findings get agreement-derived confidence and an adversarial
+  challenge pass that populates `challenged_by` and suppresses refuted
+  findings.
 
 ## Goal
 
@@ -185,11 +194,18 @@ endpoint, keys via env refs, all from a single SDK call.
    back to plain-JSON parsing. Still open: streaming for the Responses
    protocol, and surfacing tool-call deltas to the engine so tool
    batches start before the turn finishes.
-3. Transcript management: enforce `max_prompt_tokens` mid-loop
-   (truncate oldest tool results first, keep system + objective stable);
-   keep a stable message prefix for provider prompt caching (Anthropic
-   `cache_control`, OpenAI automatic caching); stop re-serializing the
-   full transcript every turn (incremental message assembly).
+3. Transcript management (budget + caching halves landed):
+   ~~enforce `max_prompt_tokens` mid-loop (truncate oldest tool results
+   first, keep system + objective stable); keep a stable message prefix
+   for provider prompt caching (Anthropic `cache_control`, OpenAI
+   automatic caching)~~ — done: `src/runtime/transcript.rs` evicts
+   oldest tool-result payloads (keeping artifact ids, the newest two
+   results, system, and objective) before every model turn in both the
+   planned-units and direct-sessions loops; the Anthropic client marks
+   the system block and the newest tool_result block with
+   `cache_control: ephemeral` so the byte-stable prefix extends across
+   turns. Still open: stop re-serializing the full transcript every
+   turn (incremental message assembly).
 
 Exit: bench shows reduced per-turn overhead at 7-turn depth; ~~chaos
 test (injected 429s/timeouts) completes a 50-session swarm with retries
