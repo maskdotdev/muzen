@@ -29,8 +29,9 @@ python3 bench/context-engine/run.py
 
 When `--muzen-bin` is omitted, the runner builds `muzen` once with
 `cargo build --bin muzen` and reuses `target/debug/muzen` for every case.
-By default the runner uses bounded CPU parallelism (`min(cpu_count, 4)`) for
-independent cases; pass `--jobs 1` when debugging serialized output.
+By default the runner uses bounded oversubscribed parallelism
+(`min(cpu_count * 2, 32)`) for independent cases; pass `--jobs 1` when
+debugging serialized output.
 When `--muzen-bin target/debug/muzen` is provided explicitly, the runner
 rejects stale local binaries older than the Rust build inputs, so a passing
 gate cannot accidentally prove a previous implementation.

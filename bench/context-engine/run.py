@@ -299,7 +299,10 @@ def positive_int(value: str) -> int:
 
 
 def default_eval_jobs() -> int:
-    return max(1, min(os.cpu_count() or 1, 4))
+    cpu_count = os.cpu_count()
+    if cpu_count is None:
+        return 1
+    return max(1, min(cpu_count * 2, 32))
 
 
 def load_case_files(cases_dir: Path) -> list[dict[str, Any]]:
