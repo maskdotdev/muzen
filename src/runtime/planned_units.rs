@@ -81,37 +81,58 @@ impl PlannedReviewRuntime {
         let mut candidate_findings = Vec::new();
         let mut file_reviews = skipped_file_reviews(review_plan.as_ref());
 
-        // Units run concurrently, bounded by max_active_sessions. Reports are
-        // re-ordered by unit index before aggregation so findings, file
-        // reviews, and synthesis input stay deterministic regardless of
-        // completion order.
+        // Units run concurrently, bounded by max_active_sessions. High-risk
+        // units fan out into one session per distinct lens role; low-risk
+        // units keep a single session so token cost scales with stakes.
+        // Reports are re-ordered by (unit, lens) index before aggregation so
+        // findings, file reviews, and synthesis input stay deterministic
+        // regardless of completion order.
         let active = Arc::clone(&self.active_sessions);
         let mut joins = JoinSet::new();
-        for (index, unit) in unit_plan.units.iter().enumerate() {
-            let runtime = Arc::clone(&self);
-            let review_plan = Arc::clone(&review_plan);
-            let contract_risk = Arc::clone(&contract_risk);
-            let active = Arc::clone(&active);
-            let unit = unit.clone();
-            let cancel = cancel.child_token();
-            joins.spawn(async move {
-                let Ok(_permit) = active.acquire_owned().await else {
-                    return (
-                        index,
-                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
-                    );
-                };
-                if cancel.is_cancelled() {
-                    return (
-                        index,
-                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
-                    );
-                }
-                let report = runtime
-                    .run_unit(review_plan.as_ref(), contract_risk.as_ref(), unit, cancel)
-                    .await;
-                (index, report)
-            });
+        for (unit_index, unit) in unit_plan.units.iter().enumerate() {
+            let high_risk = contract_risk.unit_risk(unit).high_risk;
+            let lens_templates = unit_lens_template_indices(&self.session_templates, high_risk);
+            for (lens_index, template_index) in lens_templates.into_iter().enumerate() {
+                let runtime = Arc::clone(&self);
+                let review_plan = Arc::clone(&review_plan);
+                let contract_risk = Arc::clone(&contract_risk);
+                let active = Arc::clone(&active);
+                let unit = unit.clone();
+                let cancel = cancel.child_token();
+                joins.spawn(async move {
+                    let Ok(_permit) = active.acquire_owned().await else {
+                        return (
+                            (unit_index, lens_index),
+                            PlannedReviewUnitReport::empty(unit_diagnostic(
+                                &unit,
+                                false,
+                                "cancelled",
+                            )),
+                        );
+                    };
+                    if cancel.is_cancelled() {
+                        return (
+                            (unit_index, lens_index),
+                            PlannedReviewUnitReport::empty(unit_diagnostic(
+                                &unit,
+                                false,
+                                "cancelled",
+                            )),
+                        );
+                    }
+                    let report = runtime
+                        .run_unit(
+                            review_plan.as_ref(),
+                            contract_risk.as_ref(),
+                            unit,
+                            lens_index,
+                            template_index,
+                            cancel,
+                        )
+                        .await;
+                    ((unit_index, lens_index), report)
+                });
+            }
         }
         let mut unit_reports = Vec::with_capacity(unit_plan.units.len());
         while let Some(result) = joins.join_next().await {
@@ -119,8 +140,8 @@ impl PlannedReviewRuntime {
                 unit_reports.push(indexed);
             }
         }
-        unit_reports.sort_by_key(|(index, _)| *index);
-        for (_, report) in unit_reports {
+        unit_reports.sort_by_key(|(key, _)| *key);
+        for ((_, lens_index), report) in unit_reports {
             if report.completed {
                 completed_sessions += 1;
             }
@@ -129,7 +150,11 @@ impl PlannedReviewRuntime {
             tool_counts.add(report.tool_counts);
             tokens.add(report.tokens);
             candidate_findings.extend(report.candidate_findings);
-            file_reviews.extend(report.file_reviews);
+            // Only the primary lens owns per-file verdicts; secondary lens
+            // findings still flip verdicts via reconcile_file_reviews_with_findings.
+            if lens_index == 0 {
+                file_reviews.extend(report.file_reviews);
+            }
             completion_diagnostics.push(report.completion_diagnostic);
         }
         if should_run_review_quality_enhancements(&self.session_templates) && !cancel.is_cancelled()
@@ -257,13 +282,12 @@ impl PlannedReviewRuntime {
         review_plan: &ReviewPlan,
         contract_risk: &ContractRiskPlan,
         unit: PlannedReviewUnit,
+        lens_index: usize,
+        template_index: Option<usize>,
         cancel: CancellationToken,
     ) -> PlannedReviewUnitReport {
-        let scope = unit_scope(
-            &unit,
-            &self.snapshot.snapshot_id,
-            self.session_templates.first(),
-        );
+        let template = template_index.and_then(|index| self.session_templates.get(index));
+        let scope = unit_scope(&unit, &self.snapshot.snapshot_id, template, lens_index);
         self.events
             .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
         let model = match self.model_router.client_for(&scope).await {
@@ -280,7 +304,12 @@ impl PlannedReviewRuntime {
         };
 
         let unit_risk = contract_risk.unit_risk(&unit);
-        let mut transcript = planned_unit_transcript(review_plan, &unit, unit_risk);
+        let mut transcript = planned_unit_transcript(
+            review_plan,
+            &unit,
+            unit_risk,
+            lens_focus(lens_index, scope.role),
+        );
         let mut evidence = SessionEvidence::for_scope(&scope);
         let mut tool_counts = ToolCounts::default();
         let mut model_metrics = ModelMetricsSnapshot::default();
@@ -1462,10 +1491,79 @@ struct VerifiedSynthesisCandidates {
     rejection_reasons: BTreeMap<String, usize>,
 }
 
+/// Caps lens fan-out per high-risk unit so token cost stays bounded even when
+/// hosts pass many personas.
+const MAX_UNIT_LENSES: usize = 3;
+
+/// Selects which session templates review one unit. Low-risk units (and runs
+/// with at most one template) keep today's single-session behavior; high-risk
+/// units fan out across distinct-role templates, capped at MAX_UNIT_LENSES.
+fn unit_lens_template_indices(templates: &[SessionScope], high_risk: bool) -> Vec<Option<usize>> {
+    if templates.is_empty() {
+        return vec![None];
+    }
+    if templates.len() == 1 || !high_risk {
+        return vec![Some(0)];
+    }
+    let mut seen_roles: Vec<Role> = Vec::new();
+    let mut lenses = Vec::new();
+    for (index, template) in templates.iter().enumerate() {
+        if seen_roles.contains(&template.role) {
+            continue;
+        }
+        seen_roles.push(template.role);
+        lenses.push(Some(index));
+        if lenses.len() >= MAX_UNIT_LENSES {
+            break;
+        }
+    }
+    lenses
+}
+
+fn role_slug(role: Role) -> &'static str {
+    match role {
+        Role::Generalist => "generalist",
+        Role::Security => "security",
+        Role::Performance => "performance",
+        Role::Maintainability => "maintainability",
+        Role::Correctness => "correctness",
+        Role::Architecture => "architecture",
+        Role::Validator => "validator",
+    }
+}
+
+/// Lens framing appended to the unit system prompt. The primary lens keeps
+/// the unchanged generic prompt; secondary lenses get a role-specific focus
+/// so concurrent sessions on one unit actually look for different failure
+/// modes instead of triplicating the same review.
+fn lens_focus(lens_index: usize, role: Role) -> Option<&'static str> {
+    if lens_index == 0 {
+        return None;
+    }
+    Some(match role {
+        Role::Security => {
+            "Lens focus: security. Prioritize vulnerabilities introduced by the change: missing or weakened authorization and scoping checks, injection through user-controlled values (queries, commands, paths, templates), unsafe deserialization, secrets or credentials in code or logs, path traversal, server-side request forgery, insecure defaults, and trust-boundary violations between user input and privileged operations."
+        }
+        Role::Performance => {
+            "Lens focus: performance. Prioritize regressions introduced by the change: N+1 query patterns, unbounded loops or allocations, accidental quadratic work over collections that can grow, blocking calls on async paths, missing pagination or limits, repeated recomputation of invariant values, and new lock contention."
+        }
+        Role::Maintainability => {
+            "Lens focus: maintainability. Prioritize defects introduced by the change that will break under future edits: duplicated logic that must stay in sync, contracts implied but not enforced, dead or unreachable branches, and misleading names or comments that contradict behavior. Only report issues that are concretely wrong today, not style preferences."
+        }
+        Role::Architecture => {
+            "Lens focus: architecture. Prioritize cross-module defects introduced by the change: layering violations, dependency cycles, contract drift between modules that share data shapes, and abstractions bypassed in ways that break their invariants. Only report issues with concrete behavioral consequences supported by evidence."
+        }
+        Role::Validator | Role::Correctness | Role::Generalist => {
+            "Lens focus: independent verification. Re-derive the changed behavior from scratch instead of trusting the obvious reading: re-check boundary and interval math, equality and value semantics, persistent state updates, error and early-return paths, and caller/callee contracts. Challenge conclusions a first reviewer would reach quickly."
+        }
+    })
+}
+
 fn planned_unit_transcript(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
+    lens_focus: Option<&str>,
 ) -> Vec<ConversationItem> {
     let unit_paths = unit
         .file_paths
@@ -1493,10 +1591,14 @@ fn planned_unit_transcript(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let mut system = String::new();
+    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.");
+    if let Some(focus) = lens_focus {
+        system.push_str("\n\n");
+        system.push_str(focus);
+    }
     vec![
-        ConversationItem::System {
-            content: "You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.".to_string(),
-        },
+        ConversationItem::System { content: system },
         ConversationItem::User {
             content: format!(
                 "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for any changed file when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
@@ -1515,10 +1617,20 @@ fn unit_scope(
     unit: &PlannedReviewUnit,
     snapshot_id: &SnapshotId,
     template: Option<&SessionScope>,
+    lens_index: usize,
 ) -> SessionScope {
+    let role = template.map(|scope| scope.role).unwrap_or(Role::Generalist);
+    // The primary lens keeps the bare unit id so single-lens runs are
+    // byte-identical to the previous behavior; secondary lenses get a
+    // role-suffixed id that stays unique because lens roles are distinct.
+    let session_id = if lens_index == 0 {
+        unit.id.clone()
+    } else {
+        format!("{}#{}", unit.id, role_slug(role))
+    };
     SessionScope {
-        id: SessionId(unit.id.clone()),
-        role: template.map(|scope| scope.role).unwrap_or(Role::Generalist),
+        id: SessionId(session_id),
+        role,
         objective: template
             .map(|scope| format!("{} Planned unit {}.", scope.objective, unit.id))
             .unwrap_or_else(|| format!("Review planned unit {}.", unit.id)),
@@ -1565,6 +1677,7 @@ fn final_synthesis_scope(
         },
         snapshot_id,
         template,
+        0,
     );
     scope.id = SessionId("final-synthesis".to_string());
     scope.objective =
@@ -3700,6 +3813,169 @@ mod tests {
             observed >= 2,
             "expected overlapping model calls across units, max in-flight was {observed}"
         );
+    }
+
+    fn lens_template(id: &str, role: Role) -> SessionScope {
+        SessionScope {
+            id: SessionId(id.to_string()),
+            role,
+            objective: "template".to_string(),
+            instructions: Vec::new(),
+            snapshot_id: None,
+            model_profile_id: None,
+            capabilities: CapabilitySet::review_read_only(),
+            budget: AgentBudget {
+                max_turns: 2,
+                max_tool_calls: 8,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+            },
+        }
+    }
+
+    #[test]
+    fn unit_lens_template_indices_dedupe_roles_and_cap_fanout() {
+        assert_eq!(unit_lens_template_indices(&[], true), vec![None]);
+        let single = vec![lens_template("a", Role::Security)];
+        assert_eq!(unit_lens_template_indices(&single, true), vec![Some(0)]);
+        let many = vec![
+            lens_template("a", Role::Correctness),
+            lens_template("b", Role::Security),
+            lens_template("c", Role::Correctness),
+            lens_template("d", Role::Performance),
+            lens_template("e", Role::Maintainability),
+        ];
+        assert_eq!(unit_lens_template_indices(&many, false), vec![Some(0)]);
+        assert_eq!(
+            unit_lens_template_indices(&many, true),
+            vec![Some(0), Some(1), Some(3)]
+        );
+    }
+
+    #[test]
+    fn lens_focus_shapes_secondary_lens_prompts_only() {
+        assert!(lens_focus(0, Role::Security).is_none());
+        let snapshot = build_test_snapshot(vec![(
+            "src/widget.rs",
+            "pub fn render_widget() -> bool { true }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let contract_risk = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let unit = &unit_plan.units[0];
+        let unit_risk = contract_risk.unit_risk(unit);
+        let transcript =
+            planned_unit_transcript(&review_plan, unit, unit_risk, lens_focus(1, Role::Security));
+        let ConversationItem::System { content } = &transcript[0] else {
+            panic!("expected system item");
+        };
+        assert!(content.contains("Lens focus: security"));
+        let baseline = planned_unit_transcript(&review_plan, unit, unit_risk, None);
+        let ConversationItem::System { content: baseline } = &baseline[0] else {
+            panic!("expected system item");
+        };
+        assert!(!baseline.contains("Lens focus"));
+    }
+
+    #[tokio::test]
+    async fn high_risk_unit_fans_out_one_session_per_distinct_lens_role() {
+        let report = run_test_review_with_templates(
+            vec![(
+                "apps/api/callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            )],
+            TestModelMode::HighRiskCleanWithContractEvidence,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Correctness),
+                lens_template("persona-3", Role::Performance),
+                lens_template("persona-4", Role::Maintainability),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            report.metrics.sessions, 3,
+            "expected lens fan-out capped at {MAX_UNIT_LENSES}: {:?}",
+            report.metrics.completion_diagnostics
+        );
+        assert_eq!(report.metrics.completed_sessions, 3);
+        let session_ids: Vec<&str> = report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.session_id.as_str())
+            .collect();
+        assert!(session_ids.iter().any(|id| id.ends_with("#security")));
+        assert!(session_ids.iter().any(|id| id.ends_with("#performance")));
+        assert!(
+            !session_ids.iter().any(|id| id.contains("#correctness")),
+            "duplicate-role template must not add a lens: {session_ids:?}"
+        );
+        assert_eq!(
+            report.file_reviews.len(),
+            1,
+            "secondary lenses must not duplicate file reviews: {:?}",
+            report.file_reviews
+        );
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+    }
+
+    #[tokio::test]
+    async fn low_risk_units_keep_a_single_lens_session() {
+        let report = run_test_review_with_templates(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::LowRiskClean,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Performance),
+            ],
+        )
+        .await;
+
+        assert_eq!(report.metrics.sessions, 1);
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+    }
+
+    #[tokio::test]
+    async fn lens_sessions_merge_shared_findings_with_attribution() {
+        let report = run_test_review_with_templates(
+            vec![
+                (
+                    "apps/api/callback.ts",
+                    "export function callback() { return { credential_token: true }; }\n",
+                ),
+                ("src/auth.rs", "pub const allow_empty_token: bool = true;\n"),
+            ],
+            TestModelMode::AssignedFinding,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Performance),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            report.findings.len(),
+            1,
+            "lens duplicates must merge: {:?}",
+            report.findings
+        );
+        let finding = &report.findings[0];
+        assert!(
+            finding.discovered_by.len() >= 3,
+            "merged finding should credit every discovering lens session: {:?}",
+            finding.discovered_by
+        );
+        assert!(finding
+            .discovered_by
+            .iter()
+            .any(|id| id.ends_with("#security")));
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {
