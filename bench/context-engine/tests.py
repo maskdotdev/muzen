@@ -755,12 +755,19 @@ class SummaryProofTest(unittest.TestCase):
             latency_ms=12.5,
         )
 
-        self.assertEqual(diagnostic["recall"], 0.5)
+        self.assertEqual(diagnostic["acceptedPathRecall"], 0.5)
+        self.assertEqual(diagnostic["reachablePathRecall"], 1.0)
         self.assertEqual(diagnostic["candidateCount"], 5)
         self.assertEqual(diagnostic["omittedCount"], 2)
         self.assertEqual(diagnostic["candidatePathCount"], 2)
-        self.assertEqual(diagnostic["foundPaths"], ["src/found.rs"])
-        self.assertEqual(diagnostic["missedPaths"], ["src/missed.rs"])
+        self.assertEqual(diagnostic["acceptedFoundPaths"], ["src/found.rs"])
+        self.assertEqual(diagnostic["acceptedMissedPaths"], ["src/missed.rs"])
+        self.assertEqual(
+            diagnostic["reachableFoundPaths"],
+            ["src/found.rs", "src/missed.rs"],
+        )
+        self.assertEqual(diagnostic["reachableMissedPaths"], [])
+        self.assertEqual(diagnostic["omittedOnlyExpectedPaths"], ["src/missed.rs"])
         self.assertEqual(
             diagnostic["omittedExpectedPaths"],
             [
@@ -781,11 +788,17 @@ class SummaryProofTest(unittest.TestCase):
             "latencyMs": 12.0,
             "expectedPathCount": 2,
             "candidatePathCount": 3,
-            "foundPathCount": 1,
-            "missedPathCount": 1,
-            "recall": 0.5,
-            "foundPaths": ["src/found.rs"],
-            "missedPaths": ["src/missed.rs"],
+            "acceptedFoundPathCount": 1,
+            "acceptedMissedPathCount": 1,
+            "acceptedPathRecall": 0.5,
+            "reachableFoundPathCount": 2,
+            "reachableMissedPathCount": 0,
+            "reachablePathRecall": 1.0,
+            "acceptedFoundPaths": ["src/found.rs"],
+            "acceptedMissedPaths": ["src/missed.rs"],
+            "reachableFoundPaths": ["src/found.rs", "src/missed.rs"],
+            "reachableMissedPaths": [],
+            "omittedOnlyExpectedPaths": ["src/missed.rs"],
             "omittedExpectedPathCount": 1,
             "omittedExpectedPaths": [
                 {"path": "src/missed.rs", "reason": "depth_limit"}
@@ -801,15 +814,21 @@ class SummaryProofTest(unittest.TestCase):
 
         self.assertTrue(coverage["enabled"])
         self.assertEqual(coverage["caseCount"], 1)
-        self.assertEqual(coverage["pathRecall"], 0.5)
-        self.assertEqual(coverage["missedPathCount"], 1)
+        self.assertEqual(coverage["acceptedPathRecall"], 0.5)
+        self.assertEqual(coverage["reachablePathRecall"], 1.0)
+        self.assertEqual(coverage["acceptedMissedPathCount"], 1)
+        self.assertEqual(coverage["reachableMissedPathCount"], 0)
         self.assertEqual(coverage["omittedExpectedPathCount"], 1)
         self.assertEqual(coverage["edgeKindObservationCounts"], {"imports": 4})
         self.assertEqual(coverage["omittedCountsByReason"], {"depth_limit": 2})
         self.assertEqual(coverage["weakCases"][0]["id"], "graph-miss")
         self.assertEqual(
-            summary["weakCases"][0]["graphDebug"]["missedPaths"],
+            summary["weakCases"][0]["graphDebug"]["acceptedMissedPaths"],
             ["src/missed.rs"],
+        )
+        self.assertEqual(
+            summary["weakCases"][0]["graphDebug"]["reachableMissedPaths"],
+            [],
         )
 
     def test_false_sufficient_is_a_failure(self):

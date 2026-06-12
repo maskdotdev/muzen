@@ -81,8 +81,9 @@ so pack-selection tradeoffs can be inspected directly.
 Add `--include-graph-debug` on focused diagnostic runs when you need to
 separate raw graph coverage misses from rank/packing misses. The runner invokes
 the public `muzen context graph-debug` CLI for each case, so the summary reports
-graph path recall, missed expected paths, omitted expected path samples, and
-edge-kind counts without changing the retrieval metrics or regression gate.
+accepted graph-candidate recall, reachable graph recall (`candidates ∪ omitted`),
+missed expected paths, omitted expected path samples, and edge-kind counts
+without changing the retrieval metrics or regression gate.
 
 Case files may set `localSemantic: true` or `hostedSemantic: true` and
 `maxEmbeddingInputs` to exercise semantic indexing. Hosted cases can also set
