@@ -446,7 +446,7 @@ fn pack_repair_evictable_skeleton_score_ceiling() -> f32 {
 }
 
 fn pack_repair_skeleton_min_score_margin() -> f32 {
-    0.1
+    0.0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1177,6 +1177,82 @@ mod pack_selection_tests {
         assert_eq!(selected_ids, vec!["covered", "tail-skeleton"]);
         assert_eq!(used_tokens, 280);
         assert!(omitted_candidates
+            .iter()
+            .any(|omitted| omitted.evidence_id.0 == "candidate"));
+    }
+
+    #[test]
+    fn skeleton_tail_repair_accepts_positive_score_swap_without_extra_margin() {
+        let mut keep = evidence("keep", ContextEvidenceKind::FileSpan, "src/keep.ts");
+        keep.token_estimate = 195;
+        let mut tail_skeleton = evidence(
+            "tail-skeleton",
+            ContextEvidenceKind::FileSpan,
+            "src/tail.ts",
+        );
+        tail_skeleton.representation = ContextEvidenceRepresentation::Skeleton;
+        tail_skeleton.token_estimate = 5;
+        let mut candidate = evidence(
+            "candidate",
+            ContextEvidenceKind::FileSpan,
+            "src/candidate.ts",
+        );
+        candidate.token_estimate = 5;
+
+        let mut selected = vec![
+            SelectedPackCandidate {
+                score: 0.60,
+                rank_index: 0,
+                evidence: keep.clone(),
+            },
+            SelectedPackCandidate {
+                score: 0.37,
+                rank_index: 1,
+                evidence: tail_skeleton.clone(),
+            },
+        ];
+        let mut used_tokens = selected
+            .iter()
+            .map(|item| item.evidence.token_estimate)
+            .sum();
+        let mut selected_by_path = BTreeMap::new();
+        for selected_candidate in &selected {
+            record_selected_path(&mut selected_by_path, &selected_candidate.evidence);
+        }
+        let budget_candidate = RankedPackCandidate {
+            score: 0.38,
+            rank_index: 2,
+            evidence: candidate.clone(),
+        };
+        let mut omitted_candidates = vec![omitted_candidate(
+            &candidate,
+            budget_candidate.score,
+            budget_candidate.rank_index,
+            ContextOmissionReason::BudgetExhausted,
+        )];
+
+        repair_budget_exhausted_pack_candidates(
+            ContextPackPurpose::GeneralReview,
+            200,
+            true,
+            true,
+            &mut used_tokens,
+            &mut selected,
+            &mut omitted_candidates,
+            &[budget_candidate],
+            &mut selected_by_path,
+        );
+
+        let selected_ids = selected
+            .iter()
+            .map(|item| item.evidence.id.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(selected_ids, vec!["keep", "candidate"]);
+        assert_eq!(used_tokens, 200);
+        assert!(omitted_candidates
+            .iter()
+            .any(|omitted| omitted.evidence_id.0 == "tail-skeleton"));
+        assert!(!omitted_candidates
             .iter()
             .any(|omitted| omitted.evidence_id.0 == "candidate"));
     }
