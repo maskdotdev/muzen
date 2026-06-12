@@ -14,8 +14,8 @@
     "meanCandidatePresentMissRate": 0.17395622895622895,
     "sufficiencyInsufficientWhenIncomplete": 1.0,
     "firstRelevantRate": 0.9333333333333333,
-    "meanTokensToFirstRelevant": 1597.904761904762,
-    "meanUsefulEvidencePer1kTokens": 1.5890812495199917
+    "meanTokensToFirstRelevant": 1597.892857142857,
+    "meanUsefulEvidencePer1kTokens": 1.5893824071699982
   },
   "cohorts": {
     "byKind": {
@@ -34,8 +34,8 @@
           "meanCandidatePresentMissRate": 0.18638167388167387,
           "sufficiencyInsufficientWhenIncomplete": 1.0,
           "firstRelevantRate": 0.9285714285714286,
-          "meanTokensToFirstRelevant": 1716.948717948718,
-          "meanUsefulEvidencePer1kTokens": 0.5291655363381121
+          "meanTokensToFirstRelevant": 1716.9358974358975,
+          "meanUsefulEvidencePer1kTokens": 0.5294882052488336
         }
       },
       "read-span": {
@@ -150,8 +150,8 @@
           "meanCandidatePresentMissRate": 0.0,
           "sufficiencyInsufficientWhenIncomplete": null,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 92.9090909090909,
-          "meanUsefulEvidencePer1kTokens": 11.486245821684347
+          "meanTokensToFirstRelevant": 92.81818181818181,
+          "meanUsefulEvidencePer1kTokens": 11.488709838820766
         }
       },
       "self": {
@@ -190,8 +190,8 @@
           "meanCandidatePresentMissRate": 0.0,
           "sufficiencyInsufficientWhenIncomplete": null,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 202.33333333333334,
-          "meanUsefulEvidencePer1kTokens": 3.6826880989954525
+          "meanTokensToFirstRelevant": 202.0,
+          "meanUsefulEvidencePer1kTokens": 3.691722828495651
         }
       },
       "fixture": {
@@ -268,8 +268,8 @@
           "meanCandidatePresentMissRate": 0.0,
           "sufficiencyInsufficientWhenIncomplete": null,
           "firstRelevantRate": 1.0,
-          "meanTokensToFirstRelevant": 92.9090909090909,
-          "meanUsefulEvidencePer1kTokens": 11.486245821684347
+          "meanTokensToFirstRelevant": 92.81818181818181,
+          "meanUsefulEvidencePer1kTokens": 11.488709838820766
         }
       }
     }

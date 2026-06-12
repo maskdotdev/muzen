@@ -493,6 +493,7 @@ def case_result(
         retrieved_paths=["src/a.rs"],
         candidate_missed_paths=[],
         candidate_present_missed_paths=[],
+        candidate_present_missed_omissions=[],
         missed_paths=missed_paths or [],
         unexpected_paths=[],
         forbidden_content_hits=[],
@@ -524,6 +525,16 @@ class SummaryProofTest(unittest.TestCase):
                 "ndcg_at_10": 0.0,
                 "tokens_to_first_relevant": None,
                 "candidate_present_missed_paths": ["src/a.rs"],
+                "candidate_present_missed_omissions": [
+                    {
+                        "evidenceId": "ev-1",
+                        "kind": "file_span",
+                        "path": "src/a.rs",
+                        "score": 0.5,
+                        "tokenEstimate": 100,
+                        "reason": "budget_exhausted",
+                    }
+                ],
             }
         )
         summary = run.summarize([good, weak])
@@ -542,6 +553,10 @@ class SummaryProofTest(unittest.TestCase):
         self.assertIn("firstRelevantRank", summary["weakCases"][0])
         self.assertIn("tokensToFirstRelevant", summary["weakCases"][0])
         self.assertIn("candidatePresentMissedPaths", summary["weakCases"][0])
+        self.assertEqual(
+            summary["weakCases"][0]["candidatePresentMissedOmissions"][0]["reason"],
+            "budget_exhausted",
+        )
 
     def test_false_sufficient_is_a_failure(self):
         result = case_result(

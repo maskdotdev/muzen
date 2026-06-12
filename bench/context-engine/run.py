@@ -111,6 +111,7 @@ class CaseResult:
     retrieved_paths: list[str]
     candidate_missed_paths: list[str]
     candidate_present_missed_paths: list[str]
+    candidate_present_missed_omissions: list[dict[str, Any]]
     missed_paths: list[str]
     unexpected_paths: list[str]
     forbidden_content_hits: list[str]
@@ -682,6 +683,9 @@ def score_case(
     candidate_present_missed_paths = sorted(
         set(ranked_missed_paths) - set(candidate_missed_paths)
     )
+    candidate_present_missed_omissions = omitted_details_for_paths(
+        omitted, candidate_present_missed_paths
+    )
     sufficiency = result.get("sufficiency") or {}
     sufficiency_blocking_gaps = sum(
         1
@@ -718,6 +722,7 @@ def score_case(
         retrieved_paths=retrieved_unique,
         candidate_missed_paths=candidate_missed_paths,
         candidate_present_missed_paths=candidate_present_missed_paths,
+        candidate_present_missed_omissions=candidate_present_missed_omissions,
         missed_paths=missed_paths,
         unexpected_paths=unexpected_paths,
         forbidden_content_hits=forbidden_content_hits,
@@ -760,6 +765,29 @@ def evidence_matches_range(entry: dict[str, Any], expected: dict[str, Any]) -> b
         range_value.get("startLine") == expected.get("startLine")
         and range_value.get("endLine") == expected.get("endLine")
     )
+
+
+def omitted_details_for_paths(
+    omitted: Any, paths: list[str]
+) -> list[dict[str, Any]]:
+    if not isinstance(omitted, list) or not paths:
+        return []
+    missed = set(paths)
+    details = []
+    for candidate in omitted:
+        if not isinstance(candidate, dict) or candidate.get("path") not in missed:
+            continue
+        details.append(
+            {
+                "evidenceId": candidate.get("evidenceId"),
+                "kind": candidate.get("kind"),
+                "path": candidate.get("path"),
+                "score": candidate.get("score"),
+                "tokenEstimate": candidate.get("tokenEstimate"),
+                "reason": candidate.get("reason"),
+            }
+        )
+    return details
 
 
 def metric_block(results: list[CaseResult]) -> dict[str, Any]:
@@ -889,6 +917,7 @@ def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any
             "tokensToFirstRelevant": result.tokens_to_first_relevant,
             "candidateMissedPaths": result.candidate_missed_paths,
             "candidatePresentMissedPaths": result.candidate_present_missed_paths,
+            "candidatePresentMissedOmissions": result.candidate_present_missed_omissions,
             "missedPaths": result.missed_paths,
             "sufficiencyStatus": result.sufficiency_status,
         }
