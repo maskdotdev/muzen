@@ -1,0 +1,49 @@
+{
+  "generatedAtUtc": "2026-06-10T00:46:24.656Z",
+  "model": "gpt-5.4-mini",
+  "runnerPath": "target/release/muzen-runner",
+  "outputDir": "bench/results-review-quality/anti-cheat-smoke-20260609",
+  "passed": false,
+  "results": [
+    {
+      "fixture": "safe-credential-ownership",
+      "output": "bench/results-review-quality/anti-cheat-smoke-20260609/safe-credential-ownership-gpt-5.4-mini.json",
+      "findings": 1,
+      "findingTitles": [
+        "Persisted app credential is written with incomplete ownership scope"
+      ],
+      "contractPackCount": 1,
+      "passed": false
+    },
+    {
+      "fixture": "safe-oauth-return-shape",
+      "output": "bench/results-review-quality/anti-cheat-smoke-20260609/safe-oauth-return-shape-gpt-5.4-mini.json",
+      "findings": 1,
+      "findingTitles": [
+        "No additional actionable contract bug supported by the provided diff"
+      ],
+      "contractPackCount": 1,
+      "passed": false
+    },
+    {
+      "fixture": "safe-slots-working-hours",
+      "output": "bench/results-review-quality/anti-cheat-smoke-20260609/safe-slots-working-hours-gpt-5.4-mini.json",
+      "findings": 1,
+      "findingTitles": [
+        "Potential boundary misclassification if slotEndTime and workingHourEnd are not expressed in the same local interval"
+      ],
+      "contractPackCount": 1,
+      "passed": false
+    },
+    {
+      "fixture": "safe-sms-retry-cleanup",
+      "output": "bench/results-review-quality/anti-cheat-smoke-20260609/safe-sms-retry-cleanup-gpt-5.4-mini.json",
+      "findings": 1,
+      "findingTitles": [
+        "Added retryCount guard leaves first-retry scheduled SMS reminders undeleted"
+      ],
+      "contractPackCount": 1,
+      "passed": false
+    }
+  ]
+}

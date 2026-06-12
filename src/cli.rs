@@ -210,6 +210,13 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long)]
     pub(crate) derived_cache_root: Option<PathBuf>,
 
+    /// Write a Context Graph debug export (nodes, edges, changed
+    /// anchors, expansion candidates, omissions) to this path (G7).
+    /// Opt-in for bench/debug runs only; never part of the default
+    /// index artifacts. Deterministic and bounded.
+    #[arg(long)]
+    pub(crate) graph_debug_export: Option<PathBuf>,
+
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
 }
@@ -806,6 +813,13 @@ async fn index_context_snapshot(
     let index = engine
         .get_index(&snapshot.snapshot_id)
         .ok_or_else(|| anyhow::anyhow!("context index was not stored"))?;
+    if let Some(path) = &args.graph_debug_export {
+        let export = crate::context_engine::ContextGraphDebugExport::collect(
+            &index.graph,
+            &index.graph_expansion,
+        );
+        write_context_output(Some(path), &export)?;
+    }
     Ok((engine, snapshot, index.manifest_artifact.clone()))
 }
 

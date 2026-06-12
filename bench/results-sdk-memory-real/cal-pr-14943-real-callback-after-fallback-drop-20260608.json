@@ -1,0 +1,547 @@
+{
+  "schemaVersion": "muzen.sdk-memory-benchmark.v1",
+  "sdk": {
+    "language": "typescript",
+    "package": "@muzen/sdk runner-callback",
+    "runtime": "node v24.16.0"
+  },
+  "mode": "local-runner-stdio-real-model-callback",
+  "runner": {
+    "path": "target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "sessions": 4,
+    "maxActiveSessions": 3,
+    "maxTurns": 6,
+    "maxToolCalls": 12,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120,
+    "changedFiles": [
+      "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+      "packages/prisma/schema.prisma"
+    ]
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-08T01:21:34.174Z",
+    "finishedAtUtc": "2026-06-08T01:21:36.686Z",
+    "elapsedMs": 2511,
+    "holdMs": 1000,
+    "sampleMs": 50
+  },
+  "memory": {
+    "peakClientRssBytes": 111706112,
+    "peakRunnerRssBytes": 36241408,
+    "peakCombinedRssBytes": 147947520,
+    "finalClientRssBytes": 111706112,
+    "finalRunnerRssBytes": 36241408,
+    "finalCombinedRssBytes": 147947520,
+    "sampleCount": 51,
+    "runnerPids": [
+      86062
+    ],
+    "samples": [
+      {
+        "atMs": 32,
+        "clientRssBytes": 50872320,
+        "runnerRssBytes": 0,
+        "combinedRssBytes": 50872320,
+        "runnerPids": []
+      },
+      {
+        "atMs": 63,
+        "clientRssBytes": 53903360,
+        "runnerRssBytes": 7667712,
+        "combinedRssBytes": 61571072,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 114,
+        "clientRssBytes": 53952512,
+        "runnerRssBytes": 11550720,
+        "combinedRssBytes": 65503232,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 167,
+        "clientRssBytes": 54444032,
+        "runnerRssBytes": 15269888,
+        "combinedRssBytes": 69713920,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 215,
+        "clientRssBytes": 54755328,
+        "runnerRssBytes": 26853376,
+        "combinedRssBytes": 81608704,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 264,
+        "clientRssBytes": 55394304,
+        "runnerRssBytes": 32440320,
+        "combinedRssBytes": 87834624,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 313,
+        "clientRssBytes": 66437120,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 101859328,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 367,
+        "clientRssBytes": 67567616,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 102989824,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 419,
+        "clientRssBytes": 70057984,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 105480192,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 468,
+        "clientRssBytes": 70385664,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 105807872,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 520,
+        "clientRssBytes": 70385664,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 105807872,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 570,
+        "clientRssBytes": 70418432,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 105840640,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 624,
+        "clientRssBytes": 71073792,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 106496000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 674,
+        "clientRssBytes": 74940416,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 110362624,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 725,
+        "clientRssBytes": 74973184,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 110395392,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 777,
+        "clientRssBytes": 75218944,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 110641152,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 827,
+        "clientRssBytes": 75956224,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 111378432,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 880,
+        "clientRssBytes": 76660736,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 112082944,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 929,
+        "clientRssBytes": 76660736,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 112082944,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 980,
+        "clientRssBytes": 76660736,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 112082944,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1031,
+        "clientRssBytes": 76791808,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 112214016,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1081,
+        "clientRssBytes": 77398016,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 112820224,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1133,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1183,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1235,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1285,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1337,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1388,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1439,
+        "clientRssBytes": 77971456,
+        "runnerRssBytes": 35422208,
+        "combinedRssBytes": 113393664,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1487,
+        "clientRssBytes": 110968832,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147210240,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1540,
+        "clientRssBytes": 110968832,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147210240,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1593,
+        "clientRssBytes": 110968832,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147210240,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1644,
+        "clientRssBytes": 111214592,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147456000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1695,
+        "clientRssBytes": 111214592,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147456000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1744,
+        "clientRssBytes": 111214592,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147456000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1795,
+        "clientRssBytes": 111214592,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147456000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1848,
+        "clientRssBytes": 111214592,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147456000,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1898,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 1948,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2000,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2051,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2101,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2153,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2203,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2255,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2305,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2356,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2410,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2460,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2485,
+        "clientRssBytes": 111427584,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147668992,
+        "runnerPids": [
+          86062
+        ]
+      },
+      {
+        "atMs": 2511,
+        "clientRssBytes": 111706112,
+        "runnerRssBytes": 36241408,
+        "combinedRssBytes": 147947520,
+        "runnerPids": [
+          86062
+        ]
+      }
+    ]
+  },
+  "modelCallbacks": {
+    "calls": 1,
+    "inputTokens": 523,
+    "outputTokens": 24,
+    "totalTokens": 547,
+    "errors": 0,
+    "errorMessages": []
+  },
+  "result": {
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 0,
+      "artifacts": 0,
+      "completedSessions": 1,
+      "elapsedMs": 1200,
+      "findings": 0,
+      "inputTokens": 523,
+      "modelCalls": 1,
+      "outputTokens": 24,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 0,
+      "totalTokens": 547
+    },
+    "findings": 0,
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "dd53dd75aadc8c0ff071a790bb696d7dc5b6222c8590dce53ef128458dc72e9d"
+      }
+    ]
+  },
+  "benchmarkValid": true,
+  "benchmarkFailures": []
+}

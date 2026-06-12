@@ -1,0 +1,60 @@
+{
+  "generatedAtUtc": "2026-06-08T01:22:53.987Z",
+  "elapsedMs": 17889,
+  "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+  "changedFiles": [
+    "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+    "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+    "packages/prisma/schema.prisma"
+  ],
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "real-pr-14943-1780881756103",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "e1bec5efd7f35a2db8807e6d99b057486644003216ff38f4c047a04bbbccf533"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 61824,
+      "artifacts": 5,
+      "completedSessions": 1,
+      "elapsedMs": 17744,
+      "findings": 0,
+      "inputTokens": 11043,
+      "modelCalls": 6,
+      "outputTokens": 343,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 5,
+      "totalTokens": 11386
+    }
+  },
+  "notifications": 73,
+  "notificationMethods": {
+    "event.runtime": 36,
+    "event.review": 36,
+    "run.finished": 1
+  },
+  "stderr": null
+}

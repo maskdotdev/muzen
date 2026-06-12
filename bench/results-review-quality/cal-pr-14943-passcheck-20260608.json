@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:52:04.708Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-V7pbB0/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-V7pbB0/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 2,
+    "modelCalls": 7,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 32899,
+      "outputTokens": 472,
+      "totalTokens": 33371
+    },
+    "artifactStats": {
+      "artifacts": 9,
+      "artifactBytes": 79523
+    },
+    "elapsedMs": 11834
+  },
+  "benchmark": {
+    "elapsedMs": 12451,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "findingId": "f2e38389fb1e77bfa5aa2e6703616f37dfc3595d13dad225f944b4cdb9f41e3f",
+        "title": "Retry cleanup deletes reminders without preserving the SMS method scope"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 1,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "When `scheduledSMS` is falsy, the new `else` branch still updates `retryCount`. Because the cleanup query now deletes any reminder with `retryCount > 1` regardless of `method` or `scheduledDate`, a transient send failure can convert an otherwise valid reminder into one that will be deleted on the next invocation even if its scheduled date has not passed.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "contentHash": "763efa378e3c2e9928e39b1763af4121f763ff6ee7cdf5bbc1713f916e65d542",
+          "evidenceId": "evidence-art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "contentHash": "c11a969410f9545f1e6824ecfd628e2683be3871b9b0df8e614e495b7f280972",
+          "evidenceId": "evidence-art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "contentHash": "247a9c763891ab7126ba6dc9b2b3c1b89d3162a67f893b3f09ca4acee653c0ff",
+          "evidenceId": "evidence-art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+          "evidenceId": "evidence-art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "evidenceId": "evidence-art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 6,
+      "id": "29839fce61cfe7d006626d14748d9e4abb09cfe666b584bb16d8499157ab7297",
+      "location": {
+        "endColumn": null,
+        "endLine": 184,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 175
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Missing-reminder path now increments retryCount, causing broad deletion on future runs",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed deleteMany cleanup adds retryCount as a standalone OR branch, so the retry cleanup can delete WorkflowReminder rows for other method values instead of keeping the SMS method scope.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "sms-retry-cleanup-contract"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "contentHash": "763efa378e3c2e9928e39b1763af4121f763ff6ee7cdf5bbc1713f916e65d542",
+          "evidenceId": "evidence-art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "contentHash": "c11a969410f9545f1e6824ecfd628e2683be3871b9b0df8e614e495b7f280972",
+          "evidenceId": "evidence-art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "contentHash": "247a9c763891ab7126ba6dc9b2b3c1b89d3162a67f893b3f09ca4acee653c0ff",
+          "evidenceId": "evidence-art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+          "evidenceId": "evidence-art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "evidenceId": "evidence-art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "kind": "tool_summary",
+          "producingToolCallId": "sms-retry-cleanup-contract-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 6,
+      "id": "f2e38389fb1e77bfa5aa2e6703616f37dfc3595d13dad225f944b4cdb9f41e3f",
+      "location": {
+        "endColumn": null,
+        "endLine": 43,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 31
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Retry cleanup deletes reminders without preserving the SMS method scope",
+      "validatedBy": [
+        "sms-retry-cleanup-contract-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

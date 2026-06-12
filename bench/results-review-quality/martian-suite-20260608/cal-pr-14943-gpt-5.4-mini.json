@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:27:50.324Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-GQwvHz/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-GQwvHz/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 39517,
+      "outputTokens": 713,
+      "totalTokens": 40230
+    },
+    "artifactStats": {
+      "artifacts": 9,
+      "artifactBytes": 84978
+    },
+    "elapsedMs": 12267
+  },
+  "benchmark": {
+    "elapsedMs": 12875,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "title": "SMS retry cleanup deletes reminders from other delivery methods"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 1,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {
+      "speculative_claim": 1
+    },
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The catch block now always updates retryCount after any scheduling error, which means transient and permanent failures alike will keep advancing the counter and can eventually trigger the broadened deleteMany condition. This creates an unbounded retry/delete path for reminders that may still be valid to process later.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "contentHash": "763efa378e3c2e9928e39b1763af4121f763ff6ee7cdf5bbc1713f916e65d542",
+          "evidenceId": "evidence-art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "contentHash": "c11a969410f9545f1e6824ecfd628e2683be3871b9b0df8e614e495b7f280972",
+          "evidenceId": "evidence-art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "contentHash": "247a9c763891ab7126ba6dc9b2b3c1b89d3162a67f893b3f09ca4acee653c0ff",
+          "evidenceId": "evidence-art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+          "evidenceId": "evidence-art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "evidenceId": "evidence-art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 6,
+      "id": "f42055db358b0123c49997faa0b61795fc4c74616f0f2ee451684749a76fc2d3",
+      "location": {
+        "endColumn": null,
+        "endLine": 189,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 181
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Retry counter is incremented on catch for all errors without a cap or failure-state guard",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

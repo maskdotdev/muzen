@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:53:34.205Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-UW6kwV/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-UW6kwV/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 3,
+      "issue_found": 1
+    },
+    "findings": 2,
+    "modelCalls": 6,
+    "toolCalls": 8,
+    "tokens": {
+      "inputTokens": 42361,
+      "outputTokens": 613,
+      "totalTokens": 42974
+    },
+    "artifactStats": {
+      "artifacts": 8,
+      "artifactBytes": 49156
+    },
+    "elapsedMs": 11708
+  },
+  "benchmark": {
+    "elapsedMs": 11855,
+    "hitRate": 0.6666666666666666,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "9bc77159397b0b48fff7f899f94d2cd4a8d6d78896b869b15627d3ec2c628cc9",
+        "title": "Working hours end check reuses the slot start time"
+      },
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "findingId": "bf859255bf1e58088f9b09aa7ca1e0e11d3d09a932fbfb303dc79fd9533e9f7b",
+        "title": "Selected slot filtering checks availability without selected date overrides"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 1,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {
+      "duplicate_existing_path_finding": 1
+    },
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 3,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The changed workingHours branch calculates both start and end from slotStartTime, so the availability check compares the slot start as the working hours end boundary.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "slots-availability-contract-working-hours"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_2fa0e05ed6a23059ffb37bbabe2831e00c6521f928759b91d9ee5f221ba94f64",
+          "contentHash": "9de8e37a6f6ac5368cc32457009ce004ca4efe164f44a336fee6dbec47f5c850",
+          "evidenceId": "evidence-art_2fa0e05ed6a23059ffb37bbabe2831e00c6521f928759b91d9ee5f221ba94f64",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_659f42a062c31d03475b8c7129437fedb68ca20fbc7561d532effeea940355db",
+          "contentHash": "26f04eaede8d7f199519c64d26fe114fe8a0da8e280f563d53105284a9a0c7dc",
+          "evidenceId": "evidence-art_659f42a062c31d03475b8c7129437fedb68ca20fbc7561d532effeea940355db",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "9bc77159397b0b48fff7f899f94d2cd4a8d6d78896b869b15627d3ec2c628cc9",
+      "location": {
+        "endColumn": null,
+        "endLine": 152,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 102
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Working hours end check reuses the slot start time",
+      "validatedBy": [
+        "slots-availability-contract-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed selected slot filter only forwards organizerTimeZone from userSchedule while using the shared availability props, so candidate date overrides are not selected for that user before checkIfIsAvailable decides whether the slot is available.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "slots-availability-contract-selected-slot"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_2fa0e05ed6a23059ffb37bbabe2831e00c6521f928759b91d9ee5f221ba94f64",
+          "contentHash": "9de8e37a6f6ac5368cc32457009ce004ca4efe164f44a336fee6dbec47f5c850",
+          "evidenceId": "evidence-art_2fa0e05ed6a23059ffb37bbabe2831e00c6521f928759b91d9ee5f221ba94f64",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_659f42a062c31d03475b8c7129437fedb68ca20fbc7561d532effeea940355db",
+          "contentHash": "26f04eaede8d7f199519c64d26fe114fe8a0da8e280f563d53105284a9a0c7dc",
+          "evidenceId": "evidence-art_659f42a062c31d03475b8c7129437fedb68ca20fbc7561d532effeea940355db",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "slots-availability-contract-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "bf859255bf1e58088f9b09aa7ca1e0e11d3d09a932fbfb303dc79fd9533e9f7b",
+      "location": {
+        "endColumn": null,
+        "endLine": 580,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 579
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Selected slot filtering checks availability without selected date overrides",
+      "validatedBy": [
+        "slots-availability-contract-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

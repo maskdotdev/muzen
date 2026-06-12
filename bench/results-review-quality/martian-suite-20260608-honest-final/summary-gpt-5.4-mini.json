@@ -1,0 +1,39 @@
+{
+  "generatedAtUtc": "2026-06-08T04:39:49.892Z",
+  "model": "gpt-5.4-mini",
+  "runnerPath": "target/release/muzen-runner",
+  "outputDir": "bench/results-review-quality/martian-suite-20260608-honest-final",
+  "passed": false,
+  "results": [
+    {
+      "name": "cal-pr-14943",
+      "output": "bench/results-review-quality/martian-suite-20260608-honest-final/cal-pr-14943-gpt-5.4-mini.json",
+      "hits": 1,
+      "goldenIssues": 1,
+      "falsePositives": 0,
+      "contractRiskUnits": 1,
+      "contractPackCount": 1,
+      "passed": true
+    },
+    {
+      "name": "cal-pr-8330",
+      "output": "bench/results-review-quality/martian-suite-20260608-honest-final/cal-pr-8330-gpt-5.4-mini.json",
+      "hits": 1,
+      "goldenIssues": 3,
+      "falsePositives": 1,
+      "contractRiskUnits": 1,
+      "contractPackCount": 3,
+      "passed": false
+    },
+    {
+      "name": "cal-pr-11059",
+      "output": "bench/results-review-quality/martian-suite-20260608-honest-final/cal-pr-11059-gpt-5.4-mini.json",
+      "hits": 1,
+      "goldenIssues": 5,
+      "falsePositives": 1,
+      "contractRiskUnits": 11,
+      "contractPackCount": 8,
+      "passed": false
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-concurrent-cal-14943-20260607T012639Z",
+    "changedFiles": [
+      "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+      "packages/prisma/schema.prisma"
+    ],
+    "baseRef": "aci-martian/pr-14943-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:26:40.735Z",
+    "finishedAtUtc": "2026-06-07T01:26:42.143Z",
+    "elapsedMs": 1408
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 6610,
+    "outputTokens": 121,
+    "totalTokens": 6731,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"The SMS reminder scheduler now tracks retry counts and deletes reminders after repeated failures. The migration adds the new retryCount column, but the schema file was not included in the diff evidence provided.\",\"fileVerdicts\":[{\"path\":\"packages/features/ee/workflows/api/scheduleSMSReminders.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql\",\"verdict\":\"clean\"},{\"path\":\"packages/prisma/schema.prisma\",\"verdict\":\"clean\"}],\"findings\":[]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 25821,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 3
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": "packages/prisma/schema.prisma",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_23796ff6dd01f9c38001805e90dfba771af747097f3a5eb0d4581ef852d8c8f2",
+          "art_26eeb1fb8e0b3b14a2e10cd857b86cf979c59e083786c2acde9784516a7dc9e8",
+          "art_4577a9da02c0d6aabffaeff7434dadda12a1056dcfbe55f0b05addba0790bf17",
+          "art_80bf875e6123cd1927254dd16086faaa0254072083177cc2049521a1b18edbb8",
+          "art_83b6b8411d9ebc9871d75c11313d7f7ad4651852af9812e1bcb8fd73b343d90b"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/features/ee/workflows/api/scheduleSMSReminders.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_23796ff6dd01f9c38001805e90dfba771af747097f3a5eb0d4581ef852d8c8f2",
+          "art_26eeb1fb8e0b3b14a2e10cd857b86cf979c59e083786c2acde9784516a7dc9e8",
+          "art_80bf875e6123cd1927254dd16086faaa0254072083177cc2049521a1b18edbb8",
+          "art_83b6b8411d9ebc9871d75c11313d7f7ad4651852af9812e1bcb8fd73b343d90b"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780795600740",
+    "snapshots": [
+      {
+        "capturedBytes": 14540280,
+        "capturedFiles": 4465,
+        "changedFiles": 3,
+        "files": 5277,
+        "snapshotId": "b603c9e1e7e1c0344eb3fe2c32ea9378f789624847fe9cd04733fb0eb9ab2fd2"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 9728,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 1239,
+      "findings": 0,
+      "inputTokens": 6610,
+      "modelCalls": 3,
+      "outputTokens": 121,
+      "publishableFindings": 0,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 6731
+    }
+  },
+  "reviewValid": true
+}

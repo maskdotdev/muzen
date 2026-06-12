@@ -1,0 +1,165 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:35:53.937Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-b9CQ2o/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-b9CQ2o/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 3,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 8,
+    "toolCalls": 10,
+    "tokens": {
+      "inputTokens": 58145,
+      "outputTokens": 557,
+      "totalTokens": 58702
+    },
+    "artifactStats": {
+      "artifacts": 10,
+      "artifactBytes": 43014
+    },
+    "elapsedMs": 13837
+  },
+  "benchmark": {
+    "elapsedMs": 13984,
+    "hitRate": 0.3333333333333333,
+    "hits": [
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "findingId": "3953abca0d045a96a49df8acb205f2810aed44709fa31caff93290e47b01cbb5",
+        "title": "Date overrides are matched against the wrong day after timezone adjustment"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Working-hours availability checks the slot start as the slot end"
+      },
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 6,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 3,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `checkIfIsAvailable`, the new override logic compares `dayjs(date.start).add(utcOffset, \"minutes\")` to `slotStartTime`, but `utcOffset` is derived from `dayjs.tz(date.start, organizerTimeZone)` and then negated. This mixes organizer/invitee offsets and can shift the override date into the wrong calendar day, causing slots to be rejected or accepted outside the intended override window when event and attendee time zones differ.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4e9dee84a8b48cbb91d53ffc15c94e7ae8cbc040a664eb7c7c71a2646d179676",
+          "contentHash": "f77d4203a325247157881664cd1f8c651f2322144ffbbe5d6184bee73c1c1616",
+          "evidenceId": "evidence-art_4e9dee84a8b48cbb91d53ffc15c94e7ae8cbc040a664eb7c7c71a2646d179676",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_66f6ee92443312d6e6a2e1ac160eec93dd001b409870b9cda0598eac37d4eb52",
+          "contentHash": "8f97f9db956031c22101905ff82b1ff66aa35f72b9fd16e6e64ffb304de5dd8c",
+          "evidenceId": "evidence-art_66f6ee92443312d6e6a2e1ac160eec93dd001b409870b9cda0598eac37d4eb52",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_69992b501ae0fbf9dab224bd6b55e49a28168fc3b51fc36f5198a1ed93438653",
+          "contentHash": "bb320481ad127ed39bc1ea3e647f141997493eafa49939c07bf8c7e9c9867bb3",
+          "evidenceId": "evidence-art_69992b501ae0fbf9dab224bd6b55e49a28168fc3b51fc36f5198a1ed93438653",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9976f21ca09816ba6f01ee9c5d6126309419dd5f93d604076ce6e3c9e1af5921",
+          "contentHash": "5e38c3c84e1e91bcceb4f337720edf1773c50bbf6bd5bcb3004d72b0c730052d",
+          "evidenceId": "evidence-art_9976f21ca09816ba6f01ee9c5d6126309419dd5f93d604076ce6e3c9e1af5921",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dd5e4427fe4ec5db9837c8fce88d772a7ef6d807e713746ef89f5d6dd71a4cca",
+          "contentHash": "81435cbe6af6dafc8972755e933d4a5a9f0281be3c9247cbaaf104773ef146af",
+          "evidenceId": "evidence-art_dd5e4427fe4ec5db9837c8fce88d772a7ef6d807e713746ef89f5d6dd71a4cca",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 7,
+      "id": "3953abca0d045a96a49df8acb205f2810aed44709fa31caff93290e47b01cbb5",
+      "location": {
+        "endColumn": null,
+        "endLine": 128,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 101
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Date overrides are matched against the wrong day after timezone adjustment",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

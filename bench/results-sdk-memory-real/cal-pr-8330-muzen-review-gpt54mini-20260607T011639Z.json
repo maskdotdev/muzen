@@ -1,0 +1,173 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-martian-cal-8330-mini-20260607T011639Z",
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ],
+    "baseRef": "aci-martian/pr-8330-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:16:40.561Z",
+    "finishedAtUtc": "2026-06-07T01:16:43.225Z",
+    "elapsedMs": 2664
+  },
+  "modelCallbacks": {
+    "calls": 3,
+    "toolPlanningCalls": 2,
+    "modelCalls": 1,
+    "inputTokens": 18431,
+    "outputTokens": 263,
+    "totalTokens": 18694,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the four changed files. The test addition is consistent with the new timezone/date-override behavior. However, the implementation in packages/trpc/server/routers/viewer/slots.ts introduces a concrete availability regression in working-hours filtering: the code computes both start and end minute values from the slot start time, so slots that extend past working-hours end are not rejected. I did not find additional supported bugs in the other changed files.\",\"fileVerdicts\":[{\"path\":\"apps/web/test/lib/getSchedule.test.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/slots.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"verdict\":\"buggy\"},{\"path\":\"packages/types/schedule.d.ts\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Working-hours check ignores the slot end time\",\"claim\":\"The new working-hours filter computes both `start` and `end` from `slotStartTime`, so it never checks whether the slot extends beyond `workingHour.endTime`. As a result, a slot that starts inside working hours but ends after them can still be treated as available.\",\"path\":\"packages/trpc/server/routers/viewer/slots.ts\",\"startLine\":132,\"endLine\":136}]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 67420,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 4
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [
+          "art_849383a94c29592072bf251985688589794b77c29a82798acdc12386b39fa97f",
+          "art_9683d4e6774960a12a0f9ed3f21d4dbd16fcb6cf8b11fe84ffe02c53ce058315",
+          "art_a9465f2af1c21063685c9642cb9c073c5dc02a95d2c7a5130e342597c7e52de9",
+          "art_b1faa0b0e28af2ac672fa001014479df81bd972bd2a01ef64e8bd6d5684eeb93"
+        ],
+        "evidenceCount": 4,
+        "path": "apps/web/test/lib/getSchedule.test.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/test/lib/getSchedule.test.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_849383a94c29592072bf251985688589794b77c29a82798acdc12386b39fa97f",
+          "art_9683d4e6774960a12a0f9ed3f21d4dbd16fcb6cf8b11fe84ffe02c53ce058315",
+          "art_a9465f2af1c21063685c9642cb9c073c5dc02a95d2c7a5130e342597c7e52de9",
+          "art_b1faa0b0e28af2ac672fa001014479df81bd972bd2a01ef64e8bd6d5684eeb93"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/lib/slots.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_76a16baca21d71324c935b89029737fb8a72db3e1a54c4f3b050462fa8b17a06",
+          "art_849383a94c29592072bf251985688589794b77c29a82798acdc12386b39fa97f",
+          "art_9683d4e6774960a12a0f9ed3f21d4dbd16fcb6cf8b11fe84ffe02c53ce058315",
+          "art_a9465f2af1c21063685c9642cb9c073c5dc02a95d2c7a5130e342597c7e52de9",
+          "art_b1faa0b0e28af2ac672fa001014479df81bd972bd2a01ef64e8bd6d5684eeb93"
+        ],
+        "evidenceCount": 5,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/trpc/server/routers/viewer/slots.ts with verdict buggy.",
+        "unitId": "unit-001",
+        "verdict": "buggy"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_849383a94c29592072bf251985688589794b77c29a82798acdc12386b39fa97f",
+          "art_9683d4e6774960a12a0f9ed3f21d4dbd16fcb6cf8b11fe84ffe02c53ce058315",
+          "art_a9465f2af1c21063685c9642cb9c073c5dc02a95d2c7a5130e342597c7e52de9",
+          "art_b1faa0b0e28af2ac672fa001014479df81bd972bd2a01ef64e8bd6d5684eeb93"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/types/schedule.d.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed packages/types/schedule.d.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [
+      {
+        "challengedBy": [],
+        "claim": "The new working-hours filter computes both `start` and `end` from `slotStartTime`, so it never checks whether the slot extends beyond `workingHour.endTime`. As a result, a slot that starts inside working hours but ends after them can still be treated as available.",
+        "confidence": 0.7200000286102295,
+        "discoveredBy": [
+          "unit-001"
+        ],
+        "evidence": [],
+        "evidenceCount": 0,
+        "id": "e8581eea63c493f4058a9cfcdbc344d5ead0928b80998f5d26cd4ba2fa0314aa",
+        "location": {
+          "endColumn": null,
+          "endLine": 88,
+          "path": "packages/trpc/server/routers/viewer/slots.ts",
+          "providerAnchor": null,
+          "revision": null,
+          "side": null,
+          "startColumn": null,
+          "startLine": 88
+        },
+        "publishable": true,
+        "severity": "low",
+        "title": "Working-hours check ignores the slot end time",
+        "validatedBy": [],
+        "validationStatus": "validated"
+      }
+    ],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780795000566",
+    "snapshots": [
+      {
+        "capturedBytes": 7614062,
+        "capturedFiles": 2136,
+        "changedFiles": 4,
+        "files": 2548,
+        "snapshotId": "a9e7373c6a0f2bd70ffe4da75c55b651485b662950e6e40ad8c394323de09b24"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 29901,
+      "artifacts": 6,
+      "completedSessions": 1,
+      "elapsedMs": 2589,
+      "findings": 1,
+      "inputTokens": 18431,
+      "modelCalls": 3,
+      "outputTokens": 263,
+      "publishableFindings": 1,
+      "sessions": 1,
+      "snapshotCount": 1,
+      "toolCalls": 8,
+      "totalTokens": 18694
+    }
+  },
+  "reviewValid": true
+}

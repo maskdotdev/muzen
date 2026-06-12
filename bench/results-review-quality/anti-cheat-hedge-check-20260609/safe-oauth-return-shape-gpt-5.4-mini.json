@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T01:29:33.069Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-anti-cheat-safe-oauth-return-shape-KqDPJd",
+    "baseRef": "HEAD~1",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 2,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XY8YWn/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XY8YWn/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 2,
+    "fileReviewVerdicts": {
+      "clean": 2
+    },
+    "findings": 0,
+    "modelCalls": 6,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 17955,
+      "outputTokens": 788,
+      "totalTokens": 18743
+    },
+    "artifactStats": {
+      "artifacts": 6,
+      "artifactBytes": 3376
+    },
+    "elapsedMs": 11284
+  },
+  "benchmark": {
+    "elapsedMs": 11289,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 2,
+    "skippedCount": 0
+  },
+  "findings": []
+}

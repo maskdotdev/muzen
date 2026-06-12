@@ -55,6 +55,10 @@ pub struct ParsedSymbols {
     /// Imports with their module specifier preserved, for scoped
     /// resolution to defining files (R4 graph expansion).
     pub import_statements: Vec<ImportStatement>,
+    /// Rust `mod name;` declarations (no inline body): the declaring
+    /// file loads the named child module from a sibling file.
+    #[serde(default)]
+    pub mod_declarations: Vec<String>,
 }
 
 /// One import statement: the module it names and the symbols it binds.
@@ -81,6 +85,7 @@ pub fn parse_symbols(path: &str, content: &str) -> ParsedSymbols {
         definition_ranges: BTreeMap::new(),
         imports: Vec::new(),
         import_statements: Vec::new(),
+        mod_declarations: Vec::new(),
     };
     collector.walk(tree.root_node());
     let mut parsed = ParsedSymbols {
@@ -88,6 +93,7 @@ pub fn parse_symbols(path: &str, content: &str) -> ParsedSymbols {
         definition_ranges: collector.definition_ranges,
         imports: dedupe(collector.imports),
         import_statements: collector.import_statements,
+        mod_declarations: dedupe(collector.mod_declarations),
     };
     parsed
         .definition_ranges
@@ -101,6 +107,7 @@ struct SymbolCollector<'content> {
     definition_ranges: BTreeMap<String, ContextRange>,
     imports: Vec<String>,
     import_statements: Vec<ImportStatement>,
+    mod_declarations: Vec<String>,
 }
 
 impl SymbolCollector<'_> {
@@ -119,7 +126,6 @@ impl SymbolCollector<'_> {
                 | "type_item"
                 | "const_item"
                 | "static_item"
-                | "mod_item"
                 | "function_signature_item"
                 | "union_item"
                 | "function_declaration"
@@ -139,6 +145,22 @@ impl SymbolCollector<'_> {
                 "variable_declarator" => {
                     // const/let/var NAME = ...
                     self.record_definition(child);
+                    self.walk(child);
+                }
+                "mod_item" => {
+                    self.record_definition(child);
+                    // `mod name;` without an inline body loads the child
+                    // module from a sibling file.
+                    if child.child_by_field_name("body").is_none() {
+                        if let Some(name) = child
+                            .child_by_field_name("name")
+                            .and_then(|name| self.content.get(name.byte_range()))
+                        {
+                            if !name.is_empty() {
+                                self.mod_declarations.push(name.to_string());
+                            }
+                        }
+                    }
                     self.walk(child);
                 }
                 // ---- imports ----
@@ -535,5 +557,22 @@ mod tests {
     fn unparsed_language_yields_no_symbols() {
         let parsed = parse_symbols("notes.adoc", "some text\nmore text\n");
         assert_eq!(parsed, ParsedSymbols::default());
+    }
+
+    #[test]
+    fn captures_mod_declarations_without_bodies() {
+        let rust = parse_symbols(
+            "src/lib.rs",
+            "mod auth;\npub mod tokens;\nmod inline { pub fn helper() {} }\n",
+        );
+        assert_eq!(
+            rust.mod_declarations,
+            vec!["auth".to_string(), "tokens".to_string()],
+            "only bodyless declarations load child files"
+        );
+        assert!(
+            rust.definitions.contains(&"inline".to_string()),
+            "inline modules stay definitions"
+        );
     }
 }

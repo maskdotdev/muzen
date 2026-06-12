@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:29:41.379Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-WA2rRH/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-WA2rRH/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "unreviewed": 1,
+      "clean": 12,
+      "needs_review": 25,
+      "issue_found": 1
+    },
+    "findings": 2,
+    "modelCalls": 78,
+    "toolCalls": 109,
+    "tokens": {
+      "inputTokens": 733304,
+      "outputTokens": 4639,
+      "totalTokens": 737943
+    },
+    "artifactStats": {
+      "artifacts": 71,
+      "artifactBytes": 312894
+    },
+    "elapsedMs": 121644
+  },
+  "benchmark": {
+    "elapsedMs": 121863,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "ffec249c33409be5eff673ed6c047f37ee5decc0b868fc53efd8b25cc9353ce4",
+        "title": "refreshOAuthTokens now returns a Response object instead of the token payload consumed by callers"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 3,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 6,
+    "contractEvidenceFailures": 26,
+    "requiredEvidenceFailures": 26,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 32,
+    "importCount": 0,
+    "needsReviewCount": 25,
+    "cleanCount": 12,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In the credential-sync branch, refreshOAuthTokens returns the raw fetch Response (line 15), but changed consumers such as GoogleCalendarService still expect a parsed object and immediately read res?.data and token.access_token from the return value. When CALCOM_CREDENTIAL_SHARING_ENABLED is on and CALCOM_CREDENTIAL_SYNC_ENDPOINT is set, refreshAccessToken will receive a Response without a data field, so access_token/expiryDate updates can fail or write undefined values.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-006"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-006-candidate-evidence"
+        },
+        {
+          "artifactId": "art_8366408bd2c64e92acf4c7905ca97350a4d02cc5a84b26885ce43713bbafc008",
+          "contentHash": "42ce61795af79092e424f471df9e577a53c2ad7d4c23b8259fcc3b7f0c60a552",
+          "evidenceId": "evidence-art_8366408bd2c64e92acf4c7905ca97350a4d02cc5a84b26885ce43713bbafc008",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-006-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-006-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "ffec249c33409be5eff673ed6c047f37ee5decc0b868fc53efd8b25cc9353ce4",
+      "location": {
+        "endColumn": null,
+        "endLine": 18,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 5
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "refreshOAuthTokens now returns a Response object instead of the token payload consumed by callers",
+      "validatedBy": [
+        "unit-006-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "When `APP_CREDENTIAL_SHARING_ENABLED` and `CALCOM_CREDENTIAL_SYNC_ENDPOINT` are set, `refreshOAuthTokens` returns the raw `fetch()` `Response` object (`return response;`) rather than the JSON token payload that downstream code expects. Changed consumers such as `packages/app-store/googlecalendar/lib/CalendarService.ts` and `packages/app-store/hubspot/lib/CalendarService.ts` call `refreshOAuthTokens(...)` and then pass the result into `parseRefreshTokenResponse(...)`/token handling logic that reads fields like `access_token`, `refresh_token`, and expiry fields. A `Response` object does not have those fields, so the refresh path will fail at runtime with invalid token parsing or missing-field errors whenever credential sync is enabled.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-008",
+        "unit-010"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_0a5f91cdf747826ac3bfdabc2b98ab8cf043f3b8cb59672a4c43c7ee14da30da",
+          "contentHash": "9af85963b9d8ec52b9f28c1b32bd8f596ce74323b9835510899382be14c972a3",
+          "evidenceId": "evidence-art_0a5f91cdf747826ac3bfdabc2b98ab8cf043f3b8cb59672a4c43c7ee14da30da",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-008-candidate-evidence"
+        },
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-008-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-008-candidate-evidence"
+        },
+        {
+          "artifactId": "art_4f6c0255ab0b849c73d7cc2ea60b3b2dfc1d488ae04780939079f9670ba336f8",
+          "contentHash": "b4f9fd0abbb770dfd8585191f333bb5222475a84631ac71067275b1079a23ae7",
+          "evidenceId": "evidence-art_4f6c0255ab0b849c73d7cc2ea60b3b2dfc1d488ae04780939079f9670ba336f8",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cbf12dcdd5078cdbbe0f4c585c28ab9afa7bfb382f63e66955a20cbe2e3adbe1",
+          "contentHash": "ce3ec73a3597ca864a96bc54eea12e4112fd3e494d69b5a5c432e791696b18f8",
+          "evidenceId": "evidence-art_cbf12dcdd5078cdbbe0f4c585c28ab9afa7bfb382f63e66955a20cbe2e3adbe1",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-010-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "2425da2e845ccb1b5943c39d116e27dd00584878c07583dacc04b62950dff1f6",
+      "location": {
+        "endColumn": null,
+        "endLine": 19,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 3
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "`refreshOAuthTokens` now returns a `Response` instead of token data in the credential-sync path",
+      "validatedBy": [
+        "unit-008-candidate-evidence",
+        "unit-010-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

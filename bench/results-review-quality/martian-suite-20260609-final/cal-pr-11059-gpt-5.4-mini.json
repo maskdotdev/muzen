@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T01:24:31.717Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-JqSXtq/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-JqSXtq/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 1,
+      "clean": 29,
+      "review": 1,
+      "needs_review": 7,
+      "buggy": 1
+    },
+    "findings": 1,
+    "modelCalls": 102,
+    "toolCalls": 133,
+    "tokens": {
+      "inputTokens": 1204905,
+      "outputTokens": 11473,
+      "totalTokens": 1216378
+    },
+    "artifactStats": {
+      "artifacts": 67,
+      "artifactBytes": 307087
+    },
+    "elapsedMs": 196347
+  },
+  "benchmark": {
+    "elapsedMs": 196545,
+    "hitRate": 0.2,
+    "hits": [
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "findingId": "96126848ab327daef1a147e5bc0165412e7c04ab145c3efbab18a72c4a391156",
+        "title": "Webhook stores app credentials as user-owned only, breaking team credential ownership lookup"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 3,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 2,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 7,
+    "requiredEvidenceFailures": 7,
+    "rejectionReasons": {
+      "query_scope_missing_predicate": 1,
+      "speculative_claim": 1
+    },
+    "contractRiskCompletionCount": 0,
+    "searchCount": 26,
+    "importCount": 0,
+    "needsReviewCount": 7,
+    "cleanCount": 29,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new persistence path writes the credential owner as reqBody.userId instead of a team owner field, so credentials intended for team installs are persisted as personal-user credentials and later team lookup code will miss the expected teamId branch.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "evidenceId": "evidence-art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481-candidate-evidence"
+        },
+        {
+          "artifactId": "art_7868675760284792ffb712f69c35aa1dcbddb0d899866fce8c124277dfa9992b",
+          "contentHash": "20b6949c114b42bbaebb2607f98dbc6bc0d7c8eb4b7715d09a465daed39b7414",
+          "evidenceId": "evidence-art_7868675760284792ffb712f69c35aa1dcbddb0d899866fce8c124277dfa9992b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "96126848ab327daef1a147e5bc0165412e7c04ab145c3efbab18a72c4a391156",
+      "location": {
+        "endColumn": null,
+        "endLine": 88,
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 83
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Webhook stores app credentials as user-owned only, breaking team credential ownership lookup",
+      "validatedBy": [
+        "pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}
