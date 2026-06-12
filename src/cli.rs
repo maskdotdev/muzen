@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::bench::bench_job;
 use crate::context_engine::{
-    ContextEmbeddingProviderKind, ContextEngine, ContextEngineConfig, ContextIndexRequest,
-    ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
-    ContextSemanticMode, SnapshotContextEngine,
+    explain_selected_evidence, ContextEmbeddingProviderKind, ContextEngine, ContextEngineConfig,
+    ContextIndexRequest, ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind,
+    ContextQueryLimits, ContextSemanticMode, SnapshotContextEngine,
 };
 use crate::contracts::*;
 use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
@@ -797,7 +797,21 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
                             "path": evidence.path.as_ref().map(|path| path.display()),
                             "score": selected_candidate.map(|candidate| candidate.score),
                             "rankIndex": selected_candidate.map(|candidate| candidate.rank_index),
-                            "why": ["included in context pack"]
+                            "tokenEstimate": evidence.token_estimate,
+                            "why": explain_selected_evidence(evidence, pack.purpose),
+                            "graphPaths": pack.relationships
+                                .iter()
+                                .filter(|relationship| {
+                                    relationship.from == evidence.id || relationship.to == evidence.id
+                                })
+                                .map(|relationship| {
+                                    serde_json::json!({
+                                        "kind": relationship.kind,
+                                        "confidence": relationship.confidence,
+                                        "path": relationship.reason,
+                                    })
+                                })
+                                .collect::<Vec<_>>()
                         })
                     }).collect::<Vec<_>>(),
                     "omitted": if args.include_omitted {

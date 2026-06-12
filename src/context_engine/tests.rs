@@ -1037,6 +1037,42 @@ async fn pack_sufficiency_is_insufficient_when_ranked_candidates_are_omitted() {
             .any(|item| item.contains("context is incomplete")),
         "pack reports why complete coverage is unproven"
     );
+    let explanation = engine
+        .query(
+            ContextQuery {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: Some(ContextPackPurpose::StandaloneQuery),
+                kind: ContextQueryKind::ExplainPack,
+                arguments: serde_json::json!({
+                    "packId": pack.id.0,
+                    "includeOmitted": true,
+                }),
+                current_evidence: Vec::new(),
+                limits: ContextQueryLimits {
+                    max_results: 10,
+                    max_tokens: 1000,
+                },
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let explanation_data = explanation.data.expect("explain pack data");
+    let omitted = explanation_data
+        .get("omitted")
+        .and_then(serde_json::Value::as_array)
+        .expect("omitted candidates are an array");
+    assert!(
+        omitted.iter().any(|candidate| {
+            candidate.get("kind").is_some()
+                && candidate.get("path").is_some()
+                && candidate.get("tokenEstimate").is_some()
+                && candidate.get("rankIndex").is_some()
+        }),
+        "explain output carries omitted candidate metadata needed to debug budget misses"
+    );
 
     let check = engine
         .query(
