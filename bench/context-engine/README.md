@@ -82,6 +82,10 @@ so pack-selection tradeoffs can be inspected directly.
 `diagnostics.rankedMissCauses` aggregates expected paths that miss top-25 into
 `selectedAfter25`, `candidatePresentOmitted`, and `candidateAbsent` buckets, so
 rank noise, pack budget pressure, and candidate-generation gaps stay separate.
+Sufficiency metrics distinguish strict proof from conservative coverage:
+`sufficiencySufficientWhenComplete` only counts packs that report `sufficient`,
+while `sufficiencyNotInsufficientWhenComplete` includes `probably_sufficient`
+packs that covered ground truth without a full proof.
 Add `--include-graph-debug` on focused diagnostic runs when you need to
 separate raw graph coverage misses from rank/packing misses. The runner invokes
 the public `muzen context graph-debug` CLI for each case, so the summary reports

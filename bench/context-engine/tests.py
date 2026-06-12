@@ -602,6 +602,35 @@ class SummaryProofTest(unittest.TestCase):
             ranked_causes["candidatePresentOmittedCases"][0]["path"], "src/a.rs"
         )
 
+    def test_summary_separates_strict_and_probable_sufficiency(self):
+        sufficient = case_result("sufficient", sufficiency_status="sufficient")
+        probable = case_result("probable", sufficiency_status="probably_sufficient")
+        conservative = case_result("conservative", sufficiency_status="insufficient")
+        incomplete = case_result(
+            "incomplete",
+            missed_paths=["src/a.rs"],
+            sufficiency_status="insufficient",
+        )
+
+        summary = run.summarize([sufficient, probable, conservative, incomplete])
+
+        self.assertEqual(
+            summary["metrics"]["sufficiencySufficientWhenComplete"],
+            1 / 3,
+        )
+        self.assertEqual(
+            summary["metrics"]["sufficiencyProbablySufficientWhenComplete"],
+            1 / 3,
+        )
+        self.assertEqual(
+            summary["metrics"]["sufficiencyNotInsufficientWhenComplete"],
+            2 / 3,
+        )
+        self.assertEqual(
+            summary["metrics"]["sufficiencyInsufficientWhenIncomplete"],
+            1.0,
+        )
+
     def test_summary_reports_slowest_cases(self):
         fast = case_result("fast")
         slow = run.CaseResult(
