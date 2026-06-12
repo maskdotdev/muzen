@@ -74,6 +74,7 @@ pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
             provider_profile_id: "env-openai-compatible".to_string(),
             credential_ref: "env:OPENAI_API_KEY".to_string(),
             model: args.model.clone(),
+            base_url: None,
             max_input_tokens: 32_000,
             max_output_tokens: args.max_output_tokens,
             tool_calling_mode: ToolCallingMode::Required,

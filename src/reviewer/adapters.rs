@@ -70,3 +70,7 @@ pub mod storage {
 pub mod runtime {
     pub use crate::runtime::contracts::{RuntimeError, RuntimeLimits, RuntimeResult};
 }
+
+pub mod sessions {
+    pub use crate::runtime::contracts::AgentSessionOutput;
+}

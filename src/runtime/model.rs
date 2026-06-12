@@ -92,7 +92,7 @@ impl ProfileModelRouter {
     pub(crate) fn from_profiles(
         profiles: &[ModelProfileRefV1],
         default_profile_id: String,
-        base_url: String,
+        default_base_url: String,
         limiter: Arc<ModelLimiter>,
         tool_registry: Arc<ToolRegistry>,
         reviewer_policy: Arc<ReviewerPolicy>,
@@ -110,7 +110,7 @@ impl ProfileModelRouter {
             }
             let client = openai_client_from_profile(
                 profile.clone(),
-                base_url.clone(),
+                profile_base_url(profile, &default_base_url),
                 Arc::clone(&limiter),
                 Arc::clone(&tool_registry),
                 Arc::clone(&reviewer_policy),
@@ -333,6 +333,18 @@ impl OpenAiChatCompletionsClient {
     }
 }
 
+/// Each profile may route to its own endpoint; profiles without one share the
+/// run-level default.
+fn profile_base_url(profile: &ModelProfileRefV1, default_base_url: &str) -> String {
+    profile
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| default_base_url.to_string())
+}
+
 fn openai_client_from_profile(
     profile: ModelProfileRefV1,
     base_url: String,
@@ -405,6 +417,7 @@ impl OpenAiProviderCanaryConfig {
             provider_profile_id: format!("real-provider-canary-openai-{protocol_slug}"),
             credential_ref: self.credential_ref.clone(),
             model: self.model.clone(),
+            base_url: None,
             max_input_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS,
             max_output_tokens: self.max_output_tokens,
             tool_calling_mode: ToolCallingMode::Auto,
@@ -1431,6 +1444,67 @@ mod tests {
     use super::*;
 
     use crate::runtime::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
+
+    struct StaticCredentialResolver;
+
+    impl CredentialResolver for StaticCredentialResolver {
+        fn resolve_credential(&self, _credential_ref: &str) -> RuntimeResult<String> {
+            Ok("test-key".to_string())
+        }
+    }
+
+    fn profile_with_base_url(id: &str, base_url: Option<&str>) -> ModelProfileRefV1 {
+        ModelProfileRefV1 {
+            id: id.to_string(),
+            provider_kind: ProviderKind::OpenaiCompatible,
+            api_protocol: ModelApiProtocol::ChatCompletions,
+            provider_profile_id: "openai".to_string(),
+            credential_ref: "env:TEST_KEY".to_string(),
+            model: "test-model".to_string(),
+            base_url: base_url.map(ToString::to_string),
+            max_input_tokens: 32_000,
+            max_output_tokens: 1_024,
+            tool_calling_mode: ToolCallingMode::Auto,
+            temperature: None,
+            top_p: None,
+        }
+    }
+
+    #[test]
+    fn profile_base_url_prefers_profile_endpoint_over_default() {
+        let default = "https://api.openai.com/v1";
+        let configured = profile_with_base_url("a", Some(" https://vllm.internal/v1 "));
+        assert_eq!(
+            profile_base_url(&configured, default),
+            "https://vllm.internal/v1"
+        );
+        let unset = profile_with_base_url("b", None);
+        assert_eq!(profile_base_url(&unset, default), default);
+        let blank = profile_with_base_url("c", Some("  "));
+        assert_eq!(profile_base_url(&blank, default), default);
+    }
+
+    #[test]
+    fn router_accepts_profiles_with_mixed_base_urls() {
+        let profiles = vec![
+            profile_with_base_url("proxy", Some("https://proxy.internal/v1")),
+            profile_with_base_url("local-vllm", Some("http://127.0.0.1:8000/v1")),
+            profile_with_base_url("hosted-default", None),
+        ];
+        let router = ProfileModelRouter::from_profiles(
+            &profiles,
+            "hosted-default".to_string(),
+            "https://api.openai.com/v1".to_string(),
+            Arc::new(ModelLimiter::new_with_per_key(4, 4)),
+            Arc::new(ToolRegistry::review_defaults().expect("registry")),
+            Arc::new(ReviewerPolicy::new()),
+            Arc::new(StaticCredentialResolver),
+        )
+        .expect("profiles with mixed base urls build one router");
+        for id in ["proxy", "local-vllm", "hosted-default"] {
+            assert!(router.clients.contains_key(id), "missing client for {id}");
+        }
+    }
 
     #[test]
     fn insufficient_quota_provider_error_is_not_retryable() {

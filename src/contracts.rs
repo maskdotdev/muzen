@@ -120,6 +120,8 @@ pub(crate) struct ModelProfileRefV1 {
     pub(crate) provider_profile_id: String,
     pub(crate) credential_ref: String,
     pub(crate) model: String,
+    #[serde(default)]
+    pub(crate) base_url: Option<String>,
     pub(crate) max_input_tokens: u32,
     pub(crate) max_output_tokens: u32,
     pub(crate) tool_calling_mode: ToolCallingMode,
