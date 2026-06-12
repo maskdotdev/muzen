@@ -15,14 +15,16 @@ from muzen import (
     WebhookDelivery,
     ReviewOptions,
     ReviewTool,
+    SwarmAgent,
+    SwarmOptions,
     create_webhook_response,
     create_muzen_client,
     local,
     openai,
     parse_review_source,
 )
-from muzen.client import _to_runner_start_params
-from muzen.runner_mapping import _map_runner_result
+from muzen.client import _to_runner_start_params, _to_swarm_start_params
+from muzen.runner_mapping import _map_runner_result, _map_swarm_result
 
 
 class RunnerMappingTests(unittest.TestCase):
@@ -187,6 +189,98 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(finding.evidence[0].evidence_id, "ev-1")
         self.assertEqual(finding.discovered_by, ["security"])
         self.assertEqual(finding.validated_by, ["call-1"])
+
+    def test_swarm_options_are_forwarded_as_direct_sessions(self) -> None:
+        params = _to_swarm_start_params(
+            "swarm-1",
+            SwarmOptions(
+                repo="/repo",
+                files=["src/auth.py"],
+                model=openai("gpt-5.4-mini"),
+                metadata={"hostRunId": "swarm-host-1"},
+                agents=[
+                    SwarmAgent(
+                        id="planner",
+                        objective="Plan the migration.",
+                        instructions=[
+                            ReviewInstruction(
+                                kind="session_objective",
+                                text="Prefer small steps.",
+                                trusted=True,
+                            )
+                        ],
+                        tool_grants=["read_file"],
+                    ),
+                    SwarmAgent(
+                        id="implementer",
+                        objective="Implement the migration.",
+                        model=openai("gpt-5.4"),
+                    ),
+                ],
+            ),
+        )
+
+        self.assertEqual(params["mode"], "direct_sessions")
+        self.assertEqual(params["repo"], "/repo")
+        self.assertEqual(params["changedFiles"], ["src/auth.py"])
+        self.assertEqual(params["metadata"], {"hostRunId": "swarm-host-1"})
+        self.assertEqual(params["sessions"][0]["role"], "generalist")
+        self.assertEqual(params["sessions"][0]["objective"], "Plan the migration.")
+        self.assertEqual(params["sessions"][0]["toolGrants"], ["read_file"])
+        self.assertEqual(params["sessions"][1]["modelProfileId"], "session:implementer")
+        self.assertEqual(params["model"]["defaultModelProfileId"], "default")
+        self.assertEqual(len(params["model"]["modelProfiles"]), 2)
+
+    def test_swarm_requires_at_least_one_agent(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires at least one agent"):
+            _to_swarm_start_params(
+                "swarm-1",
+                SwarmOptions(repo="/repo", agents=[]),
+            )
+
+    def test_maps_swarm_results(self) -> None:
+        result = _map_swarm_result(
+            "swarm-1",
+            {
+                "runId": "runner-1",
+                "status": "partial",
+                "summary": {
+                    "sessions": 2,
+                    "completedSessions": 1,
+                    "modelCalls": 3,
+                    "toolCalls": 4,
+                    "inputTokens": 10,
+                    "outputTokens": 8,
+                    "totalTokens": 18,
+                },
+                "sessionOutputs": [
+                    {
+                        "sessionId": "planner",
+                        "status": "done",
+                        "completed": True,
+                        "output": "Plan complete.",
+                    },
+                    {
+                        "sessionId": "implementer",
+                        "status": "failed",
+                        "completed": False,
+                        "output": None,
+                    },
+                ],
+                "metadata": {"hostRunId": "swarm-host-1"},
+            },
+        )
+
+        self.assertEqual(result.run_id, "swarm-1")
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.usage.agents, 2)
+        self.assertEqual(result.usage.completed_agents, 1)
+        self.assertEqual(result.usage.input_tokens, 10)
+        self.assertEqual(result.outputs[0].agent_id, "planner")
+        self.assertEqual(result.outputs[0].output, "Plan complete.")
+        self.assertEqual(result.outputs[1].status, "failed")
+        self.assertIsNone(result.outputs[1].output)
+        self.assertEqual(result.metadata, {"hostRunId": "swarm-host-1"})
 
 
 @unittest.skipUnless(os.environ.get("MUZEN_RUNNER_PATH"), "MUZEN_RUNNER_PATH is not set")

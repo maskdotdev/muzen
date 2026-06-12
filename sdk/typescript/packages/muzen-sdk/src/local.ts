@@ -20,7 +20,10 @@ import {
   mapRunnerArtifact,
   mapRunnerResult,
   mapRunnerStatus,
+  mapSwarmResult,
+  swarmReviewOptions,
   toRunnerStartParams,
+  toSwarmStartParams,
 } from "./runner-mapping.js";
 import { registerReviewCallbacks } from "./runner-callbacks.js";
 import { reviewOptionsRequireSecretResolver } from "./models.js";
@@ -60,6 +63,8 @@ import type {
   ReviewSource,
   ReviewSourceLike,
   ReviewStatus,
+  SwarmOptions,
+  SwarmResult,
 } from "./types.js";
 
 export class RunnerBackedMuzen implements Muzen {
@@ -162,6 +167,66 @@ export class RunnerBackedMuzen implements Muzen {
         throw error;
       }
       throw error;
+    } finally {
+      startSettled = true;
+      stopCancelOnAbort();
+      unsubscribeCallbacks();
+      unsubscribe();
+    }
+  }
+
+  async runSwarm(options: SwarmOptions): Promise<SwarmResult> {
+    throwIfAborted(options.signal);
+    const reviewOptions = swarmReviewOptions(options);
+    if (
+      reviewOptionsRequireSecretResolver(reviewOptions) &&
+      !this.options.secrets?.resolve
+    ) {
+      throw new Error(
+        "model credential secretRef requires createMuzen({ secrets: { resolve } })",
+      );
+    }
+    const runId = `swarm-${randomUUID()}`;
+    let hookError: Error | undefined;
+    const unsubscribe = this.runner.onNotification((notification) => {
+      const event = mapNotification(notification);
+      if (event && event.reviewId === runId) {
+        try {
+          options.hooks?.onEvent?.(event);
+        } catch (error) {
+          hookError ??= reviewHookError(error);
+        }
+      }
+    });
+    const unsubscribeCallbacks = registerReviewCallbacks(
+      this.runner,
+      reviewOptions,
+      this.options,
+    );
+    let startSent = false;
+    let startSettled = false;
+    const stopCancelOnAbort = onAbort(options.signal, () => {
+      if (!startSent || startSettled) {
+        return;
+      }
+      void this.runner.request("run.cancel", {
+        runId,
+        reason: "operation aborted",
+      }).catch(() => {});
+    });
+    try {
+      throwIfAborted(options.signal);
+      startSent = true;
+      const runnerResult = await this.runner.request(
+        "run.start",
+        toSwarmStartParams(runId, options),
+      );
+      startSettled = true;
+      throwIfAborted(options.signal);
+      if (hookError) {
+        throw hookError;
+      }
+      return mapSwarmResult(runId, runnerResult);
     } finally {
       startSettled = true;
       stopCancelOnAbort();

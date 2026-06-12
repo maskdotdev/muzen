@@ -142,6 +142,13 @@ export type {
   ReviewToolResult,
   ReviewWorkerConcurrencyLimits,
   SourceProviderKind,
+  SwarmAgent,
+  SwarmAgentOutput,
+  SwarmAgentStatus,
+  SwarmOptions,
+  SwarmResult,
+  SwarmRunStatus,
+  SwarmUsage,
   WorkspaceProfileCollection,
 } from "./types.js";
 export type {
