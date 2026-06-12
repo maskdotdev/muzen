@@ -23,7 +23,8 @@ use super::{
     ContextQueryKind, ContextQueryResult, ContextRange, ContextRelationship,
     ContextSufficiencyStatus, FileContextDerivedCache, FileContextLearningStore,
     InMemoryContextDerivedCache, InMemoryContextIndexStore, InMemoryContextLearningStore,
-    OmittedContextCandidate, SelectedContextCandidate, CONTEXT_ENGINE_VERSION,
+    OmittedContextBudgetState, OmittedContextCandidate, SelectedContextCandidate,
+    CONTEXT_ENGINE_VERSION,
 };
 
 #[async_trait]
@@ -349,6 +350,7 @@ fn omitted_candidate(
     score: f32,
     rank_index: usize,
     reason: ContextOmissionReason,
+    budget_state: Option<OmittedContextBudgetState>,
 ) -> OmittedContextCandidate {
     OmittedContextCandidate {
         evidence_id: evidence.id.clone(),
@@ -359,8 +361,31 @@ fn omitted_candidate(
         rank_index,
         token_estimate: evidence.token_estimate,
         reason,
+        budget_state,
         graph_paths: Vec::new(),
         graph_paths_truncated: 0,
+    }
+}
+
+fn omitted_budget_state(
+    max_tokens: usize,
+    used_tokens: usize,
+    full_content_limit: usize,
+    evidence: &ContextEvidence,
+    skeleton: Option<&ContextEvidence>,
+) -> OmittedContextBudgetState {
+    let remaining_tokens = max_tokens.saturating_sub(used_tokens);
+    let full_content_remaining_tokens = full_content_limit.saturating_sub(used_tokens);
+    let skeleton_token_estimate = skeleton.map(|skeleton| skeleton.token_estimate);
+    OmittedContextBudgetState {
+        remaining_tokens,
+        full_content_remaining_tokens,
+        full_content_shortfall_tokens: evidence
+            .token_estimate
+            .saturating_sub(full_content_remaining_tokens),
+        skeleton_token_estimate,
+        skeleton_shortfall_tokens: skeleton_token_estimate
+            .map(|tokens| tokens.saturating_sub(remaining_tokens)),
     }
 }
 
@@ -389,6 +414,7 @@ fn select_ranked_pack_candidate(
             score,
             rank_index,
             ContextOmissionReason::Duplicate,
+            None,
         ));
         return;
     }
@@ -404,10 +430,10 @@ fn select_ranked_pack_candidate(
         });
         return;
     }
-    let skeleton = skeletons
-        .get(&evidence.id.0)
-        .filter(|skeleton| used_tokens.saturating_add(skeleton.token_estimate) <= max_tokens);
-    let reason = match skeleton {
+    let skeleton = skeletons.get(&evidence.id.0);
+    let skeleton_fits = skeleton
+        .is_some_and(|skeleton| used_tokens.saturating_add(skeleton.token_estimate) <= max_tokens);
+    let reason = match skeleton.filter(|_| skeleton_fits) {
         Some(skeleton) => {
             *used_tokens = used_tokens.saturating_add(skeleton.token_estimate);
             record_selected_path(selected_by_path, skeleton);
@@ -420,6 +446,15 @@ fn select_ranked_pack_candidate(
         }
         None => ContextOmissionReason::BudgetExhausted,
     };
+    let budget_state = (reason == ContextOmissionReason::BudgetExhausted).then(|| {
+        omitted_budget_state(
+            max_tokens,
+            *used_tokens,
+            full_content_limit,
+            &evidence,
+            skeleton,
+        )
+    });
     if reason == ContextOmissionReason::BudgetExhausted {
         budget_omitted_candidates.push(RankedPackCandidate {
             score,
@@ -427,7 +462,13 @@ fn select_ranked_pack_candidate(
             evidence: evidence.clone(),
         });
     }
-    omitted_candidates.push(omitted_candidate(&evidence, score, rank_index, reason));
+    omitted_candidates.push(omitted_candidate(
+        &evidence,
+        score,
+        rank_index,
+        reason,
+        budget_state,
+    ));
 }
 
 fn selected_full_content_tokens(selected: &[SelectedPackCandidate]) -> usize {
@@ -586,6 +627,7 @@ fn apply_pack_repair_evictions(
             removed.score,
             removed.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         ));
     }
     remove_omitted_candidate(omitted_candidates, &candidate.evidence);
@@ -785,6 +827,54 @@ mod pack_selection_tests {
     }
 
     #[test]
+    fn budget_exhausted_omission_records_remaining_and_skeleton_shortfall() {
+        let candidate = evidence(
+            "candidate",
+            ContextEvidenceKind::FileSpan,
+            "src/candidate.ts",
+        );
+        let mut skeleton = candidate.clone();
+        skeleton.representation = ContextEvidenceRepresentation::Skeleton;
+        skeleton.token_estimate = 10;
+        let skeletons = BTreeMap::from([(candidate.id.0.clone(), skeleton)]);
+        let mut used_tokens = 95;
+        let mut selected = Vec::new();
+        let mut omitted_candidates = Vec::new();
+        let mut budget_omitted_candidates = Vec::new();
+        let mut selected_by_path = BTreeMap::new();
+
+        select_ranked_pack_candidate(
+            ContextPackPurpose::GeneralReview,
+            100,
+            true,
+            false,
+            &skeletons,
+            &mut used_tokens,
+            &mut selected,
+            &mut omitted_candidates,
+            &mut budget_omitted_candidates,
+            &mut selected_by_path,
+            RankedPackCandidate {
+                score: 0.5,
+                rank_index: 7,
+                evidence: candidate,
+            },
+        );
+
+        assert!(selected.is_empty());
+        assert_eq!(budget_omitted_candidates.len(), 1);
+        let budget_state = omitted_candidates[0]
+            .budget_state
+            .as_ref()
+            .expect("budget exhausted omissions carry budget state");
+        assert_eq!(budget_state.remaining_tokens, 5);
+        assert_eq!(budget_state.full_content_remaining_tokens, 5);
+        assert_eq!(budget_state.full_content_shortfall_tokens, 95);
+        assert_eq!(budget_state.skeleton_token_estimate, Some(10));
+        assert_eq!(budget_state.skeleton_shortfall_tokens, Some(5));
+    }
+
+    #[test]
     fn generic_pack_limits_repeated_nonchanged_full_content_paths() {
         let first = evidence("first", ContextEvidenceKind::FileSpan, "src/feature.ts");
         let second = evidence("second", ContextEvidenceKind::FileSpan, "src/feature.ts");
@@ -931,6 +1021,7 @@ mod pack_selection_tests {
             budget_candidate.score,
             budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         )];
 
         repair_budget_exhausted_pack_candidates(
@@ -998,6 +1089,7 @@ mod pack_selection_tests {
             budget_candidate.score,
             budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         )];
 
         repair_budget_exhausted_pack_candidates(
@@ -1084,6 +1176,7 @@ mod pack_selection_tests {
             budget_candidate.score,
             budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         )];
 
         repair_budget_exhausted_pack_candidates(
@@ -1157,6 +1250,7 @@ mod pack_selection_tests {
             budget_candidate.score,
             budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         )];
 
         repair_budget_exhausted_pack_candidates(
@@ -1230,6 +1324,7 @@ mod pack_selection_tests {
             budget_candidate.score,
             budget_candidate.rank_index,
             ContextOmissionReason::BudgetExhausted,
+            None,
         )];
 
         repair_budget_exhausted_pack_candidates(
@@ -1883,6 +1978,7 @@ impl ContextEngine for SnapshotContextEngine {
                                 "rankIndex": candidate.rank_index,
                                 "tokenEstimate": candidate.token_estimate,
                                 "reason": candidate.reason,
+                                "budgetState": candidate.budget_state,
                                 "graphPaths": candidate.graph_paths,
                                 "graphPathsTruncated": candidate.graph_paths_truncated,
                             })

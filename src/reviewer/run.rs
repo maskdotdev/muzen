@@ -861,6 +861,7 @@ mod tests {
                 rank_index: 9,
                 token_estimate: 320,
                 reason: ContextOmissionReason::BudgetExhausted,
+                budget_state: None,
                 graph_paths: Vec::new(),
                 graph_paths_truncated: 0,
             }],

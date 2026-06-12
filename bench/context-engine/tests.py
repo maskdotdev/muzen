@@ -551,6 +551,13 @@ class SummaryProofTest(unittest.TestCase):
                         "rankIndex": 12,
                         "tokenEstimate": 100,
                         "reason": "budget_exhausted",
+                        "budgetState": {
+                            "remainingTokens": 20,
+                            "fullContentRemainingTokens": 0,
+                            "fullContentShortfallTokens": 100,
+                            "skeletonTokenEstimate": 30,
+                            "skeletonShortfallTokens": 10,
+                        },
                         "graphPaths": [{"kind": "imports"}],
                     }
                 ],
@@ -625,6 +632,17 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(pressure["medianRankIndex"], 12)
         self.assertEqual(pressure["p90RankIndex"], 12)
         self.assertEqual(pressure["meanTokenEstimate"], 100)
+        self.assertEqual(pressure["budgetState"]["meanRemainingTokens"], 20)
+        self.assertEqual(
+            pressure["budgetState"]["meanFullContentRemainingTokens"], 0
+        )
+        self.assertEqual(
+            pressure["budgetState"]["meanFullContentShortfallTokens"], 100
+        )
+        self.assertEqual(pressure["budgetState"]["skeletonAvailableCount"], 1)
+        self.assertEqual(pressure["budgetState"]["skeletonFitsRemainingCount"], 0)
+        self.assertEqual(pressure["budgetState"]["meanSkeletonTokenEstimate"], 30)
+        self.assertEqual(pressure["budgetState"]["meanSkeletonShortfallTokens"], 10)
         self.assertEqual(pressure["signals"]["graphDistanceCounts"], {"1": 1})
         self.assertEqual(pressure["signals"]["meanLexicalChangeScore"], 0.5)
         self.assertEqual(pressure["scoreBeatsSelectedTailCaseCount"], 1)
@@ -983,6 +1001,11 @@ class SummaryProofTest(unittest.TestCase):
                 "rankIndex": 12,
                 "tokenEstimate": 100,
                 "reason": "budget_exhausted",
+                "budgetState": {
+                    "remainingTokens": 20,
+                    "fullContentRemainingTokens": 0,
+                    "fullContentShortfallTokens": 100,
+                },
                 "graphPaths": [
                     {
                         "kind": "imports",
@@ -1016,6 +1039,11 @@ class SummaryProofTest(unittest.TestCase):
                     "rankIndex": 12,
                     "tokenEstimate": 100,
                     "reason": "budget_exhausted",
+                    "budgetState": {
+                        "remainingTokens": 20,
+                        "fullContentRemainingTokens": 0,
+                        "fullContentShortfallTokens": 100,
+                    },
                     "graphPaths": [
                         {
                             "kind": "imports",

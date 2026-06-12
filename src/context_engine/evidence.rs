@@ -271,10 +271,24 @@ pub struct OmittedContextCandidate {
     pub rank_index: usize,
     pub token_estimate: usize,
     pub reason: ContextOmissionReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_state: Option<OmittedContextBudgetState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graph_paths: Vec<ContextCandidateGraphPath>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub graph_paths_truncated: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OmittedContextBudgetState {
+    pub remaining_tokens: usize,
+    pub full_content_remaining_tokens: usize,
+    pub full_content_shortfall_tokens: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeleton_token_estimate: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeleton_shortfall_tokens: Option<usize>,
 }
 
 fn is_zero(value: &usize) -> bool {
