@@ -538,6 +538,12 @@ def validate_muzen_binary_freshness(muzen_bin: Path) -> None:
 
 
 def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
+    local_onnx_model_dir = getattr(args, "local_onnx_model_dir", None)
+    forced_semantic_tier = "none"
+    if local_onnx_model_dir:
+        forced_semantic_tier = "local_onnx"
+    elif getattr(args, "hosted_semantic", False):
+        forced_semantic_tier = "hosted"
     metadata: dict[str, Any] = {
         "muzenBin": str(args.muzen_bin),
         "muzenBinMtimeUnixMs": int(args.muzen_bin.stat().st_mtime * 1000)
@@ -545,6 +551,23 @@ def eval_run_metadata(args: argparse.Namespace) -> dict[str, Any]:
         else None,
         "defaultBinaryFreshnessChecked": args.muzen_bin.resolve()
         == default_muzen_binary().resolve(),
+        "semantic": {
+            "forcedTier": forced_semantic_tier,
+            "hostedEmbeddingModel": getattr(args, "hosted_embedding_model", None),
+            "hostedEmbeddingBaseUrl": getattr(args, "hosted_embedding_base_url", None),
+            "hostedMaxEmbeddingInputs": getattr(
+                args, "hosted_max_embedding_inputs", None
+            ),
+            "localOnnxModelDir": str(local_onnx_model_dir)
+            if local_onnx_model_dir
+            else None,
+        },
+        "rerank": {
+            "enabled": bool(getattr(args, "rerank_base_url", None)),
+            "baseUrl": getattr(args, "rerank_base_url", None),
+            "model": getattr(args, "rerank_model", None),
+        },
+        "ablateContextSignals": list(getattr(args, "ablate_context_signal", []) or []),
     }
     head = git_output(["rev-parse", "HEAD"])
     if head:

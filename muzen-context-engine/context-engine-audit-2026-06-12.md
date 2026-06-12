@@ -78,6 +78,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Eval iteration now builds the default `muzen` binary once when `--muzen-bin` is omitted, then reuses `target/debug/muzen` for every case. This preserves public-CLI proof while removing repeated `cargo run` overhead from default runs.
 - Eval iteration now rejects stale `target/debug/muzen` binaries when `--muzen-bin` is provided explicitly and Rust build inputs are newer. Full gates therefore prove the current implementation, not an accidentally stale local build.
 - Eval summaries now include run metadata for the evaluated binary, binary mtime, git head, git dirty flag, and whether local binary freshness was checked. Metric artifacts are now self-identifying enough to audit later.
+- Eval run metadata now records semantic tier/model settings, local ONNX model directory, rerank endpoint/model settings, and active ablations without recording credentials. This makes "which model did this gate use?" auditable from the artifact; default deterministic gates report `forcedTier: none`.
 - Eval iteration now supports focused `--case-id` and `--case-glob` diagnostic runs. Filtered runs are marked diagnostic-only, skip regression gates, and cannot write `baseline.json`, so speed cannot masquerade as proof.
 - Eval iteration now has a deterministic summary comparator for experiment artifacts, so metric and case-level deltas can be inspected without ad hoc scripts while preserving the full-gate requirement.
 - Eval summaries now report the slowest public-CLI cases with latency, token estimate, omitted count, recall, truth source, and candidate-present miss count. This makes speed work auditable without reducing coverage; the latest slowest cases are large external mined packs with roughly 7.9k omitted candidates.
@@ -123,6 +124,7 @@ The eval gate now tracks:
 - candidate-present missed omitted candidates with reason/score/rank/token diagnostics
 - selected-tail score/rank/token/graph-path diagnostics for weak cases
 - aggregate omission-pressure diagnostics
+- semantic/rerank/ablation run metadata
 - public CLI signal and pack-repair ablations for proof runs
 - summary-to-summary metric and case-delta comparison for diagnostic artifacts
 
