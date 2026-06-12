@@ -81,6 +81,7 @@ pub fn parse_symbols(path: &str, content: &str) -> ParsedSymbols {
         definition_ranges: BTreeMap::new(),
         imports: Vec::new(),
         import_statements: Vec::new(),
+        require_like_bindings: BTreeSet::new(),
     };
     collector.walk(tree.root_node());
     let mut parsed = ParsedSymbols {
@@ -101,6 +102,7 @@ struct SymbolCollector<'content> {
     definition_ranges: BTreeMap<String, ContextRange>,
     imports: Vec<String>,
     import_statements: Vec<ImportStatement>,
+    require_like_bindings: BTreeSet<String>,
 }
 
 impl SymbolCollector<'_> {
@@ -139,11 +141,16 @@ impl SymbolCollector<'_> {
                 "variable_declarator" => {
                     // const/let/var NAME = ...
                     self.record_definition(child);
+                    self.record_create_require_binding(child);
                     self.walk(child);
                 }
                 // ---- imports ----
                 "use_declaration" => self.record_rust_use(child),
                 "import_statement" | "import_from_statement" => self.record_import_names(child),
+                "call_expression" => {
+                    self.record_require_call(child);
+                    self.walk(child);
+                }
                 "export_statement" => {
                     // re-exports (`export { x } from './y'`) act as imports
                     if child.child_by_field_name("source").is_some() {
@@ -295,6 +302,45 @@ impl SymbolCollector<'_> {
         }
     }
 
+    fn record_create_require_binding(&mut self, node: Node) {
+        let Some(name_node) = node.child_by_field_name("name") else {
+            return;
+        };
+        let Some(value_node) = node.child_by_field_name("value") else {
+            return;
+        };
+        if value_node.kind() != "call_expression" {
+            return;
+        }
+        let Some(callee) = call_callee_text(value_node, self.content) else {
+            return;
+        };
+        if callee == "createRequire" || callee.ends_with(".createRequire") {
+            if let Some(name) = self.content.get(name_node.byte_range()) {
+                self.require_like_bindings.insert(name.to_string());
+            }
+        }
+    }
+
+    fn record_require_call(&mut self, node: Node) {
+        let Some(callee) = call_callee_text(node, self.content) else {
+            return;
+        };
+        if callee != "require" && !self.require_like_bindings.contains(callee) {
+            return;
+        }
+        let Some(module) = first_string_call_argument(node, self.content) else {
+            return;
+        };
+        if module.is_empty() {
+            return;
+        }
+        self.import_statements.push(ImportStatement {
+            module: Some(module),
+            names: Vec::new(),
+        });
+    }
+
     fn collect_identifiers(
         &mut self,
         node: Node,
@@ -328,6 +374,40 @@ impl SymbolCollector<'_> {
             self.collect_identifiers(child, kinds, skip);
         }
     }
+}
+
+fn call_callee_text<'content>(node: Node, content: &'content str) -> Option<&'content str> {
+    node.child_by_field_name("function")
+        .and_then(|callee| content.get(callee.byte_range()))
+        .map(str::trim)
+}
+
+fn first_string_call_argument(node: Node, content: &str) -> Option<String> {
+    let mut call_cursor = node.walk();
+    let arguments = node.child_by_field_name("arguments").or_else(|| {
+        node.named_children(&mut call_cursor)
+            .find(|child| child.kind() == "arguments")
+    })?;
+    let mut cursor = arguments.walk();
+    for child in arguments.named_children(&mut cursor) {
+        if child.kind() != "string" {
+            continue;
+        }
+        let Some(raw) = content.get(child.byte_range()).map(str::trim) else {
+            continue;
+        };
+        let stripped = raw
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .or_else(|| {
+                raw.strip_prefix('\'')
+                    .and_then(|value| value.strip_suffix('\''))
+            });
+        if let Some(value) = stripped {
+            return Some(value.to_string());
+        }
+    }
+    None
 }
 
 /// Collect imported names within a statement, skipping the module
@@ -529,6 +609,35 @@ mod tests {
             module: Some("os.path".to_string()),
             names: Vec::new(),
         }));
+    }
+
+    #[test]
+    fn captures_node_require_module_specifiers() {
+        let ts = parse_symbols(
+            "src/sdk.ts",
+            "import { createRequire } from 'node:module';\n\
+             const requireFromModule = createRequire(import.meta.url);\n\
+             const sdk = requireFromModule('@argus/argus-search');\n\
+             const local = require('./local');\n\
+             const dynamic = requireFromModule(packageName);\n",
+        );
+
+        assert!(ts.import_statements.contains(&ImportStatement {
+            module: Some("node:module".to_string()),
+            names: vec!["createRequire".to_string()],
+        }));
+        assert!(ts.import_statements.contains(&ImportStatement {
+            module: Some("@argus/argus-search".to_string()),
+            names: Vec::new(),
+        }));
+        assert!(ts.import_statements.contains(&ImportStatement {
+            module: Some("./local".to_string()),
+            names: Vec::new(),
+        }));
+        assert!(!ts
+            .import_statements
+            .iter()
+            .any(|statement| { statement.module.as_deref() == Some("packageName") }));
     }
 
     #[test]

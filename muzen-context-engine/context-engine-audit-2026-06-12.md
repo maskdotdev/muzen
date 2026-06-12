@@ -8,17 +8,17 @@ It is strongest as a deterministic, trust-aware retrieval primitive: evidence ha
 
 ## Current Default Metrics
 
-Source: latest public-CLI proof run `/tmp/context-next-layout-full.json`, 91 deterministic cases.
+Source: latest public-CLI proof run `/tmp/context-require-package-full.json`, 91 deterministic cases.
 
 Overall:
 
 - recall@10: `0.5494`
 - nDCG@10: `0.3884`
-- recall@25: `0.6728`
+- recall@25: `0.6747`
 - candidate recall: `0.9936`
-- candidate-present miss rate: `0.2334`
+- candidate-present miss rate: `0.2300`
 - first relevant rate: `0.9341`
-- tokens to first relevant: `1581`
+- tokens to first relevant: `1553`
 - useful evidence per 1k tokens: `1.6603`
 - sufficiency insufficient when incomplete: `1.0`
 
@@ -26,12 +26,12 @@ External corpus:
 
 - recall@10: `0.3666`
 - nDCG@10: `0.2273`
-- recall@25: `0.4672`
+- recall@25: `0.4714`
 - candidate recall: `0.9917`
-- candidate-present miss rate: `0.4559`
+- candidate-present miss rate: `0.4485`
 - first relevant rate: `0.8500`
-- tokens to first relevant: `2538`
-- useful evidence per 1k tokens: `0.1521`
+- tokens to first relevant: `2469`
+- useful evidence per 1k tokens: `0.1542`
 
 This shape matters: indexing usually finds ground truth, but pack order and budget still fail too often, especially outside this repo.
 
@@ -39,7 +39,7 @@ Truth-source split:
 
 - curated: 4 cases, recall@10 `1.0000`, nDCG@10 `0.5324`, candidate-present miss `0.0000`, tokens to first relevant `182`
 - fixture: 8 cases, recall@10 `1.0000`, nDCG@10 `1.0000`, candidate-present miss `0.0000`, tokens to first relevant `52`
-- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2472`, tokens to first relevant `1825`
+- mined follow-up: 79 cases, recall@10 `0.4810`, nDCG@10 `0.3192`, candidate-present miss `0.2435`, tokens to first relevant `1793`
 
 This split is now part of the gate. Fixture/security cases prove basic behavior stays intact, curated strict cases prove causal behavior without future labels, and mined follow-up cases remain the hard stress set that cannot be averaged away.
 
@@ -72,6 +72,7 @@ This proves graph and co-change are carrying real retrieval value across repos. 
 - Multi-repo benchmark exists and runs through public CLI, not internal test hooks.
 - Real semantic tiers exist: hosted `text-embedding-3-small` and local ONNX `jina-embeddings-v2-base-code` previously improved recall/nDCG versus no-vector baseline.
 - The pack compiler now gives first-pass priority to one full-content item per path before spending tail budget on duplicate chunks. This reduced candidate-present misses from `0.2903` to `0.2509` overall and from `0.5147` to `0.4779` on external cases without changing recall@10/nDCG@10.
+- Context Graph now treats Node `require("pkg")` and `createRequire` aliases as source-backed package imports, then links package consumers to manifest-declared type declarations and runtime artifacts. Latest full public-CLI proof improved recall@25 `0.6728 -> 0.6747`, candidate-present miss `0.2334 -> 0.2300`, and tokens-to-first-relevant `1581 -> 1553` without recall@10/nDCG regression.
 - The eval harness now labels truth source as `fixture`, `mined_followup`, or `curated`, reports cohorts, includes truth source on weak cases, and gates fixture/mined performance separately.
 - Public signal/optimizer ablation now exists through `muzen context --ablate-context-signal ...`; the bench harness can pass it through and write ablation deltas without hidden hooks.
 - Strict curated fixture `curated-checkout-flow` now proves changed checkout logic retrieves direct API callers and route tests through import graph facts under a 4k pack budget.

@@ -27,6 +27,7 @@ const DOCUMENT_LINK_CONFIDENCE: f32 = 0.85;
 const DOCUMENT_LINK_MAX_TARGETS_PER_DOC: usize = 64;
 const NEXT_APP_LAYOUT_CONFIDENCE: f32 = 0.75;
 const NEXT_APP_MAX_LAYOUT_EDGES_PER_CHANGED: usize = 4;
+const PACKAGE_DECLARATION_CONFIDENCE: f32 = 0.85;
 
 /// Cap on chunk-level `References` edges per (importer, symbol): the
 /// earliest referencing chunks carry the relationship; more add noise.
@@ -239,6 +240,7 @@ impl ContextGraph {
 
         // ---- Import, reference, and test edges from resolvers.
         build_reference_edges(&mut graph, &input, &provenance);
+        build_package_artifact_edges(&mut graph, &input, &provenance);
         build_document_link_edges(&mut graph, &input, &provenance);
         build_next_app_layout_edges(&mut graph, &input, &provenance);
 
@@ -318,6 +320,38 @@ impl ContextGraph {
     }
 }
 
+fn build_package_artifact_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    let packages = PackageExports::from_files(input.file_contents);
+    for artifact in packages.declaration_artifacts(&graph.file_paths) {
+        if artifact.declaration == artifact.runtime {
+            continue;
+        }
+        let from = ContextNodeId::File {
+            path: artifact.declaration.clone(),
+        };
+        let to = ContextNodeId::File {
+            path: artifact.runtime.clone(),
+        };
+        graph.add_edge(ContextEdge {
+            id: edge_id(&from, &to, ContextEdgeKind::GeneratedFrom, &artifact.detail),
+            from,
+            to,
+            kind: ContextEdgeKind::GeneratedFrom,
+            confidence: PACKAGE_DECLARATION_CONFIDENCE,
+            reason: format!(
+                "{} declares types generated from {}",
+                artifact.declaration.display(),
+                artifact.runtime.display()
+            ),
+            provenance: provenance(ContextGraphSource::SnapshotManifest, artifact.detail),
+        });
+    }
+}
+
 fn build_document_link_edges(
     graph: &mut ContextGraph,
     input: &ContextGraphBuildInput,
@@ -389,6 +423,15 @@ fn build_reference_edges(
             };
             match resolve_module(importer, module, &paths, &resolver) {
                 Some(resolved) if resolved.path != *importer => {
+                    for declaration in resolver.packages.resolve_declarations(module, &paths) {
+                        if declaration.path != *importer && declaration.path != resolved.path {
+                            let entry = resolved_groups
+                                .entry((declaration.path, declaration.via))
+                                .or_insert((0.0, BTreeSet::new()));
+                            entry.0 = entry.0.max(declaration.confidence);
+                            entry.1.extend(statement.names.iter().cloned());
+                        }
+                    }
                     // Barrel hop: names the target re-exports rather than
                     // defines connect the importer one hop further to the
                     // defining file, so barrels do not dead-end.
@@ -1351,6 +1394,7 @@ struct PackageManifest {
     dir: String,
     exports: Option<serde_json::Value>,
     main: Option<String>,
+    types: Option<String>,
 }
 
 /// Workspace packages discovered from `package.json` manifests, for
@@ -1358,6 +1402,13 @@ struct PackageManifest {
 #[derive(Debug, Clone, Default)]
 struct PackageExports {
     packages: BTreeMap<String, PackageManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct PackageDeclarationArtifact {
+    declaration: RepoPath,
+    runtime: RepoPath,
+    detail: String,
 }
 
 impl PackageExports {
@@ -1397,9 +1448,90 @@ impl PackageExports {
                         .get("main")
                         .and_then(|main| main.as_str())
                         .map(str::to_string),
+                    types: value
+                        .get("types")
+                        .or_else(|| value.get("typings"))
+                        .and_then(|types| types.as_str())
+                        .map(str::to_string),
                 });
         }
         Self { packages }
+    }
+
+    fn declaration_artifacts(
+        &self,
+        paths: &BTreeSet<RepoPath>,
+    ) -> BTreeSet<PackageDeclarationArtifact> {
+        let mut artifacts = BTreeSet::new();
+        for (name, manifest) in &self.packages {
+            if let (Some(types), Some(runtime)) = (
+                manifest.types.as_deref(),
+                manifest.main.as_deref().or(Some("index")),
+            ) {
+                self.add_declaration_artifact(
+                    paths,
+                    &mut artifacts,
+                    name,
+                    ".",
+                    manifest,
+                    types,
+                    runtime,
+                );
+            }
+            if let Some(exports) = &manifest.exports {
+                for (subpath, value) in export_entries(exports) {
+                    let Some(types) = condition_string(value, "types") else {
+                        continue;
+                    };
+                    let Some(runtime) = first_runtime_condition(value) else {
+                        continue;
+                    };
+                    self.add_declaration_artifact(
+                        paths,
+                        &mut artifacts,
+                        name,
+                        &subpath,
+                        manifest,
+                        &types,
+                        &runtime,
+                    );
+                }
+            }
+        }
+        artifacts
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_declaration_artifact(
+        &self,
+        paths: &BTreeSet<RepoPath>,
+        artifacts: &mut BTreeSet<PackageDeclarationArtifact>,
+        package_name: &str,
+        subpath: &str,
+        manifest: &PackageManifest,
+        declaration_target: &str,
+        runtime_target: &str,
+    ) {
+        let Some(declaration_joined) = normalize_join(&manifest.dir, declaration_target) else {
+            return;
+        };
+        let Some(runtime_joined) = normalize_join(&manifest.dir, runtime_target) else {
+            return;
+        };
+        let Some(declaration) = try_paths(declaration_file_candidates(&declaration_joined), paths)
+        else {
+            return;
+        };
+        let Some(runtime) = try_paths(ts_file_candidates(&runtime_joined), paths) else {
+            return;
+        };
+        artifacts.insert(PackageDeclarationArtifact {
+            declaration,
+            runtime,
+            detail: format!(
+                "package '{package_name}' export '{subpath}' types '{declaration_target}' runtime '{runtime_target}'"
+            ),
+        });
     }
 
     fn resolve(&self, specifier: &str, paths: &BTreeSet<RepoPath>) -> Option<ResolvedModule> {
@@ -1459,6 +1591,64 @@ impl PackageExports {
         })
     }
 
+    fn resolve_declarations(
+        &self,
+        specifier: &str,
+        paths: &BTreeSet<RepoPath>,
+    ) -> Vec<ResolvedModule> {
+        let Some((name, manifest, subpath)) = self.match_package(specifier) else {
+            return Vec::new();
+        };
+        let mut modules = Vec::new();
+        if subpath == "." {
+            if let Some(types) = &manifest.types {
+                if let Some(path) = self.resolve_declaration_target(manifest, types, paths) {
+                    modules.push(ResolvedModule {
+                        path,
+                        via: format!("package '{name}' types '{types}'"),
+                        confidence: DECLARED_RESOLUTION_CONFIDENCE,
+                    });
+                }
+            }
+        }
+        if let Some(exports) = &manifest.exports {
+            if let Some(value) = export_entries(exports)
+                .into_iter()
+                .find_map(|(entry, value)| (entry == subpath).then_some(value))
+            {
+                if let Some(types) = condition_string(value, "types").or_else(|| {
+                    first_string_condition(value)
+                        .filter(|target| target.ends_with(".d.ts") || target.ends_with(".d.mts"))
+                }) {
+                    if let Some(path) = self.resolve_declaration_target(manifest, &types, paths) {
+                        modules.push(ResolvedModule {
+                            path,
+                            via: format!("package '{name}' export '{subpath}' types '{types}'"),
+                            confidence: DECLARED_RESOLUTION_CONFIDENCE,
+                        });
+                    }
+                }
+            }
+        }
+        modules.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then_with(|| left.via.cmp(&right.via))
+        });
+        modules.dedup_by(|left, right| left.path == right.path && left.via == right.via);
+        modules
+    }
+
+    fn resolve_declaration_target(
+        &self,
+        manifest: &PackageManifest,
+        target: &str,
+        paths: &BTreeSet<RepoPath>,
+    ) -> Option<RepoPath> {
+        let joined = normalize_join(&manifest.dir, target)?;
+        try_paths(declaration_file_candidates(&joined), paths)
+    }
+
     /// Longest package-name prefix: `@argus/contracts/review` matches
     /// package `@argus/contracts` with subpath `./review`.
     fn match_package<'spec>(
@@ -1480,6 +1670,60 @@ impl PackageExports {
                 _ => return None,
             }
         }
+    }
+}
+
+fn declaration_file_candidates(joined: &str) -> Vec<String> {
+    vec![
+        joined.to_string(),
+        format!("{joined}.d.ts"),
+        format!("{joined}/index.d.ts"),
+    ]
+}
+
+fn export_entries(exports: &serde_json::Value) -> Vec<(String, &serde_json::Value)> {
+    let mut entries = Vec::new();
+    match exports {
+        serde_json::Value::String(_) => entries.push((".".to_string(), exports)),
+        serde_json::Value::Object(map) if map.keys().all(|key| !key.starts_with('.')) => {
+            entries.push((".".to_string(), exports));
+        }
+        serde_json::Value::Object(map) => {
+            for (subpath, value) in map {
+                if subpath.starts_with('.') {
+                    entries.push((subpath.clone(), value));
+                }
+            }
+        }
+        _ => {}
+    }
+    entries
+}
+
+fn condition_string(value: &serde_json::Value, condition: &str) -> Option<String> {
+    match value {
+        serde_json::Value::String(target) if condition == "default" => Some(target.clone()),
+        serde_json::Value::Object(map) => map
+            .get(condition)
+            .and_then(|nested| first_string_condition(nested)),
+        _ => None,
+    }
+}
+
+fn first_runtime_condition(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(target) => Some(target.clone()),
+        serde_json::Value::Object(map) => {
+            for condition in ["import", "default", "require", "node", "browser"] {
+                if let Some(nested) = map.get(condition) {
+                    if let Some(target) = first_string_condition(nested) {
+                        return Some(target);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
