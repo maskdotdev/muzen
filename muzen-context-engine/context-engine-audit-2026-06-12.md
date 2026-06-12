@@ -126,6 +126,7 @@ Recent rejected experiments:
 - Path proximity weight `0.05 -> 0.03`: failed self recall@10 gate (`0.5983 -> 0.5756`).
 - Co-change weight `0.15 -> 0.20`: recall@25 and ttfr moved slightly positive, but self recall and present-miss case rates regressed.
 - Test-coverage weight `0.30 -> 0.35`: rank stayed mostly flat, present-miss rates worsened.
+- Test-density frontier `6 -> 3`: exact `*-pack` diagnostics improved nDCG@10 slightly (`0.329 -> 0.331`) but regressed recall@25 (`0.632 -> 0.626`) and candidate-present miss (`0.252 -> 0.259`), so broad test coverage remains first-class.
 - Token efficiency bonus bump: tokens to first relevant improved `1650 -> 1607`, but recall@25/self and external present-miss regressed.
 - Compact full-content reserve cap `200`: no quality gain; tokens to first relevant worsened to `1730`, and external tokens to first relevant failed gate at `2745`.
 - Broad budget-repair swapping: fixed one self case but introduced one external candidate-present miss and failed external present-miss gate (`0.4779 -> 0.4853`); narrowed to low-confidence-tail evictions only.
