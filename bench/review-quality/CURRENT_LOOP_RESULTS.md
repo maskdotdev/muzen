@@ -93,3 +93,28 @@ MODEL=gpt-5.4-mini node bench/review-quality/run-github-pr-review.mjs \
   --golden bench/review-quality/goldens/cal-pr-14943.json \
   --sessions 11 --max-active 4 --max-turns 7 --max-tool-calls 14
 ```
+
+## Multi-lens + adjudication iteration
+
+Generated on 2026-06-12 with `target/release/muzen` after the multi-lens
+fan-out (high-risk units run Correctness/Security/Performance lens sessions),
+agreement-derived confidence, adversarial challenge pass, prompt-budget
+eviction, and incremental message assembly.
+
+| PR | Model | Sessions | Goldens | Hits | False positives | Candidates | Tokens | Wall | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| cal-pr-11059 | gpt-5.4-mini | 33 (11 units x 3 lenses) | 5 | 0 | 0 | 0 | 940,403 | 45s | Lens fan-out verified live (`unit-NNN#security` etc.). Full exploration (97 head reads, 38 searches), 39 clean verdicts, but no session produced a candidate finding, so synthesis/challenge had nothing to adjudicate. |
+| cal-pr-11059 | qwen3:8b (Ollama) | 33 | 5 | 0 | 0 | 0 | 115,869 | 864s | Local-model path works end-to-end at zero API cost, but the 8B model answers in one turn per session without exploring (0 searches) and rubber-stamps needs_review. Useful as a free harness smoke test, not as a quality signal. |
+
+Takeaways:
+
+- Multi-lens tripled sessions and roughly tripled token cost on this PR
+  without adding recall. The misses are all cross-file return-shape contract
+  bugs; the bottleneck is evidence retrieval (sessions never surface the
+  caller/callee shape mismatch as a candidate), not adjudication - the
+  challenge pass never fired because there was nothing to challenge.
+- Recall on these goldens likely needs the context-engine retrieval work
+  (reference-graph expansion to put the callback callers in front of the
+  refresh-helper reviewer), not more reviewers per unit.
+- deepseek-r1 in Ollama accepts a tools array but never emits tool calls;
+  qwen3:8b tool-calls correctly and is the recommended local smoke model.
