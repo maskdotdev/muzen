@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-13T00:43:00.199Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/.claude/worktrees/competent-nash-1d07ba/target/release/muzen",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "job": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-yXjU1V/job.json",
+    "events": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-yXjU1V/events.jsonl"
+  },
+  "review": {
+    "outcome": "completed_no_findings",
+    "publishability": "publishable",
+    "sessions": 13,
+    "completedSessions": 13,
+    "fileReviews": 36,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 35
+    },
+    "findings": 0,
+    "modelCalls": 90,
+    "toolCounts": {
+      "findRelatedFiles": 2,
+      "findTestsForFile": 0,
+      "listChangedFiles": 0,
+      "listFiles": 0,
+      "listImports": 0,
+      "readBaseFile": 0,
+      "readDiff": 13,
+      "readFile": 4,
+      "readFileRange": 7,
+      "readHeadFile": 40,
+      "searchText": 19
+    },
+    "tokens": {
+      "cachedInputTokens": 178688,
+      "inputTokens": 362871,
+      "outputTokens": 4021,
+      "totalTokens": 366892
+    },
+    "artifactStats": {
+      "artifactBytes": 310127,
+      "artifacts": 65,
+      "contentRefs": 65
+    },
+    "elapsedMs": 18095
+  },
+  "benchmark": {
+    "elapsedMs": 18553,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 19,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 35,
+    "skippedCount": 1
+  },
+  "findings": []
+}
