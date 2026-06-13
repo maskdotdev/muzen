@@ -1075,6 +1075,24 @@ pub struct RuntimeLimits {
     pub file_content_cache_bytes: u64,
     pub search_result_cache_bytes: u64,
     pub search_threads: usize,
+    /// Controls the review quality passes (deterministic evidence bootstrap,
+    /// final cross-file synthesis, adversarial finding challenge).
+    #[serde(default)]
+    pub quality_pass_mode: QualityPassMode,
+}
+
+/// Explicit switch for the review quality passes. `Auto` preserves the
+/// legacy heuristic — passes activate when the first session template's
+/// objective contains "production-materialized pull request" and budgets
+/// more than four turns — so existing hosts keep their behavior until they
+/// opt in or out explicitly.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityPassMode {
+    #[default]
+    Auto,
+    Enabled,
+    Disabled,
 }
 
 impl RuntimeLimits {
@@ -1103,6 +1121,7 @@ impl RuntimeLimits {
             file_content_cache_bytes: 32_000_000,
             search_result_cache_bytes: 16_000_000,
             search_threads: num_cpus::get().clamp(2, 8),
+            quality_pass_mode: QualityPassMode::default(),
         }
     }
 }
