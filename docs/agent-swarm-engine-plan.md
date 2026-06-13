@@ -204,8 +204,13 @@ endpoint, keys via env refs, all from a single SDK call.
    planned-units and direct-sessions loops; the Anthropic client marks
    the system block and the newest tool_result block with
    `cache_control: ephemeral` so the byte-stable prefix extends across
-   turns. Still open: stop re-serializing the full transcript every
-   turn (incremental message assembly).
+   turns. ~~Stop re-serializing the full transcript every turn
+   (incremental message assembly)~~ — done for the chat-completions and
+   Anthropic clients: `src/runtime/assembly.rs` caches rendered
+   messages per session with per-item fingerprints (eviction and
+   capability changes invalidate) and re-renders only the appended
+   suffix. The Responses-protocol client still rebuilds per turn,
+   matching its still-open streaming work.
 
 Exit: bench shows reduced per-turn overhead at 7-turn depth; ~~chaos
 test (injected 429s/timeouts) completes a 50-session swarm with retries
