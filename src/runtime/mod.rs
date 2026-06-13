@@ -1,4 +1,5 @@
 pub(crate) mod agent_sessions;
+pub(crate) mod assembly;
 pub(crate) mod bench;
 pub(crate) mod contracts;
 pub(crate) mod dispatch;
@@ -12,3 +13,4 @@ pub(crate) mod policy;
 pub(crate) mod repo;
 pub(crate) mod tool_batch;
 pub(crate) mod tools;
+pub(crate) mod transcript;

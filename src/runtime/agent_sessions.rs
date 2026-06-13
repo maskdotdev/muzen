@@ -21,6 +21,7 @@ use crate::runtime::planned_units::{add_model_metrics, elapsed_ms, record_usage}
 use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::ToolEngine;
+use crate::runtime::transcript::enforce_prompt_budget;
 
 pub(crate) struct AgentSessionRuntime {
     pub(crate) model_router: Arc<dyn ConcurrentModelRouter>,
@@ -130,6 +131,7 @@ impl AgentSessionRuntime {
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
             total_tokens: tokens.total_tokens,
+            cached_input_tokens: tokens.cached_input_tokens,
             artifacts,
             artifact_bytes,
             counters: self.tools.snapshot_counters(),
@@ -189,6 +191,7 @@ impl AgentSessionRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
+            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),

@@ -107,6 +107,7 @@ pub(crate) fn run_review_job_with_events(
                     input_tokens: report.input_tokens,
                     output_tokens: report.output_tokens,
                     total_tokens: report.total_tokens,
+                    cached_input_tokens: report.cached_input_tokens,
                 },
                 artifact_stats: crate::contracts::ArtifactStats {
                     artifacts: report.artifacts,
