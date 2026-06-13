@@ -159,7 +159,11 @@ impl PlannedReviewRuntime {
             }
             completion_diagnostics.push(report.completion_diagnostic);
         }
-        if should_run_review_quality_enhancements(&self.session_templates) && !cancel.is_cancelled()
+        append_unverdicted_file_reviews(&unit_plan.units, &mut file_reviews);
+        if should_run_review_quality_enhancements(
+            self.limits.quality_pass_mode,
+            &self.session_templates,
+        ) && !cancel.is_cancelled()
         {
             let synthesis_report = self
                 .run_final_synthesis_pass(
@@ -202,8 +206,10 @@ impl PlannedReviewRuntime {
                 },
             );
         }
-        if should_run_review_quality_enhancements(&self.session_templates)
-            && !cancel.is_cancelled()
+        if should_run_review_quality_enhancements(
+            self.limits.quality_pass_mode,
+            &self.session_templates,
+        ) && !cancel.is_cancelled()
             && !findings.is_empty()
         {
             let challenge_report = self
@@ -335,7 +341,7 @@ impl PlannedReviewRuntime {
         let mut file_evidence = FileEvidenceTracker::new(&unit);
         let turn_limit = scope.budget.max_turns.max(1);
 
-        if should_run_review_quality_enhancements_for_scope(&scope) {
+        if should_run_review_quality_enhancements_for_scope(self.limits.quality_pass_mode, &scope) {
             bootstrap_unit_evidence(
                 self,
                 &scope,
@@ -773,14 +779,35 @@ impl PlannedReviewRuntime {
     }
 }
 
-fn should_run_review_quality_enhancements(session_templates: &[SessionScope]) -> bool {
-    session_templates
-        .first()
-        .map(should_run_review_quality_enhancements_for_scope)
-        .unwrap_or(false)
+fn should_run_review_quality_enhancements(
+    mode: QualityPassMode,
+    session_templates: &[SessionScope],
+) -> bool {
+    match mode {
+        QualityPassMode::Enabled => true,
+        QualityPassMode::Disabled => false,
+        QualityPassMode::Auto => session_templates
+            .first()
+            .map(scope_matches_legacy_quality_heuristic)
+            .unwrap_or(false),
+    }
 }
 
-fn should_run_review_quality_enhancements_for_scope(scope: &SessionScope) -> bool {
+fn should_run_review_quality_enhancements_for_scope(
+    mode: QualityPassMode,
+    scope: &SessionScope,
+) -> bool {
+    match mode {
+        QualityPassMode::Enabled => true,
+        QualityPassMode::Disabled => false,
+        QualityPassMode::Auto => scope_matches_legacy_quality_heuristic(scope),
+    }
+}
+
+/// Legacy activation heuristic, kept as the `Auto` behavior: hosts that
+/// never set `quality_pass_mode` get quality passes exactly when their
+/// objective uses the historical phrasing with a deep-turn budget.
+fn scope_matches_legacy_quality_heuristic(scope: &SessionScope) -> bool {
     scope.budget.max_turns > 4
         && scope
             .objective
@@ -1045,6 +1072,34 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
             }
         })
         .collect()
+}
+
+/// Coverage invariant: every planned file ends the run with some verdict.
+/// Sessions can fail, get cancelled, or return partial fileVerdicts on their
+/// final turn; silently dropping a file's review would overstate coverage,
+/// so the gap is made explicit as needs_review instead.
+fn append_unverdicted_file_reviews(
+    units: &[PlannedReviewUnit],
+    file_reviews: &mut Vec<FileReviewV1>,
+) {
+    for unit in units {
+        for path in &unit.file_paths {
+            let display = path.display();
+            if file_reviews.iter().any(|review| review.path == display) {
+                continue;
+            }
+            file_reviews.push(FileReviewV1 {
+                path: display,
+                verdict: "needs_review".to_string(),
+                summary: "Review session returned no verdict for this assigned file.".to_string(),
+                related_paths: Vec::new(),
+                evidence_artifact_ids: Vec::new(),
+                evidence_count: 0,
+                session_id: unit.id.clone(),
+                unit_id: unit.id.clone(),
+            });
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -4281,6 +4336,84 @@ mod tests {
             unit_lens_template_indices(&many, true, hot),
             vec![Some(0), Some(1), Some(3)]
         );
+    }
+
+    #[test]
+    fn quality_pass_mode_overrides_legacy_phrase_heuristic() {
+        let plain = test_scope("plain");
+        let mut magic = test_scope("magic");
+        magic.objective =
+            "Review this production-materialized pull request for actionable correctness bugs."
+                .to_string();
+
+        assert!(!should_run_review_quality_enhancements(
+            QualityPassMode::Auto,
+            std::slice::from_ref(&plain)
+        ));
+        assert!(should_run_review_quality_enhancements(
+            QualityPassMode::Auto,
+            std::slice::from_ref(&magic)
+        ));
+        assert!(should_run_review_quality_enhancements(
+            QualityPassMode::Enabled,
+            std::slice::from_ref(&plain)
+        ));
+        assert!(
+            should_run_review_quality_enhancements(QualityPassMode::Enabled, &[]),
+            "explicit enable does not depend on templates"
+        );
+        assert!(!should_run_review_quality_enhancements(
+            QualityPassMode::Disabled,
+            std::slice::from_ref(&magic)
+        ));
+        assert!(should_run_review_quality_enhancements_for_scope(
+            QualityPassMode::Enabled,
+            &plain
+        ));
+        assert!(!should_run_review_quality_enhancements_for_scope(
+            QualityPassMode::Disabled,
+            &magic
+        ));
+    }
+
+    #[test]
+    fn unverdicted_assigned_files_get_explicit_needs_review() {
+        let unit = PlannedReviewUnit {
+            id: "unit-000".to_string(),
+            file_paths: vec![
+                RepoPath::parse("src/auth.rs").expect("path"),
+                RepoPath::parse("src/widget.rs").expect("path"),
+            ],
+            score_min: 35,
+            score_max: 70,
+            estimated_bytes: 100,
+            file_count: 2,
+            requires_further_split: false,
+        };
+        let mut reviews = vec![FileReviewV1 {
+            path: "src/auth.rs".to_string(),
+            verdict: "clean".to_string(),
+            summary: "reviewed".to_string(),
+            related_paths: Vec::new(),
+            evidence_artifact_ids: Vec::new(),
+            evidence_count: 1,
+            session_id: "unit-000".to_string(),
+            unit_id: "unit-000".to_string(),
+        }];
+
+        append_unverdicted_file_reviews(std::slice::from_ref(&unit), &mut reviews);
+
+        assert_eq!(reviews.len(), 2);
+        let widget = reviews
+            .iter()
+            .find(|review| review.path == "src/widget.rs")
+            .expect("widget review");
+        assert_eq!(widget.verdict, "needs_review");
+        assert_eq!(widget.unit_id, "unit-000");
+        assert_eq!(reviews[0].verdict, "clean", "existing reviews untouched");
+
+        append_unverdicted_file_reviews(std::slice::from_ref(&unit), &mut reviews);
+        assert_eq!(reviews.len(), 2, "invariant is idempotent");
     }
 
     #[test]

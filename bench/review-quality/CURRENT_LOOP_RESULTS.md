@@ -133,3 +133,23 @@ Cost picture: total tokens fell 940k -> 367k from the gate alone, and 49% of
 the remaining input was served from OpenAI's prompt cache (now visible as
 `cachedInputTokens`), so billed input cost is roughly a quarter of what the
 raw 940k from the ungated run suggested.
+
+## Challenge pass live exercise (cal-pr-14943)
+
+Generated 2026-06-12 after the file-verdict coverage invariant and the
+explicit `quality_pass_mode` flag landed.
+
+| PR | Model | Findings | Golden hits | Scorer FPs | Confidence | Challenge outcome |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| cal-pr-14943 | gpt-5.4-mini | 2 | 0 | 2 | 0.79 both (0.72 base + 0.07 confirm boost) | Both confirmed; `challengedBy` empty, nothing suppressed |
+
+First live execution of the adjudication path: one finding from a unit
+session, one from final synthesis, both passed through the challenger and
+received the confirmation boost - the wiring works end to end on a real
+model. Caveats: both findings describe the retryCount cleanup behavior the
+golden set counts as false positives (the golden is the non-SMS cleanup
+scope bug), and the single challenger confirmed them rather than refuting.
+The refutation/suppression path has still only been exercised against
+deterministic mocks; a majority-vote challenger panel is the known next
+step if the challenge pass is to act as a precision filter rather than a
+confidence annotator. 49% of input tokens were cache-served on this run.
