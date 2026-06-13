@@ -163,6 +163,7 @@ async fn anthropic_message_from_stream(
         std::collections::BTreeMap::new();
     let mut input_tokens: Option<u64> = None;
     let mut output_tokens: Option<u64> = None;
+    let mut cache_read_input_tokens: Option<u64> = None;
     loop {
         let Some(data) = next_streaming_data(&mut sse, cancel).await? else {
             break;
@@ -177,6 +178,9 @@ async fn anthropic_message_from_stream(
                 let usage = &event["message"]["usage"];
                 input_tokens = usage["input_tokens"].as_u64().or(input_tokens);
                 output_tokens = usage["output_tokens"].as_u64().or(output_tokens);
+                cache_read_input_tokens = usage["cache_read_input_tokens"]
+                    .as_u64()
+                    .or(cache_read_input_tokens);
             }
             Some("content_block_start") => {
                 blocks.insert(
@@ -241,6 +245,7 @@ async fn anthropic_message_from_stream(
         usage: Some(AnthropicUsage {
             input_tokens,
             output_tokens,
+            cache_read_input_tokens,
         }),
     })
 }
@@ -502,16 +507,22 @@ struct AnthropicMessageResponse {
 struct AnthropicUsage {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
 }
 
 impl AnthropicUsage {
     fn into_token_usage(self) -> TokenUsage {
-        let input_tokens = self.input_tokens.unwrap_or(0);
+        // Anthropic reports cache reads separately from input_tokens; fold
+        // them into input/total so cross-provider accounting stays uniform,
+        // and surface the cached share for cost visibility.
+        let cached_input_tokens = self.cache_read_input_tokens.unwrap_or(0);
+        let input_tokens = self.input_tokens.unwrap_or(0) + cached_input_tokens;
         let output_tokens = self.output_tokens.unwrap_or(0);
         TokenUsage {
             input_tokens,
             output_tokens,
             total_tokens: input_tokens + output_tokens,
+            cached_input_tokens,
         }
     }
 }

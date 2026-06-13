@@ -647,6 +647,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("inputTokens", "integer"),
                 required("outputTokens", "integer"),
                 required("totalTokens", "integer"),
+                defaulted("cachedInputTokens", "integer", "0"),
                 required("artifacts", "integer"),
                 required("artifactBytes", "integer"),
                 required("snapshotCount", "integer"),
@@ -833,6 +834,7 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("inputTokens", "integer"),
                 required("outputTokens", "integer"),
                 required("totalTokens", "integer"),
+                defaulted("cachedInputTokens", "integer", "0"),
             ],
         ),
         object(

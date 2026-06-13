@@ -201,6 +201,7 @@ impl ConcurrentModelClient for SingleExternalToolModel {
                 input_tokens: 1,
                 output_tokens: 1,
                 total_tokens: 2,
+                cached_input_tokens: 0,
             },
             calls: vec![ModelToolCall {
                 call_id: ToolCallId(format!("{}-{}-external", scope.id.0, turn_id.0)),
@@ -227,6 +228,7 @@ impl ConcurrentModelClient for CancelAfterToolResultModel {
                 input_tokens: 1,
                 output_tokens: 1,
                 total_tokens: 2,
+                cached_input_tokens: 0,
             },
             calls: vec![ModelToolCall {
                 call_id: ToolCallId(format!("{}-{}-cancel-after-success", scope.id.0, turn_id.0)),
@@ -250,6 +252,7 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
             total_tokens: request.transcript_item_count() as u64 + 1,
+            cached_input_tokens: 0,
         };
         if request.tool_result_count() == 0 {
             return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
@@ -313,6 +316,7 @@ impl crate::reviewer::model::ReviewModel for DirectSessionEchoModel {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
             total_tokens: request.transcript_item_count() as u64 + 1,
+            cached_input_tokens: 0,
         };
         if request.tool_result_count() == 0 {
             return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
@@ -344,6 +348,7 @@ impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
             total_tokens: request.transcript_item_count() as u64 + 1,
+            cached_input_tokens: 0,
         };
         if request.tool_result_count() > 0 {
             return Ok(crate::reviewer::model::ReviewModelTurn::Text {
@@ -998,6 +1003,7 @@ impl crate::reviewer::model::ReviewModel for ChaosDirectSessionModel {
                 input_tokens: 2,
                 output_tokens: 1,
                 total_tokens: 3,
+                cached_input_tokens: 0,
             },
             content: format!("answer:{}", request.session_id),
         })

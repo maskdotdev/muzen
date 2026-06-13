@@ -131,6 +131,7 @@ impl AgentSessionRuntime {
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
             total_tokens: tokens.total_tokens,
+            cached_input_tokens: tokens.cached_input_tokens,
             artifacts,
             artifact_bytes,
             counters: self.tools.snapshot_counters(),

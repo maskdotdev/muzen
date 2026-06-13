@@ -56,6 +56,7 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
         merged.publishable_findings += summary.publishable_findings;
         merged.elapsed_ms += summary.elapsed_ms;
         merged.input_tokens += summary.input_tokens;
+        merged.cached_input_tokens += summary.cached_input_tokens;
         merged.output_tokens += summary.output_tokens;
         merged.total_tokens += summary.total_tokens;
         merged.artifacts += summary.artifacts;
@@ -141,6 +142,7 @@ fn merge_model_metrics(left: &mut ModelMetricsSnapshot, right: ModelMetricsSnaps
     left.estimated_output_cost_micro_usd += right.estimated_output_cost_micro_usd;
     left.estimated_total_cost_micro_usd += right.estimated_total_cost_micro_usd;
     left.input_tokens += right.input_tokens;
+    left.cached_input_tokens += right.cached_input_tokens;
     left.output_tokens += right.output_tokens;
     left.total_tokens += right.total_tokens;
 }
@@ -191,6 +193,7 @@ pub struct ReviewRunSummary {
     pub publishable_findings: usize,
     pub elapsed_ms: u64,
     pub input_tokens: u64,
+    pub cached_input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
     pub artifacts: usize,
@@ -217,6 +220,7 @@ impl ReviewRunSummary {
             publishable_findings: metrics.publishable_findings,
             elapsed_ms: metrics.elapsed_ms,
             input_tokens: metrics.input_tokens,
+            cached_input_tokens: metrics.cached_input_tokens,
             output_tokens: metrics.output_tokens,
             total_tokens: metrics.total_tokens,
             artifacts: metrics.artifacts,
