@@ -118,3 +118,18 @@ Takeaways:
   refresh-helper reviewer), not more reviewers per unit.
 - deepseek-r1 in Ollama accepts a tools array but never emits tool calls;
   qwen3:8b tool-calls correctly and is the recommended local smoke model.
+
+## Score-gated lenses + cached-token visibility
+
+Generated on 2026-06-12 after gating lens fan-out on planner score >= 80
+(stacked path sensitivity) and surfacing provider prompt-cache reads in
+usage metrics.
+
+| PR | Model | Sessions | Goldens | Hits | FP | Input tokens | Cache-served | Wall | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| cal-pr-11059 | gpt-5.4-mini | 13 (was 33) | 5 | 0 | 0 | 362,871 | 178,688 (49%) | 18s (was 45s) | Exactly one unit cleared the gate - the one holding apps/web/pages/api/webhook/app-credential.ts (credential + api path, score 82), itself a golden. Quality unchanged vs ungated run (0/5, 0 FP, 0 candidates), confirming the dropped lens sessions were not contributing. |
+
+Cost picture: total tokens fell 940k -> 367k from the gate alone, and 49% of
+the remaining input was served from OpenAI's prompt cache (now visible as
+`cachedInputTokens`), so billed input cost is roughly a quarter of what the
+raw 940k from the ungated run suggested.
