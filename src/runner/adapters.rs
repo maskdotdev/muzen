@@ -52,6 +52,7 @@ impl ReviewModel for TestRunnerModel {
             input_tokens: request.transcript_item_count() as u64 * 64,
             output_tokens: 32,
             total_tokens: request.transcript_item_count() as u64 * 64 + 32,
+            cached_input_tokens: 0,
         };
         if request.tool_result_count() == 0 {
             return Ok(ReviewModelTurn::ToolCalls {
@@ -328,6 +329,8 @@ struct RunnerTokenUsage {
     input_tokens: u64,
     output_tokens: u64,
     total_tokens: u64,
+    #[serde(default)]
+    cached_input_tokens: u64,
 }
 
 impl RunnerTokenUsage {
@@ -336,6 +339,7 @@ impl RunnerTokenUsage {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             total_tokens: self.total_tokens,
+            cached_input_tokens: self.cached_input_tokens,
         }
     }
 }

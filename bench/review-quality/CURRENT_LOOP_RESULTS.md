@@ -93,3 +93,63 @@ MODEL=gpt-5.4-mini node bench/review-quality/run-github-pr-review.mjs \
   --golden bench/review-quality/goldens/cal-pr-14943.json \
   --sessions 11 --max-active 4 --max-turns 7 --max-tool-calls 14
 ```
+
+## Multi-lens + adjudication iteration
+
+Generated on 2026-06-12 with `target/release/muzen` after the multi-lens
+fan-out (high-risk units run Correctness/Security/Performance lens sessions),
+agreement-derived confidence, adversarial challenge pass, prompt-budget
+eviction, and incremental message assembly.
+
+| PR | Model | Sessions | Goldens | Hits | False positives | Candidates | Tokens | Wall | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| cal-pr-11059 | gpt-5.4-mini | 33 (11 units x 3 lenses) | 5 | 0 | 0 | 0 | 940,403 | 45s | Lens fan-out verified live (`unit-NNN#security` etc.). Full exploration (97 head reads, 38 searches), 39 clean verdicts, but no session produced a candidate finding, so synthesis/challenge had nothing to adjudicate. |
+| cal-pr-11059 | qwen3:8b (Ollama) | 33 | 5 | 0 | 0 | 0 | 115,869 | 864s | Local-model path works end-to-end at zero API cost, but the 8B model answers in one turn per session without exploring (0 searches) and rubber-stamps needs_review. Useful as a free harness smoke test, not as a quality signal. |
+
+Takeaways:
+
+- Multi-lens tripled sessions and roughly tripled token cost on this PR
+  without adding recall. The misses are all cross-file return-shape contract
+  bugs; the bottleneck is evidence retrieval (sessions never surface the
+  caller/callee shape mismatch as a candidate), not adjudication - the
+  challenge pass never fired because there was nothing to challenge.
+- Recall on these goldens likely needs the context-engine retrieval work
+  (reference-graph expansion to put the callback callers in front of the
+  refresh-helper reviewer), not more reviewers per unit.
+- deepseek-r1 in Ollama accepts a tools array but never emits tool calls;
+  qwen3:8b tool-calls correctly and is the recommended local smoke model.
+
+## Score-gated lenses + cached-token visibility
+
+Generated on 2026-06-12 after gating lens fan-out on planner score >= 80
+(stacked path sensitivity) and surfacing provider prompt-cache reads in
+usage metrics.
+
+| PR | Model | Sessions | Goldens | Hits | FP | Input tokens | Cache-served | Wall | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| cal-pr-11059 | gpt-5.4-mini | 13 (was 33) | 5 | 0 | 0 | 362,871 | 178,688 (49%) | 18s (was 45s) | Exactly one unit cleared the gate - the one holding apps/web/pages/api/webhook/app-credential.ts (credential + api path, score 82), itself a golden. Quality unchanged vs ungated run (0/5, 0 FP, 0 candidates), confirming the dropped lens sessions were not contributing. |
+
+Cost picture: total tokens fell 940k -> 367k from the gate alone, and 49% of
+the remaining input was served from OpenAI's prompt cache (now visible as
+`cachedInputTokens`), so billed input cost is roughly a quarter of what the
+raw 940k from the ungated run suggested.
+
+## Challenge pass live exercise (cal-pr-14943)
+
+Generated 2026-06-12 after the file-verdict coverage invariant and the
+explicit `quality_pass_mode` flag landed.
+
+| PR | Model | Findings | Golden hits | Scorer FPs | Confidence | Challenge outcome |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| cal-pr-14943 | gpt-5.4-mini | 2 | 0 | 2 | 0.79 both (0.72 base + 0.07 confirm boost) | Both confirmed; `challengedBy` empty, nothing suppressed |
+
+First live execution of the adjudication path: one finding from a unit
+session, one from final synthesis, both passed through the challenger and
+received the confirmation boost - the wiring works end to end on a real
+model. Caveats: both findings describe the retryCount cleanup behavior the
+golden set counts as false positives (the golden is the non-SMS cleanup
+scope bug), and the single challenger confirmed them rather than refuting.
+The refutation/suppression path has still only been exercised against
+deterministic mocks; a majority-vote challenger panel is the known next
+step if the challenge pass is to act as a precision filter rather than a
+confidence annotator. 49% of input tokens were cache-served on this run.

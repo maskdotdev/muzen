@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{ModelProfileRefV1, TokenUsage, ToolCallingMode};
+use crate::runtime::assembly::MessageAssemblyCache;
 use crate::runtime::contracts::*;
 use crate::runtime::model::{
     model_alias_for_tool, provider_error_message, provider_http_error, ConcurrentModelClient,
@@ -39,6 +40,7 @@ pub(crate) struct AnthropicMessagesClient {
     limiter: Arc<ModelLimiter>,
     tool_registry: Arc<ToolRegistry>,
     reviewer_policy: Arc<ReviewerPolicy>,
+    assembly: MessageAssemblyCache,
 }
 
 impl AnthropicMessagesClient {
@@ -63,6 +65,7 @@ impl AnthropicMessagesClient {
             limiter,
             tool_registry,
             reviewer_policy,
+            assembly: MessageAssemblyCache::new(),
         })
     }
 }
@@ -94,6 +97,7 @@ impl ConcurrentModelClient for AnthropicMessagesClient {
             &self.tool_registry,
             scope,
             transcript,
+            &self.assembly,
         )?;
         body["stream"] = json!(true);
         let response = self
@@ -159,6 +163,7 @@ async fn anthropic_message_from_stream(
         std::collections::BTreeMap::new();
     let mut input_tokens: Option<u64> = None;
     let mut output_tokens: Option<u64> = None;
+    let mut cache_read_input_tokens: Option<u64> = None;
     loop {
         let Some(data) = next_streaming_data(&mut sse, cancel).await? else {
             break;
@@ -173,6 +178,9 @@ async fn anthropic_message_from_stream(
                 let usage = &event["message"]["usage"];
                 input_tokens = usage["input_tokens"].as_u64().or(input_tokens);
                 output_tokens = usage["output_tokens"].as_u64().or(output_tokens);
+                cache_read_input_tokens = usage["cache_read_input_tokens"]
+                    .as_u64()
+                    .or(cache_read_input_tokens);
             }
             Some("content_block_start") => {
                 blocks.insert(
@@ -237,6 +245,7 @@ async fn anthropic_message_from_stream(
         usage: Some(AnthropicUsage {
             input_tokens,
             output_tokens,
+            cache_read_input_tokens,
         }),
     })
 }
@@ -244,62 +253,102 @@ async fn anthropic_message_from_stream(
 /// System turns become the top-level `system` string; assistant tool calls
 /// become `tool_use` content blocks and tool results become `tool_result`
 /// blocks in user turns, which is the Messages API's transcript shape.
+/// Marks the newest tool_result block with a cache breakpoint. Tool results
+/// are appended once and serialized identically on every later turn, so the
+/// prefix up to this block stays byte-stable and the provider extends the
+/// cache across turns instead of recomputing the whole transcript. String
+/// messages are left alone: converting only the latest one to block form
+/// would change its serialization on the next turn and break prefix matching.
+fn mark_latest_tool_result_cache_breakpoint(messages: &mut [Value]) {
+    for message in messages.iter_mut().rev() {
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        if let Some(block) = blocks
+            .iter_mut()
+            .rev()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        {
+            block["cache_control"] = json!({ "type": "ephemeral" });
+            return;
+        }
+    }
+}
+
+fn anthropic_message_for_item(
+    reviewer_policy: &ReviewerPolicy,
+    tool_registry: &ToolRegistry,
+    scope: &SessionScope,
+    item: &ConversationItem,
+) -> RuntimeResult<Option<Value>> {
+    Ok(match item {
+        // System items render into the top-level `system` field, not the
+        // message list; the caller collects them separately.
+        ConversationItem::System { .. } => None,
+        ConversationItem::User { content } => Some(json!({ "role": "user", "content": content })),
+        ConversationItem::AssistantText { content } => {
+            Some(json!({ "role": "assistant", "content": content }))
+        }
+        ConversationItem::AssistantToolCalls { calls } => {
+            let blocks = calls
+                .iter()
+                .map(|call| {
+                    let name = model_alias_for_tool(tool_registry, &call.name)?;
+                    // tool_use input must be a JSON object; raw_arguments
+                    // originated from our own parse so this round-trips.
+                    let input = serde_json::from_str::<Value>(&call.raw_arguments)
+                        .unwrap_or_else(|_| json!({}));
+                    Ok(json!({
+                        "type": "tool_use",
+                        "id": call.call_id.0,
+                        "name": name.as_str(),
+                        "input": input,
+                    }))
+                })
+                .collect::<RuntimeResult<Vec<_>>>()?;
+            Some(json!({ "role": "assistant", "content": blocks }))
+        }
+        ConversationItem::ToolResult {
+            call_id, content, ..
+        } => {
+            let compact = reviewer_policy.compact_tool_result(content, &scope.capabilities);
+            Some(json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": call_id.0,
+                    "content": serde_json::to_string(&compact).map_err(|_| {
+                        RuntimeError::Invariant("tool result serialization failed")
+                    })?,
+                    "is_error": !content.ok,
+                }],
+            }))
+        }
+    })
+}
+
 fn anthropic_request_body(
     profile: &ModelProfileRefV1,
     reviewer_policy: &ReviewerPolicy,
     tool_registry: &ToolRegistry,
     scope: &SessionScope,
     transcript: &[ConversationItem],
+    assembly: &MessageAssemblyCache,
 ) -> RuntimeResult<Value> {
-    let mut system = Vec::new();
-    let mut messages = Vec::new();
-    for item in transcript {
-        match item {
-            ConversationItem::System { content } => system.push(content.as_str()),
-            ConversationItem::User { content } => {
-                messages.push(json!({ "role": "user", "content": content }));
-            }
-            ConversationItem::AssistantText { content } => {
-                messages.push(json!({ "role": "assistant", "content": content }));
-            }
-            ConversationItem::AssistantToolCalls { calls } => {
-                let blocks = calls
-                    .iter()
-                    .map(|call| {
-                        let name = model_alias_for_tool(tool_registry, &call.name)?;
-                        // tool_use input must be a JSON object; raw_arguments
-                        // originated from our own parse so this round-trips.
-                        let input = serde_json::from_str::<Value>(&call.raw_arguments)
-                            .unwrap_or_else(|_| json!({}));
-                        Ok(json!({
-                            "type": "tool_use",
-                            "id": call.call_id.0,
-                            "name": name.as_str(),
-                            "input": input,
-                        }))
-                    })
-                    .collect::<RuntimeResult<Vec<_>>>()?;
-                messages.push(json!({ "role": "assistant", "content": blocks }));
-            }
-            ConversationItem::ToolResult {
-                call_id, content, ..
-            } => {
-                let compact = reviewer_policy.compact_tool_result(content, &scope.capabilities);
-                messages.push(json!({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": call_id.0,
-                        "content": serde_json::to_string(&compact).map_err(|_| {
-                            RuntimeError::Invariant("tool result serialization failed")
-                        })?,
-                        "is_error": !content.ok,
-                    }],
-                }));
-            }
-        }
-    }
+    let system: Vec<&str> = transcript
+        .iter()
+        .filter_map(|item| match item {
+            ConversationItem::System { content } => Some(content.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut messages = assembly.assemble(&scope.id.0, &scope.capabilities, transcript, |item| {
+        anthropic_message_for_item(reviewer_policy, tool_registry, scope, item)
+    })?;
 
+    // The breakpoint is applied to this call's clone, never to the cached
+    // rendering, so the cached prefix stays byte-stable across turns.
+    mark_latest_tool_result_cache_breakpoint(&mut messages);
     let tools = anthropic_tools(
         reviewer_policy,
         tool_registry,
@@ -312,7 +361,12 @@ fn anthropic_request_body(
         "messages": messages,
     });
     if !system.is_empty() {
-        body["system"] = json!(system.join("\n\n"));
+        // Block form so the stable system prompt can carry a cache breakpoint.
+        body["system"] = json!([{
+            "type": "text",
+            "text": system.join("\n\n"),
+            "cache_control": { "type": "ephemeral" },
+        }]);
     }
     // The Messages API rejects tool_choice without tools, so the text-only
     // final turn (capabilities cleared) omits both.
@@ -453,16 +507,22 @@ struct AnthropicMessageResponse {
 struct AnthropicUsage {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
 }
 
 impl AnthropicUsage {
     fn into_token_usage(self) -> TokenUsage {
-        let input_tokens = self.input_tokens.unwrap_or(0);
+        // Anthropic reports cache reads separately from input_tokens; fold
+        // them into input/total so cross-provider accounting stays uniform,
+        // and surface the cached share for cost visibility.
+        let cached_input_tokens = self.cache_read_input_tokens.unwrap_or(0);
+        let input_tokens = self.input_tokens.unwrap_or(0) + cached_input_tokens;
         let output_tokens = self.output_tokens.unwrap_or(0);
         TokenUsage {
             input_tokens,
             output_tokens,
             total_tokens: input_tokens + output_tokens,
+            cached_input_tokens,
         }
     }
 }
@@ -615,12 +675,18 @@ mod tests {
             &registry,
             &scope,
             &transcript,
+            &MessageAssemblyCache::new(),
         )
         .expect("request body");
 
         assert_eq!(body["model"], "claude-opus-4-8");
         assert_eq!(body["max_tokens"], 1_024);
-        assert_eq!(body["system"], "Be terse.\n\nCite evidence.");
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["text"], "Be terse.\n\nCite evidence.");
+        assert_eq!(
+            body["system"][0]["cache_control"],
+            json!({ "type": "ephemeral" })
+        );
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
 
@@ -639,6 +705,11 @@ mod tests {
         assert_eq!(tool_result["tool_use_id"], "call-1");
         assert_eq!(tool_result["is_error"], true);
         assert!(tool_result["content"].is_string());
+        assert_eq!(
+            tool_result["cache_control"],
+            json!({ "type": "ephemeral" }),
+            "newest tool result must carry the moving cache breakpoint"
+        );
         assert_eq!(messages[3]["role"], "assistant");
         assert_eq!(messages[3]["content"], "Done.");
 
@@ -653,6 +724,77 @@ mod tests {
         assert_eq!(
             body["tool_choice"],
             json!({ "type": "auto", "disable_parallel_tool_use": true })
+        );
+    }
+
+    #[test]
+    fn cache_breakpoint_moves_to_newest_tool_result_only() {
+        let (registry, internal_tool, _) = aliased_registry();
+        let policy = ReviewerPolicy::new();
+        let scope = test_scope();
+        let transcript = vec![
+            ConversationItem::User {
+                content: "Start".to_string(),
+            },
+            ConversationItem::AssistantToolCalls {
+                calls: vec![ModelToolCall {
+                    call_id: ToolCallId("call-1".to_string()),
+                    index: 0,
+                    name: internal_tool.clone(),
+                    raw_arguments: r#"{"value":"a"}"#.to_string(),
+                }],
+            },
+            ConversationItem::ToolResult {
+                call_id: ToolCallId("call-1".to_string()),
+                name: internal_tool.clone(),
+                content: tool_result_envelope(true, "call-1"),
+            },
+            ConversationItem::AssistantToolCalls {
+                calls: vec![ModelToolCall {
+                    call_id: ToolCallId("call-2".to_string()),
+                    index: 0,
+                    name: internal_tool.clone(),
+                    raw_arguments: r#"{"value":"b"}"#.to_string(),
+                }],
+            },
+            ConversationItem::ToolResult {
+                call_id: ToolCallId("call-2".to_string()),
+                name: internal_tool,
+                content: tool_result_envelope(true, "call-2"),
+            },
+            ConversationItem::User {
+                content: "Continue.".to_string(),
+            },
+        ];
+
+        let body = anthropic_request_body(
+            &anthropic_profile(ToolCallingMode::Auto),
+            &policy,
+            &registry,
+            &scope,
+            &transcript,
+            &MessageAssemblyCache::new(),
+        )
+        .expect("request body");
+
+        let messages = body["messages"].as_array().expect("messages");
+        let older = &messages[2]["content"][0];
+        assert_eq!(older["type"], "tool_result");
+        assert!(
+            older.get("cache_control").is_none(),
+            "older tool results must keep byte-stable serialization"
+        );
+        let newest = &messages[4]["content"][0];
+        assert_eq!(newest["type"], "tool_result");
+        assert_eq!(newest["cache_control"], json!({ "type": "ephemeral" }));
+        assert!(
+            messages[5].get("content").expect("content").is_string(),
+            "trailing user instruction stays in string form"
+        );
+        let tool_use = &messages[3]["content"][0];
+        assert!(
+            tool_use.get("cache_control").is_none(),
+            "tool_use blocks never carry the breakpoint"
         );
     }
 
@@ -672,6 +814,7 @@ mod tests {
             &registry,
             &text_only,
             &transcript,
+            &MessageAssemblyCache::new(),
         )
         .expect("request body");
         assert!(body.get("tools").is_none(), "no tools without grants");
@@ -686,6 +829,7 @@ mod tests {
             &registry,
             &test_scope(),
             &transcript,
+            &MessageAssemblyCache::new(),
         )
         .expect("request body");
         assert_eq!(

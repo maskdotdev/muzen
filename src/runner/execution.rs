@@ -397,6 +397,7 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
         input_tokens: summary.input_tokens,
         output_tokens: summary.output_tokens,
         total_tokens: summary.total_tokens,
+        cached_input_tokens: summary.cached_input_tokens,
         artifacts: summary.artifacts,
         artifact_bytes: summary.artifact_bytes,
         snapshot_count: summary.snapshot_count,

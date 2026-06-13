@@ -580,6 +580,8 @@ pub struct RunnerRunSummary {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    #[serde(default)]
+    pub cached_input_tokens: u64,
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,

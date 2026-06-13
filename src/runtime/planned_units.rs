@@ -27,6 +27,7 @@ use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::{ConcurrentArtifactStore, ToolEngine};
+use crate::runtime::transcript::enforce_prompt_budget;
 
 pub(crate) struct PlannedReviewRuntime {
     pub(crate) snapshot: Arc<RepoSnapshot>,
@@ -81,37 +82,59 @@ impl PlannedReviewRuntime {
         let mut candidate_findings = Vec::new();
         let mut file_reviews = skipped_file_reviews(review_plan.as_ref());
 
-        // Units run concurrently, bounded by max_active_sessions. Reports are
-        // re-ordered by unit index before aggregation so findings, file
-        // reviews, and synthesis input stay deterministic regardless of
-        // completion order.
+        // Units run concurrently, bounded by max_active_sessions. High-risk
+        // units fan out into one session per distinct lens role; low-risk
+        // units keep a single session so token cost scales with stakes.
+        // Reports are re-ordered by (unit, lens) index before aggregation so
+        // findings, file reviews, and synthesis input stay deterministic
+        // regardless of completion order.
         let active = Arc::clone(&self.active_sessions);
         let mut joins = JoinSet::new();
-        for (index, unit) in unit_plan.units.iter().enumerate() {
-            let runtime = Arc::clone(&self);
-            let review_plan = Arc::clone(&review_plan);
-            let contract_risk = Arc::clone(&contract_risk);
-            let active = Arc::clone(&active);
-            let unit = unit.clone();
-            let cancel = cancel.child_token();
-            joins.spawn(async move {
-                let Ok(_permit) = active.acquire_owned().await else {
-                    return (
-                        index,
-                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
-                    );
-                };
-                if cancel.is_cancelled() {
-                    return (
-                        index,
-                        PlannedReviewUnitReport::empty(unit_diagnostic(&unit, false, "cancelled")),
-                    );
-                }
-                let report = runtime
-                    .run_unit(review_plan.as_ref(), contract_risk.as_ref(), unit, cancel)
-                    .await;
-                (index, report)
-            });
+        for (unit_index, unit) in unit_plan.units.iter().enumerate() {
+            let high_risk = contract_risk.unit_risk(unit).high_risk;
+            let lens_templates =
+                unit_lens_template_indices(&self.session_templates, high_risk, unit.score_max);
+            for (lens_index, template_index) in lens_templates.into_iter().enumerate() {
+                let runtime = Arc::clone(&self);
+                let review_plan = Arc::clone(&review_plan);
+                let contract_risk = Arc::clone(&contract_risk);
+                let active = Arc::clone(&active);
+                let unit = unit.clone();
+                let cancel = cancel.child_token();
+                joins.spawn(async move {
+                    let Ok(_permit) = active.acquire_owned().await else {
+                        return (
+                            (unit_index, lens_index),
+                            PlannedReviewUnitReport::empty(unit_diagnostic(
+                                &unit,
+                                false,
+                                "cancelled",
+                            )),
+                        );
+                    };
+                    if cancel.is_cancelled() {
+                        return (
+                            (unit_index, lens_index),
+                            PlannedReviewUnitReport::empty(unit_diagnostic(
+                                &unit,
+                                false,
+                                "cancelled",
+                            )),
+                        );
+                    }
+                    let report = runtime
+                        .run_unit(
+                            review_plan.as_ref(),
+                            contract_risk.as_ref(),
+                            unit,
+                            lens_index,
+                            template_index,
+                            cancel,
+                        )
+                        .await;
+                    ((unit_index, lens_index), report)
+                });
+            }
         }
         let mut unit_reports = Vec::with_capacity(unit_plan.units.len());
         while let Some(result) = joins.join_next().await {
@@ -119,8 +142,8 @@ impl PlannedReviewRuntime {
                 unit_reports.push(indexed);
             }
         }
-        unit_reports.sort_by_key(|(index, _)| *index);
-        for (_, report) in unit_reports {
+        unit_reports.sort_by_key(|(key, _)| *key);
+        for ((_, lens_index), report) in unit_reports {
             if report.completed {
                 completed_sessions += 1;
             }
@@ -129,10 +152,18 @@ impl PlannedReviewRuntime {
             tool_counts.add(report.tool_counts);
             tokens.add(report.tokens);
             candidate_findings.extend(report.candidate_findings);
-            file_reviews.extend(report.file_reviews);
+            // Only the primary lens owns per-file verdicts; secondary lens
+            // findings still flip verdicts via reconcile_file_reviews_with_findings.
+            if lens_index == 0 {
+                file_reviews.extend(report.file_reviews);
+            }
             completion_diagnostics.push(report.completion_diagnostic);
         }
-        if should_run_review_quality_enhancements(&self.session_templates) && !cancel.is_cancelled()
+        append_unverdicted_file_reviews(&unit_plan.units, &mut file_reviews);
+        if should_run_review_quality_enhancements(
+            self.limits.quality_pass_mode,
+            &self.session_templates,
+        ) && !cancel.is_cancelled()
         {
             let synthesis_report = self
                 .run_final_synthesis_pass(
@@ -159,7 +190,7 @@ impl PlannedReviewRuntime {
             &self.tools.artifacts,
             &self.review_revision_id,
         );
-        let findings = synthesis.findings;
+        let mut findings = synthesis.findings;
         for finding in &findings {
             self.events.emit_runtime_with_context(
                 RuntimeEventContext {
@@ -174,6 +205,20 @@ impl PlannedReviewRuntime {
                     tool_call_id: ToolCallId(format!("{}-synthesis", finding.id)),
                 },
             );
+        }
+        if should_run_review_quality_enhancements(
+            self.limits.quality_pass_mode,
+            &self.session_templates,
+        ) && !cancel.is_cancelled()
+            && !findings.is_empty()
+        {
+            let challenge_report = self
+                .run_finding_challenge_pass(&mut findings, cancel.child_token())
+                .await;
+            model_calls += challenge_report.model_calls;
+            add_model_metrics(&mut model_metrics, &challenge_report.model_metrics);
+            tokens.add(challenge_report.tokens);
+            completion_diagnostics.push(challenge_report.completion_diagnostic);
         }
         reconcile_file_reviews_with_findings(&mut file_reviews, &findings);
         completion_diagnostics.push(SessionCompletionDiagnostic {
@@ -202,7 +247,9 @@ impl PlannedReviewRuntime {
         let review_sessions = completion_diagnostics
             .iter()
             .filter(|diagnostic| {
-                diagnostic.session_id != "synthesis" && diagnostic.session_id != "final-synthesis"
+                diagnostic.session_id != "synthesis"
+                    && diagnostic.session_id != "final-synthesis"
+                    && diagnostic.session_id != "finding-challenge"
             })
             .count();
         let mut metrics = ConcurrentRunReport {
@@ -223,6 +270,7 @@ impl PlannedReviewRuntime {
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
             total_tokens: tokens.total_tokens,
+            cached_input_tokens: tokens.cached_input_tokens,
             artifacts,
             artifact_bytes,
             counters,
@@ -257,13 +305,12 @@ impl PlannedReviewRuntime {
         review_plan: &ReviewPlan,
         contract_risk: &ContractRiskPlan,
         unit: PlannedReviewUnit,
+        lens_index: usize,
+        template_index: Option<usize>,
         cancel: CancellationToken,
     ) -> PlannedReviewUnitReport {
-        let scope = unit_scope(
-            &unit,
-            &self.snapshot.snapshot_id,
-            self.session_templates.first(),
-        );
+        let template = template_index.and_then(|index| self.session_templates.get(index));
+        let scope = unit_scope(&unit, &self.snapshot.snapshot_id, template, lens_index);
         self.events
             .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
         let model = match self.model_router.client_for(&scope).await {
@@ -280,7 +327,12 @@ impl PlannedReviewRuntime {
         };
 
         let unit_risk = contract_risk.unit_risk(&unit);
-        let mut transcript = planned_unit_transcript(review_plan, &unit, unit_risk);
+        let mut transcript = planned_unit_transcript(
+            review_plan,
+            &unit,
+            unit_risk,
+            lens_focus(lens_index, scope.role),
+        );
         let mut evidence = SessionEvidence::for_scope(&scope);
         let mut tool_counts = ToolCounts::default();
         let mut model_metrics = ModelMetricsSnapshot::default();
@@ -289,7 +341,7 @@ impl PlannedReviewRuntime {
         let mut file_evidence = FileEvidenceTracker::new(&unit);
         let turn_limit = scope.budget.max_turns.max(1);
 
-        if should_run_review_quality_enhancements_for_scope(&scope) {
+        if should_run_review_quality_enhancements_for_scope(self.limits.quality_pass_mode, &scope) {
             bootstrap_unit_evidence(
                 self,
                 &scope,
@@ -309,6 +361,7 @@ impl PlannedReviewRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
+            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
@@ -621,16 +674,140 @@ impl PlannedReviewRuntime {
             }
         }
     }
+
+    /// Adversarial verification over validated findings: a single budgeted
+    /// challenger session attempts to refute each finding against the diff
+    /// evidence. Refuted findings stay in the report for audit but are
+    /// suppressed from publication and excluded from file-verdict
+    /// reconciliation.
+    async fn run_finding_challenge_pass(
+        &self,
+        findings: &mut [FindingV1],
+        cancel: CancellationToken,
+    ) -> FindingChallengeReport {
+        let scope =
+            finding_challenge_scope(&self.snapshot.snapshot_id, self.session_templates.first());
+        let model = match self.model_router.client_for(&scope).await {
+            Ok(model) => model,
+            Err(error) => {
+                self.events
+                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+                return FindingChallengeReport::empty(finding_challenge_diagnostic(
+                    false,
+                    "model_router_failed",
+                    0,
+                ));
+            }
+        };
+        let transcript =
+            finding_challenge_transcript(findings, self.snapshot.diff.content.as_str());
+        let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut tokens = TokenUsage::default();
+        let turn_id = TurnId(0);
+        self.events.emit_planned_runtime(
+            self.policy
+                .plan_model_started_runtime_event(&scope, turn_id),
+        );
+        let model_started = Instant::now();
+        let outcome = complete_model_turn(
+            &*model,
+            &self.policy,
+            &self.events,
+            &self.limits,
+            &scope,
+            &final_response_scope(&scope),
+            &transcript,
+            turn_id,
+            &cancel,
+        )
+        .await;
+        model_metrics.calls += outcome.attempts;
+        let turn = match outcome.result {
+            Ok(turn) => {
+                model_metrics.errors += outcome.attempts - 1;
+                turn
+            }
+            Err(error) => {
+                model_metrics.errors += outcome.attempts;
+                let summary = match error {
+                    RuntimeError::Timeout => "timeout",
+                    _ => "model_failed",
+                };
+                return FindingChallengeReport::empty(finding_challenge_diagnostic(
+                    false, summary, 0,
+                ));
+            }
+        };
+        model_metrics.successes += 1;
+        model_metrics.latency_ms += elapsed_ms(model_started);
+        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+        match turn {
+            ModelTurn::Text { content, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events.emit_planned_runtime(
+                    self.policy
+                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                );
+                let refuted = apply_challenge_verdicts(findings, &content, &scope.id.0);
+                FindingChallengeReport {
+                    model_calls: outcome.attempts,
+                    model_metrics,
+                    tokens,
+                    completion_diagnostic: finding_challenge_diagnostic(true, "done", refuted),
+                }
+            }
+            ModelTurn::ToolCalls { calls, usage } => {
+                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                self.events
+                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
+                        &scope,
+                        turn_id,
+                        calls.len(),
+                    ));
+                FindingChallengeReport {
+                    model_calls: outcome.attempts,
+                    model_metrics,
+                    tokens,
+                    completion_diagnostic: finding_challenge_diagnostic(
+                        false,
+                        "unexpected_tool_calls",
+                        0,
+                    ),
+                }
+            }
+        }
+    }
 }
 
-fn should_run_review_quality_enhancements(session_templates: &[SessionScope]) -> bool {
-    session_templates
-        .first()
-        .map(should_run_review_quality_enhancements_for_scope)
-        .unwrap_or(false)
+fn should_run_review_quality_enhancements(
+    mode: QualityPassMode,
+    session_templates: &[SessionScope],
+) -> bool {
+    match mode {
+        QualityPassMode::Enabled => true,
+        QualityPassMode::Disabled => false,
+        QualityPassMode::Auto => session_templates
+            .first()
+            .map(scope_matches_legacy_quality_heuristic)
+            .unwrap_or(false),
+    }
 }
 
-fn should_run_review_quality_enhancements_for_scope(scope: &SessionScope) -> bool {
+fn should_run_review_quality_enhancements_for_scope(
+    mode: QualityPassMode,
+    scope: &SessionScope,
+) -> bool {
+    match mode {
+        QualityPassMode::Enabled => true,
+        QualityPassMode::Disabled => false,
+        QualityPassMode::Auto => scope_matches_legacy_quality_heuristic(scope),
+    }
+}
+
+/// Legacy activation heuristic, kept as the `Auto` behavior: hosts that
+/// never set `quality_pass_mode` get quality passes exactly when their
+/// objective uses the historical phrasing with a deep-turn budget.
+fn scope_matches_legacy_quality_heuristic(scope: &SessionScope) -> bool {
     scope.budget.max_turns > 4
         && scope
             .objective
@@ -895,6 +1072,34 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
             }
         })
         .collect()
+}
+
+/// Coverage invariant: every planned file ends the run with some verdict.
+/// Sessions can fail, get cancelled, or return partial fileVerdicts on their
+/// final turn; silently dropping a file's review would overstate coverage,
+/// so the gap is made explicit as needs_review instead.
+fn append_unverdicted_file_reviews(
+    units: &[PlannedReviewUnit],
+    file_reviews: &mut Vec<FileReviewV1>,
+) {
+    for unit in units {
+        for path in &unit.file_paths {
+            let display = path.display();
+            if file_reviews.iter().any(|review| review.path == display) {
+                continue;
+            }
+            file_reviews.push(FileReviewV1 {
+                path: display,
+                verdict: "needs_review".to_string(),
+                summary: "Review session returned no verdict for this assigned file.".to_string(),
+                related_paths: Vec::new(),
+                evidence_artifact_ids: Vec::new(),
+                evidence_count: 0,
+                session_id: unit.id.clone(),
+                unit_id: unit.id.clone(),
+            });
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1354,6 +1559,24 @@ struct FinalSynthesisReport {
     completion_diagnostic: SessionCompletionDiagnostic,
 }
 
+struct FindingChallengeReport {
+    model_calls: usize,
+    model_metrics: ModelMetricsSnapshot,
+    tokens: TokenUsage,
+    completion_diagnostic: SessionCompletionDiagnostic,
+}
+
+impl FindingChallengeReport {
+    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
+        Self {
+            model_calls: 0,
+            model_metrics: ModelMetricsSnapshot::default(),
+            tokens: TokenUsage::default(),
+            completion_diagnostic,
+        }
+    }
+}
+
 impl PlannedReviewUnitReport {
     fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
         Self {
@@ -1462,10 +1685,92 @@ struct VerifiedSynthesisCandidates {
     rejection_reasons: BTreeMap<String, usize>,
 }
 
+/// Caps lens fan-out per high-risk unit so token cost stays bounded even when
+/// hosts pass many personas.
+const MAX_UNIT_LENSES: usize = 3;
+
+/// Units below this priority score keep a single lens even when contract risk
+/// is flagged. Broad classifiers (e.g. the repeated-callback-batch detector)
+/// can mark most of a pull request high-risk; lens fan-out should instead
+/// track stacked path sensitivity (security + api boundary and similar),
+/// which is what pushes a planner score to 80 or above.
+const LENS_FANOUT_MIN_SCORE: u8 = 80;
+
+/// Selects which session templates review one unit. Low-risk or low-score
+/// units (and runs with at most one template) keep today's single-session
+/// behavior; high-risk units whose planner score clears
+/// LENS_FANOUT_MIN_SCORE fan out across distinct-role templates, capped at
+/// MAX_UNIT_LENSES.
+fn unit_lens_template_indices(
+    templates: &[SessionScope],
+    high_risk: bool,
+    score_max: u8,
+) -> Vec<Option<usize>> {
+    if templates.is_empty() {
+        return vec![None];
+    }
+    if templates.len() == 1 || !high_risk || score_max < LENS_FANOUT_MIN_SCORE {
+        return vec![Some(0)];
+    }
+    let mut seen_roles: Vec<Role> = Vec::new();
+    let mut lenses = Vec::new();
+    for (index, template) in templates.iter().enumerate() {
+        if seen_roles.contains(&template.role) {
+            continue;
+        }
+        seen_roles.push(template.role);
+        lenses.push(Some(index));
+        if lenses.len() >= MAX_UNIT_LENSES {
+            break;
+        }
+    }
+    lenses
+}
+
+fn role_slug(role: Role) -> &'static str {
+    match role {
+        Role::Generalist => "generalist",
+        Role::Security => "security",
+        Role::Performance => "performance",
+        Role::Maintainability => "maintainability",
+        Role::Correctness => "correctness",
+        Role::Architecture => "architecture",
+        Role::Validator => "validator",
+    }
+}
+
+/// Lens framing appended to the unit system prompt. The primary lens keeps
+/// the unchanged generic prompt; secondary lenses get a role-specific focus
+/// so concurrent sessions on one unit actually look for different failure
+/// modes instead of triplicating the same review.
+fn lens_focus(lens_index: usize, role: Role) -> Option<&'static str> {
+    if lens_index == 0 {
+        return None;
+    }
+    Some(match role {
+        Role::Security => {
+            "Lens focus: security. Prioritize vulnerabilities introduced by the change: missing or weakened authorization and scoping checks, injection through user-controlled values (queries, commands, paths, templates), unsafe deserialization, secrets or credentials in code or logs, path traversal, server-side request forgery, insecure defaults, and trust-boundary violations between user input and privileged operations."
+        }
+        Role::Performance => {
+            "Lens focus: performance. Prioritize regressions introduced by the change: N+1 query patterns, unbounded loops or allocations, accidental quadratic work over collections that can grow, blocking calls on async paths, missing pagination or limits, repeated recomputation of invariant values, and new lock contention."
+        }
+        Role::Maintainability => {
+            "Lens focus: maintainability. Prioritize defects introduced by the change that will break under future edits: duplicated logic that must stay in sync, contracts implied but not enforced, dead or unreachable branches, and misleading names or comments that contradict behavior. Only report issues that are concretely wrong today, not style preferences."
+        }
+        Role::Architecture => {
+            "Lens focus: architecture. Prioritize cross-module defects introduced by the change: layering violations, dependency cycles, contract drift between modules that share data shapes, and abstractions bypassed in ways that break their invariants. Only report issues with concrete behavioral consequences supported by evidence."
+        }
+        Role::Validator | Role::Correctness | Role::Generalist => {
+            "Lens focus: independent verification. Re-derive the changed behavior from scratch instead of trusting the obvious reading: re-check boundary and interval math, equality and value semantics, persistent state updates, error and early-return paths, and caller/callee contracts. Challenge conclusions a first reviewer would reach quickly."
+        }
+    })
+}
+
 fn planned_unit_transcript(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
+    lens_focus: Option<&str>,
 ) -> Vec<ConversationItem> {
     let unit_paths = unit
         .file_paths
@@ -1493,10 +1798,14 @@ fn planned_unit_transcript(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let mut system = String::new();
+    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.");
+    if let Some(focus) = lens_focus {
+        system.push_str("\n\n");
+        system.push_str(focus);
+    }
     vec![
-        ConversationItem::System {
-            content: "You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.".to_string(),
-        },
+        ConversationItem::System { content: system },
         ConversationItem::User {
             content: format!(
                 "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for any changed file when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
@@ -1515,10 +1824,20 @@ fn unit_scope(
     unit: &PlannedReviewUnit,
     snapshot_id: &SnapshotId,
     template: Option<&SessionScope>,
+    lens_index: usize,
 ) -> SessionScope {
+    let role = template.map(|scope| scope.role).unwrap_or(Role::Generalist);
+    // The primary lens keeps the bare unit id so single-lens runs are
+    // byte-identical to the previous behavior; secondary lenses get a
+    // role-suffixed id that stays unique because lens roles are distinct.
+    let session_id = if lens_index == 0 {
+        unit.id.clone()
+    } else {
+        format!("{}#{}", unit.id, role_slug(role))
+    };
     SessionScope {
-        id: SessionId(unit.id.clone()),
-        role: template.map(|scope| scope.role).unwrap_or(Role::Generalist),
+        id: SessionId(session_id),
+        role,
         objective: template
             .map(|scope| format!("{} Planned unit {}.", scope.objective, unit.id))
             .unwrap_or_else(|| format!("Review planned unit {}.", unit.id)),
@@ -1565,12 +1884,150 @@ fn final_synthesis_scope(
         },
         snapshot_id,
         template,
+        0,
     );
     scope.id = SessionId("final-synthesis".to_string());
     scope.objective =
         "Synthesize final cross-file review findings from gathered review evidence.".to_string();
     scope.instructions = Vec::new();
     scope
+}
+
+fn finding_challenge_scope(
+    snapshot_id: &SnapshotId,
+    template: Option<&SessionScope>,
+) -> SessionScope {
+    let mut scope = unit_scope(
+        &PlannedReviewUnit {
+            id: "finding-challenge".to_string(),
+            file_paths: Vec::new(),
+            score_min: 0,
+            score_max: 0,
+            estimated_bytes: 0,
+            file_count: 0,
+            requires_further_split: false,
+        },
+        snapshot_id,
+        template,
+        0,
+    );
+    scope.id = SessionId("finding-challenge".to_string());
+    scope.role = Role::Validator;
+    scope.objective =
+        "Adversarially verify validated review findings against diff evidence.".to_string();
+    scope.instructions = Vec::new();
+    scope
+}
+
+fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<ConversationItem> {
+    let listed = findings
+        .iter()
+        .enumerate()
+        .map(|(index, finding)| {
+            let path = match finding.file_refs.first() {
+                Some(EvidenceLocationV1::SinglePath { path }) => path.as_str(),
+                _ => "unknown",
+            };
+            let lines = finding
+                .location_line_range
+                .as_ref()
+                .map(|range| format!("{}-{}", range.start_line, range.end_line))
+                .unwrap_or_else(|| "unknown".to_string());
+            format!(
+                "{index}. path={path} lines={lines} discoveredBy={} title={} claim={}",
+                finding.discovered_by.len(),
+                finding.title,
+                finding.claim
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    vec![
+        ConversationItem::System {
+            content: "You are an adversarial verifier for code review findings. For each numbered finding, attempt to refute it using only the provided diff evidence: check that the claimed defect is real, is anchored to changed lines, and is not a misreading of the code. Return strict JSON with key verdicts: a list of {index, verdict, reason} objects where verdict is one of confirmed, refuted, uncertain. Use refuted only when the diff evidence contradicts the claim or cannot support it; use uncertain when the evidence is incomplete. Cover every finding index.".to_string(),
+        },
+        ConversationItem::User {
+            content: format!(
+                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nReturn JSON now with key verdicts covering every finding index.",
+                diff_excerpt(diff, 120_000)
+            ),
+        },
+    ]
+}
+
+#[derive(Default, Deserialize)]
+struct StructuredChallengeResult {
+    #[serde(default)]
+    verdicts: Vec<StructuredChallengeVerdict>,
+}
+
+#[derive(Deserialize)]
+struct StructuredChallengeVerdict {
+    index: usize,
+    verdict: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    reason: String,
+}
+
+/// Applies challenger verdicts to findings and returns how many were refuted.
+/// Unknown indices and verdict strings are ignored, so a malformed response
+/// degrades to "no adjudication" instead of corrupting findings.
+fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenger: &str) -> usize {
+    let trimmed = content.trim();
+    let result = serde_json::from_str::<StructuredChallengeResult>(trimmed)
+        .or_else(|_| {
+            let Some(start) = trimmed.find('{') else {
+                return Ok(StructuredChallengeResult::default());
+            };
+            let Some(end) = trimmed.rfind('}') else {
+                return Ok(StructuredChallengeResult::default());
+            };
+            serde_json::from_str(&trimmed[start..=end])
+        })
+        .unwrap_or_default();
+    let mut refuted_count = 0usize;
+    for verdict in result.verdicts {
+        let Some(finding) = findings.get_mut(verdict.index) else {
+            continue;
+        };
+        match verdict.verdict.as_str() {
+            "refuted" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.validation_status = ValidationStatus::Challenged;
+                finding.report_status = ReportStatus::Suppressed;
+                finding.publishability = FindingPublishability::NotPublishable;
+                finding.confidence = REFUTED_CONFIDENCE;
+                refuted_count += 1;
+            }
+            "confirmed" => {
+                finding.confidence =
+                    (finding.confidence + CONFIRMED_CONFIDENCE_BOOST).min(MAX_CONFIDENCE);
+            }
+            _ => {}
+        }
+    }
+    refuted_count
+}
+
+fn finding_challenge_diagnostic(
+    completed: bool,
+    status: &str,
+    refuted_count: usize,
+) -> SessionCompletionDiagnostic {
+    SessionCompletionDiagnostic {
+        session_id: "finding-challenge".to_string(),
+        completed,
+        completion_kind: Some("structured_finding_challenge".to_string()),
+        completion_summary: Some(format!("{status} refutedFindings={refuted_count}")),
+        saw_diff: true,
+        saw_file: false,
+        saw_search: false,
+        model_calls: usize::from(completed),
+        tool_counts: ToolCounts::default(),
+    }
 }
 
 fn final_synthesis_transcript(
@@ -2211,6 +2668,9 @@ fn synthesize_findings(
             }
         }
     }
+    for finding in &mut findings {
+        finding.confidence = agreement_confidence(finding.discovered_by.len());
+    }
     SynthesisOutcome {
         findings,
         candidate_count,
@@ -2440,6 +2900,25 @@ fn normalize_finding_text(value: &str) -> String {
         .join(" ")
 }
 
+/// Baseline confidence for a single-discoverer validated finding; matches the
+/// fixed score findings carried before agreement-derived confidence existed.
+const BASE_CONFIDENCE: f32 = 0.72;
+/// Confidence earned per additional independent discovering session.
+const AGREEMENT_CONFIDENCE_STEP: f32 = 0.07;
+/// Agreement alone cannot push confidence past this; only the adversarial
+/// challenge pass confirms beyond it.
+const AGREEMENT_CONFIDENCE_CEILING: f32 = 0.93;
+/// Confidence assigned to findings the challenge pass refuted.
+const REFUTED_CONFIDENCE: f32 = 0.25;
+/// Confidence added when the challenge pass confirms a finding.
+const CONFIRMED_CONFIDENCE_BOOST: f32 = 0.07;
+const MAX_CONFIDENCE: f32 = 0.95;
+
+fn agreement_confidence(discoverers: usize) -> f32 {
+    let extra = discoverers.saturating_sub(1) as f32;
+    (BASE_CONFIDENCE + extra * AGREEMENT_CONFIDENCE_STEP).min(AGREEMENT_CONFIDENCE_CEILING)
+}
+
 fn merge_finding(existing: &mut FindingV1, duplicate: FindingV1) {
     for evidence in duplicate.evidence {
         if !existing
@@ -2459,6 +2938,12 @@ fn merge_finding(existing: &mut FindingV1, duplicate: FindingV1) {
 
 fn reconcile_file_reviews_with_findings(file_reviews: &mut [FileReviewV1], findings: &[FindingV1]) {
     for finding in findings {
+        if matches!(
+            finding.publishability,
+            FindingPublishability::NotPublishable
+        ) {
+            continue;
+        }
         let Some(EvidenceLocationV1::SinglePath { path }) = finding.file_refs.first() else {
             continue;
         };
@@ -2634,6 +3119,7 @@ pub(crate) fn record_usage(
     model_metrics.input_tokens += usage.input_tokens;
     model_metrics.output_tokens += usage.output_tokens;
     model_metrics.total_tokens += usage.total_tokens;
+    model_metrics.cached_input_tokens += usage.cached_input_tokens;
     if let Some(cost) = model.estimate_cost(&usage) {
         model_metrics.costed_calls += 1;
         model_metrics.estimated_input_cost_micro_usd += cost.input_cost_micro_usd;
@@ -2659,6 +3145,7 @@ pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &Mode
     target.input_tokens += report.input_tokens;
     target.output_tokens += report.output_tokens;
     target.total_tokens += report.total_tokens;
+    target.cached_input_tokens += report.cached_input_tokens;
 }
 
 fn unit_diagnostic(
@@ -2758,6 +3245,7 @@ mod tests {
         NeedsFiveTurns,
         AssertFinalTurnHasNoTools,
         FinalSynthesisFinding,
+        ChallengeRefutesFinding,
     }
 
     #[async_trait]
@@ -2788,6 +3276,23 @@ mod tests {
                 };
                 return Ok(ModelTurn::Text {
                     content: content.to_string(),
+                    usage: TokenUsage::default(),
+                });
+            }
+            if scope.id.0 == "finding-challenge" {
+                let verdict = match self.mode {
+                    TestModelMode::ChallengeRefutesFinding => "refuted",
+                    _ => "confirmed",
+                };
+                return Ok(ModelTurn::Text {
+                    content: json!({
+                        "verdicts": [{
+                            "index": 0,
+                            "verdict": verdict,
+                            "reason": "deterministic test verdict"
+                        }]
+                    })
+                    .to_string(),
                     usage: TokenUsage::default(),
                 });
             }
@@ -2861,7 +3366,7 @@ mod tests {
                     raw_arguments: "{}".to_string(),
                 }];
                 match self.mode {
-                    TestModelMode::AssignedFinding => {
+                    TestModelMode::AssignedFinding | TestModelMode::ChallengeRefutesFinding => {
                         calls.push(ModelToolCall {
                             call_id: ToolCallId(format!("{}-read-auth", scope.id.0)),
                             index: 1,
@@ -2902,7 +3407,7 @@ mod tests {
                             call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
                             index: 1,
                             name: ToolId::from(ToolName::ReadHeadFile),
-                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                            raw_arguments: r#"{"path":"apps/api/token-callback.ts"}"#.to_string(),
                         });
                     }
                     TestModelMode::HighRiskCleanWithContractEvidence => {
@@ -2910,7 +3415,7 @@ mod tests {
                             call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
                             index: 1,
                             name: ToolId::from(ToolName::ReadHeadFile),
-                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                            raw_arguments: r#"{"path":"apps/api/token-callback.ts"}"#.to_string(),
                         });
                         calls.push(ModelToolCall {
                             call_id: ToolCallId(format!("{}-search-callback", scope.id.0)),
@@ -2964,7 +3469,7 @@ mod tests {
                 });
             }
             let content = match self.mode {
-                TestModelMode::AssignedFinding => json!({
+                TestModelMode::AssignedFinding | TestModelMode::ChallengeRefutesFinding => json!({
                     "summary": "found one issue",
                     "fileVerdicts": [{
                         "path": "src/auth.rs",
@@ -3029,12 +3534,12 @@ mod tests {
                 }),
                 TestModelMode::HighRiskCleanWithoutContractEvidence => json!({
                     "summary": "high risk clean without contract evidence",
-                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "fileVerdicts": [{"path": "apps/api/token-callback.ts", "verdict": "clean"}],
                     "findings": []
                 }),
                 TestModelMode::HighRiskCleanWithContractEvidence => json!({
                     "summary": "high risk clean with contract evidence",
-                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "fileVerdicts": [{"path": "apps/api/token-callback.ts", "verdict": "clean"}],
                     "findings": []
                 }),
                 TestModelMode::BootstrapClean
@@ -3052,6 +3557,7 @@ mod tests {
                     input_tokens: 10,
                     output_tokens: 12,
                     total_tokens: 22,
+                    cached_input_tokens: 0,
                 },
             })
         }
@@ -3176,7 +3682,8 @@ mod tests {
 
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 3);
+        // unit (2) + final synthesis (1) + finding challenge (1)
+        assert_eq!(report.metrics.model_calls, 4);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -3188,6 +3695,89 @@ mod tests {
             .completion_diagnostics
             .iter()
             .any(|diagnostic| diagnostic.session_id == "final-synthesis" && diagnostic.completed));
+    }
+
+    #[tokio::test]
+    async fn challenge_pass_suppresses_refuted_findings() {
+        let report = run_test_review_with_quality_budget(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::ChallengeRefutesFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1, "refuted findings stay for audit");
+        let finding = &report.findings[0];
+        assert_eq!(finding.challenged_by, vec!["finding-challenge".to_string()]);
+        assert!(matches!(
+            finding.validation_status,
+            ValidationStatus::Challenged
+        ));
+        assert!(matches!(finding.report_status, ReportStatus::Suppressed));
+        assert!(matches!(
+            finding.publishability,
+            FindingPublishability::NotPublishable
+        ));
+        assert!((finding.confidence - REFUTED_CONFIDENCE).abs() < 1e-6);
+        assert_eq!(report.metrics.publishable_findings, 0);
+        let auth_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "src/auth.rs")
+            .expect("auth review");
+        assert_eq!(
+            auth_review.verdict, "clean",
+            "refuted finding must not flip the file verdict"
+        );
+        assert!(report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.session_id == "finding-challenge"
+                && diagnostic.completed
+                && diagnostic
+                    .completion_summary
+                    .as_deref()
+                    .is_some_and(|summary| summary.contains("refutedFindings=1"))));
+    }
+
+    #[tokio::test]
+    async fn challenge_pass_confirms_findings_and_boosts_confidence() {
+        let report = run_test_review_with_quality_budget(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::AssignedFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1);
+        let finding = &report.findings[0];
+        assert!(finding.challenged_by.is_empty());
+        assert!(matches!(
+            finding.publishability,
+            FindingPublishability::Publishable
+        ));
+        let expected = BASE_CONFIDENCE + CONFIRMED_CONFIDENCE_BOOST;
+        assert!(
+            (finding.confidence - expected).abs() < 1e-6,
+            "confirmed single-discoverer finding should score {expected}, got {}",
+            finding.confidence
+        );
+        assert_eq!(report.metrics.publishable_findings, 1);
+        let auth_review = report
+            .file_reviews
+            .iter()
+            .find(|review| review.path == "src/auth.rs")
+            .expect("auth review");
+        assert_eq!(auth_review.verdict, "issue_found");
+    }
+
+    #[test]
+    fn agreement_confidence_scales_with_discoverers_and_caps() {
+        assert!((agreement_confidence(1) - BASE_CONFIDENCE).abs() < 1e-6);
+        assert!(agreement_confidence(2) > agreement_confidence(1));
+        assert!(agreement_confidence(3) > agreement_confidence(2));
+        assert!(agreement_confidence(50) <= AGREEMENT_CONFIDENCE_CEILING);
     }
 
     #[test]
@@ -3236,7 +3826,7 @@ mod tests {
     async fn high_risk_clean_requires_contract_evidence() {
         let report = run_test_review(
             vec![(
-                "apps/api/callback.ts",
+                "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithoutContractEvidence,
@@ -3245,7 +3835,7 @@ mod tests {
 
         assert!(report.findings.is_empty());
         assert_eq!(report.file_reviews.len(), 1);
-        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].path, "apps/api/token-callback.ts");
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
         assert!(report.file_reviews[0]
             .summary
@@ -3256,7 +3846,7 @@ mod tests {
     async fn high_risk_clean_passes_with_seed_backed_search_evidence() {
         let report = run_test_review(
             vec![(
-                "apps/api/callback.ts",
+                "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithContractEvidence,
@@ -3265,7 +3855,7 @@ mod tests {
 
         assert!(report.findings.is_empty());
         assert_eq!(report.file_reviews.len(), 1);
-        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].path, "apps/api/token-callback.ts");
         assert_eq!(report.file_reviews[0].verdict, "clean");
         assert!(report.metrics.tool_counts.search_text > 0);
     }
@@ -3700,6 +4290,262 @@ mod tests {
             observed >= 2,
             "expected overlapping model calls across units, max in-flight was {observed}"
         );
+    }
+
+    fn lens_template(id: &str, role: Role) -> SessionScope {
+        SessionScope {
+            id: SessionId(id.to_string()),
+            role,
+            objective: "template".to_string(),
+            instructions: Vec::new(),
+            snapshot_id: None,
+            model_profile_id: None,
+            capabilities: CapabilitySet::review_read_only(),
+            budget: AgentBudget {
+                max_turns: 2,
+                max_tool_calls: 8,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+            },
+        }
+    }
+
+    #[test]
+    fn unit_lens_template_indices_dedupe_roles_and_cap_fanout() {
+        let hot = LENS_FANOUT_MIN_SCORE;
+        assert_eq!(unit_lens_template_indices(&[], true, hot), vec![None]);
+        let single = vec![lens_template("a", Role::Security)];
+        assert_eq!(
+            unit_lens_template_indices(&single, true, hot),
+            vec![Some(0)]
+        );
+        let many = vec![
+            lens_template("a", Role::Correctness),
+            lens_template("b", Role::Security),
+            lens_template("c", Role::Correctness),
+            lens_template("d", Role::Performance),
+            lens_template("e", Role::Maintainability),
+        ];
+        assert_eq!(unit_lens_template_indices(&many, false, hot), vec![Some(0)]);
+        assert_eq!(
+            unit_lens_template_indices(&many, true, hot - 1),
+            vec![Some(0)],
+            "high-risk units below the score gate keep a single lens"
+        );
+        assert_eq!(
+            unit_lens_template_indices(&many, true, hot),
+            vec![Some(0), Some(1), Some(3)]
+        );
+    }
+
+    #[test]
+    fn quality_pass_mode_overrides_legacy_phrase_heuristic() {
+        let plain = test_scope("plain");
+        let mut magic = test_scope("magic");
+        magic.objective =
+            "Review this production-materialized pull request for actionable correctness bugs."
+                .to_string();
+
+        assert!(!should_run_review_quality_enhancements(
+            QualityPassMode::Auto,
+            std::slice::from_ref(&plain)
+        ));
+        assert!(should_run_review_quality_enhancements(
+            QualityPassMode::Auto,
+            std::slice::from_ref(&magic)
+        ));
+        assert!(should_run_review_quality_enhancements(
+            QualityPassMode::Enabled,
+            std::slice::from_ref(&plain)
+        ));
+        assert!(
+            should_run_review_quality_enhancements(QualityPassMode::Enabled, &[]),
+            "explicit enable does not depend on templates"
+        );
+        assert!(!should_run_review_quality_enhancements(
+            QualityPassMode::Disabled,
+            std::slice::from_ref(&magic)
+        ));
+        assert!(should_run_review_quality_enhancements_for_scope(
+            QualityPassMode::Enabled,
+            &plain
+        ));
+        assert!(!should_run_review_quality_enhancements_for_scope(
+            QualityPassMode::Disabled,
+            &magic
+        ));
+    }
+
+    #[test]
+    fn unverdicted_assigned_files_get_explicit_needs_review() {
+        let unit = PlannedReviewUnit {
+            id: "unit-000".to_string(),
+            file_paths: vec![
+                RepoPath::parse("src/auth.rs").expect("path"),
+                RepoPath::parse("src/widget.rs").expect("path"),
+            ],
+            score_min: 35,
+            score_max: 70,
+            estimated_bytes: 100,
+            file_count: 2,
+            requires_further_split: false,
+        };
+        let mut reviews = vec![FileReviewV1 {
+            path: "src/auth.rs".to_string(),
+            verdict: "clean".to_string(),
+            summary: "reviewed".to_string(),
+            related_paths: Vec::new(),
+            evidence_artifact_ids: Vec::new(),
+            evidence_count: 1,
+            session_id: "unit-000".to_string(),
+            unit_id: "unit-000".to_string(),
+        }];
+
+        append_unverdicted_file_reviews(std::slice::from_ref(&unit), &mut reviews);
+
+        assert_eq!(reviews.len(), 2);
+        let widget = reviews
+            .iter()
+            .find(|review| review.path == "src/widget.rs")
+            .expect("widget review");
+        assert_eq!(widget.verdict, "needs_review");
+        assert_eq!(widget.unit_id, "unit-000");
+        assert_eq!(reviews[0].verdict, "clean", "existing reviews untouched");
+
+        append_unverdicted_file_reviews(std::slice::from_ref(&unit), &mut reviews);
+        assert_eq!(reviews.len(), 2, "invariant is idempotent");
+    }
+
+    #[test]
+    fn lens_focus_shapes_secondary_lens_prompts_only() {
+        assert!(lens_focus(0, Role::Security).is_none());
+        let snapshot = build_test_snapshot(vec![(
+            "src/widget.rs",
+            "pub fn render_widget() -> bool { true }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let contract_risk = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let unit = &unit_plan.units[0];
+        let unit_risk = contract_risk.unit_risk(unit);
+        let transcript =
+            planned_unit_transcript(&review_plan, unit, unit_risk, lens_focus(1, Role::Security));
+        let ConversationItem::System { content } = &transcript[0] else {
+            panic!("expected system item");
+        };
+        assert!(content.contains("Lens focus: security"));
+        let baseline = planned_unit_transcript(&review_plan, unit, unit_risk, None);
+        let ConversationItem::System { content: baseline } = &baseline[0] else {
+            panic!("expected system item");
+        };
+        assert!(!baseline.contains("Lens focus"));
+    }
+
+    #[tokio::test]
+    async fn high_risk_unit_fans_out_one_session_per_distinct_lens_role() {
+        let report = run_test_review_with_templates(
+            vec![(
+                "apps/api/token-callback.ts",
+                "export function callback() { return { credential_token: true }; }\n",
+            )],
+            TestModelMode::HighRiskCleanWithContractEvidence,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Correctness),
+                lens_template("persona-3", Role::Performance),
+                lens_template("persona-4", Role::Maintainability),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            report.metrics.sessions, 3,
+            "expected lens fan-out capped at {MAX_UNIT_LENSES}: {:?}",
+            report.metrics.completion_diagnostics
+        );
+        assert_eq!(report.metrics.completed_sessions, 3);
+        let session_ids: Vec<&str> = report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.session_id.as_str())
+            .collect();
+        assert!(session_ids.iter().any(|id| id.ends_with("#security")));
+        assert!(session_ids.iter().any(|id| id.ends_with("#performance")));
+        assert!(
+            !session_ids.iter().any(|id| id.contains("#correctness")),
+            "duplicate-role template must not add a lens: {session_ids:?}"
+        );
+        assert_eq!(
+            report.file_reviews.len(),
+            1,
+            "secondary lenses must not duplicate file reviews: {:?}",
+            report.file_reviews
+        );
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+    }
+
+    #[tokio::test]
+    async fn low_risk_units_keep_a_single_lens_session() {
+        let report = run_test_review_with_templates(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::LowRiskClean,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Performance),
+            ],
+        )
+        .await;
+
+        assert_eq!(report.metrics.sessions, 1);
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+    }
+
+    #[tokio::test]
+    async fn lens_sessions_merge_shared_findings_with_attribution() {
+        let report = run_test_review_with_templates(
+            vec![
+                (
+                    "apps/api/token-callback.ts",
+                    "export function callback() { return { credential_token: true }; }\n",
+                ),
+                ("src/auth.rs", "pub const allow_empty_token: bool = true;\n"),
+            ],
+            TestModelMode::AssignedFinding,
+            vec![
+                lens_template("persona-0", Role::Correctness),
+                lens_template("persona-1", Role::Security),
+                lens_template("persona-2", Role::Performance),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            report.findings.len(),
+            1,
+            "lens duplicates must merge: {:?}",
+            report.findings
+        );
+        let finding = &report.findings[0];
+        assert!(
+            finding.discovered_by.len() >= 3,
+            "merged finding should credit every discovering lens session: {:?}",
+            finding.discovered_by
+        );
+        assert!(finding
+            .discovered_by
+            .iter()
+            .any(|id| id.ends_with("#security")));
+        assert!(
+            finding.confidence > BASE_CONFIDENCE,
+            "independent agreement must outrank a single discoverer: {}",
+            finding.confidence
+        );
+        assert!(finding.confidence <= AGREEMENT_CONFIDENCE_CEILING);
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {
