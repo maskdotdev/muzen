@@ -31,10 +31,10 @@ async function main() {
     changedFilePaths,
     inlineDiff,
     model: args.model || DEFAULT_MODEL,
-    sessions: numberArg(args.sessions, 1),
-    maxActive: numberArg(args.maxActive, 1),
-    maxTurns: numberArg(args.maxTurns, 7),
-    maxToolCalls: numberArg(args.maxToolCalls, 14),
+    sessions: nonnegativeNumberArg(args.sessions, 0),
+    maxActive: numberArg(args.maxActive, 8),
+    maxTurns: numberArg(args.maxTurns, 10),
+    maxToolCalls: numberArg(args.maxToolCalls, 32),
     maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
   });
 
@@ -113,6 +113,13 @@ async function main() {
         qualityDiagnostics.contractEvidenceFailures ?? diagnostics.requiredEvidenceFailures,
       requiredEvidenceFailures:
         qualityDiagnostics.contractEvidenceFailures ?? diagnostics.requiredEvidenceFailures,
+      coverageCounts: qualityDiagnostics.coverageCounts ?? {},
+      coverageCountsByLens: qualityDiagnostics.coverageCountsByLens ?? {},
+      highRiskFilesBelowTarget: qualityDiagnostics.highRiskFilesBelowTarget ?? [],
+      challengeStatusCounts: qualityDiagnostics.challengeStatusCounts ?? {},
+      selectedContractPacks: qualityDiagnostics.selectedContractPacks ?? [],
+      omittedContractPackCandidates: qualityDiagnostics.omittedContractPackCandidates ?? [],
+      explicitCallerCapSessions: qualityDiagnostics.explicitCallerCapSessions ?? 0,
       rejectionReasons: qualityDiagnostics.rejectionReasons ?? {},
       contractRiskCompletionCount: diagnostics.contractRiskCompletionCount,
       searchCount: diagnostics.searchCount,
@@ -315,7 +322,7 @@ function buildRunnerStart({
       },
     })),
     limits: {
-      maxActiveSessions: Math.max(1, Math.min(maxActive, sessions)),
+      maxActiveSessions: sessions === 0 ? Math.max(1, maxActive) : Math.max(1, Math.min(maxActive, sessions)),
       maxFileBytes: 200 * 1024,
       maxSearchMatches: 120,
     },
@@ -515,6 +522,13 @@ function numberArg(value, fallback) {
   if (value == null) return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`invalid positive integer: ${value}`);
+  return parsed;
+}
+
+function nonnegativeNumberArg(value, fallback) {
+  if (value == null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`invalid non-negative integer: ${value}`);
   return parsed;
 }
 

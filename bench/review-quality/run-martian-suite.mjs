@@ -14,10 +14,10 @@ const args = parseArgs(process.argv.slice(2));
 const runnerPath = args.runnerPath || "target/release/muzen-runner";
 const outputDir = args.outputDir || "bench/results-review-quality/martian-suite";
 const model = args.model || process.env.MODEL || "gpt-5.4-mini";
-const sessions = args.sessions || "1";
-const maxActive = args.maxActive || "4";
-const maxTurns = args.maxTurns || "7";
-const maxToolCalls = args.maxToolCalls || "14";
+const sessions = args.sessions || "0";
+const maxActive = args.maxActive || "8";
+const maxTurns = args.maxTurns || "10";
+const maxToolCalls = args.maxToolCalls || "32";
 
 fs.mkdirSync(outputDir, { recursive: true });
 const results = [];

@@ -30,6 +30,7 @@ pub(crate) struct ReviewUnitOptions {
     pub(crate) max_files: usize,
     pub(crate) max_estimated_bytes: u64,
     pub(crate) isolate_score_at: u8,
+    pub(crate) max_units: usize,
 }
 
 impl Default for ReviewUnitOptions {
@@ -38,6 +39,7 @@ impl Default for ReviewUnitOptions {
             max_files: 4,
             max_estimated_bytes: 80 * 1024,
             isolate_score_at: 80,
+            max_units: 32,
         }
     }
 }
@@ -102,6 +104,7 @@ pub(crate) fn build_review_unit_plan(
             options,
         ));
     }
+    coalesce_units_to_cap(&mut units, options.max_units.max(1));
     ReviewUnitPlan {
         counts: ReviewUnitPlanCounts {
             total_units: units.len(),
@@ -113,6 +116,38 @@ pub(crate) fn build_review_unit_plan(
         },
         units,
     }
+}
+
+fn coalesce_units_to_cap(units: &mut Vec<PlannedReviewUnit>, max_units: usize) {
+    if units.len() <= max_units {
+        return;
+    }
+    let mut coalesced = Vec::with_capacity(max_units);
+    let chunk_size = units.len().div_ceil(max_units);
+    for (index, chunk) in units.chunks(chunk_size).enumerate() {
+        let mut file_paths = Vec::new();
+        let mut score_min = u8::MAX;
+        let mut score_max = 0u8;
+        let mut estimated_bytes = 0u64;
+        let mut requires_further_split = false;
+        for unit in chunk {
+            file_paths.extend(unit.file_paths.iter().cloned());
+            score_min = score_min.min(unit.score_min);
+            score_max = score_max.max(unit.score_max);
+            estimated_bytes = estimated_bytes.saturating_add(unit.estimated_bytes);
+            requires_further_split |= unit.requires_further_split;
+        }
+        coalesced.push(PlannedReviewUnit {
+            id: format!("unit-{:03}", index + 1),
+            file_count: file_paths.len(),
+            file_paths,
+            score_min: if score_min == u8::MAX { 0 } else { score_min },
+            score_max,
+            estimated_bytes,
+            requires_further_split: requires_further_split || chunk.len() > 1,
+        });
+    }
+    *units = coalesced;
 }
 
 fn finalize_unit(

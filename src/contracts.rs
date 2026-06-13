@@ -286,6 +286,115 @@ pub struct AgentBudget {
     pub max_tool_calls: usize,
     pub max_prompt_tokens: u64,
     pub max_output_tokens: u64,
+    #[serde(default)]
+    pub budget_source: BudgetSource,
+}
+
+impl AgentBudget {
+    pub fn planned_baseline() -> Self {
+        Self {
+            max_turns: 10,
+            max_tool_calls: 32,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: BudgetSource::PlannedDefault,
+        }
+    }
+
+    pub fn planned_high_risk() -> Self {
+        Self {
+            max_turns: 14,
+            max_tool_calls: 64,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: BudgetSource::AdaptiveReview,
+        }
+    }
+
+    pub fn planned_secondary_lens() -> Self {
+        Self {
+            max_turns: 6,
+            max_tool_calls: 20,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: BudgetSource::AdaptiveReview,
+        }
+    }
+
+    pub fn planned_high_value_secondary_lens() -> Self {
+        Self {
+            max_turns: 8,
+            max_tool_calls: 32,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: BudgetSource::AdaptiveReview,
+        }
+    }
+
+    pub fn planned_challenge() -> Self {
+        Self {
+            max_turns: 4,
+            max_tool_calls: 16,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: BudgetSource::RunReserve,
+        }
+    }
+
+    pub fn caller_hard_cap(
+        max_turns: usize,
+        max_tool_calls: usize,
+        max_prompt_tokens: u64,
+        max_output_tokens: u64,
+    ) -> Self {
+        Self {
+            max_turns,
+            max_tool_calls,
+            max_prompt_tokens,
+            max_output_tokens,
+            budget_source: BudgetSource::CallerHardCap,
+        }
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BudgetSource {
+    CallerHardCap,
+    #[default]
+    PlannedDefault,
+    AdaptiveReview,
+    RunReserve,
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewCoverage {
+    Full,
+    Standard,
+    #[default]
+    Sampled,
+    Insufficient,
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewVerdict {
+    #[default]
+    Clean,
+    IssueFound,
+    NeedsReview,
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChallengeStatus {
+    Confirmed,
+    Refuted,
+    Insufficient,
+    #[default]
+    NotRun,
+    Incomplete,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -347,6 +456,10 @@ pub(crate) enum RedactionState {
 pub struct FileReviewV1 {
     pub path: String,
     pub verdict: String,
+    #[serde(default)]
+    pub coverage: ReviewCoverage,
+    #[serde(default)]
+    pub review_verdict: ReviewVerdict,
     pub summary: String,
     #[serde(default)]
     pub related_paths: Vec<String>,
@@ -471,6 +584,7 @@ pub(crate) struct FindingV1 {
     pub(crate) validation_status: ValidationStatus,
     pub(crate) report_status: ReportStatus,
     pub(crate) publishability: FindingPublishability,
+    pub(crate) challenge_status: ChallengeStatus,
     pub(crate) evidence: Vec<EvidenceRefV1>,
     pub(crate) file_refs: Vec<EvidenceLocationV1>,
     pub(crate) location_line_range: Option<LineRangeV1>,

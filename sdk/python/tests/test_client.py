@@ -727,6 +727,10 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(approval["learning"]["status"], "approved")
         self.assertEqual(result.conclusion, "approved")
         self.assertEqual(requests[0]["authorization"], "Bearer test-token")
+        feedback_request = requests[10]["body"]
+        self.assertEqual(feedback_request["source"]["type"], "local")
+        self.assertEqual(feedback_request["source"]["repo"], "/repo")
+        self.assertNotIn("learningSource", feedback_request)
         self.assertEqual(
             [request["path"] for request in requests],
             [

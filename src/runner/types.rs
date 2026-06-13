@@ -586,6 +586,10 @@ pub struct RunnerSessionOutput {
 pub struct RunnerFileReview {
     pub path: String,
     pub verdict: String,
+    #[serde(default)]
+    pub coverage: String,
+    #[serde(default)]
+    pub review_verdict: String,
     pub summary: String,
     #[serde(default)]
     pub related_paths: Vec<String>,
@@ -627,7 +631,25 @@ pub struct RunnerReviewQualityDiagnostics {
     pub contract_risk_units: usize,
     pub contract_seed_count: usize,
     pub contract_pack_count: usize,
+    #[serde(default)]
+    pub omitted_contract_pack_candidates: Vec<String>,
+    #[serde(default)]
+    pub selected_contract_packs: Vec<String>,
     pub contract_evidence_failures: usize,
+    #[serde(default)]
+    pub coverage_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub coverage_counts_by_lens: BTreeMap<String, BTreeMap<String, usize>>,
+    #[serde(default)]
+    pub high_risk_files_below_target: Vec<String>,
+    #[serde(default)]
+    pub challenge_status_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub sessions_run: usize,
+    #[serde(default)]
+    pub budgets_used: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub explicit_caller_cap_sessions: usize,
     pub candidate_findings: usize,
     pub rescued_candidates: usize,
     pub rejected_candidates: usize,
@@ -649,6 +671,8 @@ pub struct RunnerFinding {
     pub confidence: Option<f32>,
     #[serde(default)]
     pub validation_status: Option<String>,
+    #[serde(default)]
+    pub challenge_status: Option<String>,
     #[serde(default)]
     pub evidence: Vec<RunnerFindingEvidence>,
     #[serde(default)]

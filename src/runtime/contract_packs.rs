@@ -6,12 +6,14 @@ use crate::runtime::contracts::{stable_id, RepoPath};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContractPackPlan {
     pub(crate) packs: Vec<ContractPack>,
+    pub(crate) omitted_candidates: Vec<OmittedContractPackCandidate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContractPack {
     pub(crate) id: String,
     pub(crate) kind: ContractPackKind,
+    pub(crate) score: i32,
     pub(crate) primary_path: RepoPath,
     pub(crate) related_paths: Vec<RepoPath>,
     pub(crate) seed_queries: Vec<String>,
@@ -19,6 +21,15 @@ pub(crate) struct ContractPack {
     pub(crate) questions: Vec<String>,
     pub(crate) publishability_criteria: Vec<String>,
     pub(crate) summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OmittedContractPackCandidate {
+    pub(crate) id: String,
+    pub(crate) kind: ContractPackKind,
+    pub(crate) score: i32,
+    pub(crate) affected_paths: Vec<RepoPath>,
+    pub(crate) omission_reason: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +42,10 @@ pub(crate) enum ContractPackKind {
 
 impl ContractPackPlan {
     pub(crate) fn empty() -> Self {
-        Self { packs: Vec::new() }
+        Self {
+            packs: Vec::new(),
+            omitted_candidates: Vec::new(),
+        }
     }
 
     pub(crate) fn pack_count(&self) -> usize {
@@ -87,6 +101,7 @@ pub(crate) fn build_contract_pack_plan(
         packs.push(ContractPack {
             id: stable_id(&["return-shape", &producer_path, &symbol]),
             kind: ContractPackKind::ReturnShape,
+            score: 0,
             primary_path,
             related_paths,
             seed_queries: vec![symbol.clone(), "return".to_string(), "credential".to_string()],
@@ -120,6 +135,7 @@ pub(crate) fn build_contract_pack_plan(
         packs.push(ContractPack {
             id: stable_id(&["credential-ownership", &path]),
             kind: ContractPackKind::CredentialOwnership,
+            score: 0,
             primary_path,
             related_paths: Vec::new(),
             seed_queries: vec![
@@ -158,6 +174,7 @@ pub(crate) fn build_contract_pack_plan(
         packs.push(ContractPack {
             id: stable_id(&["query-filter-scope", &path]),
             kind: ContractPackKind::QueryFilterScope,
+            score: 0,
             primary_path,
             related_paths: Vec::new(),
             seed_queries: vec![
@@ -193,6 +210,7 @@ pub(crate) fn build_contract_pack_plan(
         packs.push(ContractPack {
             id: stable_id(&["time-boundary", &path]),
             kind: ContractPackKind::TimeBoundary,
+            score: 0,
             primary_path,
             related_paths: Vec::new(),
             seed_queries: vec![
@@ -224,14 +242,84 @@ pub(crate) fn build_contract_pack_plan(
                 .to_string(),
         });
     }
+    for pack in &mut packs {
+        pack.score = score_contract_pack(pack, review_plan, head_contents);
+    }
     packs.sort_by(|left, right| {
-        left.primary_path
-            .display()
-            .cmp(&right.primary_path.display())
-            .then(left.id.cmp(&right.id))
+        right.score.cmp(&left.score).then_with(|| {
+            left.primary_path
+                .display()
+                .cmp(&right.primary_path.display())
+                .then(left.id.cmp(&right.id))
+        })
     });
     packs.dedup_by(|left, right| left.id == right.id);
-    ContractPackPlan { packs }
+    let adaptive_cap = adaptive_contract_pack_cap(review_plan);
+    let omitted_candidates = if packs.len() > adaptive_cap {
+        packs
+            .split_off(adaptive_cap)
+            .into_iter()
+            .map(|pack| OmittedContractPackCandidate {
+                id: pack.id,
+                kind: pack.kind,
+                score: pack.score,
+                affected_paths: std::iter::once(pack.primary_path)
+                    .chain(pack.related_paths)
+                    .collect(),
+                omission_reason: "below_adaptive_contract_pack_cap".to_string(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    ContractPackPlan {
+        packs,
+        omitted_candidates,
+    }
+}
+
+fn adaptive_contract_pack_cap(review_plan: &ReviewPlan) -> usize {
+    let changed_lines = review_plan
+        .files
+        .iter()
+        .filter(|file| file.mode == ReviewPlanFileMode::Full)
+        .map(|file| file.estimated_bytes.unwrap_or(0) as usize / 80)
+        .sum::<usize>();
+    let high_risk_files = review_plan
+        .files
+        .iter()
+        .filter(|file| file.score >= 80)
+        .count();
+    (4 + changed_lines.div_ceil(5000) + high_risk_files.div_ceil(2)).clamp(0, 32)
+}
+
+fn score_contract_pack(
+    pack: &ContractPack,
+    review_plan: &ReviewPlan,
+    head_contents: &BTreeMap<String, String>,
+) -> i32 {
+    let severity = match pack.kind {
+        ContractPackKind::CredentialOwnership => 100,
+        ContractPackKind::QueryFilterScope => 95,
+        ContractPackKind::ReturnShape => 80,
+        ContractPackKind::TimeBoundary => 65,
+    };
+    let primary_score = review_plan
+        .files
+        .iter()
+        .find(|file| file.path == pack.primary_path)
+        .map(|file| i32::from(file.score) / 10)
+        .unwrap_or(0);
+    let evidence_quality = 10
+        + i32::from(!pack.related_paths.is_empty()) * 8
+        + i32::from(head_contents.contains_key(&pack.primary_path.display())) * 6
+        + i32::from(pack.related_paths.iter().any(|path| {
+            let lower = path.display().to_ascii_lowercase();
+            lower.contains("test") || lower.contains("fixture")
+        })) * 5;
+    let breadth_risk = (pack.related_paths.len() as i32 * 5).min(15) + primary_score.min(10);
+    let cost_penalty = if pack.related_paths.len() > 8 { 15 } else { 0 };
+    severity + evidence_quality + breadth_risk - cost_penalty
 }
 
 fn added_lines_by_path(diff: &str) -> BTreeMap<String, Vec<String>> {

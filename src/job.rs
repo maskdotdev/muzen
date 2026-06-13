@@ -53,10 +53,11 @@ pub(crate) fn default_personas(job: &ReviewRunJobV1) -> Vec<PersonaSpecV1> {
             model_profile_id: Some(job.default_model_profile_id.clone()),
             allowed_tools: ToolMask::review_read_only(),
             budget: AgentBudget {
-                max_turns: 7,
-                max_tool_calls: 14,
+                max_turns: 10,
+                max_tool_calls: 32,
                 max_prompt_tokens: 32_000,
-                max_output_tokens: 1_024,
+                max_output_tokens: 8_000,
+                budget_source: BudgetSource::PlannedDefault,
             },
         })
         .collect()

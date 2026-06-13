@@ -433,6 +433,7 @@ pub struct FindingView {
     pub discovered_by: Vec<String>,
     pub validated_by: Vec<String>,
     pub challenged_by: Vec<String>,
+    pub challenge_status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -473,7 +474,18 @@ impl FindingView {
             discovered_by: finding.discovered_by.clone(),
             validated_by,
             challenged_by: finding.challenged_by.clone(),
+            challenge_status: challenge_status_name(finding.challenge_status).to_string(),
         }
+    }
+}
+
+fn challenge_status_name(status: crate::contracts::ChallengeStatus) -> &'static str {
+    match status {
+        crate::contracts::ChallengeStatus::Confirmed => "confirmed",
+        crate::contracts::ChallengeStatus::Refuted => "refuted",
+        crate::contracts::ChallengeStatus::Insufficient => "insufficient",
+        crate::contracts::ChallengeStatus::NotRun => "not_run",
+        crate::contracts::ChallengeStatus::Incomplete => "incomplete",
     }
 }
 

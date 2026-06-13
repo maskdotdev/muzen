@@ -867,6 +867,7 @@ fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> S
             max_tool_calls: 1,
             max_prompt_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS as u64,
             max_output_tokens: max_output_tokens as u64,
+            budget_source: crate::contracts::BudgetSource::RunReserve,
         },
     }
 }
