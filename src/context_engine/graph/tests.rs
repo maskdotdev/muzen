@@ -155,6 +155,16 @@ fn importer_paths(graph: &ContextGraph, path: &str) -> Vec<(RepoPath, ContextEdg
         .collect()
 }
 
+fn connects(edge: &ContextEdge, left: &str, right: &str) -> bool {
+    let left = repo_path(left);
+    let right = repo_path(right);
+    matches!(
+        (edge.from_path(), edge.to_path()),
+        (Some(from), Some(to))
+            if (*from == left && *to == right) || (*from == right && *to == left)
+    )
+}
+
 // ---- resolution -------------------------------------------------------
 
 #[test]
@@ -224,6 +234,47 @@ fn unresolvable_module_degrades_to_name_match_with_low_confidence() {
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].1, ContextEdgeKind::References);
     assert!(edges[0].2 < 0.8, "name-match fallback is low confidence");
+}
+
+#[test]
+fn feature_slice_edges_require_local_token_overlap() {
+    let changed = "apps/web/src/features/review/components/diff/description-stream-page.tsx";
+    let matching = "apps/web/src/features/review/server/description/review-description.ts";
+    let unrelated = "apps/web/src/features/review/server/comment-publish.ts";
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path(changed),
+        parsed(&["DescriptionStreamPage"], Vec::new()),
+    );
+    files.insert(
+        repo_path(matching),
+        parsed(&["buildReviewDescription"], Vec::new()),
+    );
+    files.insert(
+        repo_path(unrelated),
+        parsed(&["publishReviewComment"], Vec::new()),
+    );
+
+    let graph = GraphSpec::new(&files).with_changed(&[changed]).build();
+    let feature_edges = graph
+        .edges()
+        .filter(|edge| {
+            edge.kind == ContextEdgeKind::SameModule
+                && edge.reason.starts_with("same feature slice")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        feature_edges
+            .iter()
+            .any(|edge| connects(edge, changed, matching)),
+        "shared local token 'description' creates a bounded feature-slice edge"
+    );
+    assert!(
+        !feature_edges
+            .iter()
+            .any(|edge| connects(edge, changed, unrelated)),
+        "same feature root alone is not enough"
+    );
 }
 
 #[test]
@@ -806,6 +857,40 @@ fn test_importers_surface_as_tests_relationship() {
         candidate.relationship_kind() == ContextRelationshipKind::Tests
             && candidate.repo_path() == Some(&repo_path("tests/core_test.rs"))
     }));
+}
+
+#[test]
+fn terminal_lateral_candidates_emit_their_direct_tests() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        repo_path("src/feature/request.ts"),
+        parsed(&["parseRequest"], Vec::new()),
+    );
+    files.insert(
+        repo_path("src/feature/route.ts"),
+        parsed(&["handler"], Vec::new()),
+    );
+    files.insert(
+        repo_path("src/feature/__tests__/route.test.ts"),
+        parsed(&["routeWorks"], vec![import("../route", &["handler"])]),
+    );
+
+    let graph = GraphSpec::new(&files)
+        .with_changed(&["src/feature/request.ts"])
+        .build();
+    let expansion = graph.expand(default_request());
+    let test_candidate = expansion.candidates.iter().find(|candidate| {
+        candidate.repo_path() == Some(&repo_path("src/feature/__tests__/route.test.ts"))
+    });
+
+    assert!(
+        test_candidate.is_some_and(|candidate| candidate
+            .path
+            .steps
+            .iter()
+            .any(|step| step.kind == ContextEdgeKind::Tests)),
+        "tests of a same-module candidate should surface without opening broad lateral traversal"
+    );
 }
 
 #[test]

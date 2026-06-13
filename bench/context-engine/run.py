@@ -12,19 +12,27 @@ Case files use schema `muzen.context-eval-case.v2`:
   this repository or a cloneable path/URL for an external corpus repository.
 - Cases with `"strict": true` fail the run on any missed expected path or
   range. Non-strict (mined) cases are graded with ranking metrics instead.
+- `truthSource` may be set on a case file or case; otherwise it is inferred as
+  `fixture`, `mined_followup`, or `curated`. This separates causal fixtures
+  from future-follow-up stress labels in the reported cohorts.
 - Redaction and prompt-injection violations always fail the run.
 
 A committed baseline (`baseline.json`) gates ranking regressions: the run
-fails when recall@10 or nDCG@10 drops more than `--tolerance` below it.
+fails when gated quality metrics drop more than `--tolerance` below it. Optional
+ablation reports rerun the same public CLI with one context signal disabled and
+write metric deltas without using hidden harness hooks.
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from math import log2
@@ -38,12 +46,51 @@ DEFAULT_BASELINE = ROOT / "bench" / "context-engine" / "baseline.json"
 CORPUS_CACHE = ROOT / "bench" / "context-engine" / "corpus"
 CASE_SCHEMA_VERSION = "muzen.context-eval-case.v2"
 SUMMARY_SCHEMA_VERSION = "muzen.context-eval-summary.v2"
-GATED_METRICS = ("meanRecallAt10", "meanNdcgAt10")
+ABLATION_SCHEMA_VERSION = "muzen.context-eval-ablation.v1"
+CONTEXT_SIGNAL_ABLATIONS = (
+    "graph",
+    "co-change",
+    "path-proximity",
+    "lexical-change",
+    "test-coverage",
+    "semantic-change",
+)
+GATED_METRICS = (
+    "meanRecallAt5",
+    "meanRecallAt10",
+    "meanNdcgAt10",
+    "meanRecallAt25",
+    "meanCandidateRecall",
+    "sufficiencyInsufficientWhenIncomplete",
+    "firstRelevantRate",
+    "meanUsefulEvidencePer1kTokens",
+)
+GATED_MAX_METRICS = {"meanTokensToFirstRelevant": 128.0}
+GATED_MAX_RATE_METRICS = {
+    "candidatePresentMissRate": 0.005,
+    "candidatePresentMissCaseRate": 0.01,
+    "meanCandidatePresentMissRate": 0.005,
+}
+GATED_COHORTS = (
+    ("byKind", "pack"),
+    ("bySourceGroup", "external"),
+    ("bySourceGroup", "self"),
+    ("byTruthSource", "fixture"),
+    ("byTruthSource", "mined_followup"),
+    ("byTruthSource", "curated"),
+)
+TRUTH_SOURCES = {"fixture", "mined_followup", "curated"}
+_DERIVED_CACHE_LOCKS_GUARD = threading.Lock()
+_DERIVED_CACHE_LOCKS: dict[str, threading.Lock] = {}
 
 
 @dataclass(frozen=True)
 class CaseResult:
     id: str
+    case_set: str
+    source_kind: str
+    source_group: str
+    truth_source: str
     kind: str
     strict: bool
     recall: float
@@ -52,13 +99,18 @@ class CaseResult:
     recall_at_10: float
     recall_at_25: float
     ndcg_at_10: float
+    candidate_recall: float
+    first_relevant_rank: int | None
     tokens_to_first_relevant: int | None
     secret_redaction_correct: bool
     prompt_injection_resistant: bool
     useful_evidence_per_1k_tokens: float
     latency_ms: float
     expected_paths: list[str]
+    candidate_expected_count: int
     retrieved_paths: list[str]
+    candidate_missed_paths: list[str]
+    candidate_present_missed_paths: list[str]
     missed_paths: list[str]
     unexpected_paths: list[str]
     forbidden_content_hits: list[str]
@@ -69,6 +121,7 @@ class CaseResult:
     omitted: int
     sufficiency_status: str | None
     sufficiency_blocking_gaps: int
+    sufficiency_false_sufficient: bool
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,6 +159,15 @@ def parse_args() -> argparse.Namespace:
         "--write-baseline",
         action="store_true",
         help="Write the run's metrics as the new baseline instead of gating.",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=positive_int,
+        default=1,
+        help=(
+            "Run independent cases in parallel. Cases sharing one derived cache "
+            "are serialized so cache writes stay deterministic."
+        ),
     )
     parser.add_argument(
         "--hosted-semantic",
@@ -156,7 +218,42 @@ def parse_args() -> argparse.Namespace:
         "--rerank-credential-ref",
         help="Credential reference (env:NAME) for the rerank endpoint.",
     )
+    parser.add_argument(
+        "--ablate-context-signal",
+        action="append",
+        choices=CONTEXT_SIGNAL_ABLATIONS,
+        default=[],
+        help=(
+            "Pass through one public context signal ablation to the muzen CLI. "
+            "Repeatable; intended for single-variant debugging."
+        ),
+    )
+    parser.add_argument(
+        "--ablation-report",
+        type=Path,
+        help=(
+            "Write an ablation report by rerunning variants with one context "
+            "signal disabled. Variants are reported as deltas and are not "
+            "regression-gated."
+        ),
+    )
+    parser.add_argument(
+        "--ablation-signal",
+        action="append",
+        choices=CONTEXT_SIGNAL_ABLATIONS,
+        help=(
+            "Signal to include in --ablation-report. Repeatable; defaults to "
+            "all supported signals."
+        ),
+    )
     return parser.parse_args()
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return parsed
 
 
 def load_case_files(cases_dir: Path) -> list[dict[str, Any]]:
@@ -188,9 +285,42 @@ def validate_case_file(case_file: dict[str, Any], path: Path) -> None:
         )
     if not case_file.get("cases"):
         raise SystemExit(f"{path}: case file declares no cases")
+    validate_host_context(case_file, path, "case file")
+    validate_truth_source(case_file, path, "case file")
     for case in case_file["cases"]:
         if not case.get("expectedPaths"):
             raise SystemExit(f"{path}: case {case.get('id')!r} has no ground-truth expectedPaths")
+        validate_host_context(case, path, f"case {case.get('id')!r}")
+        validate_truth_source(case, path, f"case {case.get('id')!r}")
+
+
+def validate_truth_source(doc: dict[str, Any], path: Path, label: str) -> None:
+    truth_source = doc.get("truthSource")
+    if truth_source is None:
+        return
+    if truth_source not in TRUTH_SOURCES:
+        allowed = ", ".join(sorted(TRUTH_SOURCES))
+        raise SystemExit(f"{path}: {label} truthSource must be one of {allowed}")
+
+
+def validate_host_context(doc: dict[str, Any], path: Path, label: str) -> None:
+    metadata = doc.get("hostMetadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise SystemExit(f"{path}: {label} hostMetadata must be a JSON object")
+    instructions = doc.get("hostInstructions")
+    if instructions is None:
+        return
+    if not isinstance(instructions, list):
+        raise SystemExit(f"{path}: {label} hostInstructions must be a JSON array")
+    for index, instruction in enumerate(instructions):
+        if not isinstance(instruction, dict):
+            raise SystemExit(f"{path}: {label} hostInstructions[{index}] must be an object")
+        if not isinstance(instruction.get("kind"), str) or not instruction["kind"].strip():
+            raise SystemExit(f"{path}: {label} hostInstructions[{index}].kind must be a string")
+        if not isinstance(instruction.get("text"), str) or not instruction["text"].strip():
+            raise SystemExit(f"{path}: {label} hostInstructions[{index}].text must be a string")
+        if not isinstance(instruction.get("trusted"), bool):
+            raise SystemExit(f"{path}: {label} hostInstructions[{index}].trusted must be a boolean")
 
 
 def resolve_origin(source: dict[str, Any]) -> str:
@@ -252,6 +382,24 @@ def materialize_diff(source: dict[str, Any]) -> Path | None:
     return diff_path
 
 
+def prepare_corpus(case_files: list[dict[str, Any]]) -> None:
+    """Serial setup avoids clone/diff races before parallel case execution."""
+    seen: set[tuple[str, str | None, str | None, str | None]] = set()
+    for case_file in case_files:
+        source = case_file["repoSource"]
+        key = (
+            source["kind"],
+            source.get("origin"),
+            source.get("commit"),
+            source.get("path"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        materialize_repo(source)
+        materialize_diff(source)
+
+
 def base_command(muzen_bin: Path | None) -> list[str]:
     if muzen_bin:
         return [str(muzen_bin)]
@@ -274,6 +422,9 @@ def run_context_case(
     cache_root = CORPUS_CACHE / "derived" / repo.name
     cache_root.mkdir(parents=True, exist_ok=True)
     command.extend(["--derived-cache-root", str(cache_root)])
+    cache_lock = derived_cache_lock(cache_root)
+    host_metadata = merged_host_metadata(case_file, case)
+    host_instructions = merged_host_instructions(case_file, case)
     for changed_file in case_file["changedFiles"]:
         command.extend(["--changed-file", changed_file])
     diff_path = materialize_diff(case_file["repoSource"])
@@ -329,6 +480,7 @@ def run_context_case(
             command.extend(["--rerank-model", args.rerank_model])
         if args.rerank_credential_ref:
             command.extend(["--rerank-credential-ref", args.rerank_credential_ref])
+    command.extend(context_ablation_command_args(args))
     if case.get("command") == "pack":
         command.extend(["--purpose", case.get("purpose", "general-review")])
         command.extend(["--max-tokens", str(case.get("maxTokens", 12000))])
@@ -343,15 +495,30 @@ def run_context_case(
         if "endLine" in case:
             command.extend(["--end-line", str(case["endLine"])])
 
-    started = time.perf_counter()
-    completed = subprocess.run(
-        command,
-        cwd=ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    host_tmp = tempfile.TemporaryDirectory(prefix="muzen-context-host-")
+    try:
+        host_tmp_path = Path(host_tmp.name)
+        if host_metadata:
+            metadata_path = host_tmp_path / "host-metadata.json"
+            metadata_path.write_text(json.dumps(host_metadata, sort_keys=True))
+            command.extend(["--host-metadata-json", str(metadata_path)])
+        if host_instructions:
+            instructions_path = host_tmp_path / "host-instructions.json"
+            instructions_path.write_text(json.dumps(host_instructions, sort_keys=True))
+            command.extend(["--host-instruction-json", str(instructions_path)])
+
+        with cache_lock:
+            started = time.perf_counter()
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+    finally:
+        host_tmp.cleanup()
     latency_ms = (time.perf_counter() - started) * 1000
     if completed.returncode != 0:
         raise SystemExit(
@@ -359,6 +526,37 @@ def run_context_case(
             f"stderr:\n{completed.stderr}"
         )
     return json.loads(completed.stdout), latency_ms
+
+
+def derived_cache_lock(cache_root: Path) -> threading.Lock:
+    key = str(cache_root)
+    with _DERIVED_CACHE_LOCKS_GUARD:
+        lock = _DERIVED_CACHE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _DERIVED_CACHE_LOCKS[key] = lock
+        return lock
+
+
+def context_ablation_command_args(args: argparse.Namespace) -> list[str]:
+    command_args: list[str] = []
+    for signal in getattr(args, "ablate_context_signal", []):
+        command_args.extend(["--ablate-context-signal", signal])
+    return command_args
+
+
+def merged_host_metadata(case_file: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    metadata.update(case_file.get("hostMetadata") or {})
+    metadata.update(case.get("hostMetadata") or {})
+    return metadata
+
+
+def merged_host_instructions(case_file: dict[str, Any], case: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        *(case_file.get("hostInstructions") or []),
+        *(case.get("hostInstructions") or []),
+    ]
 
 
 def recall_at_k(retrieved: list[str], expected: set[str], k: int) -> float:
@@ -385,6 +583,13 @@ def tokens_to_first_relevant(evidence: list[dict[str, Any]], expected: set[str])
         consumed += int(entry.get("tokenEstimate", 0))
         if entry.get("path") in expected:
             return consumed
+    return None
+
+
+def first_relevant_rank(retrieved: list[str], expected: set[str]) -> int | None:
+    for index, path in enumerate(retrieved, start=1):
+        if path in expected:
+            return index
     return None
 
 
@@ -439,7 +644,9 @@ def score_case(
         ranked_recall_at_10 = recall_at_k(eval_retrieved, eval_expected, 10)
         ranked_recall_at_25 = recall_at_k(eval_retrieved, eval_expected, 25)
         ranked_ndcg_at_10 = ndcg_at_k(eval_retrieved, eval_expected, 10)
+        first_relevant_path_rank = first_relevant_rank(eval_retrieved, eval_expected)
         first_relevant_tokens = tokens_to_first_relevant(eval_evidence, eval_expected)
+        candidate_expected = eval_expected
     else:
         # Every expected path is itself a changed file (fixture invariant
         # cases): grade against the full sets.
@@ -447,15 +654,50 @@ def score_case(
         ranked_recall_at_10 = recall_at_k(retrieved_unique, expected_set, 10)
         ranked_recall_at_25 = recall_at_k(retrieved_unique, expected_set, 25)
         ranked_ndcg_at_10 = ndcg_at_k(retrieved_unique, expected_set, 10)
+        first_relevant_path_rank = first_relevant_rank(retrieved_unique, expected_set)
         first_relevant_tokens = tokens_to_first_relevant(evidence, expected_set)
+        candidate_expected = expected_set
+    omitted_paths = (
+        [
+            candidate["path"]
+            for candidate in omitted
+            if isinstance(candidate, dict) and candidate.get("path")
+        ]
+        if isinstance(omitted, list)
+        else []
+    )
+    candidate_paths = set(eval_retrieved if eval_expected else retrieved_unique)
+    candidate_paths.update(path for path in omitted_paths if path not in changed_set)
+    if not eval_expected:
+        candidate_paths.update(omitted_paths)
+    candidate_missed_paths = sorted(candidate_expected - candidate_paths)
+    candidate_recall = (
+        len(candidate_expected - set(candidate_missed_paths)) / len(candidate_expected)
+        if candidate_expected
+        else 1.0
+    )
+    ranked_missed_paths = sorted(
+        (eval_expected - set(eval_retrieved)) if eval_expected else (expected_set - retrieved_set)
+    )
+    candidate_present_missed_paths = sorted(
+        set(ranked_missed_paths) - set(candidate_missed_paths)
+    )
     sufficiency = result.get("sufficiency") or {}
     sufficiency_blocking_gaps = sum(
         1
         for gap in sufficiency.get("gaps", [])
         if any(kind != "no_related_tests" for kind in gap.get("missing", []))
     )
+    false_sufficient = sufficiency.get("status") == "sufficient" and (
+        bool(missed_paths) or bool(missing_expected_ranges)
+    )
+    source = case_file["repoSource"]
     return CaseResult(
         id=case["id"],
+        case_set=case_file.get("name", case["id"]),
+        source_kind=source["kind"],
+        source_group=source_group(source),
+        truth_source=truth_source(case_file, case),
         kind=case.get("kind", case.get("command", "query")),
         strict=bool(case.get("strict")),
         recall=hit_count / len(expected_set) if expected_set else 1.0,
@@ -464,13 +706,18 @@ def score_case(
         recall_at_10=ranked_recall_at_10,
         recall_at_25=ranked_recall_at_25,
         ndcg_at_10=ranked_ndcg_at_10,
+        candidate_recall=candidate_recall,
+        first_relevant_rank=first_relevant_path_rank,
         tokens_to_first_relevant=first_relevant_tokens,
         secret_redaction_correct=not forbidden_content_hits and not missing_required_content,
         prompt_injection_resistant=not trusted_forbidden_paths,
         useful_evidence_per_1k_tokens=useful_per_1k,
         latency_ms=latency_ms,
         expected_paths=expected_paths,
+        candidate_expected_count=len(candidate_expected),
         retrieved_paths=retrieved_unique,
+        candidate_missed_paths=candidate_missed_paths,
+        candidate_present_missed_paths=candidate_present_missed_paths,
         missed_paths=missed_paths,
         unexpected_paths=unexpected_paths,
         forbidden_content_hits=forbidden_content_hits,
@@ -481,7 +728,25 @@ def score_case(
         omitted=len(omitted) if isinstance(omitted, list) else int(omitted),
         sufficiency_status=sufficiency.get("status"),
         sufficiency_blocking_gaps=sufficiency_blocking_gaps,
+        sufficiency_false_sufficient=false_sufficient,
     )
+
+
+def source_group(source: dict[str, Any]) -> str:
+    if source["kind"] == "fixture":
+        return "fixture"
+    return "self" if source.get("origin") == "self" else "external"
+
+
+def truth_source(case_file: dict[str, Any], case: dict[str, Any]) -> str:
+    explicit = case.get("truthSource") or case_file.get("truthSource")
+    if explicit:
+        return explicit
+    if case_file["repoSource"]["kind"] == "fixture":
+        return "fixture"
+    if case_file.get("minedFrom"):
+        return "mined_followup"
+    return "curated"
 
 
 def evidence_matches_range(entry: dict[str, Any], expected: dict[str, Any]) -> bool:
@@ -497,17 +762,10 @@ def evidence_matches_range(entry: dict[str, Any], expected: dict[str, Any]) -> b
     )
 
 
-def summarize(results: list[CaseResult]) -> dict[str, Any]:
+def metric_block(results: list[CaseResult]) -> dict[str, Any]:
     count = len(results)
-    failures = sorted(
-        {
-            result.id
-            for result in results
-            if not result.secret_redaction_correct
-            or not result.prompt_injection_resistant
-            or (result.strict and (result.missed_paths or result.missing_expected_ranges))
-        }
-    )
+    if count == 0:
+        raise ValueError("cannot summarize an empty result set")
     first_relevant = [
         result.tokens_to_first_relevant
         for result in results
@@ -534,41 +792,136 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         if complete
         else None
     )
+    insufficient_when_incomplete = (
+        sum(1 for r in incomplete if r.sufficiency_status == "insufficient")
+        / len(incomplete)
+        if incomplete
+        else None
+    )
+    candidate_expected_count = sum(result.candidate_expected_count for result in results)
+    candidate_present_misses = sum(
+        len(result.candidate_present_missed_paths) for result in results
+    )
+    per_case_candidate_present_miss_rates = [
+        len(result.candidate_present_missed_paths) / result.candidate_expected_count
+        if result.candidate_expected_count
+        else 0.0
+        for result in results
+    ]
+    return {
+        "meanRecall": sum(result.recall for result in results) / count,
+        "meanPrecision": sum(result.precision for result in results) / count,
+        "meanRecallAt5": sum(result.recall_at_5 for result in results) / count,
+        "meanRecallAt10": sum(result.recall_at_10 for result in results) / count,
+        "meanRecallAt25": sum(result.recall_at_25 for result in results) / count,
+        "meanNdcgAt10": sum(result.ndcg_at_10 for result in results) / count,
+        "meanCandidateRecall": sum(result.candidate_recall for result in results) / count,
+        "candidatePresentMissRate": (
+            candidate_present_misses / candidate_expected_count
+            if candidate_expected_count
+            else 0.0
+        ),
+        "candidatePresentMissCaseRate": sum(
+            1 for result in results if result.candidate_present_missed_paths
+        )
+        / count,
+        "meanCandidatePresentMissRate": sum(per_case_candidate_present_miss_rates) / count,
+        "firstRelevantRate": len(first_relevant) / count,
+        "meanTokensToFirstRelevant": (
+            sum(first_relevant) / len(first_relevant) if first_relevant else None
+        ),
+        "secretRedactionCorrectRate": sum(
+            1 for result in results if result.secret_redaction_correct
+        )
+        / count,
+        "promptInjectionResistanceRate": sum(
+            1 for result in results if result.prompt_injection_resistant
+        )
+        / count,
+        "meanUsefulEvidencePer1kTokens": sum(
+            result.useful_evidence_per_1k_tokens for result in results
+        )
+        / count,
+        "meanLatencyMs": sum(result.latency_ms for result in results) / count,
+        "maxLatencyMs": max(result.latency_ms for result in results),
+        "totalOmittedCandidates": sum(result.omitted for result in results),
+        "sufficiencyGapRecall": gap_recall,
+        "sufficiencyInsufficientWhenIncomplete": insufficient_when_incomplete,
+        "sufficiencySufficientWhenComplete": sufficient_when_complete,
+        "sufficiencyFalseSufficientCount": sum(
+            1 for result in results if result.sufficiency_false_sufficient
+        ),
+    }
+
+
+def cohort_summary(results: list[CaseResult], attribute: str) -> dict[str, Any]:
+    grouped: dict[str, list[CaseResult]] = {}
+    for result in results:
+        grouped.setdefault(str(getattr(result, attribute)), []).append(result)
+    return {
+        name: {"caseCount": len(group), "metrics": metric_block(group)}
+        for name, group in sorted(grouped.items())
+    }
+
+
+def weak_cases(results: list[CaseResult], limit: int = 12) -> list[dict[str, Any]]:
+    ranked = sorted(
+        results,
+        key=lambda result: (
+            result.recall_at_10,
+            result.ndcg_at_10,
+            result.recall_at_25,
+            result.id,
+        ),
+    )
+    return [
+        {
+            "id": result.id,
+            "caseSet": result.case_set,
+            "sourceGroup": result.source_group,
+            "truthSource": result.truth_source,
+            "kind": result.kind,
+            "recallAt10": result.recall_at_10,
+            "recallAt25": result.recall_at_25,
+            "ndcgAt10": result.ndcg_at_10,
+            "candidateRecall": result.candidate_recall,
+            "firstRelevantRank": result.first_relevant_rank,
+            "tokensToFirstRelevant": result.tokens_to_first_relevant,
+            "candidateMissedPaths": result.candidate_missed_paths,
+            "candidatePresentMissedPaths": result.candidate_present_missed_paths,
+            "missedPaths": result.missed_paths,
+            "sufficiencyStatus": result.sufficiency_status,
+        }
+        for result in ranked[:limit]
+    ]
+
+
+def summarize(results: list[CaseResult]) -> dict[str, Any]:
+    count = len(results)
+    failures = sorted(
+        {
+            result.id
+            for result in results
+            if not result.secret_redaction_correct
+            or not result.prompt_injection_resistant
+            or result.sufficiency_false_sufficient
+            or (result.strict and (result.missed_paths or result.missing_expected_ranges))
+        }
+    )
     return {
         "schemaVersion": SUMMARY_SCHEMA_VERSION,
         "generatedAtUnixMs": int(time.time() * 1000),
         "caseCount": count,
         "ok": not failures,
         "failures": failures,
-        "metrics": {
-            "meanRecall": sum(result.recall for result in results) / count,
-            "meanPrecision": sum(result.precision for result in results) / count,
-            "meanRecallAt5": sum(result.recall_at_5 for result in results) / count,
-            "meanRecallAt10": sum(result.recall_at_10 for result in results) / count,
-            "meanRecallAt25": sum(result.recall_at_25 for result in results) / count,
-            "meanNdcgAt10": sum(result.ndcg_at_10 for result in results) / count,
-            "firstRelevantRate": len(first_relevant) / count,
-            "meanTokensToFirstRelevant": (
-                sum(first_relevant) / len(first_relevant) if first_relevant else None
-            ),
-            "secretRedactionCorrectRate": sum(
-                1 for result in results if result.secret_redaction_correct
-            )
-            / count,
-            "promptInjectionResistanceRate": sum(
-                1 for result in results if result.prompt_injection_resistant
-            )
-            / count,
-            "meanUsefulEvidencePer1kTokens": sum(
-                result.useful_evidence_per_1k_tokens for result in results
-            )
-            / count,
-            "meanLatencyMs": sum(result.latency_ms for result in results) / count,
-            "maxLatencyMs": max(result.latency_ms for result in results),
-            "totalOmittedCandidates": sum(result.omitted for result in results),
-            "sufficiencyGapRecall": gap_recall,
-            "sufficiencySufficientWhenComplete": sufficient_when_complete,
+        "metrics": metric_block(results),
+        "cohorts": {
+            "byKind": cohort_summary(results, "kind"),
+            "bySourceGroup": cohort_summary(results, "source_group"),
+            "byTruthSource": cohort_summary(results, "truth_source"),
+            "byStrict": cohort_summary(results, "strict"),
         },
+        "weakCases": weak_cases(results),
         "cases": [result.__dict__ for result in results],
     }
 
@@ -578,68 +931,287 @@ def check_regression(
 ) -> list[str]:
     if not baseline_path.exists():
         return []
-    baseline = json.loads(baseline_path.read_text())["metrics"]
+    baseline_doc = json.loads(baseline_path.read_text())
+    baseline = baseline_doc["metrics"]
+    regressions = []
+    regressions.extend(
+        metric_regressions("overall", summary["metrics"], baseline, tolerance)
+    )
+    regressions.extend(max_metric_regressions("overall", summary["metrics"], baseline))
+    regressions.extend(max_rate_metric_regressions("overall", summary["metrics"], baseline))
+    baseline_cohorts = baseline_doc.get("cohorts") or {}
+    for cohort_group, cohort_name in GATED_COHORTS:
+        current_metrics = (
+            summary.get("cohorts", {})
+            .get(cohort_group, {})
+            .get(cohort_name, {})
+            .get("metrics")
+        )
+        baseline_metrics = (
+            baseline_cohorts.get(cohort_group, {})
+            .get(cohort_name, {})
+            .get("metrics")
+        )
+        if current_metrics is None or baseline_metrics is None:
+            continue
+        label = f"{cohort_group}.{cohort_name}"
+        regressions.extend(
+            metric_regressions(label, current_metrics, baseline_metrics, tolerance)
+        )
+        regressions.extend(max_metric_regressions(label, current_metrics, baseline_metrics))
+        regressions.extend(max_rate_metric_regressions(label, current_metrics, baseline_metrics))
+    return regressions
+
+
+def metric_regressions(
+    label: str, current_metrics: dict[str, Any], baseline_metrics: dict[str, Any], tolerance: float
+) -> list[str]:
     regressions = []
     for metric in GATED_METRICS:
-        if metric not in baseline:
+        if metric not in baseline_metrics:
             continue
-        current = summary["metrics"][metric]
-        floor = baseline[metric] - tolerance
+        current = current_metrics[metric]
+        if current is None or baseline_metrics[metric] is None:
+            continue
+        floor = baseline_metrics[metric] - tolerance
         if current < floor:
             regressions.append(
-                f"{metric} regressed: {current:.4f} < baseline {baseline[metric]:.4f} - "
-                f"tolerance {tolerance}"
+                f"{label}.{metric} regressed: {current:.4f} < "
+                f"baseline {baseline_metrics[metric]:.4f} - tolerance {tolerance}"
             )
     return regressions
+
+
+def max_metric_regressions(
+    label: str, current_metrics: dict[str, Any], baseline_metrics: dict[str, Any]
+) -> list[str]:
+    regressions = []
+    for metric, tolerance in GATED_MAX_METRICS.items():
+        if metric not in baseline_metrics:
+            continue
+        current = current_metrics[metric]
+        baseline = baseline_metrics[metric]
+        if current is None or baseline is None:
+            continue
+        ceiling = baseline + tolerance
+        if current > ceiling:
+            regressions.append(
+                f"{label}.{metric} regressed: {current:.1f} > "
+                f"baseline {baseline:.1f} + tolerance {tolerance:.1f}"
+            )
+    return regressions
+
+
+def max_rate_metric_regressions(
+    label: str, current_metrics: dict[str, Any], baseline_metrics: dict[str, Any]
+) -> list[str]:
+    regressions = []
+    for metric, tolerance in GATED_MAX_RATE_METRICS.items():
+        if metric not in baseline_metrics:
+            continue
+        current = current_metrics[metric]
+        baseline = baseline_metrics[metric]
+        if current is None or baseline is None:
+            continue
+        ceiling = baseline + tolerance
+        if current > ceiling:
+            regressions.append(
+                f"{label}.{metric} regressed: {current:.4f} > "
+                f"baseline {baseline:.4f} + tolerance {tolerance:.4f}"
+            )
+    return regressions
+
+
+def baseline_metric_subset(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        metric: metrics[metric]
+        for metric in (
+            "meanRecall",
+            "meanPrecision",
+            "meanRecallAt5",
+            "meanRecallAt10",
+            "meanRecallAt25",
+            "meanNdcgAt10",
+            "meanCandidateRecall",
+            "candidatePresentMissRate",
+            "candidatePresentMissCaseRate",
+            "meanCandidatePresentMissRate",
+            "sufficiencyInsufficientWhenIncomplete",
+            "firstRelevantRate",
+            "meanTokensToFirstRelevant",
+            "meanUsefulEvidencePer1kTokens",
+        )
+    }
 
 
 def write_baseline(summary: dict[str, Any], baseline_path: Path) -> None:
     baseline = {
         "schemaVersion": "muzen.context-eval-baseline.v1",
         "caseCount": summary["caseCount"],
-        "metrics": {
-            metric: summary["metrics"][metric]
-            for metric in (
-                "meanRecall",
-                "meanPrecision",
-                "meanRecallAt5",
-                "meanRecallAt10",
-                "meanRecallAt25",
-                "meanNdcgAt10",
-                "firstRelevantRate",
-                "meanTokensToFirstRelevant",
-                "meanUsefulEvidencePer1kTokens",
-            )
+        "metrics": baseline_metric_subset(summary["metrics"]),
+        "cohorts": {
+            cohort_group: {
+                cohort_name: {
+                    "caseCount": cohort["caseCount"],
+                    "metrics": baseline_metric_subset(cohort["metrics"]),
+                }
+                for cohort_name, cohort in cohorts.items()
+            }
+            for cohort_group, cohorts in summary["cohorts"].items()
         },
     }
     baseline_path.write_text(json.dumps(baseline, indent=2) + "\n")
 
 
-def main() -> int:
-    args = parse_args()
-    case_files = load_case_files(args.cases_dir)
-    results = [
-        score_case(case_file, case, args)
+def run_suite(case_files: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    tasks = [
+        (case_file, case)
         for case_file in case_files
         for case in case_file["cases"]
     ]
-    summary = summarize(results)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(summary, indent=2) + "\n")
+    if getattr(args, "jobs", 1) <= 1:
+        results = [score_case(case_file, case, args) for case_file, case in tasks]
+        return summarize(results)
 
+    prepare_corpus(case_files)
+    results: list[CaseResult | None] = [None] * len(tasks)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {
+            pool.submit(score_case, case_file, case, args): index
+            for index, (case_file, case) in enumerate(tasks)
+        }
+        for future in concurrent.futures.as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except BaseException:
+                for pending in futures:
+                    pending.cancel()
+                raise
+    completed_results = [result for result in results if result is not None]
+    if len(completed_results) != len(tasks):
+        raise SystemExit("parallel context eval finished without every case result")
+    return summarize(completed_results)
+
+
+def print_summary(summary: dict[str, Any], *, label: str = "context-engine eval") -> None:
     metrics = summary["metrics"]
     first_relevant = metrics["meanTokensToFirstRelevant"]
     first_relevant_text = f"{first_relevant:.0f}" if first_relevant is not None else "n/a"
     print(
-        "context-engine eval: "
+        f"{label}: "
         f"{summary['caseCount']} cases, "
         f"recall@10 {metrics['meanRecallAt10']:.3f}, "
         f"nDCG@10 {metrics['meanNdcgAt10']:.3f}, "
         f"recall@25 {metrics['meanRecallAt25']:.3f}, "
+        f"candidate-present-miss {metrics['candidatePresentMissRate']:.3f}, "
         f"tokens-to-first-relevant {first_relevant_text}, "
         f"mean precision {metrics['meanPrecision']:.3f}, "
         f"mean latency {metrics['meanLatencyMs']:.1f} ms"
     )
+
+
+def numeric_delta(current: Any, baseline: Any) -> float | None:
+    if (
+        isinstance(current, (int, float))
+        and not isinstance(current, bool)
+        and isinstance(baseline, (int, float))
+        and not isinstance(baseline, bool)
+    ):
+        return current - baseline
+    return None
+
+
+def metric_deltas(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+    deltas: dict[str, Any] = {}
+    for metric, current_value in current.items():
+        if metric not in baseline:
+            continue
+        deltas[metric] = numeric_delta(current_value, baseline[metric])
+    return deltas
+
+
+def ablation_cohort_deltas(
+    baseline_summary: dict[str, Any], ablated_summary: dict[str, Any]
+) -> dict[str, Any]:
+    cohorts: dict[str, Any] = {}
+    for cohort_group, cohort_name in GATED_COHORTS:
+        baseline = (
+            baseline_summary.get("cohorts", {})
+            .get(cohort_group, {})
+            .get(cohort_name)
+        )
+        current = (
+            ablated_summary.get("cohorts", {})
+            .get(cohort_group, {})
+            .get(cohort_name)
+        )
+        if not baseline or not current:
+            continue
+        cohorts.setdefault(cohort_group, {})[cohort_name] = {
+            "caseCount": current["caseCount"],
+            "metrics": baseline_metric_subset(current["metrics"]),
+            "deltaVsBaseline": metric_deltas(
+                baseline_metric_subset(current["metrics"]),
+                baseline_metric_subset(baseline["metrics"]),
+            ),
+        }
+    return cohorts
+
+
+def ablation_variant_args(args: argparse.Namespace, signal: str) -> argparse.Namespace:
+    variant = argparse.Namespace(**vars(args))
+    existing = list(getattr(args, "ablate_context_signal", []))
+    variant.ablate_context_signal = [*existing, signal]
+    return variant
+
+
+def ablation_entry(
+    signal: str, baseline_summary: dict[str, Any], ablated_summary: dict[str, Any]
+) -> dict[str, Any]:
+    current_metrics = baseline_metric_subset(ablated_summary["metrics"])
+    baseline_metrics = baseline_metric_subset(baseline_summary["metrics"])
+    return {
+        "disabledSignals": [signal],
+        "caseCount": ablated_summary["caseCount"],
+        "metrics": current_metrics,
+        "deltaVsBaseline": metric_deltas(current_metrics, baseline_metrics),
+        "cohorts": ablation_cohort_deltas(baseline_summary, ablated_summary),
+        "weakCases": ablated_summary["weakCases"],
+    }
+
+
+def run_ablation_report(
+    case_files: list[dict[str, Any]],
+    args: argparse.Namespace,
+    baseline_summary: dict[str, Any],
+) -> dict[str, Any]:
+    signals = args.ablation_signal or list(CONTEXT_SIGNAL_ABLATIONS)
+    variants = []
+    for signal in signals:
+        variant_args = ablation_variant_args(args, signal)
+        summary = run_suite(case_files, variant_args)
+        print_summary(summary, label=f"context-engine ablation {signal}")
+        variants.append(ablation_entry(signal, baseline_summary, summary))
+    return {
+        "schemaVersion": ABLATION_SCHEMA_VERSION,
+        "generatedAtUnixMs": int(time.time() * 1000),
+        "baseline": {
+            "caseCount": baseline_summary["caseCount"],
+            "metrics": baseline_metric_subset(baseline_summary["metrics"]),
+        },
+        "variants": variants,
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    case_files = load_case_files(args.cases_dir)
+    summary = run_suite(case_files, args)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(summary, indent=2) + "\n")
+
+    print_summary(summary)
     if args.write_baseline:
         write_baseline(summary, args.baseline)
         print(f"baseline written to {args.baseline}")
@@ -651,6 +1223,11 @@ def main() -> int:
     for regression in check_regression(summary, args.baseline, args.tolerance):
         print(regression, file=sys.stderr)
         exit_code = 1
+    if args.ablation_report:
+        report = run_ablation_report(case_files, args, summary)
+        args.ablation_report.parent.mkdir(parents=True, exist_ok=True)
+        args.ablation_report.write_text(json.dumps(report, indent=2) + "\n")
+        print(f"ablation report written to {args.ablation_report}")
     return exit_code
 
 

@@ -22,6 +22,7 @@ use super::model::{
 /// Cap on bare-name fallback fan-out: a common name defined in many files
 /// would otherwise create noise edges.
 const NAME_FALLBACK_MAX_DEFINERS: usize = 4;
+const FEATURE_SLICE_MAX_SIBLINGS: usize = 48;
 
 /// Cap on chunk-level `References` edges per (importer, symbol): the
 /// earliest referencing chunks carry the relationship; more add noise.
@@ -274,6 +275,7 @@ impl ContextGraph {
                 provenance: provenance(ContextGraphSource::SnapshotManifest, dir.clone()),
             });
         }
+        build_feature_slice_edges(&mut graph, &input, &provenance);
 
         // ---- Co-change facts from bounded git history.
         let (aggregate, pairs) = co_change_facts(
@@ -1641,6 +1643,161 @@ fn same_module_siblings(file_paths: &BTreeSet<RepoPath>, anchor: &RepoPath) -> V
         })
         .cloned()
         .collect()
+}
+
+fn build_feature_slice_edges(
+    graph: &mut ContextGraph,
+    input: &ContextGraphBuildInput,
+    provenance: &impl Fn(ContextGraphSource, String) -> ContextGraphProvenance,
+) {
+    let mut pairs: BTreeSet<(RepoPath, RepoPath)> = BTreeSet::new();
+    for changed in input.changed_paths {
+        if !graph.file_paths.contains(changed) {
+            continue;
+        }
+        for sibling in feature_slice_siblings(&graph.file_paths, changed) {
+            if input.changed_paths.contains(&sibling) {
+                continue;
+            }
+            let pair = if *changed < sibling {
+                (changed.clone(), sibling)
+            } else {
+                (sibling, changed.clone())
+            };
+            pairs.insert(pair);
+        }
+    }
+    for (left, right) in pairs {
+        let Some(root) = feature_slice_root(&left) else {
+            continue;
+        };
+        let Some(confidence) = feature_slice_confidence(&left, &right) else {
+            continue;
+        };
+        let from = ContextNodeId::File { path: left.clone() };
+        let to = ContextNodeId::File {
+            path: right.clone(),
+        };
+        let detail = format!("feature slice '{root}'");
+        graph.add_edge(ContextEdge {
+            id: edge_id(&from, &to, ContextEdgeKind::SameModule, &detail),
+            from,
+            to,
+            kind: ContextEdgeKind::SameModule,
+            confidence,
+            reason: format!("same feature slice ({root})"),
+            provenance: provenance(ContextGraphSource::SnapshotManifest, detail),
+        });
+    }
+}
+
+fn feature_slice_siblings(file_paths: &BTreeSet<RepoPath>, anchor: &RepoPath) -> Vec<RepoPath> {
+    let Some(root) = feature_slice_root(anchor) else {
+        return Vec::new();
+    };
+    let anchor_dir = dir_of(anchor);
+    let mut siblings = file_paths
+        .iter()
+        .filter(|path| {
+            *path != anchor
+                && feature_slice_root(path).as_deref() == Some(root.as_str())
+                && dir_of(path) != anchor_dir
+                && feature_slice_confidence(anchor, path).is_some()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    siblings.sort_by(|left, right| {
+        feature_slice_confidence(anchor, right)
+            .unwrap_or(0.0)
+            .total_cmp(&feature_slice_confidence(anchor, left).unwrap_or(0.0))
+            .then_with(|| left.display().cmp(&right.display()))
+    });
+    siblings.truncate(FEATURE_SLICE_MAX_SIBLINGS);
+    siblings
+}
+
+fn feature_slice_root(path: &RepoPath) -> Option<String> {
+    let text = path.display();
+    let parts = text.split('/').collect::<Vec<_>>();
+    for (index, part) in parts.iter().enumerate() {
+        if *part == "features" && index + 1 < parts.len() {
+            return Some(parts[..=index + 1].join("/"));
+        }
+    }
+    None
+}
+
+fn feature_slice_confidence(left: &RepoPath, right: &RepoPath) -> Option<f32> {
+    if !path_tokens(left).is_disjoint(&path_tokens(right)) {
+        Some(0.55)
+    } else {
+        None
+    }
+}
+
+fn path_tokens(path: &RepoPath) -> BTreeSet<String> {
+    let mut after_feature_root = false;
+    let mut skip_feature_name = false;
+    let mut tokens = BTreeSet::new();
+    for part in path.display().split('/') {
+        if skip_feature_name {
+            skip_feature_name = false;
+            after_feature_root = true;
+            continue;
+        }
+        if part == "features" {
+            skip_feature_name = true;
+            continue;
+        }
+        if !after_feature_root {
+            continue;
+        }
+        tokens.extend(
+            part.split(['-', '_', '.', '[', ']', '(', ')'])
+                .filter(|part| part.len() >= 4)
+                .filter(|part| !is_common_feature_path_token(part))
+                .map(str::to_ascii_lowercase),
+        );
+    }
+    tokens
+}
+
+fn is_common_feature_path_token(part: &str) -> bool {
+    matches!(
+        part,
+        "api"
+            | "app"
+            | "apps"
+            | "client"
+            | "component"
+            | "components"
+            | "feature"
+            | "features"
+            | "hook"
+            | "hooks"
+            | "index"
+            | "lib"
+            | "model"
+            | "models"
+            | "page"
+            | "route"
+            | "routes"
+            | "server"
+            | "src"
+            | "test"
+            | "tests"
+            | "type"
+            | "types"
+            | "util"
+            | "utils"
+    )
+}
+
+fn dir_of(path: &RepoPath) -> String {
+    path.display()
+        .rsplit_once('/')
+        .map(|(dir, _)| dir.to_string())
+        .unwrap_or_default()
 }
 
 /// Recency decay per commit step back in history. With 500 commits the

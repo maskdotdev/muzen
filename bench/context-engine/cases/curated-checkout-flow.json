@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "curated-checkout-flow",
+  "truthSource": "curated",
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/checkout-flow"
+  },
+  "changedFiles": [
+    "src/orders/checkout.ts"
+  ],
+  "description": "Strict causal fixture: checkout total logic change must surface the API caller and route test through import graph facts, despite unrelated route and inventory distractors.",
+  "cases": [
+    {
+      "id": "checkout-flow-pack-causal-callers",
+      "command": "pack",
+      "purpose": "correctness",
+      "maxTokens": 4000,
+      "expectedPaths": [
+        "src/orders/checkout.ts",
+        "src/api/checkout-route.ts",
+        "tests/checkout-route.test.ts"
+      ],
+      "expectedRanges": [
+        {
+          "kind": "file_span",
+          "path": "src/orders/checkout.ts",
+          "startLine": 1,
+          "endLine": 42
+        }
+      ],
+      "strict": true
+    }
+  ]
+}

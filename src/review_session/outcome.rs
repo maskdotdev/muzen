@@ -520,8 +520,10 @@ impl ReviewEventType {
             InternalReviewEvent::SnapshotStarted { .. } => Self::RunnerEvent,
             InternalReviewEvent::ContextIndexStarted { .. }
             | InternalReviewEvent::ContextIndexCompleted { .. }
+            | InternalReviewEvent::ContextIndexFailed { .. }
             | InternalReviewEvent::ContextPackStarted { .. }
             | InternalReviewEvent::ContextPackCompleted { .. }
+            | InternalReviewEvent::ContextPackFailed { .. }
             | InternalReviewEvent::ContextQueryCompleted { .. } => Self::RunnerEvent,
             InternalReviewEvent::SessionStarted { .. } => Self::AgentStarted,
             InternalReviewEvent::ModelStarted { .. } => Self::RunnerEvent,

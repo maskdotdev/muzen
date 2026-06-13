@@ -487,8 +487,7 @@ mod tests {
                 "params": {
                     "snapshotId": snapshot_id,
                     "purpose": "tests",
-                    "maxTokens": 12000,
-                    "seedEvidence": []
+                    "maxTokens": 12000
                 }
             }),
         );

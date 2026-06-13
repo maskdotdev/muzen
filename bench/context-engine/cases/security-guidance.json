@@ -40,6 +40,30 @@
         "CONTEXT.md"
       ],
       "strict": true
+    },
+    {
+      "id": "host-ticket-context-enters-pack",
+      "command": "pack",
+      "purpose": "correctness",
+      "maxTokens": 12000,
+      "hostMetadata": {
+        "ticket": "Review ticket requires validating hosted SSO callback ownership."
+      },
+      "hostInstructions": [
+        {
+          "kind": "ticket_requirement",
+          "text": "Acceptance: callback owners must match request workspace.",
+          "trusted": true
+        }
+      ],
+      "expectedPaths": [
+        "src/lib.rs"
+      ],
+      "requiredContent": [
+        "host metadata ticket: Review ticket requires validating hosted SSO callback ownership.",
+        "host ticket_requirement: Acceptance: callback owners must match request workspace."
+      ],
+      "strict": true
     }
   ]
 }

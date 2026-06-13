@@ -237,7 +237,6 @@ async fn snapshot_engine_builds_purpose_specific_pack() {
                 session_id: None,
                 purpose: ContextPackPurpose::Tests,
                 max_tokens: 10_000,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )
@@ -251,7 +250,6 @@ async fn snapshot_engine_builds_purpose_specific_pack() {
                 session_id: None,
                 purpose: ContextPackPurpose::Architecture,
                 max_tokens: 10_000,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )
@@ -755,6 +753,12 @@ async fn fused_search_records_restricted_evidence_as_omission() {
 }
 
 async fn sufficiency_fixture() -> (SnapshotContextEngine, Arc<RepoSnapshot>, tempfile::TempDir) {
+    sufficiency_fixture_with_extra_files(0).await
+}
+
+async fn sufficiency_fixture_with_extra_files(
+    extra_files: usize,
+) -> (SnapshotContextEngine, Arc<RepoSnapshot>, tempfile::TempDir) {
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(repo.path().join("src")).unwrap();
     std::fs::create_dir_all(repo.path().join("tests")).unwrap();
@@ -773,6 +777,19 @@ async fn sufficiency_fixture() -> (SnapshotContextEngine, Arc<RepoSnapshot>, tem
         "use crate::lib::changed_fn;\n#[test]\nfn changed_fn_works() { changed_fn(); }\n",
     )
     .unwrap();
+    for index in 0..extra_files {
+        std::fs::write(
+            repo.path().join(format!("src/extra_{index}.rs")),
+            format!(
+                "pub fn extra_{index}() {{\n{}\n}}\n",
+                (0..80)
+                    .map(|line| format!("    let value_{line} = {line};"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        )
+        .unwrap();
+    }
     let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -2,2 +2,2 @@\n+    let a = 1;\n";
     let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/lib.rs"], diff);
     let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
@@ -935,7 +952,6 @@ async fn pack_sufficiency_equals_sufficiency_check_over_same_evidence() {
                 session_id: None,
                 purpose: ContextPackPurpose::Correctness,
                 max_tokens: 10_000,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )
@@ -962,7 +978,91 @@ async fn pack_sufficiency_equals_sufficiency_check_over_same_evidence() {
 }
 
 #[tokio::test]
-async fn budget_exhaustion_downgrades_to_probably_sufficient_with_recorded_gaps() {
+async fn pack_sufficiency_is_insufficient_when_ranked_candidates_are_omitted() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub fn changed_fn() {\n    let a = 1;\n}\n",
+    )
+    .unwrap();
+    for index in 0..80 {
+        std::fs::write(
+            repo.path().join(format!("src/extra_{index}.rs")),
+            format!(
+                "pub fn extra_{index}() {{\n{}\n}}\n",
+                (0..80)
+                    .map(|line| format!("    let value_{line} = {line};"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        )
+        .unwrap();
+    }
+    let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -2,1 +2,1 @@\n+    let a = 1;\n";
+    let snapshot = build_snapshot_with_diff(repo.path(), vec!["src/lib.rs"], diff);
+    let engine = SnapshotContextEngine::new(ContextEngineConfig::snapshot_v0());
+    engine
+        .index_snapshot(
+            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::Correctness,
+                max_tokens: 10_000,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !pack.omitted_candidates.is_empty(),
+        "fixture must force pack candidate omissions"
+    );
+    assert_eq!(
+        pack.sufficiency.status,
+        ContextSufficiencyStatus::Insufficient
+    );
+    assert!(
+        pack.sufficiency
+            .missing
+            .iter()
+            .any(|item| item.contains("context is incomplete")),
+        "pack reports why complete coverage is unproven"
+    );
+
+    let check = engine
+        .query(
+            sufficiency_query(
+                &snapshot,
+                ContextQueryKind::SufficiencyCheck,
+                serde_json::json!({}),
+                pack.evidence
+                    .iter()
+                    .map(|evidence| evidence.id.clone())
+                    .collect(),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let checked = check.sufficiency.unwrap();
+    assert_eq!(
+        checked.status,
+        ContextSufficiencyStatus::Sufficient,
+        "query checks selected evidence; pack adds budget-omission proof honesty"
+    );
+}
+
+#[tokio::test]
+async fn budget_exhaustion_stays_insufficient_with_recorded_gaps() {
     let (engine, snapshot, _repo) = sufficiency_fixture().await;
     let pack = engine
         .build_pack(
@@ -972,7 +1072,6 @@ async fn budget_exhaustion_downgrades_to_probably_sufficient_with_recorded_gaps(
                 session_id: None,
                 purpose: ContextPackPurpose::Correctness,
                 max_tokens: 1,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )
@@ -981,8 +1080,8 @@ async fn budget_exhaustion_downgrades_to_probably_sufficient_with_recorded_gaps(
     assert!(!pack.omitted_candidates.is_empty());
     assert_eq!(
         pack.sufficiency.status,
-        ContextSufficiencyStatus::ProbablySufficient,
-        "budget exhaustion downgrades instead of blocking"
+        ContextSufficiencyStatus::Insufficient,
+        "budget exhaustion explains the miss but does not prove sufficiency"
     );
     assert!(
         !pack.sufficiency.gaps.is_empty(),
@@ -1127,6 +1226,80 @@ async fn host_ticket_context_is_opt_in_and_preserves_trust() {
     assert_eq!(result.evidence[0].kind, ContextEvidenceKind::Ticket);
     assert_eq!(result.evidence[0].trust, ContextTrust::HostTrusted);
     assert_eq!(result.evidence[1].trust, ContextTrust::UserUntrusted);
+}
+
+#[tokio::test]
+async fn trusted_host_ticket_enters_budgeted_pack_before_unrelated_snapshot_noise() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src")).unwrap();
+    std::fs::write(repo.path().join("src/lib.rs"), "pub fn changed() {}\n").unwrap();
+    for index in 0..40 {
+        std::fs::write(
+            repo.path().join(format!("src/noise_{index}.rs")),
+            format!("pub fn unrelated_{index}() -> usize {{ {index} }}\n"),
+        )
+        .unwrap();
+    }
+    let snapshot = build_snapshot_with_diff(
+        repo.path(),
+        vec!["src/lib.rs"],
+        "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-pub fn old() {}\n+pub fn changed() {}\n",
+    );
+    let mut config = ContextEngineConfig::snapshot_v0();
+    config.include_host_context = true;
+    let engine = SnapshotContextEngine::new(config);
+    let mut request = ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref());
+    request.instructions = vec![SessionInstruction {
+        kind: "ticket_requirement".to_string(),
+        text: "Acceptance: preserve audit trail.".to_string(),
+        trusted: true,
+    }];
+    engine
+        .index_snapshot(request, CancellationToken::new())
+        .await
+        .unwrap();
+
+    let pack = engine
+        .build_pack(
+            ContextPackRequest {
+                run_id: None,
+                snapshot_id: snapshot.snapshot_id.clone(),
+                session_id: None,
+                purpose: ContextPackPurpose::GeneralReview,
+                max_tokens: 80,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let host_position = pack
+        .evidence
+        .iter()
+        .position(|evidence| {
+            evidence.source == ContextEvidenceSource::Host
+                && evidence.kind == ContextEvidenceKind::Ticket
+                && evidence.trust == ContextTrust::HostTrusted
+        })
+        .expect("trusted host ticket included under budget pressure");
+    let first_noise_position = pack.evidence.iter().position(|evidence| {
+        evidence
+            .path
+            .as_ref()
+            .is_some_and(|path| path.display().starts_with("src/noise_"))
+    });
+
+    assert!(
+        first_noise_position.map_or(true, |noise_position| host_position < noise_position),
+        "trusted run-scoped ticket context should rank before unrelated snapshot noise"
+    );
+    assert!(
+        pack.omitted_candidates.iter().any(|candidate| candidate
+            .path
+            .as_ref()
+            .is_some_and(|path| path.display().starts_with("src/noise_"))),
+        "fixture must exercise budget pressure from unrelated snapshot files"
+    );
 }
 
 #[tokio::test]
@@ -2012,7 +2185,6 @@ async fn large_related_file_enters_budget_constrained_pack_as_skeleton() {
                 session_id: None,
                 purpose: ContextPackPurpose::Correctness,
                 max_tokens,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )
@@ -2053,7 +2225,6 @@ async fn full_content_suppresses_skeleton_when_budget_allows() {
                 session_id: None,
                 purpose: ContextPackPurpose::Correctness,
                 max_tokens: 50_000,
-                seed_evidence: Vec::new(),
             },
             CancellationToken::new(),
         )

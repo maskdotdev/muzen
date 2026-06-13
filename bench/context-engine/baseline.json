@@ -1,15 +1,277 @@
 {
   "schemaVersion": "muzen.context-eval-baseline.v1",
-  "caseCount": 86,
+  "caseCount": 89,
   "metrics": {
-    "meanRecall": 0.4765692640692641,
-    "meanPrecision": 0.12613292046060562,
-    "meanRecallAt5": 0.3211798214705191,
-    "meanRecallAt10": 0.4097272559481862,
-    "meanRecallAt25": 0.4765692640692641,
-    "meanNdcgAt10": 0.3382688096519925,
-    "firstRelevantRate": 0.6627906976744186,
-    "meanTokensToFirstRelevant": 2415.1403508771928,
-    "meanUsefulEvidencePer1kTokens": 1.3401324477164924
+    "meanRecall": 0.8119169220292817,
+    "meanPrecision": 0.07983322530307659,
+    "meanRecallAt5": 0.366840961784782,
+    "meanRecallAt10": 0.5393177359469494,
+    "meanRecallAt25": 0.6654822705384503,
+    "meanNdcgAt10": 0.3844033932941857,
+    "meanCandidateRecall": 0.9934456928838952,
+    "candidatePresentMissRate": 0.24734982332155478,
+    "candidatePresentMissCaseRate": 0.33707865168539325,
+    "meanCandidatePresentMissRate": 0.18152877085461355,
+    "sufficiencyInsufficientWhenIncomplete": 1.0,
+    "firstRelevantRate": 0.9325842696629213,
+    "meanTokensToFirstRelevant": 1615.0602409638554,
+    "meanUsefulEvidencePer1kTokens": 1.5583869467244225
+  },
+  "cohorts": {
+    "byKind": {
+      "pack": {
+        "caseCount": 83,
+        "metrics": {
+          "meanRecall": 0.798320554947061,
+          "meanPrecision": 0.040423578939443566,
+          "meanRecallAt5": 0.32107042890175425,
+          "meanRecallAt10": 0.506015403605765,
+          "meanRecallAt25": 0.6413002659990612,
+          "meanNdcgAt10": 0.3399024337732835,
+          "meanCandidateRecall": 0.9929718875502008,
+          "candidatePresentMissRate": 0.2527075812274368,
+          "candidatePresentMissCaseRate": 0.3614457831325301,
+          "meanCandidatePresentMissRate": 0.19465133260313983,
+          "sufficiencyInsufficientWhenIncomplete": 1.0,
+          "firstRelevantRate": 0.927710843373494,
+          "meanTokensToFirstRelevant": 1736.987012987013,
+          "meanUsefulEvidencePer1kTokens": 0.48348229944669613
+        }
+      },
+      "read-span": {
+        "caseCount": 1,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 1.0,
+          "meanRecallAt5": 1.0,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 1.0,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 17.0,
+          "meanUsefulEvidencePer1kTokens": 58.8235294117647
+        }
+      },
+      "related-symbols": {
+        "caseCount": 1,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.6666666666666666,
+          "meanRecallAt5": 1.0,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 1.0,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 57.0,
+          "meanUsefulEvidencePer1kTokens": 13.793103448275861
+        }
+      },
+      "related-tests": {
+        "caseCount": 1,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 1.0,
+          "meanRecallAt5": 1.0,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 1.0,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 87.0,
+          "meanUsefulEvidencePer1kTokens": 11.494252873563218
+        }
+      },
+      "search-text": {
+        "caseCount": 3,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.3611111111111111,
+          "meanRecallAt5": 1.0,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 1.0,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 47.0,
+          "meanUsefulEvidencePer1kTokens": 4.818840556931349
+        }
+      }
+    },
+    "bySourceGroup": {
+      "external": {
+        "caseCount": 40,
+        "metrics": {
+          "meanRecall": 0.6031547619047619,
+          "meanPrecision": 0.018088740648450858,
+          "meanRecallAt5": 0.19652777777777777,
+          "meanRecallAt10": 0.36659722222222224,
+          "meanRecallAt25": 0.46722222222222226,
+          "meanNdcgAt10": 0.22727548721157415,
+          "meanCandidateRecall": 0.9916666666666666,
+          "candidatePresentMissRate": 0.47794117647058826,
+          "candidatePresentMissCaseRate": 0.675,
+          "meanCandidatePresentMissRate": 0.3885119047619048,
+          "sufficiencyInsufficientWhenIncomplete": 1.0,
+          "firstRelevantRate": 0.85,
+          "meanTokensToFirstRelevant": 2537.794117647059,
+          "meanUsefulEvidencePer1kTokens": 0.14583993504414605
+        }
+      },
+      "fixture": {
+        "caseCount": 10,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.4722727272727273,
+          "meanRecallAt5": 0.9,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 0.8994768877137993,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 84.8,
+          "meanUsefulEvidencePer1kTokens": 12.211141590293462
+        }
+      },
+      "self": {
+        "caseCount": 39,
+        "metrics": {
+          "meanRecall": 0.9778055278055279,
+          "meanPrecision": 0.042535388546372024,
+          "meanRecallAt5": 0.4048137048137048,
+          "meanRecallAt10": 0.5983433233433234,
+          "meanRecallAt25": 0.7830521330521331,
+          "meanNdcgAt10": 0.41349009327132236,
+          "meanCandidateRecall": 0.9935897435897436,
+          "candidatePresentMissRate": 0.037037037037037035,
+          "candidatePresentMissCaseRate": 0.07692307692307693,
+          "meanCandidatePresentMissRate": 0.015784215784215783,
+          "sufficiencyInsufficientWhenIncomplete": 1.0,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 1203.0,
+          "meanUsefulEvidencePer1kTokens": 0.27567756291726037
+        }
+      }
+    },
+    "byTruthSource": {
+      "curated": {
+        "caseCount": 2,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.23636363636363636,
+          "meanRecallAt5": 0.5,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 0.4973844385689961,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 216.5,
+          "meanUsefulEvidencePer1kTokens": 3.405388080696569
+        }
+      },
+      "fixture": {
+        "caseCount": 8,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.53125,
+          "meanRecallAt5": 1.0,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 1.0,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 51.875,
+          "meanUsefulEvidencePer1kTokens": 14.412579967692684
+        }
+      },
+      "mined_followup": {
+        "caseCount": 79,
+        "metrics": {
+          "meanRecall": 0.7881089374760261,
+          "meanPrecision": 0.03015733897780434,
+          "meanRecallAt5": 0.29935247593475445,
+          "meanRecallAt10": 0.4810035253073227,
+          "meanRecallAt25": 0.6231382541509124,
+          "meanNdcgAt10": 0.31920421678537386,
+          "meanCandidateRecall": 0.9926160337552743,
+          "candidatePresentMissRate": 0.25830258302583026,
+          "candidatePresentMissCaseRate": 0.379746835443038,
+          "meanCandidatePresentMissRate": 0.20450709627924818,
+          "sufficiencyInsufficientWhenIncomplete": 1.0,
+          "firstRelevantRate": 0.9240506329113924,
+          "meanTokensToFirstRelevant": 1824.6849315068494,
+          "meanUsefulEvidencePer1kTokens": 0.20993699184226577
+        }
+      }
+    },
+    "byStrict": {
+      "False": {
+        "caseCount": 79,
+        "metrics": {
+          "meanRecall": 0.7881089374760261,
+          "meanPrecision": 0.03015733897780434,
+          "meanRecallAt5": 0.29935247593475445,
+          "meanRecallAt10": 0.4810035253073227,
+          "meanRecallAt25": 0.6231382541509124,
+          "meanNdcgAt10": 0.31920421678537386,
+          "meanCandidateRecall": 0.9926160337552743,
+          "candidatePresentMissRate": 0.25830258302583026,
+          "candidatePresentMissCaseRate": 0.379746835443038,
+          "meanCandidatePresentMissRate": 0.20450709627924818,
+          "sufficiencyInsufficientWhenIncomplete": 1.0,
+          "firstRelevantRate": 0.9240506329113924,
+          "meanTokensToFirstRelevant": 1824.6849315068494,
+          "meanUsefulEvidencePer1kTokens": 0.20993699184226577
+        }
+      },
+      "True": {
+        "caseCount": 10,
+        "metrics": {
+          "meanRecall": 1.0,
+          "meanPrecision": 0.4722727272727273,
+          "meanRecallAt5": 0.9,
+          "meanRecallAt10": 1.0,
+          "meanRecallAt25": 1.0,
+          "meanNdcgAt10": 0.8994768877137993,
+          "meanCandidateRecall": 1.0,
+          "candidatePresentMissRate": 0.0,
+          "candidatePresentMissCaseRate": 0.0,
+          "meanCandidatePresentMissRate": 0.0,
+          "sufficiencyInsufficientWhenIncomplete": null,
+          "firstRelevantRate": 1.0,
+          "meanTokensToFirstRelevant": 84.8,
+          "meanUsefulEvidencePer1kTokens": 12.211141590293462
+        }
+      }
+    }
   }
 }

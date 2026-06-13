@@ -74,6 +74,10 @@ pub enum ReviewEvent {
         skipped_files: usize,
         ms: u64,
     },
+    ContextIndexFailed {
+        snapshot_id: SnapshotId,
+        message: String,
+    },
     ContextPackStarted {
         session_id: Option<String>,
         purpose: String,
@@ -86,6 +90,12 @@ pub enum ReviewEvent {
         omitted_count: usize,
         used_tokens: usize,
         sufficiency: String,
+        ms: u64,
+    },
+    ContextPackFailed {
+        session_id: Option<String>,
+        purpose: String,
+        message: String,
         ms: u64,
     },
     ContextQueryCompleted {
@@ -204,6 +214,13 @@ impl ReviewEvent {
                 skipped_files: *skipped_files,
                 ms: *ms,
             },
+            RuntimeEvent::ContextIndexFailed {
+                snapshot_id,
+                message,
+            } => Self::ContextIndexFailed {
+                snapshot_id: snapshot_id.clone(),
+                message: message.clone(),
+            },
             RuntimeEvent::ContextPackStarted {
                 session_id,
                 purpose,
@@ -228,6 +245,17 @@ impl ReviewEvent {
                 omitted_count: *omitted_count,
                 used_tokens: *used_tokens,
                 sufficiency: sufficiency.clone(),
+                ms: *ms,
+            },
+            RuntimeEvent::ContextPackFailed {
+                session_id,
+                purpose,
+                message,
+                ms,
+            } => Self::ContextPackFailed {
+                session_id: session_id.as_ref().map(|id| id.0.clone()),
+                purpose: purpose.clone(),
+                message: message.clone(),
                 ms: *ms,
             },
             RuntimeEvent::ContextQueryCompleted {

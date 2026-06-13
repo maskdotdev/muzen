@@ -1,11 +1,14 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::contracts::Role;
-use crate::runtime::contracts::{EvidenceId, SessionId, SnapshotId};
+use crate::runtime::contracts::{SessionId, SnapshotId};
 
 use super::{
-    ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextRelationship,
-    ContextSufficiencyStatus, OmittedContextCandidate,
+    ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextEvidenceSource,
+    ContextRelationship, ContextScope, ContextSufficiencyStatus, ContextTrust,
+    OmittedContextCandidate,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -121,7 +124,6 @@ pub struct ContextPackRequest {
     pub session_id: Option<SessionId>,
     pub purpose: ContextPackPurpose,
     pub max_tokens: usize,
-    pub seed_evidence: Vec<EvidenceId>,
 }
 
 pub(crate) fn rank_for_purpose(
@@ -134,13 +136,64 @@ pub(crate) fn rank_for_purpose(
         .cloned()
         .map(|evidence| (score_for_purpose(&evidence, purpose, config), evidence))
         .collect::<Vec<_>>();
-    ranked.sort_by(|(left_score, left), (right_score, right)| {
-        right_score
-            .partial_cmp(left_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| left.id.0.cmp(&right.id.0))
-    });
+    ranked.sort_by(rank_candidate_order);
+    apply_rank_diversity(&mut ranked, purpose);
     ranked
+}
+
+fn apply_rank_diversity(ranked: &mut [(f32, ContextEvidence)], purpose: ContextPackPurpose) {
+    let mut seen_by_path: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seen_tests = 0usize;
+    for (score, evidence) in ranked.iter_mut() {
+        if let Some(path) = evidence.path.as_ref() {
+            let seen = seen_by_path.entry(path.display()).or_insert(0);
+            *score -= path_diversity_penalty(*seen, evidence.is_changed_span);
+            *seen = seen.saturating_add(1);
+        }
+        if evidence.kind == ContextEvidenceKind::Test {
+            *score -= test_density_penalty(seen_tests, purpose);
+            seen_tests = seen_tests.saturating_add(1);
+        }
+    }
+    ranked.sort_by(rank_candidate_order);
+}
+
+fn rank_candidate_order(
+    (left_score, left): &(f32, ContextEvidence),
+    (right_score, right): &(f32, ContextEvidence),
+) -> std::cmp::Ordering {
+    right_score
+        .partial_cmp(left_score)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.token_estimate.cmp(&right.token_estimate))
+        .then_with(|| {
+            left.path
+                .as_ref()
+                .map(|path| path.display())
+                .cmp(&right.path.as_ref().map(|path| path.display()))
+        })
+        .then_with(|| left.id.0.cmp(&right.id.0))
+}
+
+fn path_diversity_penalty(seen: usize, changed_span: bool) -> f32 {
+    if seen == 0 {
+        return 0.0;
+    }
+    let base = if changed_span { 0.08 } else { 0.12 };
+    base * (seen.min(5) as f32)
+}
+
+fn test_density_penalty(seen_tests: usize, purpose: ContextPackPurpose) -> f32 {
+    if !matches!(
+        purpose,
+        ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Validator
+    ) || seen_tests < 6
+    {
+        return 0.0;
+    }
+    0.04 * (seen_tests.saturating_sub(5).min(10) as f32)
 }
 
 /// Deterministic, explainable ranking from typed structural signals.
@@ -165,6 +218,9 @@ pub(crate) fn score_for_purpose(
     let co_change_bonus =
         config.weight_co_change * (signals.co_change_score / (1.0 + signals.co_change_score));
     let proximity_bonus = config.weight_path_proximity * signals.path_proximity;
+    let lexical_bonus = config.weight_lexical_change * signals.lexical_change_score;
+    let test_coverage_bonus = related_test_coverage_bonus(evidence, purpose, config);
+    let run_context_bonus = trusted_run_context_bonus(evidence, purpose);
     let kind_bonus = match (purpose, evidence.kind) {
         (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => 0.35,
         (ContextPackPurpose::Security, ContextEvidenceKind::Config) => 0.25,
@@ -182,9 +238,87 @@ pub(crate) fn score_for_purpose(
         + graph_bonus
         + co_change_bonus
         + proximity_bonus
+        + lexical_bonus
+        + test_coverage_bonus
+        + run_context_bonus
         + kind_bonus
         + token_efficiency_bonus(evidence.token_estimate)
         + semantic_bonus
+}
+
+fn trusted_run_context_bonus(evidence: &ContextEvidence, purpose: ContextPackPurpose) -> f32 {
+    if evidence.source != ContextEvidenceSource::Host
+        || evidence.trust != ContextTrust::HostTrusted
+        || evidence.scope != ContextScope::Run
+    {
+        return 0.0;
+    }
+    match (purpose, evidence.kind) {
+        (
+            ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Validator,
+            ContextEvidenceKind::Ticket,
+        ) => 0.41,
+        (
+            ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Tests
+            | ContextPackPurpose::Validator,
+            ContextEvidenceKind::CiFailure,
+        ) => 0.39,
+        (
+            ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Architecture
+            | ContextPackPurpose::Validator,
+            ContextEvidenceKind::CrossRepoContract,
+        ) => 0.41,
+        (
+            ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Security
+            | ContextPackPurpose::Validator,
+            ContextEvidenceKind::PriorFinding,
+        ) => 0.35,
+        (_, ContextEvidenceKind::Ticket) => 0.24,
+        (_, ContextEvidenceKind::CiFailure) => 0.22,
+        (_, ContextEvidenceKind::CrossRepoContract) => 0.24,
+        (_, ContextEvidenceKind::PriorFinding) => 0.22,
+        (_, ContextEvidenceKind::OrganizationRule) => 0.20,
+        _ => 0.0,
+    }
+}
+
+fn related_test_coverage_bonus(
+    evidence: &ContextEvidence,
+    purpose: ContextPackPurpose,
+    config: &ContextEngineConfig,
+) -> f32 {
+    if evidence.kind != ContextEvidenceKind::Test {
+        return 0.0;
+    }
+    if !matches!(
+        purpose,
+        ContextPackPurpose::GeneralReview
+            | ContextPackPurpose::Correctness
+            | ContextPackPurpose::Tests
+            | ContextPackPurpose::Validator
+    ) {
+        return 0.0;
+    }
+    let Some(distance) = evidence.signals.graph_distance else {
+        return 0.0;
+    };
+    if distance == 0 || distance > 2 {
+        return 0.0;
+    }
+    let locally_relevant =
+        evidence.signals.path_proximity >= 0.5 || evidence.signals.lexical_change_score > 0.0;
+    if !locally_relevant {
+        return 0.0;
+    }
+    config.weight_test_coverage / f32::from(distance)
 }
 
 /// Explain a selection by citing the structural signals that scored it.
@@ -223,11 +357,31 @@ pub(crate) fn explain_selected_evidence(
     if signals.path_proximity >= 0.5 && !evidence.is_changed_span {
         why.push("sits near the changed files in the directory tree".to_string());
     }
+    if signals.lexical_change_score > 0.0 {
+        why.push(format!(
+            "shares rare change terms with the files under review ({:.2})",
+            signals.lexical_change_score
+        ));
+    }
+    if related_test_coverage_bonus(
+        evidence,
+        purpose,
+        &ContextEngineConfig {
+            weight_test_coverage: 1.0,
+            ..ContextEngineConfig::snapshot_v0()
+        },
+    ) > 0.0
+    {
+        why.push("related test coverage for graph-near changed code".to_string());
+    }
     if signals.semantic_change_score > 0.0 {
         why.push(format!(
             "semantically similar to the change (embedding similarity {:.2})",
             signals.semantic_change_score
         ));
+    }
+    if trusted_run_context_bonus(evidence, purpose) > 0.0 {
+        why.push("trusted run-scoped host context".to_string());
     }
     match (purpose, evidence.kind) {
         (ContextPackPurpose::Security, ContextEvidenceKind::RepositoryRule) => {
@@ -262,9 +416,9 @@ pub(crate) fn purpose_name(purpose: ContextPackPurpose) -> &'static str {
 
 fn token_efficiency_bonus(tokens: usize) -> f32 {
     if tokens <= 250 {
-        0.15
-    } else if tokens <= 1_000 {
         0.08
+    } else if tokens <= 1_000 {
+        0.04
     } else {
         0.0
     }
@@ -277,11 +431,21 @@ mod tests {
         ContextEvidenceSource, ContextProvenance, ContextRankSignals, ContextScope,
         ContextSensitivity, ContextTrust,
     };
+    use crate::runtime::contracts::RepoPath;
 
     fn evidence(id: &str, signals: ContextRankSignals, is_changed_span: bool) -> ContextEvidence {
+        evidence_with_kind(id, ContextEvidenceKind::FileSpan, signals, is_changed_span)
+    }
+
+    fn evidence_with_kind(
+        id: &str,
+        kind: ContextEvidenceKind,
+        signals: ContextRankSignals,
+        is_changed_span: bool,
+    ) -> ContextEvidence {
         ContextEvidence {
             id: crate::runtime::contracts::EvidenceId(id.to_string()),
-            kind: ContextEvidenceKind::FileSpan,
+            kind,
             source: ContextEvidenceSource::Snapshot,
             trust: ContextTrust::Kernel,
             sensitivity: ContextSensitivity::Private,
@@ -306,6 +470,25 @@ mod tests {
             created_at_utc: None,
             expires_at_utc: None,
         }
+    }
+
+    fn evidence_with_path(
+        id: &str,
+        kind: ContextEvidenceKind,
+        signals: ContextRankSignals,
+        path: &str,
+    ) -> ContextEvidence {
+        let mut evidence = evidence_with_kind(id, kind, signals, false);
+        evidence.path = Some(RepoPath::parse(path).expect("test path"));
+        evidence
+    }
+
+    fn trusted_run_context(id: &str, kind: ContextEvidenceKind) -> ContextEvidence {
+        let mut evidence = evidence_with_kind(id, kind, ContextRankSignals::default(), false);
+        evidence.source = ContextEvidenceSource::Host;
+        evidence.trust = ContextTrust::HostTrusted;
+        evidence.scope = ContextScope::Run;
+        evidence
     }
 
     #[test]
@@ -404,6 +587,196 @@ mod tests {
     }
 
     #[test]
+    fn graph_near_tests_are_first_class_general_review_context() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let signals = ContextRankSignals {
+            graph_distance: Some(1),
+            path_proximity: 1.0,
+            lexical_change_score: 1.0,
+            ..Default::default()
+        };
+        let related_test = evidence_with_kind("test", ContextEvidenceKind::Test, signals, false);
+        let implementation =
+            evidence_with_kind("impl", ContextEvidenceKind::FileSpan, signals, false);
+
+        assert!(
+            score_for_purpose(&related_test, ContextPackPurpose::GeneralReview, &config)
+                > score_for_purpose(&implementation, ContextPackPurpose::GeneralReview, &config),
+            "general review packs should not bury graph-connected nearby tests behind same-signal implementation spans"
+        );
+    }
+
+    #[test]
+    fn equal_score_candidates_prefer_cheaper_evidence() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let mut expensive = evidence_with_path(
+            "a-expensive",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals::default(),
+            "src/a.rs",
+        );
+        expensive.token_estimate = 900;
+        let mut cheap = evidence_with_path(
+            "z-cheap",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals::default(),
+            "src/z.rs",
+        );
+        cheap.token_estimate = 300;
+
+        let ranked = rank_for_purpose(
+            &[expensive.clone(), cheap.clone()],
+            ContextPackPurpose::GeneralReview,
+            &config,
+        );
+
+        assert_eq!(ranked[0].1.id, cheap.id);
+        assert_eq!(ranked[1].1.id, expensive.id);
+    }
+
+    #[test]
+    fn trusted_run_ticket_prioritized_without_beating_changed_code() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let ticket = trusted_run_context("ticket", ContextEvidenceKind::Ticket);
+        let unrelated = evidence_with_kind(
+            "unrelated",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals::default(),
+            false,
+        );
+        let changed = evidence_with_path(
+            "changed",
+            ContextEvidenceKind::FileSpan,
+            ContextRankSignals {
+                graph_distance: Some(0),
+                path_proximity: 1.0,
+                ..Default::default()
+            },
+            "src/lib.rs",
+        );
+        let mut changed = changed;
+        changed.is_changed_span = true;
+
+        let purpose = ContextPackPurpose::GeneralReview;
+        assert!(
+            score_for_purpose(&ticket, purpose, &config)
+                > score_for_purpose(&unrelated, purpose, &config),
+            "trusted run ticket context should outrank generic unrelated file spans"
+        );
+        assert!(
+            score_for_purpose(&changed, purpose, &config)
+                > score_for_purpose(&ticket, purpose, &config),
+            "changed code remains the strongest evidence"
+        );
+    }
+
+    #[test]
+    fn untrusted_host_ticket_receives_no_run_context_bonus() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let trusted = trusted_run_context("trusted", ContextEvidenceKind::Ticket);
+        let mut untrusted = trusted_run_context("untrusted", ContextEvidenceKind::Ticket);
+        untrusted.trust = ContextTrust::UserUntrusted;
+
+        assert!(
+            score_for_purpose(&trusted, ContextPackPurpose::Correctness, &config)
+                > score_for_purpose(&untrusted, ContextPackPurpose::Correctness, &config),
+            "only host-trusted run context receives priority"
+        );
+    }
+
+    #[test]
+    fn explanations_cite_trusted_run_context() {
+        let why = explain_selected_evidence(
+            &trusted_run_context("ticket", ContextEvidenceKind::Ticket),
+            ContextPackPurpose::Correctness,
+        );
+
+        assert!(why
+            .iter()
+            .any(|reason| reason == "trusted run-scoped host context"));
+    }
+
+    #[test]
+    fn general_review_test_density_preserves_implementation_after_test_frontier() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let signals = ContextRankSignals {
+            graph_distance: Some(1),
+            path_proximity: 1.0,
+            lexical_change_score: 1.0,
+            ..Default::default()
+        };
+        let mut evidence = (0..12)
+            .map(|index| {
+                evidence_with_path(
+                    &format!("test-{index:02}"),
+                    ContextEvidenceKind::Test,
+                    signals,
+                    &format!("src/feature/case-{index}.test.ts"),
+                )
+            })
+            .collect::<Vec<_>>();
+        evidence.push(evidence_with_path(
+            "impl",
+            ContextEvidenceKind::FileSpan,
+            signals,
+            "src/feature/implementation.ts",
+        ));
+
+        let ranked = rank_for_purpose(&evidence, ContextPackPurpose::GeneralReview, &config);
+        let impl_position = ranked
+            .iter()
+            .position(|(_, evidence)| evidence.id.0 == "impl")
+            .expect("implementation ranked");
+        let tenth_test_position = ranked
+            .iter()
+            .position(|(_, evidence)| evidence.id.0 == "test-09")
+            .expect("test ranked");
+
+        assert!(
+            impl_position < tenth_test_position,
+            "generic review packs should keep graph-near tests first-class without letting test density bury implementation context"
+        );
+    }
+
+    #[test]
+    fn tests_pack_does_not_apply_generic_test_density_penalty() {
+        let config = ContextEngineConfig::snapshot_v0();
+        let signals = ContextRankSignals {
+            graph_distance: Some(1),
+            path_proximity: 1.0,
+            lexical_change_score: 1.0,
+            ..Default::default()
+        };
+        let mut evidence = (0..12)
+            .map(|index| {
+                evidence_with_path(
+                    &format!("test-{index:02}"),
+                    ContextEvidenceKind::Test,
+                    signals,
+                    &format!("src/feature/case-{index}.test.ts"),
+                )
+            })
+            .collect::<Vec<_>>();
+        evidence.push(evidence_with_path(
+            "impl",
+            ContextEvidenceKind::FileSpan,
+            signals,
+            "src/feature/implementation.ts",
+        ));
+
+        let ranked = rank_for_purpose(&evidence, ContextPackPurpose::Tests, &config);
+        let impl_position = ranked
+            .iter()
+            .position(|(_, evidence)| evidence.id.0 == "impl")
+            .expect("implementation ranked");
+
+        assert_eq!(
+            impl_position, 12,
+            "tests packs keep test evidence ahead of same-signal implementation spans"
+        );
+    }
+
+    #[test]
     fn explanations_cite_structural_signals() {
         let item = evidence(
             "a",
@@ -423,5 +796,23 @@ mod tests {
             !why.iter().any(|reason| reason.contains("V0")),
             "explanations cite signals, not V0 heuristics"
         );
+    }
+
+    #[test]
+    fn explanations_cite_related_test_coverage() {
+        let item = evidence_with_kind(
+            "test",
+            ContextEvidenceKind::Test,
+            ContextRankSignals {
+                graph_distance: Some(1),
+                path_proximity: 1.0,
+                ..Default::default()
+            },
+            false,
+        );
+        let why = explain_selected_evidence(&item, ContextPackPurpose::GeneralReview);
+        assert!(why
+            .iter()
+            .any(|reason| reason.contains("related test coverage")));
     }
 }

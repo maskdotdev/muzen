@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "curated-python-billing",
+  "truthSource": "curated",
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/python-billing"
+  },
+  "changedFiles": [
+    "app/payments/settlement.py"
+  ],
+  "description": "Strict causal fixture: Python settlement logic change must surface the API caller and route test through import graph facts despite unrelated API/payment distractors.",
+  "cases": [
+    {
+      "id": "python-billing-pack-causal-callers",
+      "command": "pack",
+      "purpose": "correctness",
+      "maxTokens": 3500,
+      "expectedPaths": [
+        "app/payments/settlement.py",
+        "app/api/invoices.py",
+        "tests/test_invoice_settlement.py"
+      ],
+      "expectedRanges": [
+        {
+          "kind": "file_span",
+          "path": "app/payments/settlement.py",
+          "startLine": 1,
+          "endLine": 34
+        }
+      ],
+      "strict": true
+    }
+  ]
+}

@@ -179,6 +179,44 @@ const EXPANSION_STATE_BUDGET: usize = 20_000;
 /// more than transitively reachable context.
 const HOP_DECAY: f32 = 0.5;
 
+#[derive(Debug, Clone)]
+struct TraversalState {
+    score: f32,
+    /// Stable node key, the deterministic tie-break.
+    key: String,
+    hops: u8,
+    node: ContextNodeId,
+    steps: Vec<ContextGraphPathStep>,
+    /// Whether further relationship hops are allowed (lateral
+    /// edges like CoChanged/SameModule are terminal).
+    extendable: bool,
+}
+
+impl PartialEq for TraversalState {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for TraversalState {}
+
+impl PartialOrd for TraversalState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TraversalState {
+    // Max-heap order: higher score first, then stable node key
+    // (ascending), then fewer hops.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score
+            .total_cmp(&other.score)
+            .then_with(|| other.key.cmp(&self.key))
+            .then_with(|| other.hops.cmp(&self.hops))
+    }
+}
+
 impl ContextGraph {
     /// Expand bounded candidate sets from the changed anchors. Anchors
     /// in the same file share one candidate budget, so a file with many
@@ -278,42 +316,9 @@ impl ContextGraph {
         states_examined: &mut usize,
         expansion: &mut ContextGraphExpansion,
     ) {
-        #[derive(Debug, Clone)]
-        struct State {
-            score: f32,
-            /// Stable node key, the deterministic tie-break.
-            key: String,
-            hops: u8,
-            node: ContextNodeId,
-            steps: Vec<ContextGraphPathStep>,
-            /// Whether further relationship hops are allowed (lateral
-            /// edges like CoChanged/SameModule are terminal).
-            extendable: bool,
-        }
-        impl PartialEq for State {
-            fn eq(&self, other: &Self) -> bool {
-                self.cmp(other) == std::cmp::Ordering::Equal
-            }
-        }
-        impl Eq for State {}
-        impl PartialOrd for State {
-            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-                Some(self.cmp(other))
-            }
-        }
-        impl Ord for State {
-            // Max-heap order: higher score first, then stable node key
-            // (ascending), then fewer hops.
-            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                self.score
-                    .total_cmp(&other.score)
-                    .then_with(|| other.key.cmp(&self.key))
-                    .then_with(|| other.hops.cmp(&self.hops))
-            }
-        }
-
-        let mut frontier: std::collections::BinaryHeap<State> = std::collections::BinaryHeap::new();
-        frontier.push(State {
+        let mut frontier: std::collections::BinaryHeap<TraversalState> =
+            std::collections::BinaryHeap::new();
+        frontier.push(TraversalState {
             score: 1.0,
             key: anchor.key(),
             hops: 0,
@@ -358,6 +363,16 @@ impl ContextGraph {
                 }
             }
             if !state.extendable {
+                self.emit_terminal_tests(
+                    anchor,
+                    anchor_path,
+                    changed_paths,
+                    request,
+                    &state,
+                    best_by_path,
+                    floor_omissions,
+                    expansion,
+                );
                 continue;
             }
             // Neighbor expansion.
@@ -406,7 +421,7 @@ impl ContextGraph {
                     to: neighbor.clone(),
                     reason: edge.reason.clone(),
                 });
-                frontier.push(State {
+                frontier.push(TraversalState {
                     score: new_score,
                     key: neighbor.key(),
                     hops: new_hops,
@@ -414,6 +429,74 @@ impl ContextGraph {
                     steps,
                     extendable: step.extendable,
                 });
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_terminal_tests(
+        &self,
+        anchor: &ContextNodeId,
+        anchor_path: &RepoPath,
+        changed_paths: &BTreeSet<&RepoPath>,
+        request: &ContextGraphExpansionRequest,
+        state: &TraversalState,
+        best_by_path: &mut BTreeMap<RepoPath, ContextGraphCandidate>,
+        floor_omissions: &mut BTreeSet<ContextNodeId>,
+        expansion: &mut ContextGraphExpansion,
+    ) {
+        if usize::from(state.hops) >= request.max_hops {
+            return;
+        }
+        let new_hops = state.hops + 1;
+        for edge in self
+            .edges_to(&state.node)
+            .filter(|edge| edge.kind == ContextEdgeKind::Tests)
+        {
+            let neighbor = &edge.from;
+            if matches!(neighbor, ContextNodeId::Repo { .. }) {
+                continue;
+            }
+            if let Some(neighbor_path) = neighbor.path() {
+                if neighbor_path != anchor_path && changed_paths.contains(neighbor_path) {
+                    continue;
+                }
+            }
+            if !is_structural(edge.kind) && edge.confidence < request.min_confidence {
+                floor_omissions.insert(neighbor.clone());
+                continue;
+            }
+            if usize::from(new_hops) > request.max_hops {
+                continue;
+            }
+            let test_value = match request.purpose {
+                ContextGraphExpansionPurpose::Retrieval => edge.confidence,
+                ContextGraphExpansionPurpose::Sufficiency => edge.confidence.max(0.9),
+            };
+            let mut steps = state.steps.clone();
+            steps.push(ContextGraphPathStep {
+                edge_id: edge.id.clone(),
+                kind: edge.kind,
+                forward: false,
+                from: state.node.clone(),
+                to: neighbor.clone(),
+                reason: edge.reason.clone(),
+            });
+            if let Some(candidate_path) = neighbor.path() {
+                let eligible = matches!(
+                    neighbor,
+                    ContextNodeId::File { .. } | ContextNodeId::Chunk { .. }
+                ) && !changed_paths.contains(candidate_path);
+                if eligible {
+                    let candidate = ContextGraphCandidate {
+                        node_id: neighbor.clone(),
+                        anchor: anchor.clone(),
+                        score: state.score * test_value * HOP_DECAY,
+                        hop_count: new_hops,
+                        path: ContextGraphPath { steps },
+                    };
+                    merge_candidate(best_by_path, candidate, expansion);
+                }
             }
         }
     }

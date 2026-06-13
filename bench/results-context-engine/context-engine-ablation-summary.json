@@ -1,0 +1,3254 @@
+{
+  "schemaVersion": "muzen.context-eval-ablation.v1",
+  "generatedAtUnixMs": 1781265482387,
+  "baseline": {
+    "caseCount": 89,
+    "metrics": {
+      "meanRecall": 0.8119169220292817,
+      "meanPrecision": 0.07983322530307659,
+      "meanRecallAt5": 0.366840961784782,
+      "meanRecallAt10": 0.5393177359469494,
+      "meanRecallAt25": 0.6654822705384503,
+      "meanNdcgAt10": 0.3844033932941857,
+      "meanCandidateRecall": 0.9934456928838952,
+      "candidatePresentMissRate": 0.24734982332155478,
+      "candidatePresentMissCaseRate": 0.33707865168539325,
+      "meanCandidatePresentMissRate": 0.18152877085461355,
+      "sufficiencyInsufficientWhenIncomplete": 1.0,
+      "firstRelevantRate": 0.9325842696629213,
+      "meanTokensToFirstRelevant": 1615.0602409638554,
+      "meanUsefulEvidencePer1kTokens": 1.5583869467244225
+    }
+  },
+  "variants": [
+    {
+      "disabledSignals": [
+        "graph"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.7441440893688084,
+        "meanPrecision": 0.07710466982024555,
+        "meanRecallAt5": 0.27315003972307345,
+        "meanRecallAt10": 0.4409670541693013,
+        "meanRecallAt25": 0.5836243656468376,
+        "meanNdcgAt10": 0.3030168792814012,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.31448763250883394,
+        "candidatePresentMissCaseRate": 0.43820224719101125,
+        "meanCandidatePresentMissRate": 0.24930160351508665,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.8876404494382022,
+        "meanTokensToFirstRelevant": 2157.7088607594937,
+        "meanUsefulEvidencePer1kTokens": 1.5405875396269377
+      },
+      "deltaVsBaseline": {
+        "meanRecall": -0.06777283266047329,
+        "meanPrecision": -0.0027285554828310327,
+        "meanRecallAt5": -0.09369092206170854,
+        "meanRecallAt10": -0.09835068177764811,
+        "meanRecallAt25": -0.08185790489161271,
+        "meanNdcgAt10": -0.08138651401278452,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.06713780918727916,
+        "candidatePresentMissCaseRate": 0.101123595505618,
+        "meanCandidatePresentMissRate": 0.0677728326604731,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": -0.0449438202247191,
+        "meanTokensToFirstRelevant": 542.6486197956383,
+        "meanUsefulEvidencePer1kTokens": -0.017799407097484732
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.7256484813713729,
+              "meanPrecision": 0.03749777848195005,
+              "meanRecallAt5": 0.220606669100645,
+              "meanRecallAt10": 0.4005550339887689,
+              "meanRecallAt25": 0.553524922199621,
+              "meanNdcgAt10": 0.25263255730174344,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.3212996389891697,
+              "candidatePresentMissCaseRate": 0.46987951807228917,
+              "meanCandidatePresentMissRate": 0.2673234061788279,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.8795180722891566,
+              "meanTokensToFirstRelevant": 2330.917808219178,
+              "meanUsefulEvidencePer1kTokens": 0.4643961882216823
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.07267207357568806,
+              "meanPrecision": -0.0029258004574935145,
+              "meanRecallAt5": -0.10046375980110925,
+              "meanRecallAt10": -0.10546036961699612,
+              "meanRecallAt25": -0.08777534379944019,
+              "meanNdcgAt10": -0.08726987647154005,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.06859205776173288,
+              "candidatePresentMissCaseRate": 0.10843373493975905,
+              "meanCandidatePresentMissRate": 0.07267207357568806,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.048192771084337394,
+              "meanTokensToFirstRelevant": 593.9307952321649,
+              "meanUsefulEvidencePer1kTokens": -0.019086111225013802
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.5127579365079364,
+              "meanPrecision": 0.01620576380854305,
+              "meanRecallAt5": 0.10048611111111112,
+              "meanRecallAt10": 0.2127777777777778,
+              "meanRecallAt25": 0.3645436507936508,
+              "meanNdcgAt10": 0.13296093702875061,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.5514705882352942,
+              "candidatePresentMissCaseRate": 0.725,
+              "meanCandidatePresentMissRate": 0.47890873015873014,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.75,
+              "meanTokensToFirstRelevant": 3029.9333333333334,
+              "meanUsefulEvidencePer1kTokens": 0.125006077445239
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.09039682539682548,
+              "meanPrecision": -0.001882976839907808,
+              "meanRecallAt5": -0.09604166666666665,
+              "meanRecallAt10": -0.15381944444444445,
+              "meanRecallAt25": -0.10267857142857145,
+              "meanNdcgAt10": -0.09431455018282353,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0735294117647059,
+              "candidatePresentMissCaseRate": 0.04999999999999993,
+              "meanCandidatePresentMissRate": 0.09039682539682536,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.09999999999999998,
+              "meanTokensToFirstRelevant": 492.1392156862744,
+              "meanUsefulEvidencePer1kTokens": -0.020833857598907046
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.9158591408591409,
+              "meanPrecision": 0.03823994330597076,
+              "meanRecallAt5": 0.3151515151515151,
+              "meanRecallAt10": 0.5444860694860695,
+              "meanRecallAt25": 0.7015595515595516,
+              "meanNdcgAt10": 0.3351241629362283,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.1037037037037037,
+              "candidatePresentMissCaseRate": 0.2564102564102564,
+              "meanCandidatePresentMissRate": 0.07773060273060273,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 2011.820512820513,
+              "meanUsefulEvidencePer1kTokens": 0.2564264622064946
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.06194638694638699,
+              "meanPrecision": -0.004295445240401263,
+              "meanRecallAt5": -0.0896621896621897,
+              "meanRecallAt10": -0.05385725385725393,
+              "meanRecallAt25": -0.08149258149258143,
+              "meanNdcgAt10": -0.07836593033509404,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.06666666666666667,
+              "candidatePresentMissCaseRate": 0.17948717948717946,
+              "meanCandidatePresentMissRate": 0.06194638694638695,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 808.8205128205129,
+              "meanUsefulEvidencePer1kTokens": -0.019251100710765745
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 1.0,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 51.875,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7117572652382779,
+              "meanPrecision": 0.027083396724994706,
+              "meanRecallAt5": 0.20646017133358904,
+              "meanRecallAt10": 0.3765325040641496,
+              "meanRecallAt25": 0.5309185891464373,
+              "meanNdcgAt10": 0.23276303589446745,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.3284132841328413,
+              "candidatePresentMissCaseRate": 0.4936708860759494,
+              "meanCandidatePresentMissRate": 0.28085876851699637,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.8734177215189873,
+              "meanTokensToFirstRelevant": 2454.478260869565,
+              "meanUsefulEvidencePer1kTokens": 0.18988449523877027
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.07635167223774819,
+              "meanPrecision": -0.003073942252809634,
+              "meanRecallAt5": -0.0928923046011654,
+              "meanRecallAt10": -0.10447102124317309,
+              "meanRecallAt25": -0.0922196650044751,
+              "meanNdcgAt10": -0.08644118089090641,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.07011070110701106,
+              "candidatePresentMissCaseRate": 0.11392405063291139,
+              "meanCandidatePresentMissRate": 0.07635167223774819,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.05063291139240511,
+              "meanTokensToFirstRelevant": 629.7933293627157,
+              "meanUsefulEvidencePer1kTokens": -0.020052496603495507
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.75,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.29011121019089003,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 342.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": -0.5,
+              "meanRecallAt10": -0.25,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": -0.20727322837810608,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 126.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-1ca728244ab4-pack",
+          "caseSet": "mined-1ca728244ab4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-1f24e1cbc166-pack",
+          "caseSet": "mined-1f24e1cbc166",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 33,
+          "tokensToFirstRelevant": 5625,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-2996467ed39e-pack",
+          "caseSet": "mined-2996467ed39e",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts",
+            "apps/web/src/app/api/onboarding/track/route.test.ts",
+            "apps/web/src/app/api/review/comment-publish/route.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/api/mcp/keys/[keyId]/route.test.ts",
+            "apps/web/src/app/api/onboarding/track/route.test.ts",
+            "apps/web/src/app/api/review/comment-publish/route.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-2d407db0c171-pack",
+          "caseSet": "mined-2d407db0c171",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/server/flow-run-claim.ts",
+            "apps/web/src/features/review/server/flow-run-dedupe.ts",
+            "apps/web/src/features/review/server/flow-run.helpers.ts",
+            "apps/web/src/features/review/server/flow-run.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/server/flow-run-claim.ts",
+            "apps/web/src/features/review/server/flow-run-dedupe.ts",
+            "apps/web/src/features/review/server/flow-run.helpers.ts",
+            "apps/web/src/features/review/server/flow-run.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-341a5443e33b-pack",
+          "caseSet": "mined-341a5443e33b",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
+          ],
+          "missedPaths": [
+            "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 65,
+          "tokensToFirstRelevant": 8742,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 40,
+          "tokensToFirstRelevant": 5860,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7a8363b77014-pack",
+          "caseSet": "mined-7a8363b77014",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/command-palette/chat/route.test.ts",
+            "apps/web/src/app/api/review/description/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/command-palette/chat/route.test.ts",
+            "apps/web/src/app/api/review/description/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 64,
+          "tokensToFirstRelevant": 8838,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/components/sidebar-review-overview.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/components/sidebar-review-overview.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-8a81679096bc-pack",
+          "caseSet": "mined-8a81679096bc",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 31,
+          "tokensToFirstRelevant": 6782,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    },
+    {
+      "disabledSignals": [
+        "co-change"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.7711760461760462,
+        "meanPrecision": 0.07735599832744158,
+        "meanRecallAt5": 0.33835384341002317,
+        "meanRecallAt10": 0.4735107900838238,
+        "meanRecallAt25": 0.6036739789548778,
+        "meanNdcgAt10": 0.3251884273340857,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.31802120141342755,
+        "candidatePresentMissCaseRate": 0.4044943820224719,
+        "meanCandidatePresentMissRate": 0.22226964670784893,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.9213483146067416,
+        "meanTokensToFirstRelevant": 1953.939024390244,
+        "meanUsefulEvidencePer1kTokens": 1.5396626131906117
+      },
+      "deltaVsBaseline": {
+        "meanRecall": -0.04074087585323549,
+        "meanPrecision": -0.0024772269756350024,
+        "meanRecallAt5": -0.028487118374758813,
+        "meanRecallAt10": -0.06580694586312563,
+        "meanRecallAt25": -0.06180829158357248,
+        "meanNdcgAt10": -0.05921496596010001,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.07067137809187277,
+        "candidatePresentMissCaseRate": 0.06741573033707865,
+        "meanCandidatePresentMissRate": 0.04074087585323538,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": -0.011235955056179692,
+        "meanTokensToFirstRelevant": 338.8787834263885,
+        "meanUsefulEvidencePer1kTokens": -0.018724333533810755
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.75463455553817,
+              "meanPrecision": 0.03776727531496748,
+              "meanRecallAt5": 0.29052400076496465,
+              "meanRecallAt10": 0.43545132912602796,
+              "meanRecallAt25": 0.5750239051443871,
+              "meanNdcgAt10": 0.27640686786426055,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.3249097472924188,
+              "candidatePresentMissCaseRate": 0.43373493975903615,
+              "meanCandidatePresentMissRate": 0.23833733201203078,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.9156626506024096,
+              "meanTokensToFirstRelevant": 2104.2236842105262,
+              "meanUsefulEvidencePer1kTokens": 0.4634043996333326
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.04368599940889095,
+              "meanPrecision": -0.0026563036244760876,
+              "meanRecallAt5": -0.030546428136789594,
+              "meanRecallAt10": -0.07056407447973706,
+              "meanRecallAt25": -0.06627636085467414,
+              "meanNdcgAt10": -0.06349556590902294,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.07220216606498198,
+              "candidatePresentMissCaseRate": 0.07228915662650603,
+              "meanCandidatePresentMissRate": 0.04368599940889095,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.012048192771084376,
+              "meanTokensToFirstRelevant": 367.2366712235132,
+              "meanUsefulEvidencePer1kTokens": -0.020077899813363553
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.5670833333333334,
+              "meanPrecision": 0.016154196537238093,
+              "meanRecallAt5": 0.18819444444444444,
+              "meanRecallAt10": 0.29701388888888886,
+              "meanRecallAt25": 0.38430555555555557,
+              "meanNdcgAt10": 0.18049903834508452,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.5367647058823529,
+              "candidatePresentMissCaseRate": 0.65,
+              "meanCandidatePresentMissRate": 0.42458333333333337,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.825,
+              "meanTokensToFirstRelevant": 3050.939393939394,
+              "meanUsefulEvidencePer1kTokens": 0.1291692720929007
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.03607142857142853,
+              "meanPrecision": -0.0019345441112127645,
+              "meanRecallAt5": -0.008333333333333331,
+              "meanRecallAt10": -0.06958333333333339,
+              "meanRecallAt25": -0.0829166666666667,
+              "meanNdcgAt10": -0.04677644886648963,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.05882352941176466,
+              "candidatePresentMissCaseRate": -0.025000000000000022,
+              "meanCandidatePresentMissRate": 0.03607142857142859,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.025000000000000022,
+              "meanTokensToFirstRelevant": 513.145276292335,
+              "meanUsefulEvidencePer1kTokens": -0.016670662951245363
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.9218290968290968,
+              "meanPrecision": 0.038866377357064205,
+              "meanRecallAt5": 0.34835164835164834,
+              "meanRecallAt10": 0.5195360195360196,
+              "meanRecallAt25": 0.727045177045177,
+              "meanNdcgAt10": 0.33579768892873835,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.1259259259259259,
+              "candidatePresentMissCaseRate": 0.2564102564102564,
+              "meanCandidatePresentMissRate": 0.07176064676064675,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 1504.5384615384614,
+              "meanUsefulEvidencePer1kTokens": 0.2500457894183025
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.055976430976431124,
+              "meanPrecision": -0.0036690111893078192,
+              "meanRecallAt5": -0.05646205646205649,
+              "meanRecallAt10": -0.07880730380730383,
+              "meanRecallAt25": -0.056006956006956043,
+              "meanNdcgAt10": -0.07769240434258401,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.08888888888888888,
+              "candidatePresentMissCaseRate": 0.17948717948717946,
+              "meanCandidatePresentMissRate": 0.05597643097643097,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 301.53846153846143,
+              "meanUsefulEvidencePer1kTokens": -0.025631773498957844
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.9538662191964322,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 54.0,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": -0.04613378080356778,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 2.125,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7422109887299762,
+              "meanPrecision": 0.027366538967278833,
+              "meanRecallAt5": 0.2672593932087603,
+              "meanRecallAt10": 0.4068665862969661,
+              "meanRecallAt25": 0.5535061281896725,
+              "meanNdcgAt10": 0.25716546078511615,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.33210332103321033,
+              "candidatePresentMissCaseRate": 0.45569620253164556,
+              "meanCandidatePresentMissRate": 0.25040504502529815,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.9113924050632911,
+              "meanTokensToFirstRelevant": 2213.3055555555557,
+              "meanUsefulEvidencePer1kTokens": 0.18884248950670662
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.04589794874604991,
+              "meanPrecision": -0.002790800010525507,
+              "meanRecallAt5": -0.03209308272599415,
+              "meanRecallAt10": -0.07413693901035662,
+              "meanRecallAt25": -0.06963212596123991,
+              "meanNdcgAt10": -0.06203875600025771,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.07380073800738007,
+              "candidatePresentMissCaseRate": 0.07594936708860756,
+              "meanCandidatePresentMissRate": 0.045897948746049966,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.012658227848101333,
+              "meanTokensToFirstRelevant": 388.6206240487063,
+              "meanUsefulEvidencePer1kTokens": -0.02109450233555915
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.5,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.4973844385689961,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 216.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-0e23b3e6c31f-pack",
+          "caseSet": "mined-0e23b3e6c31f",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 0.6666666666666666,
+          "firstRelevantRank": 38,
+          "tokensToFirstRelevant": 7683,
+          "candidateMissedPaths": [
+            "packages/review-domain/src/argus-agent/config.ts"
+          ],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/server/review-argus-agent.test.ts",
+            "packages/review-domain/src/argus-agent/config.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-1ca728244ab4-pack",
+          "caseSet": "mined-1ca728244ab4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-1f24e1cbc166-pack",
+          "caseSet": "mined-1f24e1cbc166",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 30,
+          "tokensToFirstRelevant": 5942,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-2d407db0c171-pack",
+          "caseSet": "mined-2d407db0c171",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 41,
+          "tokensToFirstRelevant": 7607,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/server/flow-run-dedupe.ts",
+            "apps/web/src/features/review/server/flow-run.helpers.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/server/flow-run-dedupe.ts",
+            "apps/web/src/features/review/server/flow-run.helpers.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 52,
+          "tokensToFirstRelevant": 9214,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-68ad487ff826-pack",
+          "caseSet": "mined-68ad487ff826",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 32,
+          "tokensToFirstRelevant": 5248,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/server/comment-publish.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/server/comment-publish.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 28,
+          "tokensToFirstRelevant": 4334,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6ccd3ec35714-pack",
+          "caseSet": "mined-6ccd3ec35714",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 40,
+          "tokensToFirstRelevant": 6567,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-8dc9e432c664-pack",
+          "caseSet": "mined-8dc9e432c664",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 28,
+          "tokensToFirstRelevant": 6216,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    },
+    {
+      "disabledSignals": [
+        "path-proximity"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.8149934335327593,
+        "meanPrecision": 0.07919608828503816,
+        "meanRecallAt5": 0.375897011852068,
+        "meanRecallAt10": 0.524586150428847,
+        "meanRecallAt25": 0.6449738151985343,
+        "meanNdcgAt10": 0.38040530236246206,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.2579505300353357,
+        "candidatePresentMissCaseRate": 0.33707865168539325,
+        "meanCandidatePresentMissRate": 0.17845225935113576,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.9325842696629213,
+        "meanTokensToFirstRelevant": 1700.5301204819277,
+        "meanUsefulEvidencePer1kTokens": 1.555569442050356
+      },
+      "deltaVsBaseline": {
+        "meanRecall": 0.0030765115034776525,
+        "meanPrecision": -0.0006371370180384278,
+        "meanRecallAt5": 0.009056050067285992,
+        "meanRecallAt10": -0.014731585518102386,
+        "meanRecallAt25": -0.020508455339916076,
+        "meanNdcgAt10": -0.003998090931723652,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.01060070671378091,
+        "candidatePresentMissCaseRate": 0.0,
+        "meanCandidatePresentMissRate": -0.0030765115034777912,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": 0.0,
+        "meanTokensToFirstRelevant": 85.46987951807228,
+        "meanUsefulEvidencePer1kTokens": -0.0028175046740663845
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.8016194648724769,
+              "meanPrecision": 0.039740383823715614,
+              "meanRecallAt5": 0.33078113319077174,
+              "meanRecallAt10": 0.49021888419478776,
+              "meanRecallAt25": 0.6193092717189103,
+              "meanNdcgAt10": 0.33561532421998946,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.26353790613718414,
+              "candidatePresentMissCaseRate": 0.3614457831325301,
+              "meanCandidatePresentMissRate": 0.1913524226777239,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.927710843373494,
+              "meanTokensToFirstRelevant": 1829.1168831168832,
+              "meanUsefulEvidencePer1kTokens": 0.48046111973595024
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.003298909925415927,
+              "meanPrecision": -0.0006831951157279526,
+              "meanRecallAt5": 0.009710704289017491,
+              "meanRecallAt10": -0.01579651941097726,
+              "meanRecallAt25": -0.021990994280150944,
+              "meanNdcgAt10": -0.004287109553294033,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.010830324909747335,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": -0.003298909925415927,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 92.12987012987014,
+              "meanUsefulEvidencePer1kTokens": -0.0030211797107458915
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.6195833333333333,
+              "meanPrecision": 0.017812641620475925,
+              "meanRecallAt5": 0.20430555555555557,
+              "meanRecallAt10": 0.34576388888888887,
+              "meanRecallAt25": 0.4601388888888889,
+              "meanNdcgAt10": 0.21768584921802464,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.4852941176470588,
+              "candidatePresentMissCaseRate": 0.65,
+              "meanCandidatePresentMissRate": 0.3720833333333333,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.85,
+              "meanTokensToFirstRelevant": 2593.0588235294117,
+              "meanUsefulEvidencePer1kTokens": 0.14375608634937928
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.016428571428571348,
+              "meanPrecision": -0.00027609902797493327,
+              "meanRecallAt5": 0.0077777777777778,
+              "meanRecallAt10": -0.02083333333333337,
+              "meanRecallAt25": -0.007083333333333386,
+              "meanNdcgAt10": -0.009589637993549505,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.007352941176470562,
+              "candidatePresentMissCaseRate": -0.025000000000000022,
+              "meanCandidatePresentMissRate": -0.01642857142857146,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 55.2647058823527,
+              "meanUsefulEvidencePer1kTokens": -0.002083848694766771
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.967976467976468,
+              "meanPrecision": 0.0413645876877458,
+              "meanRecallAt5": 0.41750286750286747,
+              "meanRecallAt10": 0.5860926110926111,
+              "meanRecallAt25": 0.7435157435157435,
+              "meanNdcgAt10": 0.41420177088205506,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.05185185185185185,
+              "candidatePresentMissCaseRate": 0.10256410256410256,
+              "meanCandidatePresentMissRate": 0.025613275613275612,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 1336.7179487179487,
+              "meanUsefulEvidencePer1kTokens": 0.27138515347620296
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.009829059829059905,
+              "meanPrecision": -0.0011708008586262253,
+              "meanRecallAt5": 0.012689162689162647,
+              "meanRecallAt10": -0.012250712250712281,
+              "meanRecallAt25": -0.039536389536389605,
+              "meanNdcgAt10": 0.0007116776107327083,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.014814814814814815,
+              "candidatePresentMissCaseRate": 0.025641025641025633,
+              "meanCandidatePresentMissRate": 0.009829059829059829,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 133.71794871794873,
+              "meanUsefulEvidencePer1kTokens": -0.00429240944105741
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 1.0,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 51.875,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7915748808153872,
+              "meanPrecision": 0.029439551704318008,
+              "meanRecallAt5": 0.3095548614535956,
+              "meanRecallAt10": 0.4644071821287011,
+              "meanRecallAt25": 0.6000337918059436,
+              "meanNdcgAt10": 0.3147000383939384,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.2693726937269373,
+              "candidatePresentMissCaseRate": 0.379746835443038,
+              "meanCandidatePresentMissRate": 0.2010411529398871,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.9240506329113924,
+              "meanTokensToFirstRelevant": 1921.86301369863,
+              "meanUsefulEvidencePer1kTokens": 0.20676284100692516
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0034659433393611216,
+              "meanPrecision": -0.0007177872734863318,
+              "meanRecallAt5": 0.010202385518841173,
+              "meanRecallAt10": -0.01659634317862163,
+              "meanRecallAt25": -0.023104462344968768,
+              "meanNdcgAt10": -0.004504178391435465,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.011070110701107028,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": -0.003465943339361066,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 97.17808219178073,
+              "meanUsefulEvidencePer1kTokens": -0.0031741508353406167
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.5,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.4973844385689961,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 216.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-1ca728244ab4-pack",
+          "caseSet": "mined-1ca728244ab4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-1f24e1cbc166-pack",
+          "caseSet": "mined-1f24e1cbc166",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 32,
+          "tokensToFirstRelevant": 5376,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-2d407db0c171-pack",
+          "caseSet": "mined-2d407db0c171",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 27,
+          "tokensToFirstRelevant": 5133,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/server/flow-run-dedupe.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/server/flow-run-dedupe.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 74,
+          "tokensToFirstRelevant": 10559,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 41,
+          "tokensToFirstRelevant": 6109,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6ccd3ec35714-pack",
+          "caseSet": "mined-6ccd3ec35714",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 47,
+          "tokensToFirstRelevant": 8630,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-8e8d4301e346-pack",
+          "caseSet": "mined-8e8d4301e346",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 37,
+          "tokensToFirstRelevant": 4515,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-b7b92ddf8ba6-pack",
+          "caseSet": "mined-b7b92ddf8ba6",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "missedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-bd21419871fa-pack",
+          "caseSet": "mined-bd21419871fa",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 50,
+          "tokensToFirstRelevant": 11404,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    },
+    {
+      "disabledSignals": [
+        "lexical-change"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.7973101804562478,
+        "meanPrecision": 0.0795972299543415,
+        "meanRecallAt5": 0.36835692397490155,
+        "meanRecallAt10": 0.5154903772881301,
+        "meanRecallAt25": 0.640232582648313,
+        "meanNdcgAt10": 0.383605951726006,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.26148409893992935,
+        "candidatePresentMissCaseRate": 0.3258426966292135,
+        "meanCandidatePresentMissRate": 0.19613551242764726,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.898876404494382,
+        "meanTokensToFirstRelevant": 1535.6375,
+        "meanUsefulEvidencePer1kTokens": 1.5546387281033947
+      },
+      "deltaVsBaseline": {
+        "meanRecall": -0.014606741573033877,
+        "meanPrecision": -0.0002359953487350852,
+        "meanRecallAt5": 0.0015159621901195686,
+        "meanRecallAt10": -0.023827358658819353,
+        "meanRecallAt25": -0.025249687890137373,
+        "meanNdcgAt10": -0.0007974415681797353,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.014134275618374575,
+        "candidatePresentMissCaseRate": -0.011235955056179747,
+        "meanCandidatePresentMissRate": 0.01460674157303371,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": -0.0337078651685393,
+        "meanTokensToFirstRelevant": -79.4227409638554,
+        "meanUsefulEvidencePer1kTokens": -0.00374821862102781
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.7826579043446512,
+              "meanPrecision": 0.040170523685980654,
+              "meanRecallAt5": 0.3226959787200751,
+              "meanRecallAt10": 0.4804655852848624,
+              "meanRecallAt25": 0.6142252994662633,
+              "meanNdcgAt10": 0.3390473458266811,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.26714801444043323,
+              "candidatePresentMissCaseRate": 0.3493975903614458,
+              "meanCandidatePresentMissRate": 0.21031398320554948,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.891566265060241,
+              "meanTokensToFirstRelevant": 1656.0675675675675,
+              "meanUsefulEvidencePer1kTokens": 0.4794631252627023
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.01566265060240979,
+              "meanPrecision": -0.0002530552534629124,
+              "meanRecallAt5": 0.0016255498183208594,
+              "meanRecallAt10": -0.02554981832090264,
+              "meanRecallAt25": -0.02707496653279795,
+              "meanNdcgAt10": -0.0008550879466023842,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.014440433212996429,
+              "candidatePresentMissCaseRate": -0.01204819277108432,
+              "meanCandidatePresentMissRate": 0.01566265060240965,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.03614457831325302,
+              "meanTokensToFirstRelevant": -80.91944541944554,
+              "meanUsefulEvidencePer1kTokens": -0.004019174183993834
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.5670833333333334,
+              "meanPrecision": 0.016793384419660273,
+              "meanRecallAt5": 0.14097222222222222,
+              "meanRecallAt10": 0.2890277777777778,
+              "meanRecallAt25": 0.41104166666666664,
+              "meanNdcgAt10": 0.17690699608469604,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.5147058823529411,
+              "candidatePresentMissCaseRate": 0.675,
+              "meanCandidatePresentMissRate": 0.42458333333333337,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.775,
+              "meanTokensToFirstRelevant": 2604.6451612903224,
+              "meanUsefulEvidencePer1kTokens": 0.1354215291671636
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.03607142857142853,
+              "meanPrecision": -0.0012953562287905847,
+              "meanRecallAt5": -0.05555555555555555,
+              "meanRecallAt10": -0.07756944444444447,
+              "meanRecallAt25": -0.05618055555555562,
+              "meanNdcgAt10": -0.05036849112687811,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.036764705882352866,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.03607142857142859,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.07499999999999996,
+              "meanTokensToFirstRelevant": 66.85104364326344,
+              "meanUsefulEvidencePer1kTokens": -0.01041840587698245
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.9814685314685315,
+              "meanPrecision": 0.04332540554930026,
+              "meanRecallAt5": 0.4652532652532652,
+              "meanRecallAt10": 0.6235264735264735,
+              "meanRecallAt25": 0.7830521330521331,
+              "meanNdcgAt10": 0.46333028161765893,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.02962962962962963,
+              "candidatePresentMissCaseRate": 0.05128205128205128,
+              "meanCandidatePresentMissRate": 0.012121212121212121,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 1057.923076923077,
+              "meanUsefulEvidencePer1kTokens": 0.27780948029694785
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.00366300366300365,
+              "meanPrecision": 0.000790017002928238,
+              "meanRecallAt5": 0.06043956043956039,
+              "meanRecallAt10": 0.025183150183150094,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.04984018834633658,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": -0.007407407407407404,
+              "candidatePresentMissCaseRate": -0.025641025641025647,
+              "meanCandidatePresentMissRate": -0.003663003663003662,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": -145.0769230769231,
+              "meanUsefulEvidencePer1kTokens": 0.002131917379687487
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 1.0,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 51.875,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7716532412734944,
+              "meanPrecision": 0.02989147080011546,
+              "meanRecallAt5": 0.30106033207299027,
+              "meanRecallAt10": 0.4541600452992858,
+              "meanRecallAt25": 0.594692403236707,
+              "meanNdcgAt10": 0.31830583324653844,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.2730627306273063,
+              "candidatePresentMissCaseRate": 0.3670886075949367,
+              "meanCandidatePresentMissRate": 0.22096279248177983,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.8860759493670886,
+              "meanTokensToFirstRelevant": 1742.9,
+              "meanUsefulEvidencePer1kTokens": 0.20571431516794317
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.016455696202531622,
+              "meanPrecision": -0.00026586817768887994,
+              "meanRecallAt5": 0.0017078561382358193,
+              "meanRecallAt10": -0.026843480008036935,
+              "meanRecallAt25": -0.028445850914205373,
+              "meanNdcgAt10": -0.0008983835388354233,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.014760147601476037,
+              "candidatePresentMissCaseRate": -0.012658227848101278,
+              "meanCandidatePresentMissRate": 0.01645569620253165,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": -0.03797468354430389,
+              "meanTokensToFirstRelevant": -81.78493150684926,
+              "meanUsefulEvidencePer1kTokens": -0.004222676674322606
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.5,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.4973844385689961,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 216.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-1f24e1cbc166-pack",
+          "caseSet": "mined-1f24e1cbc166",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 28,
+          "tokensToFirstRelevant": 4192,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 69,
+          "tokensToFirstRelevant": 10088,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 39,
+          "tokensToFirstRelevant": 5780,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6ccd3ec35714-pack",
+          "caseSet": "mined-6ccd3ec35714",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7a8363b77014-pack",
+          "caseSet": "mined-7a8363b77014",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/command-palette/chat/route.test.ts",
+            "apps/web/src/app/api/review/description/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/command-palette/chat/route.test.ts",
+            "apps/web/src/app/api/review/description/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7df7aaa8685a-pack",
+          "caseSet": "mined-7df7aaa8685a",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 53,
+          "tokensToFirstRelevant": 8365,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 42,
+          "tokensToFirstRelevant": 6195,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/diff/use-viewer-controller.ts",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-97ddbadc20e5-pack",
+          "caseSet": "mined-97ddbadc20e5",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/api/review/impact/route.ts",
+            "apps/web/src/lib/review/impact-service.test.ts",
+            "apps/web/src/lib/review/impact-service.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/api/review/impact/route.ts",
+            "apps/web/src/lib/review/impact-service.test.ts",
+            "apps/web/src/lib/review/impact-service.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-9edeecc08edf-pack",
+          "caseSet": "mined-9edeecc08edf",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-a4f8624186be-pack",
+          "caseSet": "mined-a4f8624186be",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 34,
+          "tokensToFirstRelevant": 6095,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/page.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/page.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    },
+    {
+      "disabledSignals": [
+        "test-coverage"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.8040290545908523,
+        "meanPrecision": 0.07984234440337508,
+        "meanRecallAt5": 0.3314164923715486,
+        "meanRecallAt10": 0.4978334711480779,
+        "meanRecallAt25": 0.6278993790229745,
+        "meanNdcgAt10": 0.3509165542186629,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.254416961130742,
+        "candidatePresentMissCaseRate": 0.34831460674157305,
+        "meanCandidatePresentMissRate": 0.18941663829304278,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.9325842696629213,
+        "meanTokensToFirstRelevant": 2084.7710843373493,
+        "meanUsefulEvidencePer1kTokens": 1.5565097532942525
+      },
+      "deltaVsBaseline": {
+        "meanRecall": -0.007887867438429397,
+        "meanPrecision": 9.11910029849361e-06,
+        "meanRecallAt5": -0.035424469413233406,
+        "meanRecallAt10": -0.04148426479887152,
+        "meanRecallAt25": -0.03758289151547578,
+        "meanNdcgAt10": -0.0334868390755228,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.007067137809187246,
+        "candidatePresentMissCaseRate": 0.011235955056179803,
+        "meanCandidatePresentMissRate": 0.00788786743842923,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": 0.0,
+        "meanTokensToFirstRelevant": 469.71084337349384,
+        "meanUsefulEvidencePer1kTokens": -0.00187719343017001
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.789862480223926,
+              "meanPrecision": 0.04043335725181184,
+              "meanRecallAt5": 0.28308515447069665,
+              "meanRecallAt10": 0.4615322762913125,
+              "meanRecallAt25": 0.6010005389523462,
+              "meanNdcgAt10": 0.3039948593429036,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.259927797833935,
+              "candidatePresentMissCaseRate": 0.37349397590361444,
+              "meanCandidatePresentMissRate": 0.20310940732627478,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.927710843373494,
+              "meanTokensToFirstRelevant": 2243.2987012987014,
+              "meanUsefulEvidencePer1kTokens": 0.48146940528663407
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.008458074723134978,
+              "meanPrecision": 9.77831236827209e-06,
+              "meanRecallAt5": -0.03798527443105759,
+              "meanRecallAt10": -0.04448312731445253,
+              "meanRecallAt25": -0.04029972704671503,
+              "meanNdcgAt10": -0.035907574430379896,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0072202166064981865,
+              "candidatePresentMissCaseRate": 0.01204819277108432,
+              "meanCandidatePresentMissRate": 0.00845807472313495,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 506.3116883116884,
+              "meanUsefulEvidencePer1kTokens": -0.002012894160062062
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.5878769841269842,
+              "meanPrecision": 0.018026885944599176,
+              "meanRecallAt5": 0.15131944444444445,
+              "meanRecallAt10": 0.30930555555555556,
+              "meanRecallAt25": 0.43805555555555553,
+              "meanNdcgAt10": 0.18778874296935213,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.4852941176470588,
+              "candidatePresentMissCaseRate": 0.7,
+              "meanCandidatePresentMissRate": 0.40378968253968256,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.85,
+              "meanTokensToFirstRelevant": 3129.823529411765,
+              "meanUsefulEvidencePer1kTokens": 0.14375625443071047
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.015277777777777724,
+              "meanPrecision": -6.185470385168187e-05,
+              "meanRecallAt5": -0.04520833333333332,
+              "meanRecallAt10": -0.057291666666666685,
+              "meanRecallAt25": -0.02916666666666673,
+              "meanNdcgAt10": -0.03948674424222201,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.007352941176470562,
+              "candidatePresentMissCaseRate": 0.02499999999999991,
+              "meanCandidatePresentMissRate": 0.015277777777777779,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 592.0294117647059,
+              "meanUsefulEvidencePer1kTokens": -0.0020836806134355845
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.9754745254745254,
+              "meanPrecision": 0.04261963952279853,
+              "meanRecallAt5": 0.37034077034077034,
+              "meanRecallAt10": 0.5624347874347874,
+              "meanRecallAt25": 0.7272005772005772,
+              "meanNdcgAt10": 0.377570634090998,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.044444444444444446,
+              "candidatePresentMissCaseRate": 0.07692307692307693,
+              "meanCandidatePresentMissRate": 0.018115218115218115,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 1686.5128205128206,
+              "meanUsefulEvidencePer1kTokens": 0.2735308195647546
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.002331002331002474,
+              "meanPrecision": 8.425097642650314e-05,
+              "meanRecallAt5": -0.03447293447293448,
+              "meanRecallAt10": -0.03590853590853604,
+              "meanRecallAt25": -0.05585155585155588,
+              "meanNdcgAt10": -0.035919459180324353,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.007407407407407411,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.002331002331002332,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 483.51282051282055,
+              "meanUsefulEvidencePer1kTokens": -0.0021467433525057533
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 1.0,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 51.875,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7792226058048842,
+              "meanPrecision": 0.030167612394596324,
+              "meanRecallAt5": 0.25944389646921295,
+              "meanRecallAt10": 0.4342680877491005,
+              "meanRecallAt25": 0.5807980345955029,
+              "meanNdcgAt10": 0.2814785373205444,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.2656826568265683,
+              "candidatePresentMissCaseRate": 0.3924050632911392,
+              "meanCandidatePresentMissRate": 0.21339342795038996,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.9240506329113924,
+              "meanTokensToFirstRelevant": 2358.7397260273974,
+              "meanUsefulEvidencePer1kTokens": 0.20782217899055505
+            },
+            "deltaVsBaseline": {
+              "meanRecall": -0.008886331671141834,
+              "meanPrecision": 1.0273416791984485e-05,
+              "meanRecallAt5": -0.039908579465541494,
+              "meanRecallAt10": -0.04673543755822224,
+              "meanRecallAt25": -0.04234021955540945,
+              "meanNdcgAt10": -0.037725679464829465,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0073800738007380184,
+              "candidatePresentMissCaseRate": 0.012658227848101222,
+              "meanCandidatePresentMissRate": 0.008886331671141778,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 534.0547945205481,
+              "meanUsefulEvidencePer1kTokens": -0.0021148128517107234
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.5,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.4973844385689961,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 216.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-1ca728244ab4-pack",
+          "caseSet": "mined-1ca728244ab4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 45,
+          "tokensToFirstRelevant": 9470,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-341a5443e33b-pack",
+          "caseSet": "mined-341a5443e33b",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
+          ],
+          "missedPaths": [
+            "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 67,
+          "tokensToFirstRelevant": 10032,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 39,
+          "tokensToFirstRelevant": 5780,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6ccd3ec35714-pack",
+          "caseSet": "mined-6ccd3ec35714",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 99,
+          "tokensToFirstRelevant": 11381,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7a8363b77014-pack",
+          "caseSet": "mined-7a8363b77014",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 59,
+          "tokensToFirstRelevant": 8771,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/api/ai/test/route.test.ts",
+            "apps/web/src/app/api/review/diff/route.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 50,
+          "tokensToFirstRelevant": 8079,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-b0dfac06b003-pack",
+          "caseSet": "mined-b0dfac06b003",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 35,
+          "tokensToFirstRelevant": 6101,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-b7b92ddf8ba6-pack",
+          "caseSet": "mined-b7b92ddf8ba6",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "missedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-bac0293da67d-pack",
+          "caseSet": "mined-bac0293da67d",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 37,
+          "tokensToFirstRelevant": 6886,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    },
+    {
+      "disabledSignals": [
+        "semantic-change"
+      ],
+      "caseCount": 89,
+      "metrics": {
+        "meanRecall": 0.8119169220292817,
+        "meanPrecision": 0.07983322530307659,
+        "meanRecallAt5": 0.366840961784782,
+        "meanRecallAt10": 0.5393177359469494,
+        "meanRecallAt25": 0.6654822705384503,
+        "meanNdcgAt10": 0.3844033932941857,
+        "meanCandidateRecall": 0.9934456928838952,
+        "candidatePresentMissRate": 0.24734982332155478,
+        "candidatePresentMissCaseRate": 0.33707865168539325,
+        "meanCandidatePresentMissRate": 0.18152877085461355,
+        "sufficiencyInsufficientWhenIncomplete": 1.0,
+        "firstRelevantRate": 0.9325842696629213,
+        "meanTokensToFirstRelevant": 1615.0602409638554,
+        "meanUsefulEvidencePer1kTokens": 1.5583869467244225
+      },
+      "deltaVsBaseline": {
+        "meanRecall": 0.0,
+        "meanPrecision": 0.0,
+        "meanRecallAt5": 0.0,
+        "meanRecallAt10": 0.0,
+        "meanRecallAt25": 0.0,
+        "meanNdcgAt10": 0.0,
+        "meanCandidateRecall": 0.0,
+        "candidatePresentMissRate": 0.0,
+        "candidatePresentMissCaseRate": 0.0,
+        "meanCandidatePresentMissRate": 0.0,
+        "sufficiencyInsufficientWhenIncomplete": 0.0,
+        "firstRelevantRate": 0.0,
+        "meanTokensToFirstRelevant": 0.0,
+        "meanUsefulEvidencePer1kTokens": 0.0
+      },
+      "cohorts": {
+        "byKind": {
+          "pack": {
+            "caseCount": 83,
+            "metrics": {
+              "meanRecall": 0.798320554947061,
+              "meanPrecision": 0.040423578939443566,
+              "meanRecallAt5": 0.32107042890175425,
+              "meanRecallAt10": 0.506015403605765,
+              "meanRecallAt25": 0.6413002659990612,
+              "meanNdcgAt10": 0.3399024337732835,
+              "meanCandidateRecall": 0.9929718875502008,
+              "candidatePresentMissRate": 0.2527075812274368,
+              "candidatePresentMissCaseRate": 0.3614457831325301,
+              "meanCandidatePresentMissRate": 0.19465133260313983,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.927710843373494,
+              "meanTokensToFirstRelevant": 1736.987012987013,
+              "meanUsefulEvidencePer1kTokens": 0.48348229944669613
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        },
+        "bySourceGroup": {
+          "external": {
+            "caseCount": 40,
+            "metrics": {
+              "meanRecall": 0.6031547619047619,
+              "meanPrecision": 0.018088740648450858,
+              "meanRecallAt5": 0.19652777777777777,
+              "meanRecallAt10": 0.36659722222222224,
+              "meanRecallAt25": 0.46722222222222226,
+              "meanNdcgAt10": 0.22727548721157415,
+              "meanCandidateRecall": 0.9916666666666666,
+              "candidatePresentMissRate": 0.47794117647058826,
+              "candidatePresentMissCaseRate": 0.675,
+              "meanCandidatePresentMissRate": 0.3885119047619048,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.85,
+              "meanTokensToFirstRelevant": 2537.794117647059,
+              "meanUsefulEvidencePer1kTokens": 0.14583993504414605
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "self": {
+            "caseCount": 39,
+            "metrics": {
+              "meanRecall": 0.9778055278055279,
+              "meanPrecision": 0.042535388546372024,
+              "meanRecallAt5": 0.4048137048137048,
+              "meanRecallAt10": 0.5983433233433234,
+              "meanRecallAt25": 0.7830521330521331,
+              "meanNdcgAt10": 0.41349009327132236,
+              "meanCandidateRecall": 0.9935897435897436,
+              "candidatePresentMissRate": 0.037037037037037035,
+              "candidatePresentMissCaseRate": 0.07692307692307693,
+              "meanCandidatePresentMissRate": 0.015784215784215783,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 1203.0,
+              "meanUsefulEvidencePer1kTokens": 0.27567756291726037
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        },
+        "byTruthSource": {
+          "fixture": {
+            "caseCount": 8,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.53125,
+              "meanRecallAt5": 1.0,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 1.0,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 51.875,
+              "meanUsefulEvidencePer1kTokens": 14.412579967692684
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "mined_followup": {
+            "caseCount": 79,
+            "metrics": {
+              "meanRecall": 0.7881089374760261,
+              "meanPrecision": 0.03015733897780434,
+              "meanRecallAt5": 0.29935247593475445,
+              "meanRecallAt10": 0.4810035253073227,
+              "meanRecallAt25": 0.6231382541509124,
+              "meanNdcgAt10": 0.31920421678537386,
+              "meanCandidateRecall": 0.9926160337552743,
+              "candidatePresentMissRate": 0.25830258302583026,
+              "candidatePresentMissCaseRate": 0.379746835443038,
+              "meanCandidatePresentMissRate": 0.20450709627924818,
+              "sufficiencyInsufficientWhenIncomplete": 1.0,
+              "firstRelevantRate": 0.9240506329113924,
+              "meanTokensToFirstRelevant": 1824.6849315068494,
+              "meanUsefulEvidencePer1kTokens": 0.20993699184226577
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": 0.0,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          },
+          "curated": {
+            "caseCount": 2,
+            "metrics": {
+              "meanRecall": 1.0,
+              "meanPrecision": 0.23636363636363636,
+              "meanRecallAt5": 0.5,
+              "meanRecallAt10": 1.0,
+              "meanRecallAt25": 1.0,
+              "meanNdcgAt10": 0.4973844385689961,
+              "meanCandidateRecall": 1.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 1.0,
+              "meanTokensToFirstRelevant": 216.5,
+              "meanUsefulEvidencePer1kTokens": 3.405388080696569
+            },
+            "deltaVsBaseline": {
+              "meanRecall": 0.0,
+              "meanPrecision": 0.0,
+              "meanRecallAt5": 0.0,
+              "meanRecallAt10": 0.0,
+              "meanRecallAt25": 0.0,
+              "meanNdcgAt10": 0.0,
+              "meanCandidateRecall": 0.0,
+              "candidatePresentMissRate": 0.0,
+              "candidatePresentMissCaseRate": 0.0,
+              "meanCandidatePresentMissRate": 0.0,
+              "sufficiencyInsufficientWhenIncomplete": null,
+              "firstRelevantRate": 0.0,
+              "meanTokensToFirstRelevant": 0.0,
+              "meanUsefulEvidencePer1kTokens": 0.0
+            }
+          }
+        }
+      },
+      "weakCases": [
+        {
+          "id": "mined-1ca728244ab4-pack",
+          "caseSet": "mined-1ca728244ab4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+            "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-1f24e1cbc166-pack",
+          "caseSet": "mined-1f24e1cbc166",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 30,
+          "tokensToFirstRelevant": 5234,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/gitlab-job-runner.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-4e3a1d0ab127-pack",
+          "caseSet": "mined-4e3a1d0ab127",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-agent/src/runtime/argus-index.test.ts",
+            "packages/argus-agent/src/runtime/argus-index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-57a5bcd810f7-pack",
+          "caseSet": "mined-57a5bcd810f7",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 67,
+          "tokensToFirstRelevant": 10214,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "missedPaths": [
+            "src/app/layout.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6be815154e79-pack",
+          "caseSet": "mined-6be815154e79",
+          "sourceGroup": "self",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 39,
+          "tokensToFirstRelevant": 5780,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [],
+          "missedPaths": [],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-6ccd3ec35714-pack",
+          "caseSet": "mined-6ccd3ec35714",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 98,
+          "tokensToFirstRelevant": 11221,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/features/gitlab/server/integration-connect.ts",
+            "apps/web/src/features/gitlab/server/integration-mappers.ts",
+            "apps/web/src/features/gitlab/server/integration-types.ts",
+            "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+            "apps/web/src/features/gitlab/server/test-harness.ts",
+            "apps/web/src/features/review/server/review-argus-agent.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-7088a97b7509-pack",
+          "caseSet": "mined-7088a97b7509",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/layout.tsx",
+            "apps/web/src/components/app-shell.tsx",
+            "apps/web/src/components/app-sidebar-right-slot.tsx",
+            "apps/web/src/components/ui/sidebar.tsx"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-82f9f4bffdf4-pack",
+          "caseSet": "mined-82f9f4bffdf4",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 50,
+          "tokensToFirstRelevant": 8079,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/v2/_components/merge-request-diffs-only-viewer.tsx",
+            "apps/web/src/features/review/hooks/use-current-jira-credentials.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-b7b92ddf8ba6-pack",
+          "caseSet": "mined-b7b92ddf8ba6",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "missedPaths": [
+            "apps/indexer/src/lib/indexing/processors/ingest.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+            "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+            "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+            "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/indexing/stores/artifact-store.ts",
+            "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+            "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+            "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-bd21419871fa-pack",
+          "caseSet": "mined-bd21419871fa",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "src/lib/db/schema/auth/index.ts"
+          ],
+          "missedPaths": [
+            "src/lib/db/schema/auth/index.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-e136dc1604af-pack",
+          "caseSet": "mined-e136dc1604af",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": null,
+          "tokensToFirstRelevant": null,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts",
+            "apps/web/src/features/indexing/server/artifact-store.test.ts",
+            "apps/web/src/features/review/components/diff/review-process.test.tsx",
+            "apps/web/src/features/review/hooks/diff/use-ai-review-stream.test.tsx",
+            "apps/web/src/features/review/server/save-review.test.ts",
+            "apps/web/src/server/api/authenticated-route.test.ts"
+          ],
+          "missedPaths": [
+            "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts",
+            "apps/web/src/features/indexing/server/artifact-store.test.ts",
+            "apps/web/src/features/review/components/diff/review-process.test.tsx",
+            "apps/web/src/features/review/hooks/diff/use-ai-review-stream.test.tsx",
+            "apps/web/src/features/review/server/save-review.test.ts",
+            "apps/web/src/server/api/authenticated-route.test.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        },
+        {
+          "id": "mined-e1a6eb50513e-pack",
+          "caseSet": "mined-e1a6eb50513e",
+          "sourceGroup": "external",
+          "truthSource": "mined_followup",
+          "kind": "pack",
+          "recallAt10": 0.0,
+          "recallAt25": 0.0,
+          "ndcgAt10": 0.0,
+          "candidateRecall": 1.0,
+          "firstRelevantRank": 27,
+          "tokensToFirstRelevant": 6060,
+          "candidateMissedPaths": [],
+          "candidatePresentMissedPaths": [
+            "packages/argus-search/__test__/kitedb.spec.ts",
+            "packages/argus-search/index.d.ts",
+            "packages/argus-search/types.d.ts"
+          ],
+          "missedPaths": [
+            "packages/argus-search/__test__/kitedb.spec.ts",
+            "packages/argus-search/index.d.ts",
+            "packages/argus-search/types.d.ts"
+          ],
+          "sufficiencyStatus": "insufficient"
+        }
+      ]
+    }
+  ]
+}

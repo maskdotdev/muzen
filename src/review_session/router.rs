@@ -492,7 +492,6 @@ impl ReviewHttpRouter {
                         max_tokens: body
                             .max_tokens
                             .unwrap_or_else(|| pack_engine.config_ref().max_pack_tokens),
-                        seed_evidence: Vec::new(),
                     },
                     CancellationToken::new(),
                 )

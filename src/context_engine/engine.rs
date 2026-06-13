@@ -15,12 +15,13 @@ use super::{learning_is_expired, redact_context_content};
 use super::{path_stem, related_symbol_score, related_symbol_terms};
 use super::{
     ContextBudgetUsage, ContextDerivedCache, ContextEngineConfig, ContextEngineMode,
-    ContextEvidence, ContextEvidenceKind, ContextFeedback, ContextFeedbackReceipt, ContextIndex,
-    ContextIndexReport, ContextIndexRequest, ContextIndexStore, ContextLearning,
-    ContextLearningApproval, ContextLearningApprovalReceipt, ContextLearningScope,
-    ContextLearningSource, ContextLearningStatus, ContextOmissionReason, ContextPack,
-    ContextPackId, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryResult,
-    ContextRange, FileContextDerivedCache, FileContextLearningStore, InMemoryContextDerivedCache,
+    ContextEvidence, ContextEvidenceKind, ContextEvidenceRepresentation, ContextFeedback,
+    ContextFeedbackReceipt, ContextIndex, ContextIndexReport, ContextIndexRequest,
+    ContextIndexStore, ContextLearning, ContextLearningApproval, ContextLearningApprovalReceipt,
+    ContextLearningScope, ContextLearningSource, ContextLearningStatus, ContextOmissionReason,
+    ContextPack, ContextPackId, ContextPackPurpose, ContextPackRequest, ContextQuery,
+    ContextQueryKind, ContextQueryResult, ContextRange, ContextSufficiencyStatus,
+    FileContextDerivedCache, FileContextLearningStore, InMemoryContextDerivedCache,
     InMemoryContextIndexStore, InMemoryContextLearningStore, OmittedContextCandidate,
     CONTEXT_ENGINE_VERSION,
 };
@@ -216,6 +217,606 @@ impl std::fmt::Debug for SnapshotContextEngine {
     }
 }
 
+fn pack_path_selection_limit(purpose: ContextPackPurpose) -> Option<usize> {
+    match purpose {
+        ContextPackPurpose::GeneralReview
+        | ContextPackPurpose::Correctness
+        | ContextPackPurpose::Validator => Some(2),
+        _ => None,
+    }
+}
+
+fn pack_evidence_path_selection_limit(
+    purpose: ContextPackPurpose,
+    evidence: &ContextEvidence,
+) -> Option<usize> {
+    let limit = pack_path_selection_limit(purpose)?;
+    if evidence.kind == ContextEvidenceKind::Test {
+        Some(1)
+    } else {
+        Some(limit)
+    }
+}
+
+fn path_selection_limit_exceeded(
+    selected_by_path: &BTreeMap<String, usize>,
+    evidence: &ContextEvidence,
+    limit: usize,
+) -> bool {
+    if !pack_selection_limit_applies(evidence) {
+        return false;
+    }
+    evidence
+        .path
+        .as_ref()
+        .and_then(|path| selected_by_path.get(&path.display()))
+        .is_some_and(|selected| *selected >= limit)
+}
+
+fn repeated_path_should_wait_for_first_pass(
+    selected_by_path: &BTreeMap<String, usize>,
+    purpose: ContextPackPurpose,
+    evidence: &ContextEvidence,
+) -> bool {
+    pack_evidence_path_selection_limit(purpose, evidence).is_some()
+        && pack_selection_limit_applies(evidence)
+        && evidence
+            .path
+            .as_ref()
+            .and_then(|path| selected_by_path.get(&path.display()))
+            .is_some_and(|selected| *selected >= 1)
+}
+
+fn pack_selection_limit_applies(evidence: &ContextEvidence) -> bool {
+    !evidence.is_changed_span
+        && evidence.kind != ContextEvidenceKind::Diff
+        && evidence.representation == ContextEvidenceRepresentation::FullContent
+}
+
+fn skeleton_reserve_tokens(max_tokens: usize) -> usize {
+    if max_tokens < 4_000 {
+        0
+    } else {
+        (max_tokens / 5).min(2_500)
+    }
+}
+
+fn full_content_budget_limit(max_tokens: usize, evidence: &ContextEvidence) -> usize {
+    if pack_selection_limit_applies(evidence) {
+        max_tokens.saturating_sub(skeleton_reserve_tokens(max_tokens))
+    } else {
+        max_tokens
+    }
+}
+
+fn record_selected_path(
+    selected_by_path: &mut BTreeMap<String, usize>,
+    evidence: &ContextEvidence,
+) {
+    let Some(path) = evidence.path.as_ref() else {
+        return;
+    };
+    *selected_by_path.entry(path.display()).or_insert(0) += 1;
+}
+
+fn unrecord_selected_path(
+    selected_by_path: &mut BTreeMap<String, usize>,
+    evidence: &ContextEvidence,
+) {
+    let Some(path) = evidence.path.as_ref() else {
+        return;
+    };
+    let path = path.display();
+    if let Some(selected) = selected_by_path.get_mut(&path) {
+        *selected = selected.saturating_sub(1);
+        if *selected == 0 {
+            selected_by_path.remove(&path);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RankedPackCandidate {
+    score: f32,
+    rank_index: usize,
+    evidence: ContextEvidence,
+}
+
+#[derive(Clone)]
+struct SelectedPackCandidate {
+    score: f32,
+    rank_index: usize,
+    evidence: ContextEvidence,
+}
+
+fn omitted_candidate(
+    evidence: &ContextEvidence,
+    score: f32,
+    reason: ContextOmissionReason,
+) -> OmittedContextCandidate {
+    OmittedContextCandidate {
+        evidence_id: evidence.id.clone(),
+        kind: evidence.kind,
+        path: evidence.path.clone(),
+        score,
+        token_estimate: evidence.token_estimate,
+        reason,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn select_ranked_pack_candidate(
+    purpose: ContextPackPurpose,
+    max_tokens: usize,
+    skeletons: &BTreeMap<String, ContextEvidence>,
+    used_tokens: &mut usize,
+    selected: &mut Vec<SelectedPackCandidate>,
+    omitted_candidates: &mut Vec<OmittedContextCandidate>,
+    budget_omitted_candidates: &mut Vec<RankedPackCandidate>,
+    selected_by_path: &mut BTreeMap<String, usize>,
+    candidate: RankedPackCandidate,
+) {
+    let score = candidate.score;
+    let rank_index = candidate.rank_index;
+    let evidence = candidate.evidence;
+    if pack_evidence_path_selection_limit(purpose, &evidence)
+        .is_some_and(|limit| path_selection_limit_exceeded(selected_by_path, &evidence, limit))
+    {
+        omitted_candidates.push(omitted_candidate(
+            &evidence,
+            score,
+            ContextOmissionReason::Duplicate,
+        ));
+        return;
+    }
+    let full_content_limit = full_content_budget_limit(max_tokens, &evidence);
+    if used_tokens.saturating_add(evidence.token_estimate) <= full_content_limit {
+        *used_tokens = used_tokens.saturating_add(evidence.token_estimate);
+        record_selected_path(selected_by_path, &evidence);
+        selected.push(SelectedPackCandidate {
+            score,
+            rank_index,
+            evidence,
+        });
+        return;
+    }
+    let skeleton = skeletons
+        .get(&evidence.id.0)
+        .filter(|skeleton| used_tokens.saturating_add(skeleton.token_estimate) <= max_tokens);
+    let reason = match skeleton {
+        Some(skeleton) => {
+            *used_tokens = used_tokens.saturating_add(skeleton.token_estimate);
+            record_selected_path(selected_by_path, skeleton);
+            selected.push(SelectedPackCandidate {
+                score,
+                rank_index,
+                evidence: skeleton.clone(),
+            });
+            ContextOmissionReason::DowngradedToSkeleton
+        }
+        None => ContextOmissionReason::BudgetExhausted,
+    };
+    if reason == ContextOmissionReason::BudgetExhausted {
+        budget_omitted_candidates.push(RankedPackCandidate {
+            score,
+            rank_index,
+            evidence: evidence.clone(),
+        });
+    }
+    omitted_candidates.push(omitted_candidate(&evidence, score, reason));
+}
+
+fn selected_full_content_tokens(selected: &[SelectedPackCandidate]) -> usize {
+    selected
+        .iter()
+        .filter(|candidate| pack_selection_limit_applies(&candidate.evidence))
+        .map(|candidate| candidate.evidence.token_estimate)
+        .sum()
+}
+
+fn pack_repair_evictable_score_ceiling() -> f32 {
+    0.5
+}
+
+#[allow(clippy::too_many_arguments)]
+fn repair_budget_exhausted_pack_candidates(
+    purpose: ContextPackPurpose,
+    max_tokens: usize,
+    used_tokens: &mut usize,
+    selected: &mut Vec<SelectedPackCandidate>,
+    omitted_candidates: &mut Vec<OmittedContextCandidate>,
+    budget_omitted_candidates: &[RankedPackCandidate],
+    selected_by_path: &mut BTreeMap<String, usize>,
+) {
+    let mut repair_candidates = budget_omitted_candidates.to_vec();
+    repair_candidates.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.rank_index.cmp(&right.rank_index))
+    });
+
+    for candidate in repair_candidates {
+        if selected
+            .iter()
+            .any(|selected| selected.evidence.id == candidate.evidence.id)
+        {
+            continue;
+        }
+        if pack_evidence_path_selection_limit(purpose, &candidate.evidence).is_some_and(|limit| {
+            path_selection_limit_exceeded(selected_by_path, &candidate.evidence, limit)
+        }) {
+            continue;
+        }
+        let full_content_limit = full_content_budget_limit(max_tokens, &candidate.evidence);
+        let current_full_tokens = selected_full_content_tokens(selected);
+        if current_full_tokens.saturating_add(candidate.evidence.token_estimate)
+            <= full_content_limit
+            && used_tokens.saturating_add(candidate.evidence.token_estimate) <= max_tokens
+        {
+            remove_omitted_candidate(omitted_candidates, &candidate.evidence);
+            *used_tokens = used_tokens.saturating_add(candidate.evidence.token_estimate);
+            record_selected_path(selected_by_path, &candidate.evidence);
+            selected.push(SelectedPackCandidate {
+                score: candidate.score,
+                rank_index: candidate.rank_index,
+                evidence: candidate.evidence,
+            });
+            selected.sort_by_key(|selected| selected.rank_index);
+            continue;
+        }
+
+        let required_full_tokens = current_full_tokens
+            .saturating_add(candidate.evidence.token_estimate)
+            .saturating_sub(full_content_limit);
+        let required_total_tokens = used_tokens
+            .saturating_add(candidate.evidence.token_estimate)
+            .saturating_sub(max_tokens);
+        let required_tokens = required_full_tokens.max(required_total_tokens);
+        let Some(evictions) = repair_evictions(selected, candidate.score, required_tokens) else {
+            continue;
+        };
+        let evicted_score: f32 = evictions.iter().map(|index| selected[*index].score).sum();
+        if candidate.score <= evicted_score {
+            continue;
+        }
+        let mut evicted = Vec::new();
+        for index in evictions.into_iter().rev() {
+            evicted.push(selected.remove(index));
+        }
+        for removed in &evicted {
+            *used_tokens = used_tokens.saturating_sub(removed.evidence.token_estimate);
+            unrecord_selected_path(selected_by_path, &removed.evidence);
+            omitted_candidates.push(omitted_candidate(
+                &removed.evidence,
+                removed.score,
+                ContextOmissionReason::BudgetExhausted,
+            ));
+        }
+        remove_omitted_candidate(omitted_candidates, &candidate.evidence);
+        *used_tokens = used_tokens.saturating_add(candidate.evidence.token_estimate);
+        record_selected_path(selected_by_path, &candidate.evidence);
+        selected.push(SelectedPackCandidate {
+            score: candidate.score,
+            rank_index: candidate.rank_index,
+            evidence: candidate.evidence,
+        });
+        selected.sort_by_key(|selected| selected.rank_index);
+    }
+}
+
+fn repair_evictions(
+    selected: &[SelectedPackCandidate],
+    candidate_score: f32,
+    required_tokens: usize,
+) -> Option<Vec<usize>> {
+    if required_tokens == 0 {
+        return Some(Vec::new());
+    }
+    let mut removable = selected
+        .iter()
+        .enumerate()
+        .filter(|(_, selected)| {
+            selected.score < candidate_score
+                && selected.score < pack_repair_evictable_score_ceiling()
+                && pack_selection_limit_applies(&selected.evidence)
+        })
+        .collect::<Vec<_>>();
+    removable.sort_by(|(_, left), (_, right)| {
+        left.score
+            .partial_cmp(&right.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                right
+                    .evidence
+                    .token_estimate
+                    .cmp(&left.evidence.token_estimate)
+            })
+            .then_with(|| left.rank_index.cmp(&right.rank_index))
+    });
+    let mut freed = 0usize;
+    let mut evictions = Vec::new();
+    for (index, selected) in removable {
+        freed = freed.saturating_add(selected.evidence.token_estimate);
+        evictions.push(index);
+        if freed >= required_tokens {
+            return Some(evictions);
+        }
+    }
+    None
+}
+
+fn remove_omitted_candidate(
+    omitted_candidates: &mut Vec<OmittedContextCandidate>,
+    evidence: &ContextEvidence,
+) {
+    if let Some(index) = omitted_candidates
+        .iter()
+        .position(|candidate| candidate.evidence_id == evidence.id)
+    {
+        omitted_candidates.remove(index);
+    }
+}
+
+#[cfg(test)]
+mod pack_selection_tests {
+    use super::*;
+    use crate::context_engine::{
+        ContextEvidenceSource, ContextProvenance, ContextRankSignals, ContextScope,
+        ContextSensitivity, ContextTrust,
+    };
+    use crate::runtime::contracts::{EvidenceId, RepoPath};
+
+    fn evidence(id: &str, kind: ContextEvidenceKind, path: &str) -> ContextEvidence {
+        ContextEvidence {
+            id: EvidenceId(id.to_string()),
+            kind,
+            source: ContextEvidenceSource::Snapshot,
+            trust: ContextTrust::Kernel,
+            sensitivity: ContextSensitivity::Private,
+            scope: ContextScope::Snapshot,
+            path: Some(RepoPath::parse(path).expect("test path")),
+            revision: None,
+            range: None,
+            content_hash: None,
+            summary: None,
+            is_changed_span: false,
+            representation: ContextEvidenceRepresentation::FullContent,
+            skeleton_text: None,
+            signals: ContextRankSignals::default(),
+            token_estimate: 100,
+            provenance: ContextProvenance {
+                provider: "test".to_string(),
+                query: None,
+                tool_call_id: None,
+                snapshot_id: None,
+                original_url: None,
+            },
+            created_at_utc: None,
+            expires_at_utc: None,
+        }
+    }
+
+    #[test]
+    fn generic_pack_limits_repeated_nonchanged_full_content_paths() {
+        let first = evidence("first", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let second = evidence("second", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let third = evidence("third", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &first);
+        record_selected_path(&mut selected_by_path, &second);
+
+        assert_eq!(
+            pack_path_selection_limit(ContextPackPurpose::GeneralReview),
+            Some(2)
+        );
+        assert!(path_selection_limit_exceeded(&selected_by_path, &third, 2));
+    }
+
+    #[test]
+    fn generic_pack_limits_repeated_nonchanged_test_paths_to_one() {
+        let first = evidence("first", ContextEvidenceKind::Test, "tests/feature.test.ts");
+        let second = evidence("second", ContextEvidenceKind::Test, "tests/feature.test.ts");
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &first);
+
+        assert_eq!(
+            pack_evidence_path_selection_limit(ContextPackPurpose::GeneralReview, &second),
+            Some(1)
+        );
+        assert!(path_selection_limit_exceeded(&selected_by_path, &second, 1));
+    }
+
+    #[test]
+    fn path_limit_preserves_changed_diff_and_skeleton_evidence() {
+        let existing = evidence("existing", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &existing);
+        record_selected_path(&mut selected_by_path, &existing);
+
+        let mut changed = evidence("changed", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        changed.is_changed_span = true;
+        let diff = evidence("diff", ContextEvidenceKind::Diff, "src/feature.ts");
+        let mut skeleton = evidence("skeleton", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        skeleton.representation = ContextEvidenceRepresentation::Skeleton;
+
+        assert!(!path_selection_limit_exceeded(
+            &selected_by_path,
+            &changed,
+            2
+        ));
+        assert!(!path_selection_limit_exceeded(&selected_by_path, &diff, 2));
+        assert!(!path_selection_limit_exceeded(
+            &selected_by_path,
+            &skeleton,
+            2
+        ));
+    }
+
+    #[test]
+    fn repeated_path_full_content_waits_for_first_pass() {
+        let existing = evidence("existing", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let repeated = evidence("repeated", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let other = evidence("other", ContextEvidenceKind::FileSpan, "src/other.ts");
+        let diff = evidence("diff", ContextEvidenceKind::Diff, "src/feature.ts");
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &existing);
+
+        assert!(repeated_path_should_wait_for_first_pass(
+            &selected_by_path,
+            ContextPackPurpose::GeneralReview,
+            &repeated
+        ));
+        assert!(!repeated_path_should_wait_for_first_pass(
+            &selected_by_path,
+            ContextPackPurpose::GeneralReview,
+            &other
+        ));
+        assert!(!repeated_path_should_wait_for_first_pass(
+            &selected_by_path,
+            ContextPackPurpose::GeneralReview,
+            &diff
+        ));
+    }
+
+    #[test]
+    fn large_pack_keeps_tail_budget_for_skeletons() {
+        let full = evidence("full", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        let mut changed = evidence("changed", ContextEvidenceKind::FileSpan, "src/feature.ts");
+        changed.is_changed_span = true;
+
+        assert_eq!(skeleton_reserve_tokens(12_000), 2_400);
+        assert_eq!(skeleton_reserve_tokens(3_999), 0);
+        assert_eq!(full_content_budget_limit(12_000, &full), 9_600);
+        assert_eq!(full_content_budget_limit(12_000, &changed), 12_000);
+    }
+
+    #[test]
+    fn repair_swaps_lower_score_tail_for_budget_exhausted_candidate() {
+        let low = evidence("low", ContextEvidenceKind::FileSpan, "src/low.ts");
+        let keep = evidence("keep", ContextEvidenceKind::FileSpan, "src/keep.ts");
+        let candidate = evidence(
+            "candidate",
+            ContextEvidenceKind::FileSpan,
+            "src/candidate.ts",
+        );
+        let mut selected = vec![
+            SelectedPackCandidate {
+                score: 0.10,
+                rank_index: 2,
+                evidence: low.clone(),
+            },
+            SelectedPackCandidate {
+                score: 0.40,
+                rank_index: 1,
+                evidence: keep.clone(),
+            },
+        ];
+        let mut used_tokens = selected
+            .iter()
+            .map(|item| item.evidence.token_estimate)
+            .sum();
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &low);
+        record_selected_path(&mut selected_by_path, &keep);
+        let budget_candidate = RankedPackCandidate {
+            score: 0.35,
+            rank_index: 0,
+            evidence: candidate.clone(),
+        };
+        let mut omitted_candidates = vec![omitted_candidate(
+            &candidate,
+            budget_candidate.score,
+            ContextOmissionReason::BudgetExhausted,
+        )];
+
+        repair_budget_exhausted_pack_candidates(
+            ContextPackPurpose::GeneralReview,
+            200,
+            &mut used_tokens,
+            &mut selected,
+            &mut omitted_candidates,
+            &[budget_candidate],
+            &mut selected_by_path,
+        );
+
+        let selected_ids = selected
+            .iter()
+            .map(|item| item.evidence.id.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(selected_ids, vec!["candidate", "keep"]);
+        assert_eq!(used_tokens, 200);
+        assert!(omitted_candidates
+            .iter()
+            .any(|candidate| candidate.evidence_id.0 == "low"));
+        assert!(!omitted_candidates
+            .iter()
+            .any(|omitted| omitted.evidence_id.0 == "candidate"));
+    }
+
+    #[test]
+    fn repair_does_not_evict_protected_or_higher_score_evidence() {
+        let mut changed = evidence("changed", ContextEvidenceKind::FileSpan, "src/changed.ts");
+        changed.is_changed_span = true;
+        let higher = evidence("higher", ContextEvidenceKind::FileSpan, "src/higher.ts");
+        let candidate = evidence(
+            "candidate",
+            ContextEvidenceKind::FileSpan,
+            "src/candidate.ts",
+        );
+        let mut selected = vec![
+            SelectedPackCandidate {
+                score: 0.05,
+                rank_index: 0,
+                evidence: changed.clone(),
+            },
+            SelectedPackCandidate {
+                score: 0.55,
+                rank_index: 1,
+                evidence: higher.clone(),
+            },
+        ];
+        let mut used_tokens = selected
+            .iter()
+            .map(|item| item.evidence.token_estimate)
+            .sum();
+        let mut selected_by_path = BTreeMap::new();
+        record_selected_path(&mut selected_by_path, &changed);
+        record_selected_path(&mut selected_by_path, &higher);
+        let budget_candidate = RankedPackCandidate {
+            score: 0.60,
+            rank_index: 2,
+            evidence: candidate.clone(),
+        };
+        let mut omitted_candidates = vec![omitted_candidate(
+            &candidate,
+            budget_candidate.score,
+            ContextOmissionReason::BudgetExhausted,
+        )];
+
+        repair_budget_exhausted_pack_candidates(
+            ContextPackPurpose::GeneralReview,
+            200,
+            &mut used_tokens,
+            &mut selected,
+            &mut omitted_candidates,
+            &[budget_candidate],
+            &mut selected_by_path,
+        );
+
+        let selected_ids = selected
+            .iter()
+            .map(|item| item.evidence.id.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(selected_ids, vec!["changed", "higher"]);
+        assert_eq!(used_tokens, 200);
+        assert!(omitted_candidates
+            .iter()
+            .any(|omitted| omitted.evidence_id.0 == "candidate"));
+    }
+}
+
 #[async_trait]
 impl ContextEngine for SnapshotContextEngine {
     fn config(&self) -> ContextEngineConfig {
@@ -264,34 +865,65 @@ impl ContextEngine for SnapshotContextEngine {
         // otherwise. A candidate enters as exactly one representation,
         // so a chunk and its skeleton are never both included.
         let mut used_tokens = 0usize;
-        let mut selected: Vec<ContextEvidence> = Vec::new();
+        let mut selected: Vec<SelectedPackCandidate> = Vec::new();
         let mut omitted_candidates = Vec::new();
+        let mut budget_omitted_candidates = Vec::new();
+        let mut selected_by_path: BTreeMap<String, usize> = BTreeMap::new();
+        let mut deferred_repeated_paths = Vec::new();
+        let mut rank_index = 0usize;
         for (score, evidence) in ranked.drain(..) {
-            if used_tokens.saturating_add(evidence.token_estimate) <= request.max_tokens {
-                used_tokens = used_tokens.saturating_add(evidence.token_estimate);
-                selected.push(evidence);
+            let candidate = RankedPackCandidate {
+                score,
+                rank_index,
+                evidence,
+            };
+            rank_index = rank_index.saturating_add(1);
+            if repeated_path_should_wait_for_first_pass(
+                &selected_by_path,
+                request.purpose,
+                &candidate.evidence,
+            ) {
+                deferred_repeated_paths.push(candidate);
                 continue;
             }
-            let skeleton = index.skeletons.get(&evidence.id.0).filter(|skeleton| {
-                used_tokens.saturating_add(skeleton.token_estimate) <= request.max_tokens
-            });
-            let reason = match skeleton {
-                Some(skeleton) => {
-                    used_tokens = used_tokens.saturating_add(skeleton.token_estimate);
-                    selected.push(skeleton.clone());
-                    ContextOmissionReason::DowngradedToSkeleton
-                }
-                None => ContextOmissionReason::BudgetExhausted,
-            };
-            omitted_candidates.push(OmittedContextCandidate {
-                evidence_id: evidence.id,
-                kind: evidence.kind,
-                path: evidence.path,
-                score,
-                token_estimate: evidence.token_estimate,
-                reason,
-            });
+            select_ranked_pack_candidate(
+                request.purpose,
+                request.max_tokens,
+                &index.skeletons,
+                &mut used_tokens,
+                &mut selected,
+                &mut omitted_candidates,
+                &mut budget_omitted_candidates,
+                &mut selected_by_path,
+                candidate,
+            );
         }
+        for candidate in deferred_repeated_paths {
+            select_ranked_pack_candidate(
+                request.purpose,
+                request.max_tokens,
+                &index.skeletons,
+                &mut used_tokens,
+                &mut selected,
+                &mut omitted_candidates,
+                &mut budget_omitted_candidates,
+                &mut selected_by_path,
+                candidate,
+            );
+        }
+        repair_budget_exhausted_pack_candidates(
+            request.purpose,
+            request.max_tokens,
+            &mut used_tokens,
+            &mut selected,
+            &mut omitted_candidates,
+            &budget_omitted_candidates,
+            &mut selected_by_path,
+        );
+        let selected = selected
+            .into_iter()
+            .map(|selected| selected.evidence)
+            .collect::<Vec<_>>();
         let selected_ids: std::collections::BTreeSet<&str> = selected
             .iter()
             .map(|evidence| evidence.id.0.as_str())
@@ -305,8 +937,6 @@ impl ContextEngine for SnapshotContextEngine {
             })
             .cloned()
             .collect();
-        // Pack sufficiency comes from the same per-hunk coverage logic as
-        // the sufficiency_check query, so the two can never disagree.
         // Both reasons mean full content did not fit within budget.
         let budget_exhausted = omitted_candidates.iter().any(|candidate| {
             matches!(
@@ -315,7 +945,21 @@ impl ContextEngine for SnapshotContextEngine {
                     | ContextOmissionReason::DowngradedToSkeleton
             )
         });
-        let sufficiency = super::evaluate_sufficiency(&index, &selected, budget_exhausted);
+        let mut sufficiency = super::evaluate_sufficiency(&index, &selected, budget_exhausted);
+        if budget_exhausted && sufficiency.status != ContextSufficiencyStatus::Insufficient {
+            sufficiency.status = ContextSufficiencyStatus::Insufficient;
+            sufficiency.missing.push(
+                "pack omitted ranked candidates under budget; context is incomplete".to_string(),
+            );
+        } else if !omitted_candidates.is_empty()
+            && sufficiency.status == ContextSufficiencyStatus::Sufficient
+        {
+            sufficiency.status = ContextSufficiencyStatus::ProbablySufficient;
+            sufficiency.missing.push(
+                "pack omitted ranked candidates under budget; complete coverage is unproven"
+                    .to_string(),
+            );
+        }
         let pack_id = ContextPackId(stable_id(&[
             &request.snapshot_id.0,
             request

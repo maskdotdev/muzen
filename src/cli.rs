@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -205,10 +206,24 @@ pub(crate) struct ContextSnapshotArgs {
     #[arg(long, default_value_t = 50)]
     pub(crate) rerank_top_n: usize,
 
+    /// Disable one context signal for evaluation/debugging. Repeatable.
+    #[arg(long = "ablate-context-signal", value_enum)]
+    pub(crate) ablate_context_signals: Vec<ContextSignalAblationArg>,
+
     /// Directory for the durable derived-data cache (R9). Re-indexing
     /// an unchanged repo recomputes nothing; only changed files pay.
     #[arg(long)]
     pub(crate) derived_cache_root: Option<PathBuf>,
+
+    /// JSON object of trusted host metadata (PR body, issue text, CI
+    /// failure, external contract summary) to index as run-scoped context.
+    #[arg(long)]
+    pub(crate) host_metadata_json: Option<PathBuf>,
+
+    /// JSON array of SessionInstruction objects to index as run-scoped
+    /// host context.
+    #[arg(long)]
+    pub(crate) host_instruction_json: Option<PathBuf>,
 
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
@@ -312,6 +327,16 @@ impl From<ContextQueryKindArg> for ContextQueryKind {
             ContextQueryKindArg::SufficiencyCheck => Self::SufficiencyCheck,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ContextSignalAblationArg {
+    Graph,
+    CoChange,
+    PathProximity,
+    LexicalChange,
+    TestCoverage,
+    SemanticChange,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -693,7 +718,6 @@ pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
                             session_id: None,
                             purpose: args.purpose.into(),
                             max_tokens: args.max_tokens,
-                            seed_evidence: Vec::new(),
                         },
                         tokio_util::sync::CancellationToken::new(),
                     )
@@ -798,7 +822,7 @@ async fn index_context_snapshot(
     }
     engine
         .index_snapshot(
-            ContextIndexRequest::for_snapshot(Arc::clone(&snapshot), engine.config_ref()),
+            context_index_request(&snapshot, engine.config_ref(), args)?,
             tokio_util::sync::CancellationToken::new(),
         )
         .await
@@ -807,6 +831,25 @@ async fn index_context_snapshot(
         .get_index(&snapshot.snapshot_id)
         .ok_or_else(|| anyhow::anyhow!("context index was not stored"))?;
     Ok((engine, snapshot, index.manifest_artifact.clone()))
+}
+
+fn context_index_request(
+    snapshot: &Arc<RepoSnapshot>,
+    config: &ContextEngineConfig,
+    args: &ContextSnapshotArgs,
+) -> Result<ContextIndexRequest> {
+    let mut request = ContextIndexRequest::for_snapshot(Arc::clone(snapshot), config);
+    if let Some(path) = &args.host_metadata_json {
+        request.host_metadata =
+            read_context_json_file::<BTreeMap<String, serde_json::Value>>(path)?;
+        request.include_host_context = true;
+    }
+    if let Some(path) = &args.host_instruction_json {
+        request.instructions =
+            read_context_json_file::<Vec<crate::runtime::contracts::SessionInstruction>>(path)?;
+        request.include_host_context = true;
+    }
+    Ok(request)
 }
 
 fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConfig> {
@@ -856,7 +899,39 @@ fn context_engine_config(args: &ContextSnapshotArgs) -> Result<ContextEngineConf
         config.semantic.rerank.credential_ref = args.rerank_credential_ref.clone();
         config.semantic.rerank.top_n = args.rerank_top_n;
     }
+    for ablation in &args.ablate_context_signals {
+        apply_context_signal_ablation(&mut config, *ablation);
+    }
     Ok(config)
+}
+
+fn apply_context_signal_ablation(
+    config: &mut ContextEngineConfig,
+    signal: ContextSignalAblationArg,
+) {
+    match signal {
+        ContextSignalAblationArg::Graph => {
+            config.graph_max_hops = 0;
+            config.graph_max_candidates_per_anchor = 0;
+            config.weight_graph_proximity = 0.0;
+        }
+        ContextSignalAblationArg::CoChange => {
+            config.co_change_commit_limit = 0;
+            config.weight_co_change = 0.0;
+        }
+        ContextSignalAblationArg::PathProximity => {
+            config.weight_path_proximity = 0.0;
+        }
+        ContextSignalAblationArg::LexicalChange => {
+            config.weight_lexical_change = 0.0;
+        }
+        ContextSignalAblationArg::TestCoverage => {
+            config.weight_test_coverage = 0.0;
+        }
+        ContextSignalAblationArg::SemanticChange => {
+            config.weight_semantic_change = 0.0;
+        }
+    }
 }
 
 fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot>> {
@@ -2858,4 +2933,56 @@ fn write_canary_proof_report(path: &Path, report: &CanaryProofReport) -> Result<
     fs::write(path, &bytes)
         .with_context(|| format!("failed to write canary proof {}", path.display()))?;
     Ok(bytes.len())
+}
+
+#[cfg(test)]
+mod context_cli_tests {
+    use super::*;
+
+    #[test]
+    fn context_signal_ablation_flags_adjust_snapshot_config() {
+        let cli = Cli::try_parse_from([
+            "muzen",
+            "context",
+            "pack",
+            "--changed-file",
+            "src/lib.rs",
+            "--ablate-context-signal",
+            "graph",
+            "--ablate-context-signal",
+            "co-change",
+        ])
+        .expect("valid context command");
+        let Command::Context(context) = cli.command else {
+            panic!("expected context command");
+        };
+        let ContextCommand::Pack(pack) = context.command else {
+            panic!("expected context pack command");
+        };
+
+        let config = context_engine_config(&pack.snapshot).expect("context config");
+
+        assert_eq!(config.graph_max_hops, 0);
+        assert_eq!(config.graph_max_candidates_per_anchor, 0);
+        assert_eq!(config.weight_graph_proximity, 0.0);
+        assert_eq!(config.co_change_commit_limit, 0);
+        assert_eq!(config.weight_co_change, 0.0);
+        assert_eq!(
+            config.weight_path_proximity,
+            ContextEngineConfig::snapshot_v0().weight_path_proximity
+        );
+    }
+
+    #[test]
+    fn context_signal_ablation_zeroes_only_requested_weight() {
+        let mut config = ContextEngineConfig::snapshot_v0();
+
+        apply_context_signal_ablation(&mut config, ContextSignalAblationArg::LexicalChange);
+
+        assert_eq!(config.weight_lexical_change, 0.0);
+        assert_eq!(
+            config.weight_test_coverage,
+            ContextEngineConfig::snapshot_v0().weight_test_coverage
+        );
+    }
 }

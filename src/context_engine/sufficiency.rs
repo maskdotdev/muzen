@@ -64,13 +64,13 @@ pub struct ContextSufficiencyGap {
 
 /// Evaluate per-hunk coverage of `evidence` against the index.
 ///
-/// `budget_exhausted` downgrades blocking gaps to `probably_sufficient`:
-/// the compiler could not do better within budget, and the unresolved
-/// gaps stay recorded.
+/// `budget_exhausted` explains why gaps may remain, but it does not
+/// make missing context sufficient. Blocking gaps stay insufficient so
+/// the reviewer is forced to use context tools before publishing claims.
 pub(crate) fn evaluate_sufficiency(
     index: &ContextIndex,
     evidence: &[ContextEvidence],
-    budget_exhausted: bool,
+    _budget_exhausted: bool,
 ) -> ContextSufficiency {
     // Skeleton-representation evidence (R7) elides bodies: it cannot
     // satisfy enclosing-definition, caller, or test coverage. Coverage
@@ -158,11 +158,7 @@ pub(crate) fn evaluate_sufficiency(
         .iter()
         .any(|gap| gap.missing.iter().any(|kind| kind.blocks_sufficiency()));
     let status = if blocking {
-        if budget_exhausted {
-            ContextSufficiencyStatus::ProbablySufficient
-        } else {
-            ContextSufficiencyStatus::Insufficient
-        }
+        ContextSufficiencyStatus::Insufficient
     } else if checked_hunks > 0 {
         ContextSufficiencyStatus::Sufficient
     } else {

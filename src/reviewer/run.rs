@@ -1,13 +1,16 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::context_engine::{
-    context_tool_effects, context_tool_ids, register_context_tools, ContextEngine,
+    context_tool_effects_for_id, context_tool_ids, register_context_tools, ContextEngine,
     ContextEngineMode, ContextFindingEvidence, ContextIndexRequest, ContextPackPurpose,
     ContextPackRequest, ContextSufficiencyStatus, NoopContextEngine,
 };
 use crate::runtime::contracts::{
-    stable_id, ArtifactKey, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
-    RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId, ToolGrant,
+    stable_id, ArtifactKey, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
+    ReviewQualityDiagnostics, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
+    RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId,
+    SnapshotMetricsSnapshot, ToolGrant,
 };
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::model::ConcurrentModelRouter as RuntimeModelRouter;
@@ -15,7 +18,7 @@ use crate::runtime::tools::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1};
+use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1, ToolCounts};
 use crate::contracts::{FindingPublishability, FindingV1, ReportStatus, ValidationStatus};
 use crate::runtime::agent_sessions::AgentSessionRuntime;
 use crate::runtime::contracts::AgentSessionOutput;
@@ -332,7 +335,6 @@ impl Run {
                                     session_id: Some(session.id.clone()),
                                     purpose,
                                     max_tokens: context_config.max_pack_tokens,
-                                    seed_evidence: Vec::new(),
                                 },
                                 cancel.clone(),
                             )
@@ -345,7 +347,7 @@ impl Run {
                             });
                             if let Ok(tool_ids) = context_tool_ids() {
                                 for tool_id in tool_ids {
-                                    let effects = context_tool_effects();
+                                    let effects = context_tool_effects_for_id(&tool_id);
                                     session.capabilities.runtime_authority.host_read |=
                                         effects.host_read;
                                     session.capabilities.runtime_authority.network_read |=
@@ -509,6 +511,65 @@ impl Run {
     }
 }
 
+fn context_failed_report(
+    run_id: String,
+    first_snapshot: SnapshotHandle,
+    snapshots: Vec<SnapshotHandle>,
+    artifacts: Arc<RuntimeArtifactStore>,
+    snapshot_readers: Vec<SnapshotReader>,
+    sessions: usize,
+    failure: String,
+) -> RunReport {
+    let (artifact_count, artifact_bytes) = artifacts.stats();
+    let metrics = ConcurrentRunReport {
+        runtime: "planned_units",
+        sessions,
+        completed_sessions: 0,
+        model_calls: 0,
+        tool_calls: 0,
+        tool_counts: ToolCounts::default(),
+        findings: 0,
+        publishable_findings: 0,
+        elapsed_ms: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        artifacts: artifact_count,
+        artifact_bytes,
+        counters: ConcurrentCounters::default(),
+        tool_metrics: BTreeMap::new(),
+        provider_health: Vec::new(),
+        snapshot_metrics: vec![SnapshotMetricsSnapshot {
+            snapshot_id: first_snapshot.snapshot_id.clone(),
+            sessions,
+            completed_sessions: 0,
+            model_calls: 0,
+            tool_calls: 0,
+            artifacts: artifact_count,
+            artifact_bytes,
+            elapsed_ms: 0,
+        }],
+        model_metrics: ModelMetricsSnapshot::default(),
+        completion_diagnostics: Vec::new(),
+        cached_input_tokens: 0,
+        quality_diagnostics: ReviewQualityDiagnostics::default(),
+        benchmark_valid: false,
+        benchmark_failures: vec![format!("context engine failed: {failure}")],
+    };
+    RunReport {
+        run_id,
+        snapshot: first_snapshot,
+        snapshots,
+        summary: ReviewRunSummary::from_metrics(&metrics),
+        metrics,
+        artifacts,
+        snapshot_readers,
+        findings: Vec::new(),
+        file_reviews: Vec::new(),
+        session_outputs: Vec::new(),
+    }
+}
+
 fn apply_context_evidence_policy(findings: &mut [FindingV1], strict: bool) {
     for finding in findings {
         if !finding.evidence.is_empty() {
@@ -659,6 +720,29 @@ fn context_pack_instruction(pack: &crate::context_engine::ContextPack) -> String
         );
         instruction.push_str(&skeletons.join("\n"));
     }
+    let omitted_hints = pack
+        .omitted_candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.reason == crate::context_engine::ContextOmissionReason::BudgetExhausted
+        })
+        .filter_map(|candidate| {
+            let path = candidate.path.as_ref()?.display();
+            Some(format!(
+                "- {path} {:?}, score {:.2}, {} tokens, reason {}; not evidence, query/read before relying on it",
+                candidate.kind,
+                candidate.score,
+                candidate.token_estimate,
+                candidate.reason.as_str()
+            ))
+        })
+        .take(12)
+        .collect::<Vec<_>>();
+    if !omitted_hints.is_empty() {
+        instruction
+            .push_str("\nHigh-ranked candidates omitted by budget (hints only, not evidence):\n");
+        instruction.push_str(&omitted_hints.join("\n"));
+    }
     // R6: when coverage gaps exist, hand the session ready-to-run queries
     // so it can fill them before producing findings. Iteration stays
     // bounded by the existing session budgets.
@@ -728,9 +812,9 @@ mod tests {
     fn pack_instruction_inlines_skeleton_views() {
         use crate::context_engine::{
             ContextBudgetUsage, ContextEvidence, ContextEvidenceKind,
-            ContextEvidenceRepresentation, ContextEvidenceSource, ContextPack, ContextPackId,
-            ContextProvenance, ContextRankSignals, ContextScope, ContextSensitivity,
-            ContextSufficiency, ContextTrust,
+            ContextEvidenceRepresentation, ContextEvidenceSource, ContextOmissionReason,
+            ContextPack, ContextPackId, ContextProvenance, ContextRankSignals, ContextScope,
+            ContextSensitivity, ContextSufficiency, ContextTrust, OmittedContextCandidate,
         };
         let skeleton_text = "    1| pub fn generated_0() {\n     | ...\n   20| }";
         let pack = ContextPack {
@@ -767,7 +851,14 @@ mod tests {
                 expires_at_utc: None,
             }],
             relationships: Vec::new(),
-            omitted_candidates: Vec::new(),
+            omitted_candidates: vec![OmittedContextCandidate {
+                evidence_id: crate::runtime::contracts::EvidenceId("ev_omitted".to_string()),
+                kind: ContextEvidenceKind::FileSpan,
+                path: Some(crate::runtime::contracts::RepoPath::parse("src/omitted.rs").unwrap()),
+                score: 0.42,
+                token_estimate: 320,
+                reason: ContextOmissionReason::BudgetExhausted,
+            }],
             budget: ContextBudgetUsage {
                 max_tokens: 100,
                 used_tokens: 12,
@@ -780,6 +871,9 @@ mod tests {
         assert!(instruction.contains("Skeleton views included"));
         assert!(instruction.contains("src/big.rs (skeleton: bodies elided"));
         assert!(instruction.contains(skeleton_text));
+        assert!(instruction.contains("High-ranked candidates omitted by budget"));
+        assert!(instruction.contains("src/omitted.rs FileSpan, score 0.42"));
+        assert!(instruction.contains("not evidence, query/read before relying on it"));
     }
 
     fn test_finding() -> FindingV1 {

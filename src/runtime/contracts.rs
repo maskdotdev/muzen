@@ -1170,6 +1170,10 @@ pub enum RuntimeEvent {
         skipped_files: usize,
         ms: u64,
     },
+    ContextIndexFailed {
+        snapshot_id: SnapshotId,
+        message: String,
+    },
     ContextPackStarted {
         session_id: Option<SessionId>,
         purpose: String,
@@ -1182,6 +1186,12 @@ pub enum RuntimeEvent {
         omitted_count: usize,
         used_tokens: usize,
         sufficiency: String,
+        ms: u64,
+    },
+    ContextPackFailed {
+        session_id: Option<SessionId>,
+        purpose: String,
+        message: String,
         ms: u64,
     },
     ContextQueryCompleted {
@@ -1296,12 +1306,14 @@ impl RuntimeEventContext {
             | RuntimeEvent::SnapshotStarted { snapshot_id }
             | RuntimeEvent::ContextIndexStarted { snapshot_id }
             | RuntimeEvent::ContextIndexCompleted { snapshot_id, .. }
+            | RuntimeEvent::ContextIndexFailed { snapshot_id, .. }
             | RuntimeEvent::SnapshotFinished { snapshot_id, .. } => Self {
                 snapshot_id: Some(snapshot_id.clone()),
                 ..Self::default()
             },
             RuntimeEvent::ContextPackStarted { session_id, .. }
             | RuntimeEvent::ContextPackCompleted { session_id, .. }
+            | RuntimeEvent::ContextPackFailed { session_id, .. }
             | RuntimeEvent::ContextQueryCompleted { session_id, .. } => Self {
                 session_id: session_id.clone(),
                 ..Self::default()
