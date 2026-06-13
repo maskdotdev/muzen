@@ -1075,24 +1075,6 @@ pub struct RuntimeLimits {
     pub file_content_cache_bytes: u64,
     pub search_result_cache_bytes: u64,
     pub search_threads: usize,
-    /// Controls the review quality passes (deterministic evidence bootstrap,
-    /// final cross-file synthesis, adversarial finding challenge).
-    #[serde(default)]
-    pub quality_pass_mode: QualityPassMode,
-}
-
-/// Explicit switch for the review quality passes. `Auto` preserves the
-/// legacy heuristic — passes activate when the first session template's
-/// objective contains "production-materialized pull request" and budgets
-/// more than four turns — so existing hosts keep their behavior until they
-/// opt in or out explicitly.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QualityPassMode {
-    #[default]
-    Auto,
-    Enabled,
-    Disabled,
 }
 
 impl RuntimeLimits {
@@ -1105,8 +1087,8 @@ impl RuntimeLimits {
             model_retry_max_attempts: default_model_retry_max_attempts(),
             model_retry_base_delay_ms: default_model_retry_base_delay_ms(),
             model_retry_max_delay_ms: default_model_retry_max_delay_ms(),
-            max_tool_calls_per_turn: 4,
-            max_tool_parallelism_per_session: 2,
+            max_tool_calls_per_turn: 8,
+            max_tool_parallelism_per_session: 4,
             max_tool_provider_concurrency_per_provider: 8,
             max_tool_provider_ms: 30_000,
             max_tool_output_bytes: default_max_tool_output_bytes(),
@@ -1121,7 +1103,6 @@ impl RuntimeLimits {
             file_content_cache_bytes: 32_000_000,
             search_result_cache_bytes: 16_000_000,
             search_threads: num_cpus::get().clamp(2, 8),
-            quality_pass_mode: QualityPassMode::default(),
         }
     }
 }
@@ -1540,7 +1521,16 @@ pub struct ReviewQualityDiagnostics {
     pub contract_risk_units: usize,
     pub contract_seed_count: usize,
     pub contract_pack_count: usize,
+    pub omitted_contract_pack_candidates: Vec<String>,
+    pub selected_contract_packs: Vec<String>,
     pub contract_evidence_failures: usize,
+    pub coverage_counts: BTreeMap<String, usize>,
+    pub coverage_counts_by_lens: BTreeMap<String, BTreeMap<String, usize>>,
+    pub high_risk_files_below_target: Vec<String>,
+    pub challenge_status_counts: BTreeMap<String, usize>,
+    pub sessions_run: usize,
+    pub budgets_used: BTreeMap<String, usize>,
+    pub explicit_caller_cap_sessions: usize,
     pub candidate_findings: usize,
     pub rescued_candidates: usize,
     pub rejected_candidates: usize,
@@ -1552,7 +1542,27 @@ impl ReviewQualityDiagnostics {
         self.contract_risk_units += other.contract_risk_units;
         self.contract_seed_count += other.contract_seed_count;
         self.contract_pack_count += other.contract_pack_count;
+        self.omitted_contract_pack_candidates
+            .extend(other.omitted_contract_pack_candidates);
+        self.selected_contract_packs
+            .extend(other.selected_contract_packs);
         self.contract_evidence_failures += other.contract_evidence_failures;
+        merge_counts(&mut self.coverage_counts, other.coverage_counts);
+        for (lens, counts) in other.coverage_counts_by_lens {
+            merge_counts(
+                self.coverage_counts_by_lens.entry(lens).or_default(),
+                counts,
+            );
+        }
+        self.high_risk_files_below_target
+            .extend(other.high_risk_files_below_target);
+        merge_counts(
+            &mut self.challenge_status_counts,
+            other.challenge_status_counts,
+        );
+        self.sessions_run += other.sessions_run;
+        merge_counts(&mut self.budgets_used, other.budgets_used);
+        self.explicit_caller_cap_sessions += other.explicit_caller_cap_sessions;
         self.candidate_findings += other.candidate_findings;
         self.rescued_candidates += other.rescued_candidates;
         self.rejected_candidates += other.rejected_candidates;
@@ -1568,12 +1578,27 @@ impl Default for ReviewQualityDiagnostics {
             contract_risk_units: 0,
             contract_seed_count: 0,
             contract_pack_count: 0,
+            omitted_contract_pack_candidates: Vec::new(),
+            selected_contract_packs: Vec::new(),
             contract_evidence_failures: 0,
+            coverage_counts: BTreeMap::new(),
+            coverage_counts_by_lens: BTreeMap::new(),
+            high_risk_files_below_target: Vec::new(),
+            challenge_status_counts: BTreeMap::new(),
+            sessions_run: 0,
+            budgets_used: BTreeMap::new(),
+            explicit_caller_cap_sessions: 0,
             candidate_findings: 0,
             rescued_candidates: 0,
             rejected_candidates: 0,
             rejection_reasons: BTreeMap::new(),
         }
+    }
+}
+
+fn merge_counts(target: &mut BTreeMap<String, usize>, source: BTreeMap<String, usize>) {
+    for (key, count) in source {
+        *target.entry(key).or_insert(0) += count;
     }
 }
 

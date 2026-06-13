@@ -1941,6 +1941,7 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
             max_tool_calls: 0,
             max_prompt_tokens: 4000,
             max_output_tokens: 1000,
+            budget_source: crate::contracts::BudgetSource::CallerHardCap,
         },
     );
     let events = Arc::new(InMemoryReviewEventSink::default());

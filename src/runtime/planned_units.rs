@@ -9,14 +9,17 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
-    ArtifactKind, ByteRangeV1, EvidenceLocationV1, EvidenceRefV1, EvidenceRevision, FileReviewV1,
-    FindingPublishability, FindingSeverity, FindingV1, LineRangeV1, RedactionMetadataV1,
-    RedactionState, ReportStatus, Role, TokenUsage, ToolCounts, ToolName, ValidationStatus,
+    ArtifactKind, ByteRangeV1, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
+    EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
+    RedactionMetadataV1, RedactionState, ReportStatus, ReviewCoverage, ReviewVerdict, Role,
+    TokenUsage, ToolCounts, ToolName, ValidationStatus,
 };
 use crate::review_plan::ReviewPlanFileMode;
 use crate::review_plan::{build_review_plan, ReviewPlan};
 use crate::review_units::{build_review_unit_plan, PlannedReviewUnit, ReviewUnitOptions};
-use crate::runtime::contract_packs::{build_contract_pack_plan, ContractPack, ContractPackPlan};
+use crate::runtime::contract_packs::{
+    build_contract_pack_plan, ContractPack, ContractPackKind, ContractPackPlan,
+};
 use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
@@ -53,9 +56,6 @@ impl PlannedReviewRuntime {
     ) -> PlannedReviewRunReport {
         let started = Instant::now();
         let review_plan = build_review_plan(&self.snapshot);
-        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let contract_risk =
-            build_contract_risk_plan(&review_plan, self.snapshot.diff.content.as_str());
         let head_contents = changed_file_head_contents(
             &self.snapshot,
             &review_plan,
@@ -65,6 +65,15 @@ impl PlannedReviewRuntime {
             &review_plan,
             self.snapshot.diff.content.as_str(),
             &head_contents,
+        );
+        let unit_plan = build_review_unit_plan(
+            &review_plan,
+            adaptive_review_unit_options(&review_plan, contract_packs.pack_count()),
+        );
+        let contract_risk = build_contract_risk_plan(
+            &review_plan,
+            &unit_plan,
+            self.snapshot.diff.content.as_str(),
         );
         let review_plan = Arc::new(review_plan);
         let contract_risk = Arc::new(contract_risk);
@@ -159,39 +168,29 @@ impl PlannedReviewRuntime {
         }
         append_unverdicted_file_reviews(&unit_plan.units, &mut file_reviews);
         let mut pack_clean_paths = BTreeSet::new();
-        if should_run_review_quality_enhancements(
-            self.limits.quality_pass_mode,
-            &self.session_templates,
-        ) {
-            for pack in &contract_packs.packs {
-                if cancel.is_cancelled() {
-                    break;
-                }
-                let pack_report = self
-                    .run_contract_pack_pass(&review_plan, pack, cancel.child_token())
-                    .await;
-                model_calls += pack_report.model_calls;
-                add_model_metrics(&mut model_metrics, &pack_report.model_metrics);
-                tool_counts.add(pack_report.tool_counts);
-                tokens.add(pack_report.tokens);
-                let pack_found_issue = pack_report
-                    .candidate_findings
-                    .iter()
-                    .any(|candidate| candidate.rejection_reason.is_none());
-                if pack_report.completion_diagnostic.completed && !pack_found_issue {
-                    pack_clean_paths.insert(pack.primary_path.display());
-                    pack_clean_paths.extend(pack.related_paths.iter().map(RepoPath::display));
-                }
-                candidate_findings.extend(pack_report.candidate_findings);
-                completion_diagnostics.push(pack_report.completion_diagnostic);
+        for pack in &contract_packs.packs {
+            if cancel.is_cancelled() {
+                break;
             }
+            let pack_report = self
+                .run_contract_pack_pass(&review_plan, pack, cancel.child_token())
+                .await;
+            model_calls += pack_report.model_calls;
+            add_model_metrics(&mut model_metrics, &pack_report.model_metrics);
+            tool_counts.add(pack_report.tool_counts);
+            tokens.add(pack_report.tokens);
+            let pack_found_issue = pack_report
+                .candidate_findings
+                .iter()
+                .any(|candidate| candidate.rejection_reason.is_none());
+            if pack_report.completion_diagnostic.completed && !pack_found_issue {
+                pack_clean_paths.insert(pack.primary_path.display());
+                pack_clean_paths.extend(pack.related_paths.iter().map(RepoPath::display));
+            }
+            candidate_findings.extend(pack_report.candidate_findings);
+            completion_diagnostics.push(pack_report.completion_diagnostic);
         }
-        if should_run_review_quality_enhancements(
-            self.limits.quality_pass_mode,
-            &self.session_templates,
-        ) && self.should_run_final_synthesis(&contract_packs)
-            && !cancel.is_cancelled()
-        {
+        if self.should_run_final_synthesis(&contract_packs) && !cancel.is_cancelled() {
             let synthesis_report = self
                 .run_final_synthesis_pass(
                     review_plan.as_ref(),
@@ -220,24 +219,6 @@ impl PlannedReviewRuntime {
             &self.review_revision_id,
         );
         let mut findings = synthesis.findings;
-        let quality_diagnostics = ReviewQualityDiagnostics {
-            contract_risk_units: contract_risk.risky_unit_count(),
-            contract_seed_count: contract_risk.seed_count(),
-            contract_pack_count: contract_packs.pack_count(),
-            contract_evidence_failures: file_reviews
-                .iter()
-                .filter(|review| {
-                    review.verdict == "needs_review"
-                        && review
-                            .summary
-                            .contains("Required cross-file contract evidence")
-                })
-                .count(),
-            candidate_findings: synthesis.candidate_count,
-            rescued_candidates: synthesis.rescued_count,
-            rejected_candidates: synthesis.rejected_count,
-            rejection_reasons: synthesis.rejection_reasons.clone(),
-        };
         for finding in &findings {
             self.events.emit_runtime_with_context(
                 RuntimeEventContext {
@@ -253,17 +234,13 @@ impl PlannedReviewRuntime {
                 },
             );
         }
-        if should_run_review_quality_enhancements(
-            self.limits.quality_pass_mode,
-            &self.session_templates,
-        ) && !cancel.is_cancelled()
-            && !findings.is_empty()
-        {
+        if !cancel.is_cancelled() && !findings.is_empty() {
             let challenge_report = self
                 .run_finding_challenge_pass(&mut findings, cancel.child_token())
                 .await;
             model_calls += challenge_report.model_calls;
             add_model_metrics(&mut model_metrics, &challenge_report.model_metrics);
+            tool_counts.add(challenge_report.tool_counts);
             tokens.add(challenge_report.tokens);
             completion_diagnostics.push(challenge_report.completion_diagnostic);
         }
@@ -300,6 +277,19 @@ impl PlannedReviewRuntime {
                     && !diagnostic.session_id.starts_with("pack-")
             })
             .count();
+        let quality_diagnostics = planned_review_audit_diagnostics(
+            review_plan.as_ref(),
+            contract_risk.as_ref(),
+            contract_packs.as_ref(),
+            &file_reviews,
+            &findings,
+            &self.session_templates,
+            review_sessions,
+            synthesis.candidate_count,
+            synthesis.rescued_count,
+            synthesis.rejected_count,
+            synthesis.rejection_reasons.clone(),
+        );
         let mut metrics = ConcurrentRunReport {
             runtime: "planned_units",
             sessions: review_sessions,
@@ -400,22 +390,20 @@ impl PlannedReviewRuntime {
         let mut file_evidence = FileEvidenceTracker::new(&unit);
         let turn_limit = scope.budget.max_turns.max(1);
 
-        if should_run_review_quality_enhancements_for_scope(self.limits.quality_pass_mode, &scope) {
-            bootstrap_unit_evidence(
-                self,
-                &scope,
-                review_plan,
-                &unit,
-                unit_risk,
-                contract_packs,
-                &mut transcript,
-                &mut evidence,
-                &mut tool_counts,
-                &mut file_evidence,
-                cancel.child_token(),
-            )
-            .await;
-        }
+        bootstrap_unit_evidence(
+            self,
+            &scope,
+            review_plan,
+            &unit,
+            unit_risk,
+            contract_packs,
+            &mut transcript,
+            &mut evidence,
+            &mut tool_counts,
+            &mut file_evidence,
+            cancel.child_token(),
+        )
+        .await;
 
         for turn_index in 0..turn_limit {
             if cancel.is_cancelled() {
@@ -774,82 +762,160 @@ impl PlannedReviewRuntime {
                 ));
             }
         };
-        let transcript =
+        let mut transcript =
             finding_challenge_transcript(findings, self.snapshot.diff.content.as_str());
         let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut evidence = SessionEvidence::for_scope(&scope);
+        let mut tool_counts = ToolCounts::default();
         let mut tokens = TokenUsage::default();
-        let turn_id = TurnId(0);
-        self.events.emit_planned_runtime(
-            self.policy
-                .plan_model_started_runtime_event(&scope, turn_id),
-        );
-        let model_started = Instant::now();
-        let outcome = complete_model_turn(
-            &*model,
-            &self.policy,
-            &self.events,
-            &self.limits,
-            &scope,
-            &final_response_scope(&scope),
-            &transcript,
-            turn_id,
-            &cancel,
-        )
-        .await;
-        model_metrics.calls += outcome.attempts;
-        let turn = match outcome.result {
-            Ok(turn) => {
-                model_metrics.errors += outcome.attempts - 1;
-                turn
+        let mut model_calls = 0usize;
+        let turn_limit = scope.budget.max_turns.max(1);
+        for turn_index in 0..turn_limit {
+            if cancel.is_cancelled() {
+                break;
             }
-            Err(error) => {
-                model_metrics.errors += outcome.attempts;
-                let summary = match error {
-                    RuntimeError::Timeout => "timeout",
-                    _ => "model_failed",
-                };
-                return FindingChallengeReport::empty(finding_challenge_diagnostic(
-                    false, summary, 0,
-                ));
-            }
-        };
-        model_metrics.successes += 1;
-        model_metrics.latency_ms += elapsed_ms(model_started);
-        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-        match turn {
-            ModelTurn::Text { content, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events.emit_planned_runtime(
-                    self.policy
-                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
-                );
-                let refuted = apply_challenge_verdicts(findings, &content, &scope.id.0);
-                FindingChallengeReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    completion_diagnostic: finding_challenge_diagnostic(true, "done", refuted),
+            let turn_id = TurnId(turn_index as u32);
+            self.events.emit_planned_runtime(
+                self.policy
+                    .plan_model_started_runtime_event(&scope, turn_id),
+            );
+            let model_started = Instant::now();
+            let final_turn =
+                turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
+            let model_scope = if final_turn {
+                final_response_scope(&scope)
+            } else {
+                scope.clone()
+            };
+            let outcome = complete_model_turn(
+                &*model,
+                &self.policy,
+                &self.events,
+                &self.limits,
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                &cancel,
+            )
+            .await;
+            model_calls += outcome.attempts;
+            model_metrics.calls += outcome.attempts;
+            let turn = match outcome.result {
+                Ok(turn) => {
+                    model_metrics.errors += outcome.attempts - 1;
+                    turn
                 }
-            }
-            ModelTurn::ToolCalls { calls, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events
-                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
+                Err(error) => {
+                    model_metrics.errors += outcome.attempts;
+                    let summary = match error {
+                        RuntimeError::Timeout => "timeout",
+                        _ => "model_failed",
+                    };
+                    mark_challenge_incomplete(findings);
+                    return FindingChallengeReport {
+                        model_calls,
+                        model_metrics,
+                        tool_counts,
+                        tokens,
+                        completion_diagnostic: finding_challenge_diagnostic(false, summary, 0),
+                    };
+                }
+            };
+            model_metrics.successes += 1;
+            model_metrics.latency_ms += elapsed_ms(model_started);
+            model_metrics.max_latency_ms =
+                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+            match turn {
+                ModelTurn::Text { content, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy
+                            .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                    );
+                    let suppressed = apply_challenge_verdicts(findings, &content, &scope.id.0);
+                    return FindingChallengeReport {
+                        model_calls,
+                        model_metrics,
+                        tool_counts,
+                        tokens,
+                        completion_diagnostic: finding_challenge_diagnostic(
+                            true, "done", suppressed,
+                        ),
+                    };
+                }
+                ModelTurn::ToolCalls { calls, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy.plan_model_completed_runtime_event(
+                            &scope,
+                            turn_id,
+                            calls.len(),
+                        ),
+                    );
+                    if final_turn {
+                        mark_challenge_incomplete(findings);
+                        return FindingChallengeReport {
+                            model_calls,
+                            model_metrics,
+                            tool_counts,
+                            tokens,
+                            completion_diagnostic: finding_challenge_diagnostic(
+                                false,
+                                "unexpected_tool_calls",
+                                0,
+                            ),
+                        };
+                    }
+                    transcript.push(ConversationItem::AssistantToolCalls {
+                        calls: calls.clone(),
+                    });
+                    let results = ToolBatchRunner::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                    )
+                    .execute(
+                        scope.clone(),
+                        turn_id,
+                        calls,
+                        &evidence,
+                        scope
+                            .budget
+                            .max_tool_calls
+                            .saturating_sub(tool_counts.total()),
+                        cancel.child_token(),
+                    )
+                    .await;
+                    ToolResultEffectProcessor::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                        &self.review_revision_id,
+                    )
+                    .apply_batch(
                         &scope,
                         turn_id,
-                        calls.len(),
-                    ));
-                FindingChallengeReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    completion_diagnostic: finding_challenge_diagnostic(
-                        false,
-                        "unexpected_tool_calls",
-                        0,
-                    ),
+                        results,
+                        ToolResultBatchState {
+                            evidence: &mut evidence,
+                            tool_counts: &mut tool_counts,
+                            transcript: &mut transcript,
+                        },
+                    );
+                    transcript.push(ConversationItem::User {
+                        content: "Continue verifying only the listed candidate findings. Do not look for new findings. Return the challenge JSON as soon as each claim is confirmed, refuted, or still insufficient after the checked evidence.".to_string(),
+                    });
                 }
             }
+        }
+        mark_challenge_incomplete(findings);
+        FindingChallengeReport {
+            model_calls,
+            model_metrics,
+            tool_counts,
+            tokens,
+            completion_diagnostic: finding_challenge_diagnostic(false, "partial", 0),
         }
     }
     /// Runs one focused investigation per contract pack. The runtime loads the
@@ -1016,13 +1082,19 @@ impl PlannedReviewRuntime {
                         });
                         continue;
                     }
-                    let candidate_findings = collect_candidate_findings(
+                    let mut candidate_findings = collect_candidate_findings(
                         &scope,
                         &pack_unit,
                         review_plan,
                         result.findings,
                         &file_evidence,
                     );
+                    candidate_findings.extend(deterministic_contract_pack_candidates(
+                        &scope,
+                        pack,
+                        self.snapshot.diff.content.as_str(),
+                        &file_evidence,
+                    ));
                     self.events.emit_planned_runtime(
                         self.policy
                             .plan_session_finished_runtime_event(&scope, "done"),
@@ -1124,41 +1196,6 @@ impl PlannedReviewRuntime {
             completion_diagnostic: pack_pass_diagnostic(&pack_unit.id, false, "partial"),
         }
     }
-}
-
-fn should_run_review_quality_enhancements(
-    mode: QualityPassMode,
-    session_templates: &[SessionScope],
-) -> bool {
-    match mode {
-        QualityPassMode::Enabled => true,
-        QualityPassMode::Disabled => false,
-        QualityPassMode::Auto => session_templates
-            .first()
-            .map(scope_matches_legacy_quality_heuristic)
-            .unwrap_or(false),
-    }
-}
-
-fn should_run_review_quality_enhancements_for_scope(
-    mode: QualityPassMode,
-    scope: &SessionScope,
-) -> bool {
-    match mode {
-        QualityPassMode::Enabled => true,
-        QualityPassMode::Disabled => false,
-        QualityPassMode::Auto => scope_matches_legacy_quality_heuristic(scope),
-    }
-}
-
-/// Legacy activation heuristic, kept as the `Auto` behavior: hosts that
-/// never set `quality_pass_mode` get quality passes exactly when their
-/// objective uses the historical phrasing with a deep-turn budget.
-fn scope_matches_legacy_quality_heuristic(scope: &SessionScope) -> bool {
-    scope.budget.max_turns > 4
-        && scope
-            .objective
-            .contains("production-materialized pull request")
 }
 
 async fn bootstrap_unit_evidence(
@@ -1444,6 +1481,119 @@ fn missing_pack_obligations(pack: &ContractPack, result: &StructuredPackResult) 
         }
     }
     missing
+}
+
+fn deterministic_contract_pack_candidates(
+    scope: &SessionScope,
+    pack: &ContractPack,
+    diff: &str,
+    evidence_tracker: &FileEvidenceTracker,
+) -> Vec<CandidateFinding> {
+    if pack.kind != ContractPackKind::QueryFilterScope {
+        return Vec::new();
+    }
+    let path = pack.primary_path.display();
+    let Some((line, predicate)) = destructive_or_scope_predicate(diff, &path) else {
+        return Vec::new();
+    };
+    let evidence_artifact_ids = evidence_tracker.evidence_for(&path);
+    if evidence_artifact_ids.is_empty() {
+        return Vec::new();
+    }
+    vec![CandidateFinding {
+        source_unit_id: format!("pack-{}", pack.id),
+        source_session_id: scope.id.0.clone(),
+        title: "Destructive retry cleanup branch bypasses the method scope".to_string(),
+        claim: "The changed deleteMany OR predicate adds a retryCount branch outside the method guard, so the cleanup can delete workflow reminders for non-SMS delivery methods.".to_string(),
+        path,
+        related_paths: Vec::new(),
+        start_line: Some(line),
+        end_line: Some(line),
+        behavior_before: "cleanup deleted only workflow reminders matching the SMS method scope"
+            .to_string(),
+        behavior_after: "cleanup deletes any workflow reminder matching the retryCount branch even when it is not an SMS reminder".to_string(),
+        predicate,
+        evidence_artifact_ids,
+        source_unit_assigned_path: true,
+        rejection_reason: None,
+    }]
+}
+
+fn destructive_or_scope_predicate(diff: &str, target_path: &str) -> Option<(usize, String)> {
+    let mut current_path: Option<String> = None;
+    let mut current_new_line: Option<usize> = None;
+    let mut saw_delete_many = false;
+    let mut saw_added_or = None;
+    let mut saw_method_guard = false;
+    let mut saw_retry_branch = false;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = Some(path.to_string());
+            current_new_line = None;
+            continue;
+        }
+        if line.starts_with("diff --git ") || line.starts_with("--- ") {
+            current_new_line = None;
+            saw_delete_many = false;
+            saw_added_or = None;
+            saw_method_guard = false;
+            saw_retry_branch = false;
+            continue;
+        }
+        let Some(path) = current_path.as_deref() else {
+            continue;
+        };
+        if path != target_path {
+            continue;
+        }
+        if let Some(hunk) = line.strip_prefix("@@ ") {
+            let new_range = hunk.split_whitespace().nth(1)?.strip_prefix('+')?;
+            let (start, _) = new_range
+                .split_once(',')
+                .map_or((new_range, "1"), |(start, count)| (start, count));
+            current_new_line = start.parse::<usize>().ok();
+            saw_delete_many = false;
+            saw_added_or = None;
+            saw_method_guard = false;
+            saw_retry_branch = false;
+            continue;
+        }
+        let Some(new_line) = current_new_line else {
+            continue;
+        };
+        let content = line
+            .strip_prefix('+')
+            .or_else(|| line.strip_prefix(' '))
+            .unwrap_or_default()
+            .trim();
+        if content.contains("deleteMany") || content.contains("updateMany") {
+            saw_delete_many = true;
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            if content.contains("OR:") {
+                saw_added_or = Some(new_line);
+            }
+            if content.contains("method:") {
+                saw_method_guard = true;
+            }
+            if content.contains("retryCount") {
+                saw_retry_branch = true;
+            }
+        }
+        if saw_delete_many && saw_added_or.is_some() && saw_method_guard && saw_retry_branch {
+            return Some((
+                saw_added_or.unwrap_or(new_line),
+                "OR retryCount branch without method guard".to_string(),
+            ));
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            current_new_line = Some(new_line + 1);
+        } else if line.starts_with('-') && !line.starts_with("---") {
+        } else {
+            current_new_line = Some(new_line + 1);
+        }
+    }
+    None
 }
 
 fn pack_pass_diagnostic(
@@ -1825,6 +1975,8 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
             FileReviewV1 {
                 path: file.path.display(),
                 verdict: "skipped".to_string(),
+                coverage: ReviewCoverage::Insufficient,
+                review_verdict: ReviewVerdict::NeedsReview,
                 summary: reason,
                 related_paths: Vec::new(),
                 evidence_artifact_ids: Vec::new(),
@@ -1853,6 +2005,8 @@ fn append_unverdicted_file_reviews(
             file_reviews.push(FileReviewV1 {
                 path: display,
                 verdict: "needs_review".to_string(),
+                coverage: ReviewCoverage::Insufficient,
+                review_verdict: ReviewVerdict::NeedsReview,
                 summary: "Review session returned no verdict for this assigned file.".to_string(),
                 related_paths: Vec::new(),
                 evidence_artifact_ids: Vec::new(),
@@ -1902,12 +2056,50 @@ static NO_CONTRACT_RISK: ContractUnitRisk = ContractUnitRisk {
     suggested_queries: Vec::new(),
 };
 
-fn build_contract_risk_plan(review_plan: &ReviewPlan, diff: &str) -> ContractRiskPlan {
+fn adaptive_review_unit_options(
+    review_plan: &ReviewPlan,
+    selected_contract_packs: usize,
+) -> ReviewUnitOptions {
+    let changed_files = review_plan.counts.execution_eligible_files;
+    let changed_lines = review_plan
+        .files
+        .iter()
+        .filter(|file| file.mode == ReviewPlanFileMode::Full)
+        .map(|file| file.estimated_bytes.unwrap_or(0) as usize / 80)
+        .sum::<usize>()
+        .max(changed_files);
+    let high_risk_files = review_plan
+        .files
+        .iter()
+        .filter(|file| file.score >= 80)
+        .count();
+    let size_units = changed_files.div_ceil(35) + changed_lines.div_ceil(5000);
+    let risk_units = high_risk_files.div_ceil(4) + selected_contract_packs.div_ceil(4);
+    let target_units = (DEFAULT_LENS_COUNT + size_units + risk_units).clamp(4, 32);
+    let max_files = changed_files.div_ceil(target_units).clamp(1, 8);
+    ReviewUnitOptions {
+        max_files,
+        max_estimated_bytes: if changed_files > 150 {
+            160 * 1024
+        } else {
+            80 * 1024
+        },
+        isolate_score_at: 80,
+        max_units: target_units,
+    }
+}
+
+const DEFAULT_LENS_COUNT: usize = 4;
+
+fn build_contract_risk_plan(
+    review_plan: &ReviewPlan,
+    unit_plan: &crate::review_units::ReviewUnitPlan,
+    diff: &str,
+) -> ContractRiskPlan {
     let path_counts = repeated_path_segment_counts(review_plan);
     let diff_seeds = seeds_by_path(diff);
-    let unit_plan = build_review_unit_plan(review_plan, ReviewUnitOptions::default());
     let mut by_unit = BTreeMap::new();
-    for unit in unit_plan.units {
+    for unit in &unit_plan.units {
         let mut reasons = BTreeSet::new();
         let mut seeds = BTreeSet::new();
         for path in &unit.file_paths {
@@ -1949,7 +2141,7 @@ fn build_contract_risk_plan(review_plan: &ReviewPlan, diff: &str) -> ContractRis
             .map(|seed| seed.to_string())
             .collect::<Vec<_>>();
         by_unit.insert(
-            unit.id,
+            unit.id.clone(),
             ContractUnitRisk {
                 high_risk,
                 reasons: reasons.into_iter().collect(),
@@ -2324,6 +2516,7 @@ struct FinalSynthesisReport {
 struct FindingChallengeReport {
     model_calls: usize,
     model_metrics: ModelMetricsSnapshot,
+    tool_counts: ToolCounts,
     tokens: TokenUsage,
     completion_diagnostic: SessionCompletionDiagnostic,
 }
@@ -2333,6 +2526,7 @@ impl FindingChallengeReport {
         Self {
             model_calls: 0,
             model_metrics: ModelMetricsSnapshot::default(),
+            tool_counts: ToolCounts::default(),
             tokens: TokenUsage::default(),
             completion_diagnostic,
         }
@@ -2634,14 +2828,30 @@ fn unit_scope(
         capabilities: template
             .map(|scope| scope.capabilities.clone())
             .unwrap_or_else(CapabilitySet::review_read_only),
-        budget: template.map(|scope| scope.budget.clone()).unwrap_or(
-            crate::contracts::AgentBudget {
-                max_turns: 2,
-                max_tool_calls: 8,
-                max_prompt_tokens: 64_000,
-                max_output_tokens: 8_000,
-            },
-        ),
+        budget: planned_scope_budget(unit, template, lens_index),
+    }
+}
+
+fn planned_scope_budget(
+    unit: &PlannedReviewUnit,
+    template: Option<&SessionScope>,
+    lens_index: usize,
+) -> crate::contracts::AgentBudget {
+    if let Some(template) = template {
+        if template.budget.budget_source == crate::contracts::BudgetSource::CallerHardCap {
+            return template.budget.clone();
+        }
+    }
+    if lens_index > 0 {
+        if unit.score_max >= LENS_FANOUT_MIN_SCORE {
+            crate::contracts::AgentBudget::planned_high_value_secondary_lens()
+        } else {
+            crate::contracts::AgentBudget::planned_secondary_lens()
+        }
+    } else if unit.score_max >= LENS_FANOUT_MIN_SCORE {
+        crate::contracts::AgentBudget::planned_high_risk()
+    } else {
+        crate::contracts::AgentBudget::planned_baseline()
     }
 }
 
@@ -2667,6 +2877,7 @@ fn final_synthesis_scope(
     scope.objective =
         "Synthesize final cross-file review findings from gathered review evidence.".to_string();
     scope.instructions = Vec::new();
+    scope.budget.budget_source = crate::contracts::BudgetSource::RunReserve;
     scope
 }
 
@@ -2693,14 +2904,14 @@ fn finding_challenge_scope(
     scope.objective =
         "Adversarially verify validated review findings against diff evidence.".to_string();
     scope.instructions = Vec::new();
+    scope.budget = crate::contracts::AgentBudget::planned_challenge();
     scope
 }
 
 fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<ConversationItem> {
     let listed = findings
         .iter()
-        .enumerate()
-        .map(|(index, finding)| {
+        .map(|finding| {
             let path = match finding.file_refs.first() {
                 Some(EvidenceLocationV1::SinglePath { path }) => path.as_str(),
                 _ => "unknown",
@@ -2711,7 +2922,8 @@ fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<Conve
                 .map(|range| format!("{}-{}", range.start_line, range.end_line))
                 .unwrap_or_else(|| "unknown".to_string());
             format!(
-                "{index}. path={path} lines={lines} discoveredBy={} title={} claim={}",
+                "findingId={} path={path} lines={lines} discoveredBy={} title={} claim={}",
+                finding.id,
                 finding.discovered_by.len(),
                 finding.title,
                 finding.claim
@@ -2721,11 +2933,11 @@ fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<Conve
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are an adversarial verifier for code review findings. For each numbered finding, attempt to refute it using only the provided diff evidence: check that the claimed defect is real, is anchored to changed lines, and is not a misreading of the code. Return strict JSON with key verdicts: a list of {index, verdict, reason} objects where verdict is one of confirmed, refuted, uncertain. Use refuted only when the diff evidence contradicts the claim or cannot support it; use uncertain when the evidence is incomplete. Cover every finding index.".to_string(),
+            content: "You are an adversarial verifier for code review findings. Verify only the listed candidate claims; do not search for new findings. You may use read-only diff, file, search, import, related-file, and test/fixture discovery tools to check each claim against changed code and the relevant contract. Return strict JSON with key verdicts: a list of {findingId, verdict, reason, supportingArtifactIds, checkedPaths} objects where verdict is one of confirmed, refuted, insufficient. Use refuted when evidence contradicts the claim, insufficient when required evidence is still missing, and confirmed only when the changed code and relevant contract support the failure predicate. Cover every findingId.".to_string(),
         },
         ConversationItem::User {
             content: format!(
-                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nReturn JSON now with key verdicts covering every finding index.",
+                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nUse focused read-only tools if the diff excerpt is not enough. Return JSON with key verdicts covering every findingId.",
                 diff_excerpt(diff, 120_000)
             ),
         },
@@ -2740,14 +2952,20 @@ struct StructuredChallengeResult {
 
 #[derive(Deserialize)]
 struct StructuredChallengeVerdict {
+    #[serde(default, alias = "finding_id")]
+    finding_id: String,
+    #[serde(default)]
     index: usize,
     verdict: String,
     #[serde(default)]
-    #[allow(dead_code)]
     reason: String,
+    #[serde(default)]
+    supporting_artifact_ids: Vec<String>,
+    #[serde(default)]
+    checked_paths: Vec<String>,
 }
 
-/// Applies challenger verdicts to findings and returns how many were refuted.
+/// Applies challenger verdicts to findings and returns how many were suppressed.
 /// Unknown indices and verdict strings are ignored, so a malformed response
 /// degrades to "no adjudication" instead of corrupting findings.
 fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenger: &str) -> usize {
@@ -2763,9 +2981,16 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
             serde_json::from_str(&trimmed[start..=end])
         })
         .unwrap_or_default();
-    let mut refuted_count = 0usize;
+    let mut suppressed_count = 0usize;
     for verdict in result.verdicts {
-        let Some(finding) = findings.get_mut(verdict.index) else {
+        let finding = if verdict.finding_id.trim().is_empty() {
+            findings.get_mut(verdict.index)
+        } else {
+            findings
+                .iter_mut()
+                .find(|finding| finding.id == verdict.finding_id)
+        };
+        let Some(finding) = finding else {
             continue;
         };
         match verdict.verdict.as_str() {
@@ -2776,29 +3001,57 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
                 finding.validation_status = ValidationStatus::Challenged;
                 finding.report_status = ReportStatus::Suppressed;
                 finding.publishability = FindingPublishability::NotPublishable;
+                finding.challenge_status = ChallengeStatus::Refuted;
                 finding.confidence = REFUTED_CONFIDENCE;
-                refuted_count += 1;
+                suppressed_count += 1;
+            }
+            "insufficient" | "uncertain" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.validation_status = ValidationStatus::Challenged;
+                finding.report_status = ReportStatus::Suppressed;
+                finding.publishability = FindingPublishability::NotPublishable;
+                finding.challenge_status = ChallengeStatus::Insufficient;
+                suppressed_count += 1;
             }
             "confirmed" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.challenge_status = ChallengeStatus::Confirmed;
                 finding.confidence =
                     (finding.confidence + CONFIRMED_CONFIDENCE_BOOST).min(MAX_CONFIDENCE);
             }
             _ => {}
         }
+        let _ = (
+            &verdict.reason,
+            &verdict.supporting_artifact_ids,
+            &verdict.checked_paths,
+        );
     }
-    refuted_count
+    suppressed_count
+}
+
+fn mark_challenge_incomplete(findings: &mut [FindingV1]) {
+    for finding in findings {
+        if finding.challenge_status == ChallengeStatus::NotRun {
+            finding.challenge_status = ChallengeStatus::Incomplete;
+        }
+    }
 }
 
 fn finding_challenge_diagnostic(
     completed: bool,
     status: &str,
-    refuted_count: usize,
+    suppressed_count: usize,
 ) -> SessionCompletionDiagnostic {
     SessionCompletionDiagnostic {
         session_id: "finding-challenge".to_string(),
         completed,
         completion_kind: Some("structured_finding_challenge".to_string()),
-        completion_summary: Some(format!("{status} refutedFindings={refuted_count}")),
+        completion_summary: Some(format!("{status} suppressedFindings={suppressed_count}")),
         saw_diff: true,
         saw_file: false,
         saw_search: false,
@@ -3328,12 +3581,20 @@ fn validate_file_reviews(
                 }
             }
             let summary = candidate.summary.trim();
-            let evidence_artifact_ids = evidence_tracker.evidence_for(&path.display());
+            let path_display = path.display();
+            let evidence_artifact_ids = evidence_tracker.evidence_for(&path_display);
             Some(FileReviewV1 {
-                path: path.display(),
+                path: path_display.clone(),
                 verdict: verdict.to_string(),
+                coverage: derive_review_coverage(
+                    verdict,
+                    &path_display,
+                    unit_risk,
+                    evidence_tracker,
+                ),
+                review_verdict: review_verdict_from_str(verdict),
                 summary: if summary.is_empty() {
-                    format!("Reviewed {} with verdict {verdict}.", path.display())
+                    format!("Reviewed {path_display} with verdict {verdict}.")
                 } else {
                     summary.to_string()
                 },
@@ -3367,6 +3628,38 @@ fn is_clean_verdict(verdict: &str) -> bool {
         verdict.trim().to_ascii_lowercase().as_str(),
         "clean" | "no_issue" | "no_issues" | "no supported bug found"
     )
+}
+
+fn review_verdict_from_str(verdict: &str) -> ReviewVerdict {
+    match verdict.trim().to_ascii_lowercase().as_str() {
+        "issue_found" | "issue" | "bug" | "finding" => ReviewVerdict::IssueFound,
+        "needs_review" | "needs review" | "insufficient" | "partial" => ReviewVerdict::NeedsReview,
+        _ => ReviewVerdict::Clean,
+    }
+}
+
+fn derive_review_coverage(
+    verdict: &str,
+    path: &str,
+    unit_risk: &ContractUnitRisk,
+    evidence_tracker: &FileEvidenceTracker,
+) -> ReviewCoverage {
+    if review_verdict_from_str(verdict) == ReviewVerdict::NeedsReview {
+        return ReviewCoverage::Insufficient;
+    }
+    let has_file = evidence_tracker.has_file_evidence(path);
+    let has_contract = !unit_risk.high_risk || evidence_tracker.has_contract_evidence(unit_risk);
+    if has_file && has_contract {
+        if unit_risk.high_risk {
+            ReviewCoverage::Full
+        } else {
+            ReviewCoverage::Standard
+        }
+    } else if has_file {
+        ReviewCoverage::Sampled
+    } else {
+        ReviewCoverage::Insufficient
+    }
 }
 
 fn missing_evidence_instruction(
@@ -3415,6 +3708,8 @@ fn append_needs_review_for_missing(
         file_reviews.push(FileReviewV1 {
             path: path.clone(),
             verdict: "needs_review".to_string(),
+            coverage: ReviewCoverage::Insufficient,
+            review_verdict: ReviewVerdict::NeedsReview,
             summary: if unit_risk.high_risk {
                 format!(
                     "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: {}.",
@@ -3701,6 +3996,7 @@ fn validate_candidate_finding(
         validation_status: ValidationStatus::Validated,
         report_status: ReportStatus::Included,
         publishability: FindingPublishability::Publishable,
+        challenge_status: ChallengeStatus::NotRun,
         evidence,
         file_refs,
         location_line_range: Some(line_range),
@@ -3917,6 +4213,10 @@ fn reconcile_file_reviews_with_findings(file_reviews: &mut [FileReviewV1], findi
         };
         if let Some(review) = file_reviews.iter_mut().find(|review| review.path == *path) {
             review.verdict = "issue_found".to_string();
+            review.review_verdict = ReviewVerdict::IssueFound;
+            if review.coverage == ReviewCoverage::Insufficient {
+                review.coverage = ReviewCoverage::Standard;
+            }
             if !review.summary.contains(&finding.title) {
                 review.summary = format!("{} Finding: {}", review.summary, finding.title);
             }
@@ -4177,6 +4477,153 @@ fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
         failures.push("no model calls recorded".to_string());
     }
     failures
+}
+
+#[allow(clippy::too_many_arguments)]
+fn planned_review_audit_diagnostics(
+    review_plan: &ReviewPlan,
+    contract_risk: &ContractRiskPlan,
+    contract_packs: &ContractPackPlan,
+    file_reviews: &[FileReviewV1],
+    findings: &[FindingV1],
+    session_templates: &[SessionScope],
+    sessions_run: usize,
+    candidate_findings: usize,
+    rescued_candidates: usize,
+    rejected_candidates: usize,
+    rejection_reasons: BTreeMap<String, usize>,
+) -> ReviewQualityDiagnostics {
+    let mut coverage_counts = BTreeMap::new();
+    let mut coverage_counts_by_lens = BTreeMap::<String, BTreeMap<String, usize>>::new();
+    let mut high_risk_files_below_target = Vec::new();
+    for review in file_reviews {
+        let coverage = coverage_key(review.coverage);
+        *coverage_counts.entry(coverage.clone()).or_insert(0) += 1;
+        let lens = review
+            .session_id
+            .split('#')
+            .nth(1)
+            .unwrap_or("primary")
+            .to_string();
+        *coverage_counts_by_lens
+            .entry(lens)
+            .or_default()
+            .entry(coverage)
+            .or_insert(0) += 1;
+        if matches!(
+            review.coverage,
+            ReviewCoverage::Sampled | ReviewCoverage::Insufficient
+        ) && review_plan
+            .files
+            .iter()
+            .any(|file| file.path.display() == review.path && file.score >= LENS_FANOUT_MIN_SCORE)
+        {
+            high_risk_files_below_target.push(review.path.clone());
+        }
+    }
+    let mut challenge_status_counts = BTreeMap::new();
+    for finding in findings {
+        *challenge_status_counts
+            .entry(challenge_key(finding.challenge_status).to_string())
+            .or_insert(0) += 1;
+    }
+    let mut budgets_used = BTreeMap::new();
+    for template in session_templates {
+        *budgets_used
+            .entry(budget_source_key(template.budget.budget_source).to_string())
+            .or_insert(0) += 1;
+    }
+    ReviewQualityDiagnostics {
+        contract_risk_units: contract_risk.risky_unit_count(),
+        contract_seed_count: contract_risk.seed_count(),
+        contract_pack_count: contract_packs.pack_count(),
+        omitted_contract_pack_candidates: contract_packs
+            .omitted_candidates
+            .iter()
+            .map(|candidate| {
+                format!(
+                    "{} kind={:?} score={} paths=[{}] reason={}",
+                    candidate.id,
+                    candidate.kind,
+                    candidate.score,
+                    candidate
+                        .affected_paths
+                        .iter()
+                        .map(RepoPath::display)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    candidate.omission_reason
+                )
+            })
+            .collect(),
+        selected_contract_packs: contract_packs
+            .packs
+            .iter()
+            .map(|pack| {
+                format!(
+                    "{} kind={:?} score={} primary={}",
+                    pack.id,
+                    pack.kind,
+                    pack.score,
+                    pack.primary_path.display()
+                )
+            })
+            .collect(),
+        contract_evidence_failures: file_reviews
+            .iter()
+            .filter(|review| {
+                review.verdict == "needs_review"
+                    && review
+                        .summary
+                        .contains("Required cross-file contract evidence")
+            })
+            .count(),
+        coverage_counts,
+        coverage_counts_by_lens,
+        high_risk_files_below_target,
+        challenge_status_counts,
+        sessions_run,
+        budgets_used,
+        explicit_caller_cap_sessions: session_templates
+            .iter()
+            .filter(|template| {
+                template.budget.budget_source == crate::contracts::BudgetSource::CallerHardCap
+            })
+            .count(),
+        candidate_findings,
+        rescued_candidates,
+        rejected_candidates,
+        rejection_reasons,
+    }
+}
+
+fn coverage_key(coverage: ReviewCoverage) -> String {
+    match coverage {
+        ReviewCoverage::Full => "full",
+        ReviewCoverage::Standard => "standard",
+        ReviewCoverage::Sampled => "sampled",
+        ReviewCoverage::Insufficient => "insufficient",
+    }
+    .to_string()
+}
+
+fn challenge_key(status: ChallengeStatus) -> &'static str {
+    match status {
+        ChallengeStatus::Confirmed => "confirmed",
+        ChallengeStatus::Refuted => "refuted",
+        ChallengeStatus::Insufficient => "insufficient",
+        ChallengeStatus::NotRun => "not_run",
+        ChallengeStatus::Incomplete => "incomplete",
+    }
+}
+
+fn budget_source_key(source: crate::contracts::BudgetSource) -> &'static str {
+    match source {
+        crate::contracts::BudgetSource::CallerHardCap => "caller_hard_cap",
+        crate::contracts::BudgetSource::PlannedDefault => "planned_default",
+        crate::contracts::BudgetSource::AdaptiveReview => "adaptive_review",
+        crate::contracts::BudgetSource::RunReserve => "run_reserve",
+    }
 }
 
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
@@ -4609,7 +5056,7 @@ mod tests {
         assert_eq!(report.metrics.runtime, "planned_units");
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.metrics.model_calls, 4);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -4773,7 +5220,7 @@ mod tests {
                 && diagnostic
                     .completion_summary
                     .as_deref()
-                    .is_some_and(|summary| summary.contains("refutedFindings=1"))));
+                    .is_some_and(|summary| summary.contains("suppressedFindings=1"))));
     }
 
     #[tokio::test]
@@ -4787,7 +5234,8 @@ mod tests {
 
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
-        assert!(finding.challenged_by.is_empty());
+        assert_eq!(finding.challenged_by, vec!["finding-challenge".to_string()]);
+        assert_eq!(finding.challenge_status, ChallengeStatus::Confirmed);
         assert!(matches!(
             finding.publishability,
             FindingPublishability::Publishable
@@ -4876,6 +5324,7 @@ mod tests {
                 max_tool_calls: 5,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
@@ -4903,7 +5352,9 @@ mod tests {
             ),
         ]);
         let review_plan = build_review_plan(&snapshot);
-        let risk_plan = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let risk_plan =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
 
         assert!(risk_plan.risky_unit_count() > 0);
         assert!(risk_plan.seed_count() > 0);
@@ -4941,6 +5392,7 @@ mod tests {
                 max_tool_calls: 0,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
@@ -5001,12 +5453,13 @@ mod tests {
                 max_tool_calls: 16,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 5);
+        assert_eq!(report.metrics.model_calls, 6);
         assert_eq!(report.file_reviews[0].verdict, "clean");
     }
 
@@ -5020,12 +5473,13 @@ mod tests {
                 max_tool_calls: 0,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 1);
+        assert_eq!(report.metrics.model_calls, 2);
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
     }
 
@@ -5086,7 +5540,8 @@ mod tests {
         )]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let risk_plan = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let risk_plan =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
         let unit = unit_plan.units.first().expect("unit");
         let plan = deterministic_bootstrap_calls(
             &review_plan,
@@ -5401,14 +5856,7 @@ mod tests {
         mode: TestModelMode,
         budget: AgentBudget,
     ) -> PlannedReviewRunReport {
-        run_test_review_with_budget_objective(
-            files,
-            mode,
-            budget,
-            "template",
-            QualityPassMode::Auto,
-        )
-        .await
+        run_test_review_with_budget_objective(files, mode, budget, "template").await
     }
 
     async fn run_test_review_with_quality_budget(
@@ -5421,7 +5869,6 @@ mod tests {
             mode,
             budget,
             "Review this pull request for actionable correctness bugs.",
-            QualityPassMode::Enabled,
         )
         .await
     }
@@ -5431,7 +5878,6 @@ mod tests {
         mode: TestModelMode,
         budget: AgentBudget,
         objective: &str,
-        quality_mode: QualityPassMode,
     ) -> PlannedReviewRunReport {
         let template = SessionScope {
             id: SessionId("template".to_string()),
@@ -5443,8 +5889,7 @@ mod tests {
             capabilities: CapabilitySet::review_read_only(),
             budget,
         };
-        run_test_review_with_templates_and_quality(files, mode, vec![template], quality_mode)
-            .await
+        run_test_review_with_templates(files, mode, vec![template]).await
     }
 
     fn expanded_review_budget() -> AgentBudget {
@@ -5453,6 +5898,7 @@ mod tests {
             max_tool_calls: 16,
             max_prompt_tokens: 64_000,
             max_output_tokens: 8_000,
+            budget_source: crate::contracts::BudgetSource::PlannedDefault,
         }
     }
 
@@ -5479,6 +5925,7 @@ mod tests {
             validation_status: ValidationStatus::Validated,
             report_status: ReportStatus::Included,
             publishability: FindingPublishability::Publishable,
+            challenge_status: ChallengeStatus::NotRun,
             evidence: Vec::new(),
             file_refs: vec![EvidenceLocationV1::SinglePath {
                 path: path.to_string(),
@@ -5497,25 +5944,8 @@ mod tests {
         mode: TestModelMode,
         session_templates: Vec<SessionScope>,
     ) -> PlannedReviewRunReport {
-        run_test_review_with_templates_and_quality(
-            files,
-            mode,
-            session_templates,
-            QualityPassMode::Auto,
-        )
-        .await
-    }
-
-    async fn run_test_review_with_templates_and_quality(
-        files: Vec<(&'static str, &'static str)>,
-        mode: TestModelMode,
-        session_templates: Vec<SessionScope>,
-        quality_mode: QualityPassMode,
-    ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
-        let mut limits = RuntimeLimits::standard(2, 64 * 1024, 20);
-        limits.quality_pass_mode = quality_mode;
-        let limits = Arc::new(limits);
+        let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
         let active_sessions = session_semaphore(&limits);
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = Arc::new(PlannedReviewRuntime {
@@ -5667,6 +6097,7 @@ mod tests {
                 max_tool_calls: 8,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
             },
         }
     }
@@ -5700,44 +6131,6 @@ mod tests {
     }
 
     #[test]
-    fn quality_pass_mode_overrides_legacy_phrase_heuristic() {
-        let plain = test_scope("plain");
-        let mut magic = test_scope("magic");
-        magic.objective =
-            "Review this production-materialized pull request for actionable correctness bugs."
-                .to_string();
-
-        assert!(!should_run_review_quality_enhancements(
-            QualityPassMode::Auto,
-            std::slice::from_ref(&plain)
-        ));
-        assert!(should_run_review_quality_enhancements(
-            QualityPassMode::Auto,
-            std::slice::from_ref(&magic)
-        ));
-        assert!(should_run_review_quality_enhancements(
-            QualityPassMode::Enabled,
-            std::slice::from_ref(&plain)
-        ));
-        assert!(
-            should_run_review_quality_enhancements(QualityPassMode::Enabled, &[]),
-            "explicit enable does not depend on templates"
-        );
-        assert!(!should_run_review_quality_enhancements(
-            QualityPassMode::Disabled,
-            std::slice::from_ref(&magic)
-        ));
-        assert!(should_run_review_quality_enhancements_for_scope(
-            QualityPassMode::Enabled,
-            &plain
-        ));
-        assert!(!should_run_review_quality_enhancements_for_scope(
-            QualityPassMode::Disabled,
-            &magic
-        ));
-    }
-
-    #[test]
     fn unverdicted_assigned_files_get_explicit_needs_review() {
         let unit = PlannedReviewUnit {
             id: "unit-000".to_string(),
@@ -5754,6 +6147,8 @@ mod tests {
         let mut reviews = vec![FileReviewV1 {
             path: "src/auth.rs".to_string(),
             verdict: "clean".to_string(),
+            coverage: ReviewCoverage::Standard,
+            review_verdict: ReviewVerdict::Clean,
             summary: "reviewed".to_string(),
             related_paths: Vec::new(),
             evidence_artifact_ids: Vec::new(),
@@ -5786,11 +6181,11 @@ mod tests {
         )]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let contract_risk = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let contract_risk =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
         let unit = &unit_plan.units[0];
         let unit_risk = contract_risk.unit_risk(unit);
-        let transcript =
-            planned_unit_transcript(
+        let transcript = planned_unit_transcript(
             &review_plan,
             unit,
             unit_risk,
@@ -5801,8 +6196,13 @@ mod tests {
             panic!("expected system item");
         };
         assert!(content.contains("Lens focus: security"));
-        let baseline =
-            planned_unit_transcript(&review_plan, unit, unit_risk, None, &ContractPackPlan::empty());
+        let baseline = planned_unit_transcript(
+            &review_plan,
+            unit,
+            unit_risk,
+            None,
+            &ContractPackPlan::empty(),
+        );
         let ConversationItem::System { content: baseline } = &baseline[0] else {
             panic!("expected system item");
         };
@@ -5913,7 +6313,8 @@ mod tests {
             "independent agreement must outrank a single discoverer: {}",
             finding.confidence
         );
-        assert!(finding.confidence <= AGREEMENT_CONFIDENCE_CEILING);
+        assert!(finding.confidence <= MAX_CONFIDENCE);
+        assert_eq!(finding.challenge_status, ChallengeStatus::Confirmed);
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {

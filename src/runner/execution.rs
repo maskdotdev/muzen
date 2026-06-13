@@ -20,8 +20,9 @@ use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
-    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult,
-    RunnerReviewQualityDiagnostics, RunnerRunSummary, RunnerSessionOutput, RunnerSnapshotSummary,
+    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
+    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSessionOutput,
+    RunnerSnapshotSummary,
 };
 use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
@@ -199,6 +200,7 @@ fn runner_result_from_report(
                 severity: Some(finding.severity),
                 confidence: Some(finding.confidence),
                 validation_status: Some(finding.validation_status),
+                challenge_status: Some(finding.challenge_status),
                 evidence: finding
                     .evidence
                     .into_iter()
@@ -238,6 +240,8 @@ fn runner_result_from_report(
         .map(|review| RunnerFileReview {
             path: review.path,
             verdict: review.verdict,
+            coverage: runner_coverage(review.coverage).to_string(),
+            review_verdict: runner_review_verdict(review.review_verdict).to_string(),
             summary: review.summary,
             related_paths: review.related_paths,
             evidence_artifact_ids: review.evidence_artifact_ids,
@@ -403,6 +407,23 @@ fn append_related_location(claim: &mut String, path: &str) {
     }
 }
 
+fn runner_coverage(coverage: crate::contracts::ReviewCoverage) -> &'static str {
+    match coverage {
+        crate::contracts::ReviewCoverage::Full => "full",
+        crate::contracts::ReviewCoverage::Standard => "standard",
+        crate::contracts::ReviewCoverage::Sampled => "sampled",
+        crate::contracts::ReviewCoverage::Insufficient => "insufficient",
+    }
+}
+
+fn runner_review_verdict(verdict: crate::contracts::ReviewVerdict) -> &'static str {
+    match verdict {
+        crate::contracts::ReviewVerdict::Clean => "clean",
+        crate::contracts::ReviewVerdict::IssueFound => "issue_found",
+        crate::contracts::ReviewVerdict::NeedsReview => "needs_review",
+    }
+}
+
 fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
     RunnerRunSummary {
         sessions: summary.sessions,
@@ -425,7 +446,22 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
             contract_risk_units: summary.quality_diagnostics.contract_risk_units,
             contract_seed_count: summary.quality_diagnostics.contract_seed_count,
             contract_pack_count: summary.quality_diagnostics.contract_pack_count,
+            omitted_contract_pack_candidates: summary
+                .quality_diagnostics
+                .omitted_contract_pack_candidates
+                .clone(),
+            selected_contract_packs: summary.quality_diagnostics.selected_contract_packs.clone(),
             contract_evidence_failures: summary.quality_diagnostics.contract_evidence_failures,
+            coverage_counts: summary.quality_diagnostics.coverage_counts.clone(),
+            coverage_counts_by_lens: summary.quality_diagnostics.coverage_counts_by_lens.clone(),
+            high_risk_files_below_target: summary
+                .quality_diagnostics
+                .high_risk_files_below_target
+                .clone(),
+            challenge_status_counts: summary.quality_diagnostics.challenge_status_counts.clone(),
+            sessions_run: summary.quality_diagnostics.sessions_run,
+            budgets_used: summary.quality_diagnostics.budgets_used.clone(),
+            explicit_caller_cap_sessions: summary.quality_diagnostics.explicit_caller_cap_sessions,
             candidate_findings: summary.quality_diagnostics.candidate_findings,
             rescued_candidates: summary.quality_diagnostics.rescued_candidates,
             rejected_candidates: summary.quality_diagnostics.rejected_candidates,
@@ -556,6 +592,7 @@ mod tests {
             severity: Some("warning".to_string()),
             confidence: Some(0.72),
             validation_status: Some("validated".to_string()),
+            challenge_status: Some("not_run".to_string()),
             evidence: Vec::new(),
             discovered_by: vec![format!("session-{id}")],
             validated_by: Vec::new(),

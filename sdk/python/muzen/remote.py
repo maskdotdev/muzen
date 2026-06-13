@@ -291,8 +291,10 @@ class RemoteContextWorkspace:
         )
         payload["evidenceIds"] = evidence_ids or []
         payload["feedback"] = feedback
-        payload["source"] = learning_source
-        payload["scope"] = scope
+        if learning_source is not None:
+            payload["learningSource"] = learning_source
+        if scope is not None:
+            payload["scope"] = scope
         return (
             await self._client._request_json("POST", self._path("feedback"), payload)
         )["receipt"]

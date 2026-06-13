@@ -24,8 +24,7 @@ use super::types::{
 use std::sync::Arc;
 
 const LARGE_REVIEW_BATCH_THRESHOLD: usize = 8;
-const LARGE_REVIEW_BATCH_SIZE: usize = 4;
-const LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS: usize = 4;
+const LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS: usize = 8;
 
 pub(crate) struct RunnerPlan {
     pub(crate) run_id: String,
@@ -92,26 +91,9 @@ pub(crate) fn plan_run_start(
         if mode == RunMode::DirectSessions {
             anyhow::bail!("direct_sessions mode requires at least one session");
         }
-        vec![RunSessionParams {
-            id: "generalist".to_string(),
-            role: Role::Generalist,
-            objective: "Review the repository change.".to_string(),
-            cwd: None,
-            model_profile_id: None,
-            instructions: Vec::new(),
-            tool_grants: Vec::new(),
-            budget: None,
-        }]
+        default_planned_review_lens_panel()
     } else {
         params.sessions
-    };
-    // Batch expansion shapes review-unit templates; direct sessions run
-    // exactly as the host supplied them.
-    let sessions = match mode {
-        RunMode::PlannedReview => {
-            expand_sessions_for_changed_file_batches(sessions, &change.changed_files)
-        }
-        RunMode::DirectSessions => sessions,
     };
     let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
         SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
@@ -145,42 +127,6 @@ fn parse_run_mode(mode: Option<&str>) -> Result<RunMode> {
     }
 }
 
-fn expand_sessions_for_changed_file_batches(
-    sessions: Vec<RunSessionParams>,
-    changed_files: &[ChangedFileSpec],
-) -> Vec<RunSessionParams> {
-    if changed_files.len() <= LARGE_REVIEW_BATCH_THRESHOLD {
-        return sessions;
-    }
-    let batch_paths = changed_files
-        .iter()
-        .filter_map(changed_file_review_path)
-        .collect::<Vec<_>>();
-    if batch_paths.len() <= LARGE_REVIEW_BATCH_THRESHOLD {
-        return sessions;
-    }
-    let total_batches = batch_paths.len().div_ceil(LARGE_REVIEW_BATCH_SIZE);
-    let mut expanded = Vec::with_capacity(sessions.len() * total_batches);
-    for session in sessions {
-        for (batch_index, batch) in batch_paths.chunks(LARGE_REVIEW_BATCH_SIZE).enumerate() {
-            let batch_number = batch_index + 1;
-            let mut batched = session.clone();
-            batched.id = format!("{}-batch-{batch_number:02}", session.id);
-            batched.objective = format!(
-                "{} Focus on changed-file batch {batch_number}/{total_batches}.",
-                session.objective
-            );
-            batched.instructions.push(RunInstructionParams {
-                kind: "changed_file_batch".to_string(),
-                trusted: true,
-                text: changed_file_batch_instruction(batch_number, total_batches, batch),
-            });
-            expanded.push(batched);
-        }
-    }
-    expanded
-}
-
 fn default_max_active_sessions(
     requested_session_count: usize,
     changed_file_count: usize,
@@ -192,25 +138,47 @@ fn default_max_active_sessions(
     if changed_file_count > LARGE_REVIEW_BATCH_THRESHOLD {
         return LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS;
     }
+    if requested_session_count == 0 {
+        return 4;
+    }
     requested_session_count.max(1)
 }
 
-fn changed_file_review_path(file: &ChangedFileSpec) -> Option<String> {
-    file.new_path
-        .as_ref()
-        .or(file.old_path.as_ref())
-        .map(|path| path.to_string_lossy().into_owned())
-}
-
-fn changed_file_batch_instruction(
-    batch_number: usize,
-    total_batches: usize,
-    batch: &[String],
-) -> String {
-    format!(
-        "Review only changed-file batch {batch_number}/{total_batches}: {}.",
-        batch.join(", ")
-    )
+fn default_planned_review_lens_panel() -> Vec<RunSessionParams> {
+    [
+        (
+            "correctness",
+            Role::Correctness,
+            "Review changed behavior for correctness regressions and concrete runtime failures.",
+        ),
+        (
+            "security",
+            Role::Security,
+            "Review credentials, authorization, tenant boundaries, secrets, and destructive operations.",
+        ),
+        (
+            "architecture-contracts",
+            Role::Architecture,
+            "Review public APIs, return shapes, lifecycle boundaries, adapters, protocols, and state contracts.",
+        ),
+        (
+            "performance",
+            Role::Performance,
+            "Review query shape, repeated work, fan-out, large data paths, and resource use.",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, role, objective)| RunSessionParams {
+        id: id.to_string(),
+        role,
+        objective: objective.to_string(),
+        cwd: None,
+        model_profile_id: None,
+        instructions: Vec::new(),
+        tool_grants: Vec::new(),
+        budget: None,
+    })
+    .collect()
 }
 
 fn run_session_spec(
@@ -218,20 +186,15 @@ fn run_session_spec(
     callback_tools: &[CallbackToolGrant],
     global_instructions: &[RunInstructionParams],
 ) -> Result<ReviewSessionSpec> {
-    let budget = params.budget.map_or(
-        AgentBudget {
-            max_turns: 7,
-            max_tool_calls: 14,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-        },
-        |budget| AgentBudget {
+    let budget = params
+        .budget
+        .map_or_else(AgentBudget::planned_baseline, |budget| AgentBudget {
             max_turns: budget.max_turns,
             max_tool_calls: budget.max_tool_calls,
             max_prompt_tokens: budget.max_prompt_tokens,
             max_output_tokens: budget.max_output_tokens,
-        },
-    );
+            budget_source: crate::contracts::BudgetSource::CallerHardCap,
+        });
     let session_id = params.id.clone();
     let mut spec =
         ReviewSessionSpec::review_read_only(params.id, params.role, params.objective, budget);
@@ -490,24 +453,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keeps_small_reviews_as_single_sessions() {
-        let sessions = vec![test_session("correctness")];
-        let changed_files = (0..LARGE_REVIEW_BATCH_THRESHOLD)
-            .map(|index| ChangedFileSpec::modified(format!("src/file_{index}.rs")))
-            .collect::<Vec<_>>();
+    fn default_planned_review_uses_lens_panel() {
+        let sessions = default_planned_review_lens_panel();
 
-        let expanded = expand_sessions_for_changed_file_batches(sessions, &changed_files);
-
-        assert_eq!(expanded.len(), 1);
-        assert_eq!(expanded[0].id, "correctness");
-        assert!(expanded[0].instructions.is_empty());
+        assert_eq!(sessions.len(), 4);
+        assert_eq!(sessions[0].id, "correctness");
+        assert_eq!(sessions[1].role, Role::Security);
+        assert_eq!(sessions[2].id, "architecture-contracts");
+        assert_eq!(sessions[3].role, Role::Performance);
     }
 
     #[test]
-    fn defaults_large_reviews_to_four_active_sessions() {
+    fn defaults_large_reviews_to_eight_active_sessions() {
         assert_eq!(
             default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, None),
-            4
+            8
         );
     }
 
@@ -517,7 +477,7 @@ mod tests {
             default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD, None),
             2
         );
-        assert_eq!(default_max_active_sessions(0, 1, None), 1);
+        assert_eq!(default_max_active_sessions(0, 1, None), 4);
     }
 
     #[test]
@@ -530,18 +490,5 @@ mod tests {
             default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(0)),
             1
         );
-    }
-
-    fn test_session(id: &str) -> RunSessionParams {
-        RunSessionParams {
-            id: id.to_string(),
-            role: Role::Generalist,
-            objective: "Review the change.".to_string(),
-            cwd: None,
-            model_profile_id: None,
-            instructions: Vec::new(),
-            tool_grants: Vec::new(),
-            budget: None,
-        }
     }
 }

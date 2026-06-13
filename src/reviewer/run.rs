@@ -389,8 +389,7 @@ impl Run {
                         }
                     }
                 }
-                let events =
-                    RuntimeEventDispatcher::new(shard_event_sink.clone());
+                let events = RuntimeEventDispatcher::new(shard_event_sink.clone());
                 let tools = Arc::clone(&shard.tools);
                 let outcome = match mode {
                     RunMode::PlannedReview => {
@@ -892,6 +891,7 @@ mod tests {
             validation_status: ValidationStatus::Validated,
             report_status: ReportStatus::Included,
             publishability: FindingPublishability::Publishable,
+            challenge_status: crate::contracts::ChallengeStatus::NotRun,
             evidence: Vec::new(),
             file_refs: Vec::new(),
             location_line_range: Some(LineRangeV1 {

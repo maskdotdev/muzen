@@ -18,8 +18,8 @@ MODEL=gpt-4o-mini node bench/review-quality/run-production-review.mjs \
   --base-ref aci-martian/pr-11059-base \
   --runner-path target/release/muzen-runner \
   --golden bench/review-quality/goldens/cal-pr-11059.json \
-  --sessions 11 \
-  --max-active 4 \
+  --sessions 0 \
+  --max-active 8 \
   --output bench/results-review-quality/cal-pr-11059.json
 ```
 
@@ -32,17 +32,19 @@ MODEL=gpt-4o-mini node bench/review-quality/run-github-pr-review.mjs \
   --pr 11059 \
   --runner-path target/release/muzen-runner \
   --golden bench/review-quality/goldens/cal-pr-11059.json \
-  --sessions 11 \
-  --max-active 4 \
+  --sessions 0 \
+  --max-active 8 \
   --output bench/results-review-quality/cal-pr-11059.json
 ```
 
 The harness builds a `run.start` request from git metadata, invokes
 `muzen-runner stdio`, stores the JSON-RPC frames, parses the final runner result,
-and reports hit rate, false positives, token/tool metrics, and candidate
-synthesis diagnostics. `--sessions` configures requested runner session
-templates; current planned-runtime results also expose `reviewUnits` and
-`completedReviewUnits` because execution is scheduled by planned review units.
+and reports hit rate, false positives, token/tool metrics, coverage, challenge,
+and candidate synthesis diagnostics. `--sessions 0` lets planned review create
+the default correctness/security/architecture-contracts/performance lens panel.
+Positive `--sessions` values provide custom runner session templates. Current
+planned-runtime results also expose `reviewUnits` and `completedReviewUnits`
+because execution is scheduled by planned review units.
 
 Summarize one or more result files:
 

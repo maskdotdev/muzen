@@ -679,6 +679,7 @@ pub fn public_budget() -> crate::contracts::AgentBudget {
         max_tool_calls: 8,
         max_prompt_tokens: 32_000,
         max_output_tokens: 512,
+        budget_source: crate::contracts::BudgetSource::PlannedDefault,
     }
 }
 
@@ -735,6 +736,7 @@ pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> Se
             max_tool_calls: 8,
             max_prompt_tokens: 32_000,
             max_output_tokens: 512,
+            budget_source: crate::contracts::BudgetSource::PlannedDefault,
         },
     }
 }
