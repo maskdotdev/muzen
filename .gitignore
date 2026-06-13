@@ -8,3 +8,4 @@ __pycache__/
 .pytest_cache/
 bench/results-review-quality/
 bench/results-sdk-memory-real/
+bench/context-engine/corpus/derived/**/context-derived-cache.json
