@@ -15,6 +15,7 @@ use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
     ToolCallingMode,
 };
+use crate::runtime::assembly::MessageAssemblyCache;
 use crate::runtime::contracts::*;
 use crate::runtime::model_anthropic::{anthropic_default_base_url, AnthropicMessagesClient};
 use crate::runtime::model_sse::{next_streaming_data, SseStream, STREAM_REQUEST_TIMEOUT};
@@ -316,6 +317,7 @@ pub struct OpenAiChatCompletionsClient {
     limiter: Arc<ModelLimiter>,
     tool_registry: Arc<ToolRegistry>,
     reviewer_policy: Arc<ReviewerPolicy>,
+    assembly: MessageAssemblyCache,
 }
 
 impl OpenAiChatCompletionsClient {
@@ -340,6 +342,7 @@ impl OpenAiChatCompletionsClient {
             limiter,
             tool_registry,
             reviewer_policy,
+            assembly: MessageAssemblyCache::new(),
         })
     }
 }
@@ -913,11 +916,14 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
             };
         let mut body = json!({
             "model": self.profile.model,
-            "messages": chat_messages(
-                &self.reviewer_policy,
-                &self.tool_registry,
-                scope,
+            "messages": self.assembly.assemble(
+                &scope.id.0,
+                &scope.capabilities,
                 transcript,
+                |item| {
+                    chat_message_for_item(&self.reviewer_policy, &self.tool_registry, scope, item)
+                        .map(Some)
+                },
             )?,
             "tools": openai_tools_for_protocol(
                 ModelApiProtocol::ChatCompletions,
@@ -1173,53 +1179,57 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     }
 }
 
+fn chat_message_for_item(
+    reviewer_policy: &ReviewerPolicy,
+    tool_registry: &ToolRegistry,
+    scope: &SessionScope,
+    item: &ConversationItem,
+) -> RuntimeResult<Value> {
+    Ok(match item {
+        ConversationItem::System { content } => json!({ "role": "system", "content": content }),
+        ConversationItem::User { content } => json!({ "role": "user", "content": content }),
+        ConversationItem::AssistantText { content } => {
+            json!({ "role": "assistant", "content": content })
+        }
+        ConversationItem::AssistantToolCalls { calls } => json!({
+            "role": "assistant",
+            "tool_calls": calls.iter().map(|call| {
+                let name = model_alias_for_tool(tool_registry, &call.name)?;
+                Ok(json!({
+                    "id": call.call_id.0,
+                    "type": "function",
+                    "function": {
+                        "name": name.as_str(),
+                        "arguments": call.raw_arguments,
+                    }
+                }))
+            }).collect::<RuntimeResult<Vec<_>>>()?
+        }),
+        ConversationItem::ToolResult {
+            call_id, content, ..
+        } => {
+            let compact = reviewer_policy.compact_tool_result(content, &scope.capabilities);
+            json!({
+                "role": "tool",
+                "tool_call_id": call_id.0,
+                "content": serde_json::to_string(&compact)
+                    .map_err(|_| RuntimeError::Invariant("tool result serialization failed"))?,
+            })
+        }
+    })
+}
+
+#[cfg(test)]
 fn chat_messages(
     reviewer_policy: &ReviewerPolicy,
     tool_registry: &ToolRegistry,
     scope: &SessionScope,
     transcript: &[ConversationItem],
 ) -> RuntimeResult<Vec<Value>> {
-    let mut messages = Vec::new();
-    for item in transcript {
-        match item {
-            ConversationItem::System { content } => {
-                messages.push(json!({ "role": "system", "content": content }));
-            }
-            ConversationItem::User { content } => {
-                messages.push(json!({ "role": "user", "content": content }));
-            }
-            ConversationItem::AssistantText { content } => {
-                messages.push(json!({ "role": "assistant", "content": content }));
-            }
-            ConversationItem::AssistantToolCalls { calls } => {
-                messages.push(json!({
-                    "role": "assistant",
-                    "tool_calls": calls.iter().map(|call| {
-                        let name = model_alias_for_tool(tool_registry, &call.name)?;
-                        Ok(json!({
-                            "id": call.call_id.0,
-                            "type": "function",
-                            "function": {
-                                "name": name.as_str(),
-                                "arguments": call.raw_arguments,
-                            }
-                        }))
-                    }).collect::<RuntimeResult<Vec<_>>>()?
-                }));
-            }
-            ConversationItem::ToolResult {
-                call_id, content, ..
-            } => {
-                let compact = reviewer_policy.compact_tool_result(content, &scope.capabilities);
-                messages.push(json!({
-                    "role": "tool",
-                    "tool_call_id": call_id.0,
-                    "content": serde_json::to_string(&compact).map_err(|_| RuntimeError::Invariant("tool result serialization failed"))?,
-                }));
-            }
-        }
-    }
-    Ok(messages)
+    transcript
+        .iter()
+        .map(|item| chat_message_for_item(reviewer_policy, tool_registry, scope, item))
+        .collect()
 }
 
 fn responses_request_body(
