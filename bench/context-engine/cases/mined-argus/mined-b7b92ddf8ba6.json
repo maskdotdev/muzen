@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-b7b92ddf8ba6",
+  "repoSource": {
+    "kind": "git",
+    "commit": "b7b92ddf8ba69e82c4cc01f8d5621da8fc21772f",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/review/diff/route.get.test.ts",
+    "apps/web/src/app/api/review/diff/route.ts",
+    "apps/web/src/lib/review/read-model.test.ts",
+    "apps/web/src/lib/review/read-model.ts"
+  ],
+  "description": "Mined pair: base b7b92ddf8ba6 (refactor(review): extract persisted review read model) followed by 2a990028d3ed (refactor(indexing): make s3 the only artifact backend).",
+  "minedFrom": {
+    "baseCommit": "b7b92ddf8ba69e82c4cc01f8d5621da8fc21772f",
+    "followUpCommit": "2a990028d3ed1bcd439a783a32d4ca7606ecf77d"
+  },
+  "cases": [
+    {
+      "id": "mined-b7b92ddf8ba6-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/indexer/src/lib/indexing/processors/ingest.ts",
+        "apps/indexer/src/lib/indexing/stores/artifact-cleanup-store.ts",
+        "apps/indexer/src/lib/indexing/stores/artifact-store.ts",
+        "apps/indexer/src/lib/indexing/tests/processors/ingest.test.ts",
+        "apps/indexer/src/lib/indexing/tests/stores/artifact-store.test.ts",
+        "apps/web/src/lib/indexing/stores/artifact-store.ts",
+        "apps/web/src/lib/indexing/tests/stores/artifact-store.test.ts",
+        "apps/web/src/lib/review/impact-graph-backend-kitedb-snapshot.ts",
+        "apps/web/src/lib/review/impact-graph-backend.test.helpers.ts"
+      ]
+    }
+  ]
+}

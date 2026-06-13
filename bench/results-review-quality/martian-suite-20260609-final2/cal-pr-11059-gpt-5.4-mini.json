@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T01:34:22.485Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XfumNX/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-XfumNX/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 35,
+      "needs_review": 4
+    },
+    "findings": 0,
+    "modelCalls": 105,
+    "toolCalls": 136,
+    "tokens": {
+      "inputTokens": 1158344,
+      "outputTokens": 11243,
+      "totalTokens": 1169587
+    },
+    "artifactStats": {
+      "artifacts": 69,
+      "artifactBytes": 336923
+    },
+    "elapsedMs": 214400
+  },
+  "benchmark": {
+    "elapsedMs": 214504,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "title": "Office 365 Calendar callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "title": "Zoom video callback expects the refreshed credential shape"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 4,
+    "requiredEvidenceFailures": 4,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 32,
+    "importCount": 0,
+    "needsReviewCount": 4,
+    "cleanCount": 35,
+    "skippedCount": 1
+  },
+  "findings": []
+}

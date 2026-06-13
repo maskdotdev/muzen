@@ -440,8 +440,7 @@ impl OpenAiProviderCanaryConfig {
                 .ok()
                 .as_deref()
                 == Some("1"),
-            base_url: std::env::var("OAI_BASE_URL")
-                .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            base_url: std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
             credential_ref: "env:OPENAI_API_KEY".to_string(),
             model: std::env::var("MUZEN_REAL_PROVIDER_MODEL").unwrap_or(default_model),
@@ -868,6 +867,7 @@ fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> S
             max_tool_calls: 1,
             max_prompt_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS as u64,
             max_output_tokens: max_output_tokens as u64,
+            budget_source: crate::contracts::BudgetSource::RunReserve,
         },
     }
 }

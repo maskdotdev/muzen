@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-7088a97b7509",
+  "repoSource": {
+    "kind": "git",
+    "commit": "7088a97b7509d2e1bbbccbddafc1dfec07d7b364",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/components/diff/file-tree.tsx"
+  ],
+  "description": "Mined pair: base 7088a97b7509 (fix(review): show colored file tree icons) followed by de07d232ff26 (feat(web): persist sidebar state).",
+  "minedFrom": {
+    "baseCommit": "7088a97b7509d2e1bbbccbddafc1dfec07d7b364",
+    "followUpCommit": "de07d232ff264300c1fb5db69bca99b10fd59426"
+  },
+  "cases": [
+    {
+      "id": "mined-7088a97b7509-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/layout.tsx",
+        "apps/web/src/components/app-shell.tsx",
+        "apps/web/src/components/app-sidebar-right-slot.tsx",
+        "apps/web/src/components/ui/sidebar.tsx"
+      ]
+    }
+  ]
+}

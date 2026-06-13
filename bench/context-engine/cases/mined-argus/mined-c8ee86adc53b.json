@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-c8ee86adc53b",
+  "repoSource": {
+    "kind": "git",
+    "commit": "c8ee86adc53bcb890820ad5053275a70e6964133",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/app/layout.tsx",
+    "src/app/settings/page.tsx",
+    "src/components/theme-provider.tsx"
+  ],
+  "description": "Mined pair: base c8ee86adc53b (Align settings themes with argus theme system) followed by a1339104e9b7 (feat: wire sidebar user menu to session auth).",
+  "minedFrom": {
+    "baseCommit": "c8ee86adc53bcb890820ad5053275a70e6964133",
+    "followUpCommit": "a1339104e9b7a974bc897b4059b531595170f046"
+  },
+  "cases": [
+    {
+      "id": "mined-c8ee86adc53b-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/components/app-sidebar.tsx",
+        "src/components/nav-user.tsx",
+        "src/lib/auth-client.ts"
+      ]
+    }
+  ]
+}

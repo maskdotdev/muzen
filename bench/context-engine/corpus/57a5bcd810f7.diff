@@ -1,0 +1,2238 @@
+diff --git a/src/app/api/gitlab/integrations/connect/route.ts b/src/app/api/gitlab/integrations/connect/route.ts
+index e9d8a82f..7db6e4b4 100644
+--- a/src/app/api/gitlab/integrations/connect/route.ts
++++ b/src/app/api/gitlab/integrations/connect/route.ts
+@@ -1,7 +1,12 @@
+ import { NextResponse } from "next/server"
+ import { z } from "zod"
+ 
+-import { connectGitLabIntegration } from "@/lib/gitlab/service"
++import {
++  connectGitLabIntegration,
++  decryptIntegrationToken,
++  getUserIntegration,
++} from "@/lib/gitlab/service"
++import { normalizeGitLabInstanceUrl } from "@/lib/gitlab/instance"
+ import {
+   getGitLabUserInstanceToken,
+   upsertGitLabUserInstanceToken,
+@@ -12,6 +17,7 @@ import { runWithApiRequestLog } from "@/lib/utils/logger"
+ const connectSchema = z.object({
+   instanceUrl: z.string().min(1),
+   token: z.string().min(1).optional(),
++  integrationId: z.string().min(1).optional(),
+   projectId: z.string().min(1),
+   projectPath: z.string().min(1),
+   projectName: z.string().min(1),
+@@ -46,6 +52,7 @@ export async function POST(request: Request) {
+       }
+ 
+       try {
++        const normalizedInstanceUrl = normalizeGitLabInstanceUrl(parsed.data.instanceUrl)
+         const requestToken = parsed.data.token?.trim()
+         let tokenToUse = requestToken ?? ""
+ 
+@@ -53,7 +60,7 @@ export async function POST(request: Request) {
+           // Persistence is best-effort; do not block integration connect on it.
+           await upsertGitLabUserInstanceToken({
+             userId,
+-            instanceUrl: parsed.data.instanceUrl,
++            instanceUrl: normalizedInstanceUrl,
+             token: requestToken,
+           }).catch(() => null)
+         } else {
+@@ -61,27 +68,13 @@ export async function POST(request: Request) {
+           try {
+             storedToken = await getGitLabUserInstanceToken(
+               userId,
+-              parsed.data.instanceUrl,
++              normalizedInstanceUrl,
+             )
+           } catch {
+             storedToken = null
+           }
+-          if (!storedToken) {
+-            return {
+-              status: 400,
+-              outcome: "invalid_request",
+-              response: NextResponse.json(
+-                {
+-                  error:
+-                    "Personal access token is required. Reconnect your GitLab instance.",
+-                  code: "GITLAB_TOKEN_REQUIRED",
+-                  reconnectRequired: true,
+-                },
+-                { status: 400 },
+-              ),
+-            }
+-          }
+-          if (storedToken.staleAt) {
++
++          if (storedToken?.staleAt) {
+             return {
+               status: 401,
+               outcome: "unauthorized",
+@@ -95,12 +88,51 @@ export async function POST(request: Request) {
+               ),
+             }
+           }
+-          tokenToUse = storedToken.token
++
++          if (storedToken) {
++            tokenToUse = storedToken.token
++          } else {
++            const integrationId = parsed.data.integrationId?.trim()
++            if (integrationId) {
++              const integration = await getUserIntegration(integrationId, userId)
++              const isMatchingInstance = integration?.instanceUrl === normalizedInstanceUrl
++
++              if (integration && isMatchingInstance) {
++                try {
++                  const fallbackToken = decryptIntegrationToken(integration).trim()
++                  if (fallbackToken) {
++                    tokenToUse = fallbackToken
++                  }
++                } catch {
++                  // Keep tokenToUse empty so we return token-required below.
++                }
++              }
++            }
++
++            if (!tokenToUse) {
++              return {
++                status: 400,
++                outcome: "invalid_request",
++                response: NextResponse.json(
++                  {
++                    error:
++                      "Personal access token is required. Reconnect your GitLab instance.",
++                    code: "GITLAB_TOKEN_REQUIRED",
++                    reconnectRequired: true,
++                  },
++                  { status: 400 },
++                ),
++              }
++            }
++          }
+         }
+ 
+         const result = await connectGitLabIntegration({
+           userId,
+-          ...parsed.data,
++          instanceUrl: normalizedInstanceUrl,
++          projectId: parsed.data.projectId,
++          projectPath: parsed.data.projectPath,
++          projectName: parsed.data.projectName,
+           token: tokenToUse,
+         })
+         logger.set({
+diff --git a/src/app/api/gitlab/route.test.ts b/src/app/api/gitlab/route.test.ts
+index aba9bfc1..fc886c25 100644
+--- a/src/app/api/gitlab/route.test.ts
++++ b/src/app/api/gitlab/route.test.ts
+@@ -261,6 +261,203 @@ describe("gitlab proxy route", () => {
+     expect(decryptIntegrationToken).toHaveBeenCalledTimes(1)
+   })
+ 
++  test("supports raw diffs larger than the previous browser-oriented cap", async () => {
++    const patch =
++      "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-test\n+test"
++    const fetchMock = mock(async (url: string, init?: RequestInit) => {
++      expect((init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("stored-token")
++      expect(url).toContain("/raw_diffs")
++      return new Response(patch, {
++        status: 200,
++        headers: {
++          "content-type": "text/plain",
++          "content-length": "3000000",
++        },
++      })
++    })
++    globalThis.fetch = fetchMock as unknown as typeof fetch
++
++    const { POST } = await loadRouteModule({ storedToken: "stored-token" })
++
++    const response = await POST(
++      new Request("http://localhost/api/gitlab", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl: "https://gitlab.global.lmco.com",
++          projectId: "10",
++          mergeRequestIid: "22",
++        }),
++      }),
++    )
++
++    const body = await response.json()
++    expect(response.status).toBe(200)
++    expect(body.data).toMatchObject({
++      source: "raw_diffs",
++      patch,
++    })
++  })
++
++  test("skips cache retention for oversized diff payloads", async () => {
++    const largePatch =
++      "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-test\n+" +
++      "x".repeat(2_600_000)
++    const fetchMock = mock(async () =>
++      new Response(largePatch, {
++        status: 200,
++        headers: {
++          "content-type": "text/plain",
++          "content-length": String(largePatch.length),
++        },
++      }),
++    )
++    globalThis.fetch = fetchMock as unknown as typeof fetch
++
++    const { POST } = await loadRouteModule({ storedToken: "stored-token" })
++
++    const makeRequest = () =>
++      new Request("http://localhost/api/gitlab", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl: "https://gitlab.global.lmco.com",
++          projectId: "10",
++          mergeRequestIid: "22",
++        }),
++      })
++
++    const firstResponse = await POST(makeRequest())
++    const secondResponse = await POST(makeRequest())
++
++    expect(firstResponse.status).toBe(200)
++    expect(secondResponse.status).toBe(200)
++    expect(fetchMock).toHaveBeenCalledTimes(2)
++  })
++
++  test("returns 413 when diff exceeds the absolute payload ceiling", async () => {
++    const fetchMock = mock(async () =>
++      new Response("", {
++        status: 200,
++        headers: {
++          "content-type": "text/plain",
++          "content-length": "60000000",
++        },
++      }),
++    )
++    globalThis.fetch = fetchMock as unknown as typeof fetch
++
++    const { POST } = await loadRouteModule({ storedToken: "stored-token" })
++
++    const response = await POST(
++      new Request("http://localhost/api/gitlab", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl: "https://gitlab.global.lmco.com",
++          projectId: "10",
++          mergeRequestIid: "22",
++        }),
++      }),
++    )
++
++    const body = await response.json()
++    expect(response.status).toBe(413)
++    expect(body).toMatchObject({
++      code: "GITLAB_UPSTREAM_ERROR",
++    })
++    expect(String(body.error)).toContain("50 MB")
++  })
++
++  test("streams merge request diff bytes when streamDiff mode is requested", async () => {
++    const patch =
++      "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-test\n+test\n"
++    const fetchMock = mock(async (url: string) => {
++      expect(url).toContain("/raw_diffs")
++      return new Response(patch, {
++        status: 200,
++        headers: {
++          "content-type": "text/plain; charset=utf-8",
++          "content-length": String(patch.length),
++        },
++      })
++    })
++    globalThis.fetch = fetchMock as unknown as typeof fetch
++
++    const { POST } = await loadRouteModule({ storedToken: "stored-token" })
++    const response = await POST(
++      new Request("http://localhost/api/gitlab", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl: "https://gitlab.global.lmco.com",
++          projectId: "10",
++          mergeRequestIid: "22",
++          streamDiff: true,
++        }),
++      }),
++    )
++
++    const bodyText = await response.text()
++    expect(response.status).toBe(200)
++    expect(response.headers.get("x-diff-source")).toBe("raw_diffs")
++    expect(bodyText).toBe(patch)
++  })
++
++  test("falls back to changes payload when streamed raw diff is empty", async () => {
++    const fetchMock = mock(async (url: string) => {
++      if (url.includes("/raw_diffs")) {
++        return new Response("", {
++          status: 200,
++          headers: { "content-type": "text/plain; charset=utf-8" },
++        })
++      }
++
++      expect(url).toContain("/changes?access_raw_diffs=true")
++      return new Response(
++        JSON.stringify({
++          changes: [
++            {
++              old_path: "src/a.ts",
++              new_path: "src/a.ts",
++              diff: "@@ -1 +1 @@\n-test\n+test",
++            },
++          ],
++        }),
++        {
++          status: 200,
++          headers: { "content-type": "application/json" },
++        },
++      )
++    })
++    globalThis.fetch = fetchMock as unknown as typeof fetch
++
++    const { POST } = await loadRouteModule({ storedToken: "stored-token" })
++    const response = await POST(
++      new Request("http://localhost/api/gitlab", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl: "https://gitlab.global.lmco.com",
++          projectId: "10",
++          mergeRequestIid: "22",
++          streamDiff: true,
++        }),
++      }),
++    )
++
++    const bodyText = await response.text()
++    expect(response.status).toBe(200)
++    expect(response.headers.get("x-diff-source")).toBe("changes")
++    expect(bodyText).toContain("diff --git a/src/a.ts b/src/a.ts")
++    expect(fetchMock).toHaveBeenCalledTimes(2)
++  })
++
+   test("marks token stale and returns stable code on auth failure", async () => {
+     globalThis.fetch = mock(async () =>
+       new Response("unauthorized", {
+diff --git a/src/app/api/gitlab/route.ts b/src/app/api/gitlab/route.ts
+index a5bcdd81..e1394ac2 100644
+--- a/src/app/api/gitlab/route.ts
++++ b/src/app/api/gitlab/route.ts
+@@ -1,61 +1,65 @@
+-import { createHash } from "node:crypto"
++import { createHash } from "node:crypto";
+ 
+-import { NextResponse } from "next/server"
++import { NextResponse } from "next/server";
+ 
+-import { decryptIntegrationToken, getUserIntegration } from "@/lib/gitlab/service"
++import {
++  decryptIntegrationToken,
++  getUserIntegration,
++} from "@/lib/gitlab/service";
+ import {
+   getGitLabUserInstanceToken,
+   markGitLabUserInstanceTokenStale,
+   upsertGitLabUserInstanceToken,
+-} from "@/lib/gitlab/user-token"
+-import { normalizeGitLabInstanceUrl } from "@/lib/gitlab/instance"
+-import { getSessionUserId } from "@/lib/session"
+-import { runWithApiRequestLog } from "@/lib/utils/logger"
++} from "@/lib/gitlab/user-token";
++import { normalizeGitLabInstanceUrl } from "@/lib/gitlab/instance";
++import { getSessionUserId } from "@/lib/session";
++import { runWithApiRequestLog } from "@/lib/utils/logger";
+ 
+ type GitLabAction =
+   | "projects"
+   | "merge-requests"
+   | "merge-request-diff"
+   | "validate-token"
+-  | "recent-merge-requests"
++  | "recent-merge-requests";
+ 
+ type GitLabProjectPayload = {
+-  action: GitLabAction
+-  instanceUrl: string
+-  token?: string
+-  integrationId?: string
+-  projectId?: string
+-  mergeRequestIid?: string
+-  perPage?: number
+-  search?: string
+-}
++  action: GitLabAction;
++  instanceUrl: string;
++  token?: string;
++  integrationId?: string;
++  projectId?: string;
++  mergeRequestIid?: string;
++  streamDiff?: boolean;
++  perPage?: number;
++  search?: string;
++};
+ 
+ type Project = {
+-  id: string
+-  name: string
+-  path: string
+-  webUrl: string
+-  defaultBranch?: string
+-}
++  id: string;
++  name: string;
++  path: string;
++  webUrl: string;
++  defaultBranch?: string;
++};
+ 
+ type MergeRequest = {
+-  id: string
+-  iid: string
+-  title: string
+-  state: string
+-  author: string
+-  webUrl: string
+-  projectId?: string
+-  authoredByCurrentUser?: boolean
+-  assignedToCurrentUser?: boolean
+-  reviewRequestedFromCurrentUser?: boolean
+-}
++  id: string;
++  iid: string;
++  title: string;
++  state: string;
++  author: string;
++  webUrl: string;
++  projectId?: string;
++  authoredByCurrentUser?: boolean;
++  assignedToCurrentUser?: boolean;
++  reviewRequestedFromCurrentUser?: boolean;
++};
+ 
+ type GitLabCurrentUser = {
+-  id: number | null
+-  username: string | null
+-  name: string | null
+-}
++  id: number | null;
++  username: string | null;
++  name: string | null;
++};
+ 
+ type GitLabRouteErrorCode =
+   | "GITLAB_TOKEN_REQUIRED"
+@@ -68,98 +72,96 @@ type GitLabRouteErrorCode =
+   | "GITLAB_RESOURCE_UNAUTHORIZED"
+   | "GITLAB_RATE_LIMITED"
+   | "GITLAB_UPSTREAM_TRANSIENT"
+-  | "GITLAB_UPSTREAM_ERROR"
++  | "GITLAB_UPSTREAM_ERROR";
+ 
+ type GitLabRouteErrorOptions = {
+-  status: number
+-  code: GitLabRouteErrorCode
+-  retryable?: boolean
+-  reconnectRequired?: boolean
+-  details?: Record<string, unknown>
+-}
+-
+-const MAX_PATCH_BYTES = 2_500_000
+-const MERGE_REQUESTS_PER_PAGE_DEFAULT = 5
+-const MERGE_REQUESTS_PER_PAGE_MAX = 100
+-const PROJECTS_PER_PAGE_DEFAULT = 5
+-const PROJECTS_PER_PAGE_MAX = 100
+-const GITLAB_CACHE_TTL_MS = 15_000
+-const GITLAB_CACHE_MAX_ENTRIES = 128
+-const GITLAB_REQUEST_TIMEOUT_MS = 12_000
+-const GITLAB_VALIDATE_TIMEOUT_MS = 6_000
++  status: number;
++  code: GitLabRouteErrorCode;
++  retryable?: boolean;
++  reconnectRequired?: boolean;
++  details?: Record<string, unknown>;
++};
++
++const MAX_PATCH_BYTES = 50_000_000;
++const MAX_CACHED_PATCH_BYTES = 2_500_000;
++const MERGE_REQUESTS_PER_PAGE_DEFAULT = 5;
++const MERGE_REQUESTS_PER_PAGE_MAX = 100;
++const PROJECTS_PER_PAGE_DEFAULT = 5;
++const PROJECTS_PER_PAGE_MAX = 100;
++const GITLAB_CACHE_TTL_MS = 15_000;
++const GITLAB_CACHE_MAX_ENTRIES = 128;
++const GITLAB_REQUEST_TIMEOUT_MS = 12_000;
++const GITLAB_DIFF_REQUEST_TIMEOUT_MS = 60_000;
++const GITLAB_VALIDATE_TIMEOUT_MS = 6_000;
++const DIFF_TOO_LARGE_ERROR =
++  "Diff exceeds maximum supported size of 50 MB.";
+ 
+ const TOKEN_STALE_CODES = new Set<GitLabRouteErrorCode>([
+   "GITLAB_TOKEN_INVALID",
+   "GITLAB_TOKEN_SCOPE_INVALID",
+-])
++]);
+ 
+ type CacheEntry = {
+-  expiresAt: number
+-  value: Promise<unknown>
+-}
++  expiresAt: number;
++  value: Promise<unknown>;
++};
+ 
+-const gitLabResponseCache = new Map<string, CacheEntry>()
++const gitLabResponseCache = new Map<string, CacheEntry>();
+ 
+ class GitLabRouteError extends Error {
+-  status: number
+-  code: GitLabRouteErrorCode
+-  retryable: boolean
+-  reconnectRequired: boolean
+-  details: Record<string, unknown> | null
++  status: number;
++  code: GitLabRouteErrorCode;
++  retryable: boolean;
++  reconnectRequired: boolean;
++  details: Record<string, unknown> | null;
+ 
+   constructor(message: string, options: GitLabRouteErrorOptions) {
+-    super(message)
+-    this.status = options.status
+-    this.code = options.code
+-    this.retryable = options.retryable ?? false
+-    this.reconnectRequired = options.reconnectRequired ?? false
+-    this.details = options.details ?? null
++    super(message);
++    this.status = options.status;
++    this.code = options.code;
++    this.retryable = options.retryable ?? false;
++    this.reconnectRequired = options.reconnectRequired ?? false;
++    this.details = options.details ?? null;
+   }
+ }
+ 
+ const isNonEmptyString = (value: unknown): value is string =>
+-  typeof value === "string" && value.trim().length > 0
++  typeof value === "string" && value.trim().length > 0;
+ 
+ const asRecord = (value: unknown): Record<string, unknown> | null => {
+   if (!value || typeof value !== "object" || Array.isArray(value)) {
+-    return null
++    return null;
+   }
+ 
+-  return value as Record<string, unknown>
+-}
++  return value as Record<string, unknown>;
++};
+ 
+ const hashTokenForCache = (token: string) =>
+-  createHash("sha256").update(token).digest("hex")
++  createHash("sha256").update(token).digest("hex");
+ 
+-const normalizePerPage = (
+-  value: unknown,
+-  fallback: number,
+-  max: number,
+-) => {
++const normalizePerPage = (value: unknown, fallback: number, max: number) => {
+   if (typeof value !== "number" || Number.isNaN(value)) {
+-    return fallback
++    return fallback;
+   }
+ 
+-  const normalized = Math.floor(value)
+-  return Math.min(max, Math.max(1, normalized))
+-}
++  const normalized = Math.floor(value);
++  return Math.min(max, Math.max(1, normalized));
++};
+ 
+-const buildRouteError = (
+-  message: string,
+-  options: GitLabRouteErrorOptions,
+-) => new GitLabRouteError(message, options)
++const buildRouteError = (message: string, options: GitLabRouteErrorOptions) =>
++  new GitLabRouteError(message, options);
+ 
+ const getTruncatedBodyMessage = async (response: Response) => {
+-  const responseText = await response.text().catch(() => "")
+-  return responseText.length > 0 ? responseText.slice(0, 400) : ""
+-}
++  const responseText = await response.text().catch(() => "");
++  return responseText.length > 0 ? responseText.slice(0, 400) : "";
++};
+ 
+ const classifyGitLabHttpError = (
+   status: number,
+   bodyMessage: string,
+   action: GitLabAction,
+ ) => {
+-  const normalizedBody = bodyMessage.toLowerCase()
++  const normalizedBody = bodyMessage.toLowerCase();
+ 
+   if (status === 401) {
+     return buildRouteError(
+@@ -169,7 +171,7 @@ const classifyGitLabHttpError = (
+         code: "GITLAB_TOKEN_INVALID",
+         reconnectRequired: true,
+       },
+-    )
++    );
+   }
+ 
+   if (status === 403) {
+@@ -184,7 +186,7 @@ const classifyGitLabHttpError = (
+           code: "GITLAB_TOKEN_SCOPE_INVALID",
+           reconnectRequired: true,
+         },
+-      )
++      );
+     }
+ 
+     if (action !== "projects" && action !== "validate-token") {
+@@ -194,7 +196,7 @@ const classifyGitLabHttpError = (
+           status: 403,
+           code: "GITLAB_RESOURCE_UNAUTHORIZED",
+         },
+-      )
++      );
+     }
+   }
+ 
+@@ -205,18 +207,15 @@ const classifyGitLabHttpError = (
+         status: 404,
+         code: "GITLAB_RESOURCE_UNAUTHORIZED",
+       },
+-    )
++    );
+   }
+ 
+   if (status === 429) {
+-    return buildRouteError(
+-      "GitLab rate limit reached. Wait and retry.",
+-      {
+-        status: 429,
+-        code: "GITLAB_RATE_LIMITED",
+-        retryable: true,
+-      },
+-    )
++    return buildRouteError("GitLab rate limit reached. Wait and retry.", {
++      status: 429,
++      code: "GITLAB_RATE_LIMITED",
++      retryable: true,
++    });
+   }
+ 
+   if (status >= 500) {
+@@ -227,7 +226,7 @@ const classifyGitLabHttpError = (
+         code: "GITLAB_UPSTREAM_TRANSIENT",
+         retryable: true,
+       },
+-    )
++    );
+   }
+ 
+   return buildRouteError(
+@@ -238,28 +237,31 @@ const classifyGitLabHttpError = (
+       status,
+       code: "GITLAB_UPSTREAM_ERROR",
+     },
+-  )
+-}
++  );
++};
+ 
+ const isLikelyVpnHost = (instanceUrl: string) => {
+   try {
+-    const host = new URL(instanceUrl).hostname.toLowerCase()
+-    return host.endsWith(".lmco.com")
++    const host = new URL(instanceUrl).hostname.toLowerCase();
++    return host.endsWith(".lmco.com");
+   } catch {
+-    return false
++    return false;
+   }
+-}
++};
+ 
+ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+-  const message = error instanceof Error ? error.message : String(error)
+-  const normalized = message.toLowerCase()
++  const message = error instanceof Error ? error.message : String(error);
++  const normalized = message.toLowerCase();
+ 
+   if (error instanceof Error && error.name === "AbortError") {
+-    return buildRouteError("GitLab request timed out. Check host connectivity and retry.", {
+-      status: 504,
+-      code: "GITLAB_TIMEOUT",
+-      retryable: true,
+-    })
++    return buildRouteError(
++      "GitLab request timed out. Check host connectivity and retry.",
++      {
++        status: 504,
++        code: "GITLAB_TIMEOUT",
++        retryable: true,
++      },
++    );
+   }
+ 
+   if (
+@@ -267,7 +269,7 @@ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+     normalized.includes("eai_again") ||
+     normalized.includes("dns")
+   ) {
+-    const vpnLikely = isLikelyVpnHost(instanceUrl)
++    const vpnLikely = isLikelyVpnHost(instanceUrl);
+     return buildRouteError(
+       vpnLikely
+         ? "Cannot reach GitLab host. Connect to the required network or VPN and retry."
+@@ -279,7 +281,7 @@ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+           : "GITLAB_HOST_UNREACHABLE",
+         retryable: true,
+       },
+-    )
++    );
+   }
+ 
+   if (
+@@ -288,7 +290,7 @@ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+     normalized.includes("econnrefused") ||
+     normalized.includes("econnreset")
+   ) {
+-    const vpnLikely = isLikelyVpnHost(instanceUrl)
++    const vpnLikely = isLikelyVpnHost(instanceUrl);
+     return buildRouteError(
+       vpnLikely
+         ? "GitLab host is unreachable from this network. Connect VPN and retry."
+@@ -300,7 +302,7 @@ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+           : "GITLAB_HOST_UNREACHABLE",
+         retryable: true,
+       },
+-    )
++    );
+   }
+ 
+   return buildRouteError("Unable to reach GitLab host.", {
+@@ -310,8 +312,8 @@ const classifyNetworkError = (error: unknown, instanceUrl: string) => {
+     details: {
+       cause: message,
+     },
+-  })
+-}
++  });
++};
+ 
+ const getGitLabRequest = async ({
+   instanceUrl,
+@@ -319,17 +321,21 @@ const getGitLabRequest = async ({
+   apiPath,
+   action,
+ }: {
+-  instanceUrl: string
+-  token: string
+-  apiPath: string
+-  action: GitLabAction
++  instanceUrl: string;
++  token: string;
++  apiPath: string;
++  action: GitLabAction;
+ }) => {
+-  const controller = new AbortController()
++  const controller = new AbortController();
+   const timeoutMs =
+-    action === "validate-token" ? GITLAB_VALIDATE_TIMEOUT_MS : GITLAB_REQUEST_TIMEOUT_MS
++    action === "validate-token"
++      ? GITLAB_VALIDATE_TIMEOUT_MS
++      : action === "merge-request-diff"
++        ? GITLAB_DIFF_REQUEST_TIMEOUT_MS
++        : GITLAB_REQUEST_TIMEOUT_MS;
+   const timeout = setTimeout(() => {
+-    controller.abort()
+-  }, timeoutMs)
++    controller.abort();
++  }, timeoutMs);
+ 
+   try {
+     const response = await fetch(`${instanceUrl}${apiPath}`, {
+@@ -339,24 +345,24 @@ const getGitLabRequest = async ({
+       },
+       method: "GET",
+       signal: controller.signal,
+-    })
++    });
+ 
+     if (!response.ok) {
+-      const bodyMessage = await getTruncatedBodyMessage(response)
+-      throw classifyGitLabHttpError(response.status, bodyMessage, action)
++      const bodyMessage = await getTruncatedBodyMessage(response);
++      throw classifyGitLabHttpError(response.status, bodyMessage, action);
+     }
+ 
+-    return response
++    return response;
+   } catch (error) {
+     if (error instanceof GitLabRouteError) {
+-      throw error
++      throw error;
+     }
+ 
+-    throw classifyNetworkError(error, instanceUrl)
++    throw classifyNetworkError(error, instanceUrl);
+   } finally {
+-    clearTimeout(timeout)
++    clearTimeout(timeout);
+   }
+-}
++};
+ 
+ const getGitLabJson = async <T>({
+   instanceUrl,
+@@ -364,63 +370,88 @@ const getGitLabJson = async <T>({
+   apiPath,
+   action,
+ }: {
+-  instanceUrl: string
+-  token: string
+-  apiPath: string
+-  action: GitLabAction
++  instanceUrl: string;
++  token: string;
++  apiPath: string;
++  action: GitLabAction;
+ }) => {
+   const response = await getGitLabRequest({
+     instanceUrl,
+     token,
+     apiPath,
+     action,
+-  })
+-  return (await response.json()) as T
+-}
++  });
++  return (await response.json()) as T;
++};
+ 
+ const trimGitLabResponseCache = () => {
+-  const now = Date.now()
++  const now = Date.now();
+   for (const [key, value] of gitLabResponseCache.entries()) {
+     if (value.expiresAt <= now) {
+-      gitLabResponseCache.delete(key)
++      gitLabResponseCache.delete(key);
+     }
+   }
+ 
+   while (gitLabResponseCache.size > GITLAB_CACHE_MAX_ENTRIES) {
+-    const oldestKey = gitLabResponseCache.keys().next().value
++    const oldestKey = gitLabResponseCache.keys().next().value;
+     if (!oldestKey) {
+-      return
++      return;
+     }
+-    gitLabResponseCache.delete(oldestKey)
++    gitLabResponseCache.delete(oldestKey);
+   }
+-}
++};
+ 
+-const getCachedGitLabValue = <T>(key: string, load: () => Promise<T>) => {
+-  const now = Date.now()
+-  const cached = gitLabResponseCache.get(key)
++const getCachedGitLabValue = <T>(
++  key: string,
++  load: () => Promise<T>,
++  options?: { shouldCacheValue?: (value: T) => boolean },
++) => {
++  const now = Date.now();
++  const cached = gitLabResponseCache.get(key);
+   if (cached && cached.expiresAt > now) {
+-    return cached.value as Promise<T>
++    return cached.value as Promise<T>;
+   }
+   if (cached) {
+-    gitLabResponseCache.delete(key)
++    gitLabResponseCache.delete(key);
+   }
+ 
+-  const promise = load()
++  const promise = load();
+   gitLabResponseCache.set(key, {
+     expiresAt: now + GITLAB_CACHE_TTL_MS,
+     value: promise,
+-  })
+-  trimGitLabResponseCache()
++  });
++  trimGitLabResponseCache();
+ 
+-  promise.catch(() => {
+-    const current = gitLabResponseCache.get(key)
+-    if (current?.value === promise) {
+-      gitLabResponseCache.delete(key)
+-    }
+-  })
++  promise
++    .then((value) => {
++      if (!options?.shouldCacheValue || options.shouldCacheValue(value)) {
++        return;
++      }
++      const current = gitLabResponseCache.get(key);
++      if (current?.value === promise) {
++        gitLabResponseCache.delete(key);
++      }
++    })
++    .catch(() => {
++      const current = gitLabResponseCache.get(key);
++      if (current?.value === promise) {
++        gitLabResponseCache.delete(key);
++      }
++    });
+ 
+-  return promise
+-}
++  return promise;
++};
++
++const getPatchSizeBytes = (patch: string) => Buffer.byteLength(patch, "utf8");
++
++const shouldCachePatchPayload = (payload: { patch: string }) =>
++  getPatchSizeBytes(payload.patch) <= MAX_CACHED_PATCH_BYTES;
++
++const buildDiffTooLargeError = () =>
++  new GitLabRouteError(DIFF_TOO_LARGE_ERROR, {
++    status: 413,
++    code: "GITLAB_UPSTREAM_ERROR",
++  });
+ 
+ const getCachedGitLabJson = <T>({
+   instanceUrl,
+@@ -428,12 +459,12 @@ const getCachedGitLabJson = <T>({
+   apiPath,
+   action,
+ }: {
+-  instanceUrl: string
+-  token: string
+-  apiPath: string
+-  action: GitLabAction
++  instanceUrl: string;
++  token: string;
++  apiPath: string;
++  action: GitLabAction;
+ }) => {
+-  const tokenHash = hashTokenForCache(token)
++  const tokenHash = hashTokenForCache(token);
+   return getCachedGitLabValue(
+     `json::${instanceUrl}::${tokenHash}::${apiPath}`,
+     () =>
+@@ -443,24 +474,22 @@ const getCachedGitLabJson = <T>({
+         apiPath,
+         action,
+       }),
+-  )
+-}
++  );
++};
+ 
+ const normalizeGitLabUser = (value: unknown): GitLabCurrentUser => {
+-  const root = asRecord(value)
++  const root = asRecord(value);
+   if (!root) {
+     return {
+       id: null,
+       username: null,
+       name: null,
+-    }
++    };
+   }
+ 
+   return {
+     id:
+-      typeof root.id === "number" && Number.isFinite(root.id)
+-        ? root.id
+-        : null,
++      typeof root.id === "number" && Number.isFinite(root.id) ? root.id : null,
+     username:
+       typeof root.username === "string" && root.username.trim().length > 0
+         ? root.username.toLowerCase()
+@@ -469,16 +498,16 @@ const normalizeGitLabUser = (value: unknown): GitLabCurrentUser => {
+       typeof root.name === "string" && root.name.trim().length > 0
+         ? root.name.toLowerCase()
+         : null,
+-  }
+-}
++  };
++};
+ 
+ const isSameGitLabUser = (
+   candidate: unknown,
+   currentUser: GitLabCurrentUser,
+ ) => {
+-  const root = asRecord(candidate)
++  const root = asRecord(candidate);
+   if (!root) {
+-    return false
++    return false;
+   }
+ 
+   if (
+@@ -486,37 +515,38 @@ const isSameGitLabUser = (
+     typeof root.id === "number" &&
+     root.id === currentUser.id
+   ) {
+-    return true
++    return true;
+   }
+ 
+   const username =
+     typeof root.username === "string" && root.username.trim().length > 0
+       ? root.username.toLowerCase()
+-      : null
++      : null;
+   if (username && currentUser.username && username === currentUser.username) {
+-    return true
++    return true;
+   }
+ 
+   const name =
+     typeof root.name === "string" && root.name.trim().length > 0
+       ? root.name.toLowerCase()
+-      : null
++      : null;
+ 
+-  return Boolean(name && currentUser.name && name === currentUser.name)
+-}
++  return Boolean(name && currentUser.name && name === currentUser.name);
++};
+ 
+ const mapMergeRequest = (
+   row: Record<string, unknown>,
+   currentUser: GitLabCurrentUser,
+ ): MergeRequest => {
+-  const assignees = Array.isArray(row.assignees) ? row.assignees : []
+-  const reviewers = Array.isArray(row.reviewers) ? row.reviewers : []
++  const assignees = Array.isArray(row.assignees) ? row.assignees : [];
++  const reviewers = Array.isArray(row.reviewers) ? row.reviewers : [];
+ 
+-  const authorRecord = asRecord(row.author)
++  const authorRecord = asRecord(row.author);
+   const authorName =
+-    typeof authorRecord?.name === "string" && authorRecord.name.trim().length > 0
++    typeof authorRecord?.name === "string" &&
++    authorRecord.name.trim().length > 0
+       ? authorRecord.name
+-      : "Unknown author"
++      : "Unknown author";
+ 
+   return {
+     id: String(row.id),
+@@ -536,52 +566,203 @@ const mapMergeRequest = (
+     reviewRequestedFromCurrentUser: reviewers.some((reviewer) =>
+       isSameGitLabUser(reviewer, currentUser),
+     ),
+-  }
+-}
+-
+-const getPatchSizeBytes = (patch: string) => Buffer.byteLength(patch, "utf8")
++  };
++};
+ 
+ const buildPatchFromChanges = (payload: unknown) => {
+   const root =
+     payload && typeof payload === "object"
+       ? (payload as Record<string, unknown>)
+-      : null
++      : null;
+ 
+   const changes = Array.isArray(root?.changes)
+     ? root.changes.filter(
+         (item): item is Record<string, unknown> =>
+           Boolean(item) && typeof item === "object",
+       )
+-    : []
++    : [];
+ 
+   return changes
+     .map((change) => {
+-      const rawDiff = String(change.diff ?? "").trimEnd()
++      const rawDiff = String(change.diff ?? "").trimEnd();
+       if (!rawDiff) {
+-        return null
++        return null;
+       }
+ 
+       if (rawDiff.startsWith("diff --git ")) {
+-        return rawDiff
++        return rawDiff;
+       }
+ 
+-      const oldPath = String(change.old_path ?? change.new_path ?? "unknown")
+-      const newPath = String(change.new_path ?? change.old_path ?? "unknown")
+-      const oldHeader = change.new_file === true ? "/dev/null" : `a/${oldPath}`
+-      const newHeader = change.deleted_file === true ? "/dev/null" : `b/${newPath}`
+-      const diffHeader = `diff --git a/${oldPath} b/${newPath}`
++      const oldPath = String(change.old_path ?? change.new_path ?? "unknown");
++      const newPath = String(change.new_path ?? change.old_path ?? "unknown");
++      const oldHeader = change.new_file === true ? "/dev/null" : `a/${oldPath}`;
++      const newHeader =
++        change.deleted_file === true ? "/dev/null" : `b/${newPath}`;
++      const diffHeader = `diff --git a/${oldPath} b/${newPath}`;
+       const includesFileHeaders =
+-        /^---\s/m.test(rawDiff) && /^\+\+\+\s/m.test(rawDiff)
++        /^---\s/m.test(rawDiff) && /^\+\+\+\s/m.test(rawDiff);
+ 
+       if (includesFileHeaders) {
+-        return `${diffHeader}\n${rawDiff}`
++        return `${diffHeader}\n${rawDiff}`;
+       }
+ 
+-      return `${diffHeader}\n--- ${oldHeader}\n+++ ${newHeader}\n${rawDiff}`
++      return `${diffHeader}\n--- ${oldHeader}\n+++ ${newHeader}\n${rawDiff}`;
+     })
+     .filter((value): value is string => Boolean(value))
+-    .join("\n\n")
+-}
++    .join("\n\n");
++};
++
++const getMergeRequestPatchFromChanges = async ({
++  instanceUrl,
++  token,
++  encodedProjectId,
++  encodedMergeRequestIid,
++}: {
++  instanceUrl: string;
++  token: string;
++  encodedProjectId: string;
++  encodedMergeRequestIid: string;
++}) => {
++  const changesPayload = await getGitLabJson<Record<string, unknown>>({
++    instanceUrl,
++    token,
++    action: "merge-request-diff",
++    apiPath: `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/changes?access_raw_diffs=true`,
++  });
++  const fallbackPatch = buildPatchFromChanges(changesPayload);
++
++  if (!fallbackPatch.trim()) {
++    throw new GitLabRouteError("Merge request has no diff content to render.", {
++      status: 404,
++      code: "GITLAB_RESOURCE_UNAUTHORIZED",
++    });
++  }
++
++  if (getPatchSizeBytes(fallbackPatch) > MAX_PATCH_BYTES) {
++    throw buildDiffTooLargeError();
++  }
++
++  return fallbackPatch;
++};
++
++const getMergeRequestPatchStreamResponse = async ({
++  instanceUrl,
++  token,
++  projectId,
++  mergeRequestIid,
++}: {
++  instanceUrl: string;
++  token: string;
++  projectId: string;
++  mergeRequestIid: string;
++}) => {
++  const encodedProjectId = encodeURIComponent(projectId);
++  const encodedMergeRequestIid = encodeURIComponent(mergeRequestIid);
++
++  try {
++    const rawDiffResponse = await getGitLabRequest({
++      instanceUrl,
++      token,
++      apiPath: `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/raw_diffs`,
++      action: "merge-request-diff",
++    });
++
++    const contentLength = Number(rawDiffResponse.headers.get("content-length"));
++    if (Number.isFinite(contentLength) && contentLength > MAX_PATCH_BYTES) {
++      throw buildDiffTooLargeError();
++    }
++
++    if (rawDiffResponse.body) {
++      const reader = rawDiffResponse.body.getReader();
++      const firstRead = await reader.read();
++
++      if (!firstRead.done && firstRead.value && firstRead.value.byteLength > 0) {
++        let bytesRead = firstRead.value.byteLength;
++        if (bytesRead > MAX_PATCH_BYTES) {
++          throw buildDiffTooLargeError();
++        }
++
++        const firstChunk = firstRead.value;
++        const stream = new ReadableStream<Uint8Array>({
++          start(controller) {
++            controller.enqueue(firstChunk);
++            void (async () => {
++              try {
++                while (true) {
++                  const { done, value } = await reader.read();
++                  if (done) {
++                    break;
++                  }
++                  if (!value || value.byteLength === 0) {
++                    continue;
++                  }
++                  bytesRead += value.byteLength;
++                  if (bytesRead > MAX_PATCH_BYTES) {
++                    throw buildDiffTooLargeError();
++                  }
++                  controller.enqueue(value);
++                }
++                controller.close();
++              } catch (error) {
++                controller.error(error);
++              } finally {
++                reader.releaseLock();
++              }
++            })();
++          },
++          cancel(reason) {
++            return reader.cancel(reason);
++          },
++        });
++
++        return new Response(stream, {
++          headers: {
++            "content-type": "text/plain; charset=utf-8",
++            "cache-control": "no-store",
++            "x-diff-source": "raw_diffs",
++          },
++        });
++      }
++      reader.releaseLock();
++    } else {
++      const patch = await rawDiffResponse.text();
++      if (getPatchSizeBytes(patch) > MAX_PATCH_BYTES) {
++        throw buildDiffTooLargeError();
++      }
++      if (patch.trim().length > 0) {
++        return new Response(patch, {
++          headers: {
++            "content-type": "text/plain; charset=utf-8",
++            "cache-control": "no-store",
++            "x-diff-source": "raw_diffs",
++          },
++        });
++      }
++    }
++  } catch (rawDiffError) {
++    if (
++      rawDiffError instanceof GitLabRouteError &&
++      rawDiffError.status === 413
++    ) {
++      throw rawDiffError;
++    }
++  }
++
++  const fallbackPatch = await getMergeRequestPatchFromChanges({
++    instanceUrl,
++    token,
++    encodedProjectId,
++    encodedMergeRequestIid,
++  });
++
++  return new Response(fallbackPatch, {
++    headers: {
++      "content-type": "text/plain; charset=utf-8",
++      "cache-control": "no-store",
++      "x-diff-source": "changes",
++    },
++  });
++};
+ 
+ const getMergeRequestPatch = async ({
+   instanceUrl,
+@@ -589,13 +770,13 @@ const getMergeRequestPatch = async ({
+   projectId,
+   mergeRequestIid,
+ }: {
+-  instanceUrl: string
+-  token: string
+-  projectId: string
+-  mergeRequestIid: string
++  instanceUrl: string;
++  token: string;
++  projectId: string;
++  mergeRequestIid: string;
+ }) => {
+-  const encodedProjectId = encodeURIComponent(projectId)
+-  const encodedMergeRequestIid = encodeURIComponent(mergeRequestIid)
++  const encodedProjectId = encodeURIComponent(projectId);
++  const encodedMergeRequestIid = encodeURIComponent(mergeRequestIid);
+ 
+   try {
+     const rawDiffResponse = await getGitLabRequest({
+@@ -603,65 +784,38 @@ const getMergeRequestPatch = async ({
+       token,
+       apiPath: `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/raw_diffs`,
+       action: "merge-request-diff",
+-    })
+-    const contentLength = Number(rawDiffResponse.headers.get("content-length"))
++    });
++    const contentLength = Number(rawDiffResponse.headers.get("content-length"));
+     if (Number.isFinite(contentLength) && contentLength > MAX_PATCH_BYTES) {
+-      throw new GitLabRouteError(
+-        "Diff is too large to render reliably in the browser.",
+-        {
+-          status: 413,
+-          code: "GITLAB_UPSTREAM_ERROR",
+-        },
+-      )
++      throw buildDiffTooLargeError();
+     }
+ 
+-    const patch = await rawDiffResponse.text()
++    const patch = await rawDiffResponse.text();
+     if (getPatchSizeBytes(patch) > MAX_PATCH_BYTES) {
+-      throw new GitLabRouteError(
+-        "Diff is too large to render reliably in the browser.",
+-        {
+-          status: 413,
+-          code: "GITLAB_UPSTREAM_ERROR",
+-        },
+-      )
++      throw buildDiffTooLargeError();
+     }
+ 
+     if (patch.trim().length > 0) {
+-      return { patch, source: "raw_diffs" as const }
++      return { patch, source: "raw_diffs" as const };
+     }
+   } catch (rawDiffError) {
+-    if (rawDiffError instanceof GitLabRouteError && rawDiffError.status === 413) {
+-      throw rawDiffError
++    if (
++      rawDiffError instanceof GitLabRouteError &&
++      rawDiffError.status === 413
++    ) {
++      throw rawDiffError;
+     }
+   }
+ 
+-  const changesPayload = await getGitLabJson<Record<string, unknown>>({
++  const fallbackPatch = await getMergeRequestPatchFromChanges({
+     instanceUrl,
+     token,
+-    action: "merge-request-diff",
+-    apiPath: `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/changes?access_raw_diffs=true`,
+-  })
+-  const fallbackPatch = buildPatchFromChanges(changesPayload)
++    encodedProjectId,
++    encodedMergeRequestIid,
++  });
+ 
+-  if (!fallbackPatch.trim()) {
+-    throw new GitLabRouteError("Merge request has no diff content to render.", {
+-      status: 404,
+-      code: "GITLAB_RESOURCE_UNAUTHORIZED",
+-    })
+-  }
+-
+-  if (getPatchSizeBytes(fallbackPatch) > MAX_PATCH_BYTES) {
+-    throw new GitLabRouteError(
+-      "Diff is too large to render reliably in the browser.",
+-      {
+-        status: 413,
+-        code: "GITLAB_UPSTREAM_ERROR",
+-      },
+-    )
+-  }
+-
+-  return { patch: fallbackPatch, source: "changes" as const }
+-}
++  return { patch: fallbackPatch, source: "changes" as const };
++};
+ 
+ const getCachedMergeRequestPatch = ({
+   instanceUrl,
+@@ -669,12 +823,12 @@ const getCachedMergeRequestPatch = ({
+   projectId,
+   mergeRequestIid,
+ }: {
+-  instanceUrl: string
+-  token: string
+-  projectId: string
+-  mergeRequestIid: string
++  instanceUrl: string;
++  token: string;
++  projectId: string;
++  mergeRequestIid: string;
+ }) => {
+-  const tokenHash = hashTokenForCache(token)
++  const tokenHash = hashTokenForCache(token);
+   return getCachedGitLabValue(
+     `patch::${instanceUrl}::${tokenHash}::${projectId}::${mergeRequestIid}`,
+     () =>
+@@ -684,8 +838,11 @@ const getCachedMergeRequestPatch = ({
+         projectId,
+         mergeRequestIid,
+       }),
+-  )
+-}
++    {
++      shouldCacheValue: shouldCachePatchPayload,
++    },
++  );
++};
+ 
+ const resolveTokenForRequest = async ({
+   userId,
+@@ -694,13 +851,13 @@ const resolveTokenForRequest = async ({
+   integrationId,
+   projectId,
+ }: {
+-  userId: string
+-  instanceUrl: string
+-  requestToken: string | undefined
+-  integrationId?: string
+-  projectId?: string
++  userId: string;
++  instanceUrl: string;
++  requestToken: string | undefined;
++  integrationId?: string;
++  projectId?: string;
+ }) => {
+-  const normalizedRequestToken = requestToken?.trim()
++  const normalizedRequestToken = requestToken?.trim();
+   if (normalizedRequestToken) {
+     // Token persistence is best-effort. Read actions should still work even if
+     // the optional user-token cache table is unavailable/misaligned.
+@@ -708,38 +865,43 @@ const resolveTokenForRequest = async ({
+       userId,
+       instanceUrl,
+       token: normalizedRequestToken,
+-    }).catch(() => null)
++    }).catch(() => null);
+     return {
+       token: normalizedRequestToken,
+       source: "request" as const,
+-    }
++    };
+   }
+ 
+-  let storedToken = null as Awaited<ReturnType<typeof getGitLabUserInstanceToken>>
++  let storedToken = null as Awaited<
++    ReturnType<typeof getGitLabUserInstanceToken>
++  >;
+   try {
+-    storedToken = await getGitLabUserInstanceToken(userId, instanceUrl)
++    storedToken = await getGitLabUserInstanceToken(userId, instanceUrl);
+   } catch {
+-    storedToken = null
++    storedToken = null;
+   }
+   if (!storedToken) {
+-    const normalizedIntegrationId = integrationId?.trim()
+-    const normalizedProjectId = projectId?.trim()
++    const normalizedIntegrationId = integrationId?.trim();
++    const normalizedProjectId = projectId?.trim();
+ 
+     if (normalizedIntegrationId) {
+-      const integration = await getUserIntegration(normalizedIntegrationId, userId)
++      const integration = await getUserIntegration(
++        normalizedIntegrationId,
++        userId,
++      );
+       const matchesScope =
+         integration &&
+         integration.instanceUrl === instanceUrl &&
+-        (!normalizedProjectId || integration.projectId === normalizedProjectId)
++        (!normalizedProjectId || integration.projectId === normalizedProjectId);
+ 
+       if (matchesScope && integration) {
+         try {
+-          const integrationToken = decryptIntegrationToken(integration)
++          const integrationToken = decryptIntegrationToken(integration);
+           if (integrationToken.trim()) {
+             return {
+               token: integrationToken,
+               source: "integration" as const,
+-            }
++            };
+           }
+         } catch {
+           // Fall through to token-required error below.
+@@ -754,7 +916,7 @@ const resolveTokenForRequest = async ({
+         code: "GITLAB_TOKEN_REQUIRED",
+         reconnectRequired: true,
+       },
+-    )
++    );
+   }
+ 
+   if (storedToken.staleAt) {
+@@ -769,14 +931,14 @@ const resolveTokenForRequest = async ({
+           staleReason: storedToken.staleReason,
+         },
+       },
+-    )
++    );
+   }
+ 
+   return {
+     token: storedToken.token,
+     source: "stored" as const,
+-  }
+-}
++  };
++};
+ 
+ export async function POST(request: Request) {
+   return runWithApiRequestLog({
+@@ -787,24 +949,30 @@ export async function POST(request: Request) {
+       const [userId, rawPayload] = await Promise.all([
+         getSessionUserId(),
+         request.json().catch(() => null),
+-      ])
++      ]);
+ 
+       if (!userId) {
+         return {
+           status: 401,
+           outcome: "unauthorized",
+-          response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+-        }
++          response: NextResponse.json(
++            { error: "Unauthorized" },
++            { status: 401 },
++          ),
++        };
+       }
+ 
+-      const payload = rawPayload as GitLabProjectPayload | null
++      const payload = rawPayload as GitLabProjectPayload | null;
+ 
+       if (!payload || payload.action === undefined) {
+         return {
+           status: 400,
+           outcome: "invalid_request",
+-          response: NextResponse.json({ error: "Invalid request payload." }, { status: 400 }),
+-        }
++          response: NextResponse.json(
++            { error: "Invalid request payload." },
++            { status: 400 },
++          ),
++        };
+       }
+ 
+       if (
+@@ -817,8 +985,11 @@ export async function POST(request: Request) {
+         return {
+           status: 400,
+           outcome: "invalid_request",
+-          response: NextResponse.json({ error: "Unsupported action." }, { status: 400 }),
+-        }
++          response: NextResponse.json(
++            { error: "Unsupported action." },
++            { status: 400 },
++          ),
++        };
+       }
+ 
+       if (!isNonEmptyString(payload.instanceUrl)) {
+@@ -829,17 +1000,17 @@ export async function POST(request: Request) {
+             { error: "GitLab instance URL is required." },
+             { status: 400 },
+           ),
+-        }
++        };
+       }
+ 
+-      let normalizedInstanceUrl: string
++      let normalizedInstanceUrl: string;
+       try {
+-        normalizedInstanceUrl = normalizeGitLabInstanceUrl(payload.instanceUrl)
++        normalizedInstanceUrl = normalizeGitLabInstanceUrl(payload.instanceUrl);
+       } catch (error) {
+         const message =
+           error instanceof Error
+             ? error.message
+-            : "GitLab instance URL is invalid."
++            : "GitLab instance URL is invalid.";
+         return {
+           status: 400,
+           outcome: "invalid_request",
+@@ -850,7 +1021,7 @@ export async function POST(request: Request) {
+             },
+             { status: 400 },
+           ),
+-        }
++        };
+       }
+ 
+       try {
+@@ -860,22 +1031,24 @@ export async function POST(request: Request) {
+           requestToken: payload.token,
+           integrationId: payload.integrationId,
+           projectId: payload.projectId,
+-        })
++        });
+ 
+         logger.set({
+           action: payload.action,
+           instanceUrl: normalizedInstanceUrl,
+           tokenSource: resolvedToken.source,
+-        })
++        });
+ 
+         if (payload.action === "validate-token") {
+-          const currentUserData = await getCachedGitLabJson<Record<string, unknown>>({
++          const currentUserData = await getCachedGitLabJson<
++            Record<string, unknown>
++          >({
+             instanceUrl: normalizedInstanceUrl,
+             token: resolvedToken.token,
+             action: payload.action,
+             apiPath: "/api/v4/user",
+-          })
+-          const currentUser = normalizeGitLabUser(currentUserData)
++          });
++          const currentUser = normalizeGitLabUser(currentUserData);
+ 
+           return {
+             status: 200,
+@@ -887,7 +1060,7 @@ export async function POST(request: Request) {
+                 name: currentUser.name,
+               },
+             }),
+-          }
++          };
+         }
+ 
+         if (payload.action === "projects") {
+@@ -895,19 +1068,21 @@ export async function POST(request: Request) {
+             payload.perPage,
+             PROJECTS_PER_PAGE_DEFAULT,
+             PROJECTS_PER_PAGE_MAX,
+-          )
+-          const normalizedSearch = payload.search?.trim() ?? ""
+-          const useSearch = normalizedSearch.length >= 3
++          );
++          const normalizedSearch = payload.search?.trim() ?? "";
++          const useSearch = normalizedSearch.length >= 3;
+           const searchParam = useSearch
+             ? `&search=${encodeURIComponent(normalizedSearch)}`
+-            : ""
++            : "";
+ 
+-          const responseData = await getCachedGitLabJson<Array<Record<string, unknown>>>({
++          const responseData = await getCachedGitLabJson<
++            Array<Record<string, unknown>>
++          >({
+             instanceUrl: normalizedInstanceUrl,
+             token: resolvedToken.token,
+             action: payload.action,
+             apiPath: `/api/v4/projects?membership=true&per_page=${perPage}&order_by=last_activity_at&sort=desc${searchParam}`,
+-          })
++          });
+ 
+           const projects: Project[] = responseData
+             .filter((item) => item && typeof item === "object")
+@@ -921,17 +1096,17 @@ export async function POST(request: Request) {
+                 item.default_branch.trim().length > 0
+                   ? item.default_branch
+                   : undefined,
+-            }))
++            }));
+ 
+           logger.set({
+             count: projects.length,
+             searchApplied: useSearch,
+-          })
++          });
+           return {
+             status: 200,
+             outcome: "success",
+             response: NextResponse.json({ data: projects }),
+-          }
++          };
+         }
+ 
+         if (payload.action === "recent-merge-requests") {
+@@ -939,7 +1114,7 @@ export async function POST(request: Request) {
+             payload.perPage,
+             MERGE_REQUESTS_PER_PAGE_DEFAULT,
+             MERGE_REQUESTS_PER_PAGE_MAX,
+-          )
++          );
+           const [responseData, currentUserData] = await Promise.all([
+             getCachedGitLabJson<Array<Record<string, unknown>>>({
+               instanceUrl: normalizedInstanceUrl,
+@@ -953,19 +1128,19 @@ export async function POST(request: Request) {
+               action: payload.action,
+               apiPath: "/api/v4/user",
+             }).catch(() => ({})),
+-          ])
++          ]);
+ 
+-          const currentUser = normalizeGitLabUser(currentUserData)
++          const currentUser = normalizeGitLabUser(currentUserData);
+           const mergeRequests: MergeRequest[] = responseData
+             .filter((item) => item && typeof item === "object")
+-            .map((item) => mapMergeRequest(item, currentUser))
++            .map((item) => mapMergeRequest(item, currentUser));
+ 
+-          logger.set({ count: mergeRequests.length })
++          logger.set({ count: mergeRequests.length });
+           return {
+             status: 200,
+             outcome: "success",
+             response: NextResponse.json({ data: mergeRequests }),
+-          }
++          };
+         }
+ 
+         if (!isNonEmptyString(payload.projectId)) {
+@@ -976,7 +1151,7 @@ export async function POST(request: Request) {
+               { error: "Project selection is required." },
+               { status: 400 },
+             ),
+-          }
++          };
+         }
+ 
+         if (payload.action === "merge-requests") {
+@@ -984,7 +1159,7 @@ export async function POST(request: Request) {
+             payload.perPage,
+             MERGE_REQUESTS_PER_PAGE_DEFAULT,
+             MERGE_REQUESTS_PER_PAGE_MAX,
+-          )
++          );
+           const [responseData, currentUserData] = await Promise.all([
+             getCachedGitLabJson<Array<Record<string, unknown>>>({
+               instanceUrl: normalizedInstanceUrl,
+@@ -998,22 +1173,22 @@ export async function POST(request: Request) {
+               action: payload.action,
+               apiPath: "/api/v4/user",
+             }).catch(() => ({})),
+-          ])
++          ]);
+ 
+-          const currentUser = normalizeGitLabUser(currentUserData)
++          const currentUser = normalizeGitLabUser(currentUserData);
+           const mergeRequests: MergeRequest[] = responseData
+             .filter((item) => item && typeof item === "object")
+-            .map((item) => mapMergeRequest(item, currentUser))
++            .map((item) => mapMergeRequest(item, currentUser));
+ 
+           logger.set({
+             projectId: payload.projectId,
+             count: mergeRequests.length,
+-          })
++          });
+           return {
+             status: 200,
+             outcome: "success",
+             response: NextResponse.json({ data: mergeRequests }),
+-          }
++          };
+         }
+ 
+         if (!isNonEmptyString(payload.mergeRequestIid)) {
+@@ -1024,7 +1199,29 @@ export async function POST(request: Request) {
+               { error: "Merge request selection is required." },
+               { status: 400 },
+             ),
+-          }
++          };
++        }
++
++        if (payload.streamDiff === true) {
++          const streamResponse = await getMergeRequestPatchStreamResponse({
++            instanceUrl: normalizedInstanceUrl,
++            token: resolvedToken.token,
++            projectId: payload.projectId,
++            mergeRequestIid: payload.mergeRequestIid,
++          });
++
++          logger.set({
++            projectId: payload.projectId,
++            mergeRequestIid: payload.mergeRequestIid,
++            source: streamResponse.headers.get("x-diff-source") ?? "raw_diffs",
++            streamDiff: true,
++          });
++
++          return {
++            status: 200,
++            outcome: "success",
++            response: streamResponse,
++          };
+         }
+ 
+         const mergeRequestDiff = await getCachedMergeRequestPatch({
+@@ -1032,20 +1229,20 @@ export async function POST(request: Request) {
+           token: resolvedToken.token,
+           projectId: payload.projectId,
+           mergeRequestIid: payload.mergeRequestIid,
+-        })
++        });
+ 
+         logger.set({
+           projectId: payload.projectId,
+           mergeRequestIid: payload.mergeRequestIid,
+           source: mergeRequestDiff.source,
+           patchLength: mergeRequestDiff.patch.length,
+-        })
++        });
+ 
+         return {
+           status: 200,
+           outcome: "success",
+           response: NextResponse.json({ data: mergeRequestDiff }),
+-        }
++        };
+       } catch (error) {
+         const routeError =
+           error instanceof GitLabRouteError
+@@ -1058,21 +1255,21 @@ export async function POST(request: Request) {
+                   status: 502,
+                   code: "GITLAB_UPSTREAM_ERROR",
+                 },
+-              )
++              );
+ 
+         if (TOKEN_STALE_CODES.has(routeError.code)) {
+           await markGitLabUserInstanceTokenStale({
+             userId,
+             instanceUrl: normalizedInstanceUrl,
+             reason: routeError.code,
+-          }).catch(() => null)
++          }).catch(() => null);
+         }
+ 
+         logger.set({
+           errorCode: routeError.code,
+           retryable: routeError.retryable,
+           reconnectRequired: routeError.reconnectRequired,
+-        })
++        });
+ 
+         return {
+           status: routeError.status,
+@@ -1086,8 +1283,8 @@ export async function POST(request: Request) {
+             },
+             { status: routeError.status },
+           ),
+-        }
++        };
+       }
+     },
+-  })
++  });
+ }
+diff --git a/src/components/app-sidebar.tsx b/src/components/app-sidebar.tsx
+index 6db47c31..2b2102a1 100644
+--- a/src/components/app-sidebar.tsx
++++ b/src/components/app-sidebar.tsx
+@@ -70,6 +70,19 @@ type ReviewProject = {
+   updatedAt: string
+ }
+ 
++type InstanceSeed = {
++  instanceUrl: string
++  integrationId: string
++}
++
++type DiscoverableProject = {
++  instanceUrl: string
++  integrationId: string
++  projectId: string
++  projectPath: string
++  projectName: string
++}
++
+ const ACTIVE_TOOL_STORAGE_KEY = "argus-active-tool"
+ 
+ const TOOLS: SidebarTool[] = [
+@@ -131,6 +144,20 @@ const asDateValue = (value: string | null | undefined) => {
+   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+ }
+ 
++const isRecord = (value: unknown): value is Record<string, unknown> =>
++  typeof value === "object" && value !== null
++
++const buildProjectScopeKey = (instanceUrl: string, projectId: string) =>
++  `${instanceUrl.trim().toLowerCase()}::${projectId.trim()}`
++
++const getApiErrorMessage = (payload: unknown, fallback: string) => {
++  if (isRecord(payload) && typeof payload.error === "string") {
++    return payload.error
++  }
++
++  return fallback
++}
++
+ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+   const { isMobile } = useSidebar()
+   const pathname = usePathname()
+@@ -138,6 +165,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+   const [activeTool, setActiveTool] = React.useState<ToolId>("review-agent")
+   const [reviewProjects, setReviewProjects] = React.useState<ReviewProject[]>([])
+   const [projectsState, setProjectsState] = React.useState<"idle" | "loading" | "ready" | "error">("idle")
++  const [discoverableProjects, setDiscoverableProjects] = React.useState<DiscoverableProject[]>([])
++  const [discoverProjectsState, setDiscoverProjectsState] = React.useState<
++    "idle" | "loading" | "ready" | "error"
++  >("idle")
++  const [discoverProjectsStatus, setDiscoverProjectsStatus] = React.useState("")
++  const [isConnectingDiscoverableProject, setIsConnectingDiscoverableProject] = React.useState(false)
+   const [projectsReloadNonce, setProjectsReloadNonce] = React.useState(0)
+   const [isRepoDialogOpen, setIsRepoDialogOpen] = React.useState(false)
+ 
+@@ -162,6 +195,188 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+     router.push("/settings?tab=gitlab")
+   }, [router])
+ 
++  const instanceSeeds = React.useMemo<InstanceSeed[]>(() => {
++    const uniqueByInstance = new Map<string, InstanceSeed>()
++    for (const project of reviewProjects) {
++      if (uniqueByInstance.has(project.instanceUrl)) {
++        continue
++      }
++      uniqueByInstance.set(project.instanceUrl, {
++        instanceUrl: project.instanceUrl,
++        integrationId: project.id,
++      })
++    }
++    return [...uniqueByInstance.values()]
++  }, [reviewProjects])
++
++  const loadDiscoverableProjects = React.useCallback(async () => {
++    if (instanceSeeds.length === 0) {
++      setDiscoverableProjects([])
++      setDiscoverProjectsState("ready")
++      setDiscoverProjectsStatus("")
++      return
++    }
++
++    setDiscoverProjectsState("loading")
++    setDiscoverProjectsStatus("")
++
++    const connectedKeys = new Set(
++      reviewProjects.map((project) => buildProjectScopeKey(project.instanceUrl, project.projectId)),
++    )
++
++    const resultByInstance = await Promise.allSettled(
++      instanceSeeds.map(async (seed) => {
++        const response = await fetch("/api/gitlab", {
++          method: "POST",
++          headers: {
++            "content-type": "application/json",
++          },
++          body: JSON.stringify({
++            action: "projects",
++            instanceUrl: seed.instanceUrl,
++            integrationId: seed.integrationId,
++            perPage: 100,
++          }),
++        })
++
++        const payload = await response.json().catch(() => null)
++        if (!response.ok) {
++          throw new Error(
++            getApiErrorMessage(payload, "Failed to load repositories from connected instances."),
++          )
++        }
++
++        const rows =
++          isRecord(payload) && Array.isArray(payload.data)
++            ? payload.data
++            : []
++
++        return rows.flatMap((row) => {
++          if (!isRecord(row)) {
++            return []
++          }
++          if (typeof row.id !== "string" || typeof row.path !== "string") {
++            return []
++          }
++
++          const projectName =
++            typeof row.name === "string" && row.name.trim().length > 0
++              ? row.name
++              : row.path
++
++          return [{
++            instanceUrl: seed.instanceUrl,
++            integrationId: seed.integrationId,
++            projectId: row.id,
++            projectPath: row.path,
++            projectName,
++          }]
++        })
++      }),
++    )
++
++    const discovered = new Map<string, DiscoverableProject>()
++    let failureCount = 0
++
++    for (const result of resultByInstance) {
++      if (result.status === "rejected") {
++        failureCount += 1
++        continue
++      }
++
++      for (const project of result.value) {
++        const projectKey = buildProjectScopeKey(project.instanceUrl, project.projectId)
++        if (connectedKeys.has(projectKey) || discovered.has(projectKey)) {
++          continue
++        }
++
++        discovered.set(projectKey, project)
++      }
++    }
++
++    const nextDiscoverableProjects = [...discovered.values()].sort((left, right) =>
++      left.projectPath.localeCompare(right.projectPath),
++    )
++
++    setDiscoverableProjects(nextDiscoverableProjects)
++
++    if (failureCount === instanceSeeds.length) {
++      setDiscoverProjectsState("error")
++      setDiscoverProjectsStatus("Could not load repositories from connected GitLab instances.")
++      return
++    }
++
++    setDiscoverProjectsState("ready")
++    setDiscoverProjectsStatus(
++      failureCount > 0
++        ? "Loaded repositories from available instances. Some instances failed."
++        : "",
++    )
++  }, [instanceSeeds, reviewProjects])
++
++  const handleConnectDiscoverableProject = React.useCallback(
++    async (project: DiscoverableProject) => {
++      if (isConnectingDiscoverableProject) {
++        return
++      }
++
++      setIsConnectingDiscoverableProject(true)
++      setDiscoverProjectsStatus("")
++      try {
++        const response = await fetch("/api/gitlab/integrations/connect", {
++          method: "POST",
++          headers: {
++            "content-type": "application/json",
++          },
++          body: JSON.stringify({
++            instanceUrl: project.instanceUrl,
++            integrationId: project.integrationId,
++            projectId: project.projectId,
++            projectPath: project.projectPath,
++            projectName: project.projectName,
++          }),
++        })
++
++        const payload = await response.json().catch(() => null)
++        if (!response.ok) {
++          throw new Error(getApiErrorMessage(payload, "Failed to connect repository."))
++        }
++
++        const integration = isRecord(payload) && isRecord(payload.data) ? payload.data : null
++        if (
++          !integration ||
++          typeof integration.id !== "string" ||
++          typeof integration.instanceUrl !== "string" ||
++          typeof integration.projectId !== "string" ||
++          typeof integration.projectPath !== "string"
++        ) {
++          throw new Error("Connect response is missing repository details.")
++        }
++
++        handleReloadProjects()
++        setIsRepoDialogOpen(false)
++        router.push(buildRepoPath({
++          id: integration.id,
++          instanceUrl: integration.instanceUrl,
++          projectId: integration.projectId,
++          projectPath: integration.projectPath,
++        }))
++      } catch (error) {
++        setDiscoverProjectsStatus(
++          error instanceof Error ? error.message : "Failed to connect repository.",
++        )
++      } finally {
++        setIsConnectingDiscoverableProject(false)
++      }
++    },
++    [handleReloadProjects, isConnectingDiscoverableProject, router],
++  )
++
++  const handleRefreshRepoDialog = React.useCallback(() => {
++    handleReloadProjects()
++    void loadDiscoverableProjects()
++  }, [handleReloadProjects, loadDiscoverableProjects])
++
+   React.useEffect(() => {
+     if (typeof window === "undefined") {
+       return
+@@ -257,6 +472,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+     }
+   }, [activeTool, projectsReloadNonce])
+ 
++  React.useEffect(() => {
++    if (!isRepoDialogOpen || activeTool !== "review-agent") {
++      return
++    }
++
++    void loadDiscoverableProjects()
++  }, [activeTool, isRepoDialogOpen, loadDiscoverableProjects])
++
+   const renderReviewAgentPanel = () => (
+     <>
+       <SidebarGroup>
+@@ -315,13 +538,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+               ? reviewProjects.map((project) => {
+                   const href = buildRepoPath(project)
+                   const isActive = pathname === href || pathname.startsWith(`${href}/`)
++                  const showDegradedIndicator = project.status === "degraded"
+ 
+                   return (
+                     <SidebarMenuItem key={project.id}>
+                       <SidebarMenuButton
+                         asChild
+                         isActive={isActive}
+-                        tooltip={project.projectPath}
++                        tooltip={{
++                          children: project.projectName,
++                          hidden: false,
++                          side: "top",
++                          align: "start",
++                        }}
+                         variant={isActive ? "outline" : "default"}
+                         className={
+                           isActive
+@@ -330,10 +559,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+                         }
+                       >
+                         <Link href={href}>
+-                          <span className="min-w-0 flex-1 truncate">{project.projectName}</span>
+-                          <span className="text-[10px] uppercase tracking-wide text-sidebar-foreground/60">
+-                            {project.status}
++                          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap [direction:rtl] [unicode-bidi:plaintext] text-left">
++                            {project.projectName}
+                           </span>
++                          {showDegradedIndicator ? (
++                            <span
++                              aria-label="Degraded"
++                              className="size-2 shrink-0 rounded-full bg-red-500"
++                            />
++                          ) : null}
+                         </Link>
+                       </SidebarMenuButton>
+                     </SidebarMenuItem>
+@@ -390,12 +624,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+ 
+   const activeToolConfig = TOOLS.find((tool) => tool.id === activeTool) ?? TOOLS[0]
+   const ActiveToolIcon = activeToolConfig.icon
++  const isRepoDialogLoading = projectsState === "loading" || discoverProjectsState === "loading"
++  const isRepoDialogError = projectsState === "error" && discoverProjectsState === "error"
+   const repoDialogEmptyMessage =
+-    projectsState === "loading"
++    isRepoDialogLoading
+       ? "Loading repositories..."
+-      : projectsState === "error"
++      : isRepoDialogError
+         ? "Could not load repositories."
+-        : reviewProjects.length === 0
++        : reviewProjects.length === 0 && discoverableProjects.length === 0
+           ? "No connected repositories yet."
+           : "No repositories match your search."
+ 
+@@ -472,7 +708,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+         open={isRepoDialogOpen}
+         onOpenChange={setIsRepoDialogOpen}
+         title="Find or connect repository"
+-        description="Search connected repositories and open GitLab settings to connect another."
++        description="Search connected repositories or load additional repositories from your connected GitLab instances."
+       >
+         <CommandInput placeholder="Search by repository name or path..." />
+         <CommandList>
+@@ -491,17 +727,37 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+               ))}
+             </CommandGroup>
+           ) : null}
++          {discoverableProjects.length > 0 ? (
++            <CommandGroup heading="Available from connected instances">
++              {discoverableProjects.map((project) => (
++                <CommandItem
++                  key={buildProjectScopeKey(project.instanceUrl, project.projectId)}
++                  value={`${project.projectName} ${project.projectPath} ${project.instanceUrl} ${project.projectId}`}
++                  onSelect={() => {
++                    void handleConnectDiscoverableProject(project)
++                  }}
++                  disabled={isConnectingDiscoverableProject}
++                >
++                  <IconPlus />
++                  <span className="truncate">{project.projectPath}</span>
++                </CommandItem>
++              ))}
++            </CommandGroup>
++          ) : null}
+           <CommandSeparator />
+           <CommandGroup heading="Actions">
+-            <CommandItem onSelect={handleReloadProjects} disabled={projectsState === "loading"}>
++            <CommandItem onSelect={handleRefreshRepoDialog} disabled={isRepoDialogLoading}>
+               <IconBrandGitlab />
+-              <span>{projectsState === "loading" ? "Loading repositories..." : "Refresh repository list"}</span>
++              <span>{isRepoDialogLoading ? "Loading repositories..." : "Refresh repository list"}</span>
+             </CommandItem>
+             <CommandItem onSelect={handleOpenConnectSettings}>
+               <IconSettings />
+               <span>Connect new repository</span>
+             </CommandItem>
+           </CommandGroup>
++          {discoverProjectsStatus ? (
++            <div className="text-muted-foreground px-2 py-1 text-xs">{discoverProjectsStatus}</div>
++          ) : null}
+         </CommandList>
+       </CommandDialog>
+     </>
+diff --git a/src/lib/gitlab/env.ts b/src/lib/gitlab/env.ts
+index 2b29e741..25886854 100644
+--- a/src/lib/gitlab/env.ts
++++ b/src/lib/gitlab/env.ts
+@@ -30,7 +30,13 @@ const parseEncryptionKey = (value: string) => {
+   }
+ 
+   throw new Error(
+-    "GITLAB_TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes (raw/base64/base64url/hex).",
++    [
++      "GITLAB_TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes (raw/base64/base64url/hex).",
++      "Action: set a valid key, for example:",
++      "  export GITLAB_TOKEN_ENCRYPTION_KEY=\"$(openssl rand -base64 32)\"",
++      "Or write it to .env.local:",
++      "  printf 'GITLAB_TOKEN_ENCRYPTION_KEY=%s\\n' \"$(openssl rand -base64 32)\" >> .env.local",
++    ].join("\n"),
+   )
+ }
+ 

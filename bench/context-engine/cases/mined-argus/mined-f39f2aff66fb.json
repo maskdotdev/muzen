@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-f39f2aff66fb",
+  "repoSource": {
+    "kind": "git",
+    "commit": "f39f2aff66fb966a583d0181ebb82f4510949050",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/lib/indexing/chunker.ts",
+    "src/lib/indexing/embedder.ts",
+    "src/lib/indexing/ignore.ts",
+    "src/lib/indexing/processors/ingest.ts",
+    "src/lib/indexing/snapshot.ts",
+    "src/lib/indexing/sources/gitlab-source.ts",
+    "src/lib/indexing/stores/artifact-store.fs.ts",
+    "src/lib/indexing/stores/vector-store.noop.ts"
+  ],
+  "description": "Mined pair: base f39f2aff66fb (feat(indexing): add phase 1 snapshot ingest pipeline) followed by 8cc730d70a09 (feat(indexing): add pgvector-backed vector store).",
+  "minedFrom": {
+    "baseCommit": "f39f2aff66fb966a583d0181ebb82f4510949050",
+    "followUpCommit": "8cc730d70a0931dc5602638bc7c8caa896c1e8b9"
+  },
+  "cases": [
+    {
+      "id": "mined-f39f2aff66fb-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/lib/db/schema/index.ts",
+        "src/lib/db/schema/indexing.ts"
+      ]
+    }
+  ]
+}

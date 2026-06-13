@@ -24,9 +24,20 @@ import {
 } from "./wire-validation.js";
 import type {
   CreateMuzenClientOptions,
+  ContextFeedbackOptions,
+  ContextFeedbackReceipt,
+  ContextIndexOptions,
+  ContextLearningApprovalOptions,
+  ContextLearningApprovalReceipt,
+  ContextManifest,
+  ContextPack,
+  ContextPackOptions,
+  ContextQueryOptions,
+  ContextQueryResult,
   ModelProfile,
   ModelProfileInput,
   Muzen,
+  MuzenContextWorkspace,
   MuzenWorkers,
   MuzenWebhookHandler,
   MuzenWebhookProvider,
@@ -206,6 +217,7 @@ class RemoteWorkspace implements MuzenWorkspace {
     ProviderProfileInput,
     ProviderProfile
   >;
+  readonly context: MuzenContextWorkspace;
 
   constructor(
     private readonly client: RemoteMuzen,
@@ -225,6 +237,7 @@ class RemoteWorkspace implements MuzenWorkspace {
       unwrapProviderProfile,
       unwrapProviderProfiles,
     );
+    this.context = new RemoteContextWorkspace(client, id);
   }
 
   async review(
@@ -245,6 +258,98 @@ class RemoteWorkspace implements MuzenWorkspace {
     );
     return new RemoteReviewSession(this.client, unwrapReviewSnapshot(response));
   }
+}
+
+class RemoteContextWorkspace implements MuzenContextWorkspace {
+  constructor(
+    private readonly client: RemoteMuzen,
+    private readonly workspaceId: string,
+  ) {}
+
+  async index(options: ContextIndexOptions): Promise<ContextManifest> {
+    const value = await this.client.requestJson(this.contextPath("index"), {
+      method: "POST",
+      body: contextIndexBody(options),
+    });
+    return (value as { manifest: ContextManifest }).manifest;
+  }
+
+  async buildPack(options: ContextPackOptions): Promise<ContextPack> {
+    const value = await this.client.requestJson(this.contextPath("packs"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        purpose: options.purpose,
+        maxTokens: options.maxTokens,
+      },
+    });
+    return (value as { pack: ContextPack }).pack;
+  }
+
+  async query(options: ContextQueryOptions): Promise<ContextQueryResult> {
+    const value = await this.client.requestJson(this.contextPath("query"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        purpose: options.purpose,
+        kind: options.kind,
+        arguments: options.arguments ?? {},
+        currentEvidence: options.currentEvidence ?? [],
+        limits: options.limits,
+      },
+    });
+    return (value as { result: ContextQueryResult }).result;
+  }
+
+  async recordFeedback(
+    options: ContextFeedbackOptions,
+  ): Promise<ContextFeedbackReceipt> {
+    const value = await this.client.requestJson(this.contextPath("feedback"), {
+      method: "POST",
+      body: {
+        ...contextIndexBody(options),
+        evidenceIds: options.evidenceIds ?? [],
+        feedback: options.feedback,
+        learningSource: options.learningSource,
+        scope: options.scope,
+      },
+    });
+    return (value as { receipt: ContextFeedbackReceipt }).receipt;
+  }
+
+  async approveLearning(
+    options: ContextLearningApprovalOptions,
+  ): Promise<ContextLearningApprovalReceipt> {
+    const value = await this.client.requestJson(
+      this.contextPath("learnings/approve"),
+      {
+        method: "POST",
+        body: {
+          snapshotId: options.snapshotId,
+          learningId: options.learningId,
+          approve: options.approve ?? false,
+          expiresAtUtc: options.expiresAtUtc,
+        },
+      },
+    );
+    return (value as { receipt: ContextLearningApprovalReceipt }).receipt;
+  }
+
+  private contextPath(kind: string): string {
+    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/context/${kind}`;
+  }
+}
+
+function contextIndexBody(options: ContextIndexOptions): Record<string, unknown> {
+  const source = parseReviewSource(options.source);
+  return {
+    source,
+    changedFiles: options.changedFiles,
+    hostMetadata: options.hostMetadata,
+    crossRepoContracts: options.crossRepoContracts,
+    allowedCrossRepoResources: options.allowedCrossRepoResources,
+    config: options.config,
+  };
 }
 
 class RemoteWorkspaceProfileCollection<Input, Profile>

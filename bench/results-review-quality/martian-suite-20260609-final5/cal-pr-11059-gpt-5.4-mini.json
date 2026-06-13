@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:15:39.095Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 7
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-wQZeGe/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-wQZeGe/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 27,
+      "needs_review": 11,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 93,
+    "toolCalls": 175,
+    "tokens": {
+      "inputTokens": 1214763,
+      "outputTokens": 11061,
+      "totalTokens": 1225824
+    },
+    "artifactStats": {
+      "artifacts": 81,
+      "artifactBytes": 409388
+    },
+    "elapsedMs": 215402
+  },
+  "benchmark": {
+    "elapsedMs": 215553,
+    "hitRate": 0.14285714285714285,
+    "hits": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "findingId": "a513443cbeaf4a113fbf8a14b59faf2acc984f302ee362e2cd18953ed8f0188c",
+        "title": "Google Calendar callback stores the wrong token payload shape in credential.key"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "title": "Office 365 Calendar refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+        "title": "Zoom video refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoho-bigin-return-shape",
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "title": "Zoho Bigin refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-zohocrm-return-shape",
+        "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "title": "Zoho CRM refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 11,
+    "requiredEvidenceFailures": 11,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 24,
+    "importCount": 0,
+    "needsReviewCount": 11,
+    "cleanCount": 27,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `packages/app-store/googlecalendar/api/callback.ts`, the code assigns `key = token.res?.data` after `oAuth2Client.getToken(code)`, then persists that object into `prisma.credential.create({ data: { key, ... } })`. The Google OAuth client returns the token data on `token.tokens`/`token.res?.data` only if the HTTP response happens to carry the expected shape; the rest of the app's Google Calendar service reads the stored credential as an OAuth token object. If `token.res` is absent or does not contain the token body, the credential is created with an empty string instead of the access/refresh token object, causing later refresh/auth flows to fail.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-005"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_30544f62321bf24ff650676d5270b24eeeef3bb29cc2cc2fa4d717b0186c6bbc",
+          "contentHash": "52de9a3624c041539c3c79c51baf117ebcba570924c4e87c859f0a3e27c7ebc0",
+          "evidenceId": "evidence-art_30544f62321bf24ff650676d5270b24eeeef3bb29cc2cc2fa4d717b0186c6bbc",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_6f51ab823000c9cece3b08a5bf956c2fd2b4405611a2c2c8f7091897d5e37910",
+          "contentHash": "a43ed5bc995f47cf566148f92a7e638a8491cc234c23fcf984a993a84099ee3f",
+          "evidenceId": "evidence-art_6f51ab823000c9cece3b08a5bf956c2fd2b4405611a2c2c8f7091897d5e37910",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-005-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "a513443cbeaf4a113fbf8a14b59faf2acc984f302ee362e2cd18953ed8f0188c",
+      "location": {
+        "endColumn": null,
+        "endLine": 10,
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 10
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      ],
+      "severity": "low",
+      "title": "Google Calendar callback stores the wrong token payload shape in credential.key",
+      "validatedBy": [
+        "unit-005-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

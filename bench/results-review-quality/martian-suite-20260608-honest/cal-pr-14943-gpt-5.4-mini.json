@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:27:28.800Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-RSjxKo/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-RSjxKo/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 6,
+    "toolCalls": 8,
+    "tokens": {
+      "inputTokens": 31752,
+      "outputTokens": 643,
+      "totalTokens": 32395
+    },
+    "artifactStats": {
+      "artifacts": 8,
+      "artifactBytes": 79996
+    },
+    "elapsedMs": 10996
+  },
+  "benchmark": {
+    "elapsedMs": 11621,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "findingId": "938c5ea45ff9d5ba017095ad32c331c23e214c425bec12b48f5e7a739397e86e",
+        "title": "Cleanup deletes reminders as soon as retryCount reaches 2, not after exceeding the retry budget"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 1,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 0,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {
+      "duplicate_existing_path_finding": 1
+    },
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new deleteMany OR clause removes every reminder with retryCount > 1 regardless of method or scheduled date. Since the handler increments retryCount on every failed or unsent pass, a reminder is deleted on the first run after its second retry increment, which is earlier than the apparent intended cutoff of allowing up to 2 retries and only removing later failures.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-001"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "contentHash": "763efa378e3c2e9928e39b1763af4121f763ff6ee7cdf5bbc1713f916e65d542",
+          "evidenceId": "evidence-art_046efb4d32a26161c82095d6bf39a04e295ff8e4b0d17ef33d59d3bef9ed1a76",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "contentHash": "c11a969410f9545f1e6824ecfd628e2683be3871b9b0df8e614e495b7f280972",
+          "evidenceId": "evidence-art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_a42a6ad115c44c75119d5459581671f8b50002f6933df0db7a8fc9a8847e097e",
+          "contentHash": "a37282d5cd3b75d6bbac903fece1dcc05a093cc0557a40016306a7867dc77699",
+          "evidenceId": "evidence-art_a42a6ad115c44c75119d5459581671f8b50002f6933df0db7a8fc9a8847e097e",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "contentHash": "3165fac6566a265651b20e1e7aab1fc3c3a1d4205e701929959035f700f97102",
+          "evidenceId": "evidence-art_e4ab98dad4fa7c5c74e015d77f04ce14230d7e4fc35b2bf530cce822740bc940",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "evidenceId": "evidence-art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 6,
+      "id": "938c5ea45ff9d5ba017095ad32c331c23e214c425bec12b48f5e7a739397e86e",
+      "location": {
+        "endColumn": null,
+        "endLine": 45,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 29
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Cleanup deletes reminders as soon as retryCount reaches 2, not after exceeding the retry budget",
+      "validatedBy": [
+        "unit-001-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

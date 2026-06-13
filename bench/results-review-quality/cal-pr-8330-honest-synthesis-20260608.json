@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:35:29.066Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-KUBNgU/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-KUBNgU/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "clean": 3,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 55988,
+      "outputTokens": 530,
+      "totalTokens": 56518
+    },
+    "artifactStats": {
+      "artifacts": 9,
+      "artifactBytes": 78786
+    },
+    "elapsedMs": 9977
+  },
+  "benchmark": {
+    "elapsedMs": 10378,
+    "hitRate": 0.3333333333333333,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "25bbf953d726659eeafb7feabbe6e215df46dc0b7593f22ccd6b174b468dfcf3",
+        "title": "Working-hours boundary check compares the slot start minute to both start and end, misclassifying partial slots"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Zero-length date overrides compare Dayjs objects by reference"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 3,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 2,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 3,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `checkIfIsAvailable`, the new working-hours gate computes `end` as `slotStartTime.hour() * 60 + slotStartTime.minute()` instead of using the slot end instant. Before this change, availability depended on the actual slot interval; after the change, any slot whose start is within working hours is treated as if its end were also at the same minute, so slots that extend past `workingHour.endTime` are no longer rejected correctly.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "contentHash": "9d2a6bc0095b6ec22cc03ff0744160b221294496b0367fc8be8fa1f790c14d2c",
+          "evidenceId": "evidence-art_48eb2bc173e046eca01a8798c6a27a4f9eb15509e81adccf32fd107d70240617",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_ae7953316a2bfa880729d92bf03287b21ee178bf3c9a7dfcfef0aba0a47bb3e2",
+          "contentHash": "92176e1ec2da95712a7dbe72006abec6682defc225bd9f545929e03d12b17edb",
+          "evidenceId": "evidence-art_ae7953316a2bfa880729d92bf03287b21ee178bf3c9a7dfcfef0aba0a47bb3e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "25bbf953d726659eeafb7feabbe6e215df46dc0b7593f22ccd6b174b468dfcf3",
+      "location": {
+        "endColumn": null,
+        "endLine": 144,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 136
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Working-hours boundary check compares the slot start minute to both start and end, misclassifying partial slots",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

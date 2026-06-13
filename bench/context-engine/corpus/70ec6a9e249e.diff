@@ -1,0 +1,121 @@
+diff --git a/muzen-context-engine/README.md b/muzen-context-engine/README.md
+index f4eda93..231b050 100644
+--- a/muzen-context-engine/README.md
++++ b/muzen-context-engine/README.md
+@@ -35,6 +35,8 @@ Implemented on `feat/context-engine`:
+ - Workspace HTTP hosts can opt into per-workspace durable learning stores with
+   sanitized store paths; `muzen-service` wires this through
+   `MUZEN_CONTEXT_LEARNING_STORE_ROOT`.
++- Durable context learning stores prune expired records on open so retention is
++  enforced in persisted JSON, not only at query time.
+ - HTTP, runner stdio, and TypeScript/Python SDK context adapters expose feedback
+   recording and learning approval flows.
+ - Cross-repository contract context has a provider-neutral query surface,
+@@ -55,7 +57,6 @@ Still pending from the full plan:
+ 
+ - Deeper parser coverage for re-exports, aliases, method receivers, nested
+   modules/classes, and line ranges on symbol evidence.
+-- Retention policies and cleanup for durable context learning stores.
+ - Capability-scoped network/provider retrieval for cross-repository contracts.
+ - Hosted embedding provider implementation, index lifecycle wiring, and
+   benchmarked semantic ranking improvements.
+diff --git a/src/context_engine/store.rs b/src/context_engine/store.rs
+index c0675fd..a263191 100644
+--- a/src/context_engine/store.rs
++++ b/src/context_engine/store.rs
+@@ -133,7 +133,7 @@ struct ContextLearningStoreFile {
+ impl FileContextLearningStore {
+     pub fn open(path: impl AsRef<Path>) -> RuntimeResult<Self> {
+         let path = path.as_ref().to_path_buf();
+-        let learnings = if path.exists() {
++        let mut learnings = if path.exists() {
+             let contents = std::fs::read_to_string(&path).map_err(|error| {
+                 RuntimeError::InvalidInput(format!(
+                     "failed to read context learning store {}: {error}",
+@@ -155,10 +155,22 @@ impl FileContextLearningStore {
+         } else {
+             HashMap::new()
+         };
+-        Ok(Self {
++        let original_len = learnings.len();
++        learnings.retain(|_, learning| !learning_is_expired_for_retention(learning));
++        let pruned_expired = learnings.len() != original_len;
++        let store = Self {
+             path,
+             learnings: Mutex::new(learnings),
+-        })
++        };
++        if pruned_expired {
++            store.persist(
++                &store
++                    .learnings
++                    .lock()
++                    .expect("context learning store poisoned"),
++            )?;
++        }
++        Ok(store)
+     }
+ 
+     fn persist(&self, learnings: &HashMap<String, ContextLearning>) -> RuntimeResult<()> {
+@@ -186,6 +198,61 @@ impl FileContextLearningStore {
+     }
+ }
+ 
++fn learning_is_expired_for_retention(learning: &ContextLearning) -> bool {
++    let Some(expires_at) = &learning.expires_at_utc else {
++        return false;
++    };
++    let Ok(expires_at) = expires_at
++        .trim_end_matches('Z')
++        .split('.')
++        .next()
++        .unwrap_or(expires_at)
++        .parse::<u64>()
++    else {
++        return false;
++    };
++    let now = std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|duration| duration.as_secs())
++        .unwrap_or(0);
++    expires_at <= now
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::context_engine::{
++        ContextLearningScope, ContextLearningSource, ContextLearningStatus,
++    };
++
++    #[test]
++    fn file_learning_store_prunes_expired_records_on_open() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("context-learnings.json");
++        let store = FileContextLearningStore::open(&path).unwrap();
++        store
++            .put_learning(ContextLearning {
++                id: "expired".to_string(),
++                snapshot_id: SnapshotId("snapshot".to_string()),
++                source: ContextLearningSource::ManualRule,
++                status: ContextLearningStatus::Approved,
++                scope: ContextLearningScope::Repository,
++                evidence_ids: Vec::new(),
++                summary: "expired learning".to_string(),
++                created_at_utc: "1".to_string(),
++                expires_at_utc: Some("1".to_string()),
++            })
++            .unwrap();
++        assert_eq!(store.list_learnings().len(), 1);
++
++        let reopened = FileContextLearningStore::open(&path).unwrap();
++        assert!(reopened.list_learnings().is_empty());
++        let persisted: ContextLearningStoreFile =
++            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
++        assert!(persisted.learnings.is_empty());
++    }
++}
++
+ impl ContextLearningStore for FileContextLearningStore {
+     fn put_learning(&self, learning: ContextLearning) -> RuntimeResult<()> {
+         let mut learnings = self

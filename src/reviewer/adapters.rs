@@ -33,7 +33,7 @@ pub mod capabilities {
 pub mod metrics {
     pub use crate::runtime::contracts::{
         CacheInfo, CacheStatus, ConcurrentCounters, ConcurrentRunReport, LimitInfo,
-        SnapshotMetricsSnapshot,
+        ReviewQualityDiagnostics, SnapshotMetricsSnapshot,
     };
 }
 

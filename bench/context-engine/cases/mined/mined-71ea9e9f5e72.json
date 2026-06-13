@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-71ea9e9f5e72",
+  "repoSource": {
+    "kind": "git",
+    "commit": "71ea9e9f5e727d5eca374aebcb66a6529186878e",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "sdk/python/muzen/__init__.py",
+    "sdk/python/muzen/client.py",
+    "sdk/python/muzen/types.py",
+    "sdk/python/tests/test_client.py"
+  ],
+  "description": "Mined pair: base 71ea9e9f5e72 (feat: add python remote workspace client) followed by 537843564e49 (feat: add sdk webhook response helpers).",
+  "minedFrom": {
+    "baseCommit": "71ea9e9f5e727d5eca374aebcb66a6529186878e",
+    "followUpCommit": "537843564e49711d1bd0eadad40501c2dcb9dcea"
+  },
+  "cases": [
+    {
+      "id": "mined-71ea9e9f5e72-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/index.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts"
+      ]
+    }
+  ]
+}

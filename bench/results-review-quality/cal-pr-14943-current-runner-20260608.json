@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T02:12:36.615Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-4o-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-euYgeO/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-euYgeO/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 1,
+    "fileReviewVerdicts": {
+      "skipped": 1
+    },
+    "findings": 0,
+    "modelCalls": 2,
+    "toolCalls": 4,
+    "tokens": {
+      "inputTokens": 4541,
+      "outputTokens": 536,
+      "totalTokens": 5077
+    },
+    "artifactStats": {
+      "artifacts": 4,
+      "artifactBytes": 64336
+    },
+    "elapsedMs": 9324
+  },
+  "benchmark": {
+    "elapsedMs": 9797,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "title": "SMS retry cleanup deletes reminders from other delivery methods"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 0,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 0,
+    "contractSeedCount": 0,
+    "requiredEvidenceFailures": 0,
+    "contractRiskCompletionCount": 0,
+    "searchCount": 2,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 0,
+    "skippedCount": 1
+  },
+  "findings": []
+}

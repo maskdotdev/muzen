@@ -518,6 +518,13 @@ impl ReviewEventType {
             InternalReviewEvent::RunStarted { .. } => Self::SessionStarted,
             InternalReviewEvent::RepoManifestCompleted { .. } => Self::ScopeInferred,
             InternalReviewEvent::SnapshotStarted { .. } => Self::RunnerEvent,
+            InternalReviewEvent::ContextIndexStarted { .. }
+            | InternalReviewEvent::ContextIndexCompleted { .. }
+            | InternalReviewEvent::ContextIndexFailed { .. }
+            | InternalReviewEvent::ContextPackStarted { .. }
+            | InternalReviewEvent::ContextPackCompleted { .. }
+            | InternalReviewEvent::ContextPackFailed { .. }
+            | InternalReviewEvent::ContextQueryCompleted { .. } => Self::RunnerEvent,
             InternalReviewEvent::SessionStarted { .. } => Self::AgentStarted,
             InternalReviewEvent::ModelStarted { .. } => Self::RunnerEvent,
             InternalReviewEvent::ModelCompleted { .. } => Self::RunnerEvent,

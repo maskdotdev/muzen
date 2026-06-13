@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-635d41c15ef5",
+  "repoSource": {
+    "kind": "git",
+    "commit": "635d41c15ef5901173afae0b7ee9df016736167f",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/review_session/tests.rs",
+    "src/review_units.rs",
+    "src/runtime/planned_units.rs",
+    "src/tests.rs"
+  ],
+  "description": "Mined pair: base 635d41c15ef5 (chore(test): remove dead helpers and unused imports) followed by 58b6926c454d (refactor(reviewer): split facade into domain modules).",
+  "minedFrom": {
+    "baseCommit": "635d41c15ef5901173afae0b7ee9df016736167f",
+    "followUpCommit": "58b6926c454df527d20fdec8ea9be5baa21ed89a"
+  },
+  "cases": [
+    {
+      "id": "mined-635d41c15ef5-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/cli.rs",
+        "src/review_session/outcome.rs",
+        "src/runner/adapters.rs",
+        "src/runner/execution.rs",
+        "src/runner/stored.rs",
+        "src/runner/types.rs",
+        "src/runtime/bench.rs",
+        "src/runtime/model.rs",
+        "src/runtime/policy.rs"
+      ]
+    }
+  ]
+}

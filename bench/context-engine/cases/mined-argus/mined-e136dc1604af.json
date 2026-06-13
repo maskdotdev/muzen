@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-e136dc1604af",
+  "repoSource": {
+    "kind": "git",
+    "commit": "e136dc1604af9f3348ddef9bc1d2fda63d93cd75",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/(app)/analytics/_components/page-content.tsx",
+    "apps/web/src/components/chart-area-interactive.tsx",
+    "apps/web/src/features/review/server/review-argus-agent.ts"
+  ],
+  "description": "Mined pair: base e136dc1604af (chore(web): remove unused helpers and imports) followed by b8661d281d2a (test(web): align route and review specs with current contracts).",
+  "minedFrom": {
+    "baseCommit": "e136dc1604af9f3348ddef9bc1d2fda63d93cd75",
+    "followUpCommit": "b8661d281d2a999fbe03557397e6800b3d87737c"
+  },
+  "cases": [
+    {
+      "id": "mined-e136dc1604af-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/repos/[integrationId]/bootstrap-plan.test.ts",
+        "apps/web/src/features/indexing/server/artifact-store.test.ts",
+        "apps/web/src/features/review/components/diff/review-process.test.tsx",
+        "apps/web/src/features/review/hooks/diff/use-ai-review-stream.test.tsx",
+        "apps/web/src/features/review/server/save-review.test.ts",
+        "apps/web/src/server/api/authenticated-route.test.ts"
+      ]
+    }
+  ]
+}

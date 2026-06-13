@@ -4,8 +4,8 @@
       "id": "cal-8330-working-hours-end-boundary",
       "title": "Working-hours availability checks the slot start as the slot end",
       "path": "packages/trpc/server/routers/viewer/slots.ts",
-      "startLine": 131,
-      "endLine": 136,
+      "startLine": 137,
+      "endLine": 150,
       "keywords": ["working", "hours", "end"]
     },
     {
@@ -21,7 +21,7 @@
       "title": "Zero-length date overrides compare Dayjs objects by reference",
       "path": "packages/trpc/server/routers/viewer/slots.ts",
       "startLine": 108,
-      "endLine": 109,
+      "endLine": 115,
       "keywords": ["dayjs", "date", "override"]
     }
   ]

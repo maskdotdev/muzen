@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-3ebfb2230770",
+  "repoSource": {
+    "kind": "git",
+    "commit": "3ebfb2230770710bc15446f81469afce5b3af18f",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/app/api/review/diff/route.post.test.ts",
+    "src/app/api/review/diff/route.ts",
+    "src/components/merge-request-diff/merge-request-diff-viewer.utils.test.ts",
+    "src/components/merge-request-diff/merge-request-diff-viewer.utils.ts"
+  ],
+  "description": "Mined pair: base 3ebfb2230770 (fix(review): sanitize AI review errors and harden onboarding event writes) followed by 19d1ebb99268 (feat(ui): render AI comments inline and surface copyable error toasts).",
+  "minedFrom": {
+    "baseCommit": "3ebfb2230770710bc15446f81469afce5b3af18f",
+    "followUpCommit": "19d1ebb99268048fe4f13e909614385bf809a1e4"
+  },
+  "cases": [
+    {
+      "id": "mined-3ebfb2230770-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/app/layout.tsx",
+        "src/components/merge-request-diff/merge-request-diff-panel.tsx",
+        "src/components/onboarding/onboarding-mrs-step.tsx",
+        "src/components/onboarding/onboarding-projects-step.tsx",
+        "src/components/onboarding/onboarding-token-step.tsx"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1144 @@
+diff --git a/README.md b/README.md
+index 36572cb0..612e9c09 100644
+--- a/README.md
++++ b/README.md
+@@ -113,6 +113,24 @@ Periodic reconcile scheduling defaults:
+ - `INDEXER_RECONCILE_INTERVAL_MS=300000` (5 min)
+ - `INDEXER_RECONCILE_INTEGRATION_LIMIT=500`
+ 
++Periodic artifact cleanup defaults:
++- `INDEXER_ARTIFACT_CLEANUP_INTERVAL_MS=1800000` (30 min)
++- `INDEXER_ARTIFACT_RETENTION_READY_KEEP_PER_BRANCH=3`
++- `INDEXER_ARTIFACT_RETENTION_FAILED_DAYS=14`
++- `INDEXER_ARTIFACT_RETENTION_SUPERSEDED_DAYS=3`
++- `INDEXER_ARTIFACT_RETENTION_MAX_TOTAL_BYTES=10737418240` (10 GiB)
++- `INDEXER_ARTIFACT_CLEANUP_RUN_SCAN_LIMIT=1000`
++- `INDEXER_ARTIFACT_CLEANUP_DELETE_LIMIT=200`
++
++Manual cleanup trigger (same internal runner key auth):
++
++```bash
++curl -X POST http://localhost:3000/api/internal/indexing/cleanup \
++  -H "x-internal-runner-key: $INTERNAL_RUNNER_KEY" \
++  -H "content-type: application/json" \
++  -d '{}'
++```
++
+ ### App observability
+ 
+ The app uses a single logging entrypoint in `src/lib/utils/logger.ts`.
+diff --git a/src/app/api/internal/indexing/cleanup/route.test.ts b/src/app/api/internal/indexing/cleanup/route.test.ts
+new file mode 100644
+index 00000000..7c886ace
+--- /dev/null
++++ b/src/app/api/internal/indexing/cleanup/route.test.ts
+@@ -0,0 +1,122 @@
++import { describe, expect, mock, test } from 'bun:test'
++
++type LoggerContext = Record<string, unknown>
++
++type ApiLogHandlerArgs = {
++  logger: {
++    set: (context: LoggerContext) => void
++  }
++  requestId: string
++}
++
++type ApiLogHandlerResult = {
++  response: Response
++  status: number
++  outcome?: string
++}
++
++type RunWithApiRequestLogArgs = {
++  request: Request
++  path: string
++  event: string
++  handler: (args: ApiLogHandlerArgs) => Promise<ApiLogHandlerResult>
++}
++
++const loadRouteModule = async (options?: { authorized?: boolean }) => {
++  const loggerContext: LoggerContext = {}
++  const runWithApiRequestLog = mock(async ({ handler }: RunWithApiRequestLogArgs) => {
++    const logger = {
++      set: (context: LoggerContext) => {
++        Object.assign(loggerContext, context)
++      },
++    }
++
++    const result = await handler({ logger, requestId: 'req_1' })
++    return result.response
++  })
++
++  const secureCompare = mock(() => options?.authorized ?? true)
++  const cleanupIndexArtifacts = mock(async () => ({
++    lock: 'acquired' as const,
++    scannedRuns: 4,
++    trackedRuns: 4,
++    deletedRuns: 2,
++  }))
++
++  mock.module('@/lib/utils/logger', () => ({ runWithApiRequestLog }))
++  mock.module('@/lib/gitlab/crypto', () => ({ secureCompare }))
++  mock.module('@/lib/gitlab/env', () => ({ gitlabEnv: { internalRunnerKey: 'runner-key' } }))
++  mock.module('@/lib/indexing/artifact-retention', () => ({ cleanupIndexArtifacts }))
++
++  const routeModule = await import(`./route?cacheBust=${Math.random().toString(36).slice(2)}`)
++
++  return {
++    POST: routeModule.POST as (request: Request) => Promise<Response>,
++    cleanupIndexArtifacts,
++    loggerContext,
++  }
++}
++
++describe('internal indexing cleanup route', () => {
++  test('returns 401 when internal runner auth fails', async () => {
++    const { POST, cleanupIndexArtifacts } = await loadRouteModule({ authorized: false })
++
++    const response = await POST(
++      new Request('http://localhost/api/internal/indexing/cleanup', {
++        method: 'POST',
++        headers: {
++          'content-type': 'application/json',
++          'x-internal-runner-key': 'wrong',
++        },
++        body: JSON.stringify({}),
++      }),
++    )
++
++    const body = await response.json()
++
++    expect(response.status).toBe(401)
++    expect(body).toEqual({ error: 'Unauthorized' })
++    expect(cleanupIndexArtifacts).toHaveBeenCalledTimes(0)
++  })
++
++  test('returns cleanup summary for authorized requests', async () => {
++    const { POST, cleanupIndexArtifacts, loggerContext } = await loadRouteModule({
++      authorized: true,
++    })
++
++    const response = await POST(
++      new Request('http://localhost/api/internal/indexing/cleanup', {
++        method: 'POST',
++        headers: {
++          'content-type': 'application/json',
++          'x-internal-runner-key': 'runner-key',
++        },
++        body: JSON.stringify({
++          readyKeepPerBranch: 2,
++          deleteLimit: 20,
++        }),
++      }),
++    )
++
++    const body = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(cleanupIndexArtifacts).toHaveBeenCalledWith({
++      readyKeepPerBranch: 2,
++      deleteLimit: 20,
++    })
++    expect(body).toEqual({
++      data: {
++        lock: 'acquired',
++        scannedRuns: 4,
++        trackedRuns: 4,
++        deletedRuns: 2,
++      },
++    })
++    expect(loggerContext).toMatchObject({
++      summary: {
++        deletedRuns: 2,
++      },
++    })
++  })
++})
+diff --git a/src/app/api/internal/indexing/cleanup/route.ts b/src/app/api/internal/indexing/cleanup/route.ts
+new file mode 100644
+index 00000000..3da9d718
+--- /dev/null
++++ b/src/app/api/internal/indexing/cleanup/route.ts
+@@ -0,0 +1,63 @@
++import { NextResponse } from 'next/server'
++import { z } from 'zod'
++
++import { secureCompare } from '@/lib/gitlab/crypto'
++import { gitlabEnv } from '@/lib/gitlab/env'
++import { cleanupIndexArtifacts } from '@/lib/indexing/artifact-retention'
++import { runWithApiRequestLog } from '@/lib/utils/logger'
++
++const cleanupPayloadSchema = z.object({
++  readyKeepPerBranch: z.number().int().positive().max(100).optional(),
++  failedRetentionDays: z.number().int().positive().max(3650).optional(),
++  supersededRetentionDays: z.number().int().positive().max(3650).optional(),
++  maxTotalBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
++  runScanLimit: z.number().int().positive().max(20_000).optional(),
++  deleteLimit: z.number().int().positive().max(2_000).optional(),
++})
++
++const isAuthorizedRunnerRequest = (request: Request) => {
++  const headerValue = request.headers.get('x-internal-runner-key')
++  if (!headerValue) {
++    return false
++  }
++
++  return secureCompare(headerValue, gitlabEnv.internalRunnerKey)
++}
++
++export async function POST(request: Request) {
++  return runWithApiRequestLog({
++    request,
++    path: '/api/internal/indexing/cleanup',
++    event: 'api.indexing.cleanup',
++    handler: async ({ logger }) => {
++      if (!isAuthorizedRunnerRequest(request)) {
++        return {
++          status: 401,
++          outcome: 'unauthorized',
++          response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
++        }
++      }
++
++      const payload = await request.json().catch(() => ({}))
++      const parsed = cleanupPayloadSchema.safeParse(payload)
++      if (!parsed.success) {
++        return {
++          status: 400,
++          outcome: 'invalid_request',
++          response: NextResponse.json({ error: 'Invalid cleanup payload.' }, { status: 400 }),
++        }
++      }
++
++      const summary = await cleanupIndexArtifacts(parsed.data)
++      logger.set({
++        summary,
++      })
++
++      return {
++        status: 200,
++        outcome: 'success',
++        response: NextResponse.json({ data: summary }),
++      }
++    },
++  })
++}
+diff --git a/src/lib/indexing/artifact-retention.ts b/src/lib/indexing/artifact-retention.ts
+new file mode 100644
+index 00000000..772e6510
+--- /dev/null
++++ b/src/lib/indexing/artifact-retention.ts
+@@ -0,0 +1,359 @@
++import { desc, eq, inArray, isNotNull } from 'drizzle-orm'
++
++import { db } from '@/lib/db'
++import { indexBranchStates, indexRuns } from '@/lib/db/schema'
++import {
++  createArtifactCleanupStore,
++  type ArtifactCleanupStore,
++} from '@/lib/indexing/stores/artifact-cleanup-store'
++
++const RUN_STATUSES_WITH_ARTIFACTS = ['ready', 'failed', 'superseded'] as const
++const PENDING_ARTIFACTS_PREFIX = 'pending'
++const PRUNED_ARTIFACTS_PREFIX = 'pruned:'
++
++const ONE_DAY_MS = 24 * 60 * 60 * 1000
++const DEFAULT_READY_KEEP_PER_BRANCH = 3
++const DEFAULT_FAILED_RETENTION_DAYS = 14
++const DEFAULT_SUPERSEDED_RETENTION_DAYS = 3
++const DEFAULT_MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024
++const DEFAULT_RUN_SCAN_LIMIT = 1_000
++const DEFAULT_DELETE_LIMIT = 200
++
++type CompletedRunStatus = (typeof RUN_STATUSES_WITH_ARTIFACTS)[number]
++
++type CompletedRun = {
++  id: string
++  branchStateId: string
++  status: CompletedRunStatus
++  artifactsPrefix: string
++  createdAt: Date
++  updatedAt: Date
++}
++
++type CleanupReason = 'ready_count' | 'failed_age' | 'superseded_age' | 'size_limit'
++
++type CleanupPolicy = {
++  readyKeepPerBranch: number
++  failedRetentionDays: number
++  supersededRetentionDays: number
++  maxTotalBytes: number
++  runScanLimit: number
++  deleteLimit: number
++}
++
++export type CleanupIndexArtifactsSummary = {
++  lock: 'acquired' | 'skipped'
++  policy: CleanupPolicy
++  scannedRuns: number
++  trackedRuns: number
++  protectedRuns: number
++  candidateRuns: number
++  skippedByDeleteLimit: number
++  deletedRuns: number
++  deletedBytes: number
++  deletedObjects: number
++  errors: number
++  totalBytesBefore: number | null
++  totalBytesAfter: number | null
++  reasons: Record<CleanupReason, number>
++}
++
++type CleanupIndexArtifactsOptions = {
++  readyKeepPerBranch?: number
++  failedRetentionDays?: number
++  supersededRetentionDays?: number
++  maxTotalBytes?: number
++  runScanLimit?: number
++  deleteLimit?: number
++}
++
++const parsePositiveInt = (value: string | undefined, fallback: number) => {
++  if (!value) {
++    return fallback
++  }
++
++  const parsed = Number.parseInt(value, 10)
++  if (!Number.isFinite(parsed) || parsed <= 0) {
++    return fallback
++  }
++
++  return parsed
++}
++
++const parseNonNegativeInt = (value: string | undefined, fallback: number) => {
++  if (!value) {
++    return fallback
++  }
++
++  const parsed = Number.parseInt(value, 10)
++  if (!Number.isFinite(parsed) || parsed < 0) {
++    return fallback
++  }
++
++  return parsed
++}
++
++const isPrunedPrefix = (prefix: string) => prefix.startsWith(PRUNED_ARTIFACTS_PREFIX)
++
++const resolvePolicy = (options: CleanupIndexArtifactsOptions): CleanupPolicy => ({
++  readyKeepPerBranch:
++    options.readyKeepPerBranch ??
++    parsePositiveInt(
++      process.env.INDEXER_ARTIFACT_RETENTION_READY_KEEP_PER_BRANCH,
++      DEFAULT_READY_KEEP_PER_BRANCH,
++    ),
++  failedRetentionDays:
++    options.failedRetentionDays ??
++    parsePositiveInt(
++      process.env.INDEXER_ARTIFACT_RETENTION_FAILED_DAYS,
++      DEFAULT_FAILED_RETENTION_DAYS,
++    ),
++  supersededRetentionDays:
++    options.supersededRetentionDays ??
++    parsePositiveInt(
++      process.env.INDEXER_ARTIFACT_RETENTION_SUPERSEDED_DAYS,
++      DEFAULT_SUPERSEDED_RETENTION_DAYS,
++    ),
++  maxTotalBytes:
++    options.maxTotalBytes ??
++    parseNonNegativeInt(
++      process.env.INDEXER_ARTIFACT_RETENTION_MAX_TOTAL_BYTES,
++      DEFAULT_MAX_TOTAL_BYTES,
++    ),
++  runScanLimit:
++    options.runScanLimit ??
++    parsePositiveInt(process.env.INDEXER_ARTIFACT_CLEANUP_RUN_SCAN_LIMIT, DEFAULT_RUN_SCAN_LIMIT),
++  deleteLimit:
++    options.deleteLimit ??
++    parsePositiveInt(process.env.INDEXER_ARTIFACT_CLEANUP_DELETE_LIMIT, DEFAULT_DELETE_LIMIT),
++})
++
++const createEmptyReasons = (): Record<CleanupReason, number> => ({
++  ready_count: 0,
++  failed_age: 0,
++  superseded_age: 0,
++  size_limit: 0,
++})
++
++const markRunArtifactsPruned = async (run: CompletedRun) => {
++  await db
++    .update(indexRuns)
++    .set({
++      artifactsPrefix: `${PRUNED_ARTIFACTS_PREFIX}${run.artifactsPrefix}`,
++      updatedAt: new Date(),
++    })
++    .where(eq(indexRuns.id, run.id))
++}
++
++let cleanupInProgress = false
++
++export const cleanupIndexArtifacts = async (
++  options: CleanupIndexArtifactsOptions = {},
++  deps: { cleanupStore?: ArtifactCleanupStore } = {},
++): Promise<CleanupIndexArtifactsSummary> => {
++  const policy = resolvePolicy(options)
++  const summary: CleanupIndexArtifactsSummary = {
++    lock: 'skipped',
++    policy,
++    scannedRuns: 0,
++    trackedRuns: 0,
++    protectedRuns: 0,
++    candidateRuns: 0,
++    skippedByDeleteLimit: 0,
++    deletedRuns: 0,
++    deletedBytes: 0,
++    deletedObjects: 0,
++    errors: 0,
++    totalBytesBefore: null,
++    totalBytesAfter: null,
++    reasons: createEmptyReasons(),
++  }
++
++  if (cleanupInProgress) {
++    return summary
++  }
++
++  cleanupInProgress = true
++  summary.lock = 'acquired'
++  const cleanupStore = deps.cleanupStore ?? createArtifactCleanupStore()
++
++  try {
++    const [servingPointers, completedRuns] = await Promise.all([
++      db
++        .select({
++          lastReadyRunId: indexBranchStates.lastReadyRunId,
++        })
++        .from(indexBranchStates)
++        .where(isNotNull(indexBranchStates.lastReadyRunId)),
++      db
++        .select({
++          id: indexRuns.id,
++          branchStateId: indexRuns.branchStateId,
++          status: indexRuns.status,
++          artifactsPrefix: indexRuns.artifactsPrefix,
++          createdAt: indexRuns.createdAt,
++          updatedAt: indexRuns.updatedAt,
++        })
++        .from(indexRuns)
++        .where(inArray(indexRuns.status, RUN_STATUSES_WITH_ARTIFACTS))
++        .orderBy(desc(indexRuns.updatedAt))
++        .limit(policy.runScanLimit),
++    ])
++
++    summary.scannedRuns = completedRuns.length
++
++    const trackedRuns = completedRuns.filter((run) => {
++      const prefix = run.artifactsPrefix.trim()
++      if (!prefix) {
++        return false
++      }
++
++      return prefix !== PENDING_ARTIFACTS_PREFIX && !isPrunedPrefix(prefix)
++    })
++    summary.trackedRuns = trackedRuns.length
++
++    const protectedRunIds = new Set(
++      servingPointers.flatMap((pointer) =>
++        typeof pointer.lastReadyRunId === 'string' && pointer.lastReadyRunId.length > 0
++          ? [pointer.lastReadyRunId]
++          : [],
++      ),
++    )
++
++    const readyRunsByBranch = new Map<string, CompletedRun[]>()
++    for (const run of trackedRuns) {
++      if (run.status !== 'ready') {
++        continue
++      }
++
++      const bucket = readyRunsByBranch.get(run.branchStateId)
++      if (bucket) {
++        bucket.push(run)
++      } else {
++        readyRunsByBranch.set(run.branchStateId, [run])
++      }
++    }
++
++    for (const runs of readyRunsByBranch.values()) {
++      runs
++        .slice()
++        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
++        .slice(0, policy.readyKeepPerBranch)
++        .forEach((run) => {
++          protectedRunIds.add(run.id)
++        })
++    }
++
++    summary.protectedRuns = protectedRunIds.size
++
++    const failedCutoffMs = Date.now() - policy.failedRetentionDays * ONE_DAY_MS
++    const supersededCutoffMs = Date.now() - policy.supersededRetentionDays * ONE_DAY_MS
++    const candidates = new Map<string, { run: CompletedRun; reason: CleanupReason }>()
++
++    for (const run of trackedRuns) {
++      if (protectedRunIds.has(run.id)) {
++        continue
++      }
++
++      if (run.status === 'ready') {
++        candidates.set(run.id, {
++          run,
++          reason: 'ready_count',
++        })
++        continue
++      }
++
++      if (run.status === 'failed' && run.updatedAt.getTime() <= failedCutoffMs) {
++        candidates.set(run.id, {
++          run,
++          reason: 'failed_age',
++        })
++        continue
++      }
++
++      if (run.status === 'superseded' && run.updatedAt.getTime() <= supersededCutoffMs) {
++        candidates.set(run.id, {
++          run,
++          reason: 'superseded_age',
++        })
++      }
++    }
++
++    const sizesByRunId = new Map<string, number>()
++    if (policy.maxTotalBytes > 0) {
++      for (const run of trackedRuns) {
++        try {
++          const details = await cleanupStore.describePrefix({
++            artifactsPrefix: run.artifactsPrefix,
++          })
++          sizesByRunId.set(run.id, Math.max(0, details.bytes))
++        } catch {
++          sizesByRunId.set(run.id, 0)
++          summary.errors += 1
++        }
++      }
++
++      const totalBytesBefore = trackedRuns.reduce(
++        (acc, run) => acc + (sizesByRunId.get(run.id) ?? 0),
++        0,
++      )
++      summary.totalBytesBefore = totalBytesBefore
++
++      let projectedBytesAfter = totalBytesBefore
++      for (const candidate of candidates.values()) {
++        projectedBytesAfter -= sizesByRunId.get(candidate.run.id) ?? 0
++      }
++
++      if (projectedBytesAfter > policy.maxTotalBytes) {
++        const overflowCandidates = trackedRuns
++          .filter((run) => !protectedRunIds.has(run.id) && !candidates.has(run.id))
++          .sort((left, right) => left.updatedAt.getTime() - right.updatedAt.getTime())
++
++        for (const run of overflowCandidates) {
++          candidates.set(run.id, {
++            run,
++            reason: 'size_limit',
++          })
++          projectedBytesAfter -= sizesByRunId.get(run.id) ?? 0
++          if (projectedBytesAfter <= policy.maxTotalBytes) {
++            break
++          }
++        }
++      }
++    }
++
++    const orderedCandidates = [...candidates.values()].sort(
++      (left, right) => left.run.updatedAt.getTime() - right.run.updatedAt.getTime(),
++    )
++    summary.candidateRuns = orderedCandidates.length
++
++    const selectedCandidates = orderedCandidates.slice(0, policy.deleteLimit)
++    summary.skippedByDeleteLimit = Math.max(0, orderedCandidates.length - selectedCandidates.length)
++
++    for (const candidate of selectedCandidates) {
++      summary.reasons[candidate.reason] += 1
++
++      try {
++        const deleted = await cleanupStore.deletePrefix({
++          artifactsPrefix: candidate.run.artifactsPrefix,
++        })
++
++        await markRunArtifactsPruned(candidate.run)
++
++        summary.deletedRuns += 1
++        summary.deletedBytes += deleted.bytes
++        summary.deletedObjects += deleted.objects
++      } catch {
++        summary.errors += 1
++      }
++    }
++
++    if (summary.totalBytesBefore !== null) {
++      summary.totalBytesAfter = Math.max(0, summary.totalBytesBefore - summary.deletedBytes)
++    }
++
++    return summary
++  } finally {
++    cleanupInProgress = false
++  }
++}
+diff --git a/src/lib/indexing/runner.ts b/src/lib/indexing/runner.ts
+index 394cb1f0..512853da 100644
+--- a/src/lib/indexing/runner.ts
++++ b/src/lib/indexing/runner.ts
+@@ -12,6 +12,7 @@ import {
+ import { processIngestJob } from '@/lib/indexing/processors/ingest'
+ import { processPlanJob } from '@/lib/indexing/processors/plan'
+ import { processReconcileJob } from '@/lib/indexing/processors/reconcile'
++import { cleanupIndexArtifacts } from '@/lib/indexing/artifact-retention'
+ import { createScopedLogger, logScopedError } from '@/lib/utils/logger'
+ 
+ type ClaimedRun = {
+@@ -26,6 +27,10 @@ export type IndexingWorkerBatchSummary = {
+   planJobs: number
+   reconcileJobs: number
+   reconcileScheduled: number
++  artifactCleanupTriggered: boolean
++  artifactCleanupDeletedRuns: number
++  artifactCleanupDeletedBytes: number
++  artifactCleanupErrors: number
+   claimed: number
+   ready: number
+   failed: number
+@@ -37,6 +42,24 @@ type RunIndexingWorkerBatchOptions = {
+   batchId?: string
+ }
+ 
++const parsePositiveInt = (value: string | undefined, fallback: number) => {
++  if (!value) {
++    return fallback
++  }
++
++  const parsed = Number.parseInt(value, 10)
++  if (!Number.isFinite(parsed) || parsed <= 0) {
++    return fallback
++  }
++
++  return parsed
++}
++
++const resolveArtifactCleanupIntervalMs = () =>
++  parsePositiveInt(process.env.INDEXER_ARTIFACT_CLEANUP_INTERVAL_MS, 30 * 60_000)
++
++let lastArtifactCleanupAt = 0
++
+ const claimPlannedRuns = async (batchSize: number): Promise<ClaimedRun[]> => {
+   const query = sql<ClaimedRun>`
+     with due_runs as (
+@@ -84,6 +107,10 @@ export const runIndexingWorkerBatch = async (
+     planJobs: 0,
+     reconcileJobs: 0,
+     reconcileScheduled: 0,
++    artifactCleanupTriggered: false,
++    artifactCleanupDeletedRuns: 0,
++    artifactCleanupDeletedBytes: 0,
++    artifactCleanupErrors: 0,
+     claimed: 0,
+     ready: 0,
+     failed: 0,
+@@ -93,6 +120,33 @@ export const runIndexingWorkerBatch = async (
+   let batchStatus = 200
+ 
+   try {
++    const nowMs = Date.now()
++    if (nowMs - lastArtifactCleanupAt >= resolveArtifactCleanupIntervalMs()) {
++      try {
++        const cleanupSummary = await cleanupIndexArtifacts()
++        summary.artifactCleanupTriggered = cleanupSummary.lock === 'acquired'
++        summary.artifactCleanupDeletedRuns = cleanupSummary.deletedRuns
++        summary.artifactCleanupDeletedBytes = cleanupSummary.deletedBytes
++        summary.artifactCleanupErrors = cleanupSummary.errors
++        if (cleanupSummary.lock === 'acquired') {
++          lastArtifactCleanupAt = nowMs
++        }
++        batchLog.set({
++          artifactCleanup: cleanupSummary,
++        })
++      } catch (error) {
++        const errorToLog =
++          error instanceof Error
++            ? error
++            : new Error('Unexpected artifact cleanup processing error.')
++        logScopedError(batchLog, errorToLog, {
++          code: 'INDEXER_ARTIFACT_CLEANUP_FAILED',
++          why: 'Failed to prune stale indexing artifacts.',
++          fix: 'Inspect artifact retention policy and artifact store connectivity.',
++        })
++      }
++    }
++
+     try {
+       summary.reconcileScheduled = await enqueueDueReconcileJobs()
+       batchLog.set({
+diff --git a/src/lib/indexing/stores/artifact-cleanup-store.ts b/src/lib/indexing/stores/artifact-cleanup-store.ts
+new file mode 100644
+index 00000000..59d48c25
+--- /dev/null
++++ b/src/lib/indexing/stores/artifact-cleanup-store.ts
+@@ -0,0 +1,28 @@
++import { createFsArtifactStore } from '@/lib/indexing/stores/artifact-store.fs'
++import { createS3ArtifactStore } from '@/lib/indexing/stores/artifact-store.s3'
++
++export type ArtifactCleanupDetails = {
++  bytes: number
++  objects: number
++}
++
++export interface ArtifactCleanupStore {
++  describePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<ArtifactCleanupDetails>
++
++  deletePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<ArtifactCleanupDetails>
++}
++
++const resolveBackend = () => process.env.INDEXER_ARTIFACTS_BACKEND?.trim().toLowerCase() || 'fs'
++
++export const createArtifactCleanupStore = (): ArtifactCleanupStore => {
++  const backend = resolveBackend()
++  if (backend === 's3') {
++    return createS3ArtifactStore()
++  }
++
++  return createFsArtifactStore()
++}
+diff --git a/src/lib/indexing/stores/artifact-store.fs.ts b/src/lib/indexing/stores/artifact-store.fs.ts
+index a6ac8ea9..12847859 100644
+--- a/src/lib/indexing/stores/artifact-store.fs.ts
++++ b/src/lib/indexing/stores/artifact-store.fs.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, writeFile } from 'node:fs/promises'
++import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
+ import path from 'node:path'
+ 
+ import type { ArtifactStore } from '@/lib/indexing/contracts'
+@@ -15,7 +15,7 @@ export class FsArtifactStore implements ArtifactStore {
+   private readonly root = resolveArtifactsRoot()
+   private readonly resolvedRoot = path.resolve(this.root)
+ 
+-  private async ensureRunDir(prefix: string) {
++  private resolveRunDir(prefix: string) {
+     const runDir = path.resolve(this.resolvedRoot, prefix)
+     const rootWithSeparator = `${this.resolvedRoot}${path.sep}`
+     const isWithinRoot = runDir === this.resolvedRoot || runDir.startsWith(rootWithSeparator)
+@@ -23,10 +23,52 @@ export class FsArtifactStore implements ArtifactStore {
+       throw new Error("Invalid artifacts prefix path.")
+     }
+ 
++    return runDir
++  }
++
++  private async ensureRunDir(prefix: string) {
++    const runDir = this.resolveRunDir(prefix)
+     await mkdir(runDir, { recursive: true })
+     return runDir
+   }
+ 
++  private async inspectRunDir(runDir: string): Promise<{ bytes: number; objects: number }> {
++    const walk = async (currentDir: string): Promise<{ bytes: number; objects: number }> => {
++      const entries = await readdir(currentDir, { withFileTypes: true })
++      let bytes = 0
++      let objects = 0
++
++      for (const entry of entries) {
++        const entryPath = path.join(currentDir, entry.name)
++        if (entry.isDirectory()) {
++          const nested = await walk(entryPath)
++          bytes += nested.bytes
++          objects += nested.objects
++          continue
++        }
++
++        if (!entry.isFile()) {
++          continue
++        }
++
++        const fileStats = await stat(entryPath)
++        bytes += fileStats.size
++        objects += 1
++      }
++
++      return { bytes, objects }
++    }
++
++    try {
++      return await walk(runDir)
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
++        return { bytes: 0, objects: 0 }
++      }
++      throw error
++    }
++  }
++
+   async writeRunJson(args: { artifactsPrefix: string; run: unknown }): Promise<void> {
+     const runDir = await this.ensureRunDir(args.artifactsPrefix)
+     await writeFile(path.join(runDir, 'run.json'), `${JSON.stringify(args.run, null, 2)}\n`, 'utf8')
+@@ -41,6 +83,22 @@ export class FsArtifactStore implements ArtifactStore {
+     const runDir = await this.ensureRunDir(args.artifactsPrefix)
+     await writeLinesFile(path.join(runDir, 'changed_files.jsonl'), args.lines)
+   }
++
++  async describePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<{ bytes: number; objects: number }> {
++    const runDir = this.resolveRunDir(args.artifactsPrefix)
++    return this.inspectRunDir(runDir)
++  }
++
++  async deletePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<{ bytes: number; objects: number }> {
++    const runDir = this.resolveRunDir(args.artifactsPrefix)
++    const details = await this.inspectRunDir(runDir)
++    await rm(runDir, { recursive: true, force: true })
++    return details
++  }
+ }
+ 
+ export const createFsArtifactStore = () => new FsArtifactStore()
+diff --git a/src/lib/indexing/stores/artifact-store.s3.ts b/src/lib/indexing/stores/artifact-store.s3.ts
+index 1725b2d3..63f4d9d3 100644
+--- a/src/lib/indexing/stores/artifact-store.s3.ts
++++ b/src/lib/indexing/stores/artifact-store.s3.ts
+@@ -1,4 +1,9 @@
+-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
++import {
++  DeleteObjectsCommand,
++  ListObjectsV2Command,
++  PutObjectCommand,
++  S3Client,
++} from '@aws-sdk/client-s3'
+ 
+ import type { ArtifactStore } from '@/lib/indexing/contracts'
+ 
+@@ -85,6 +90,84 @@ export class S3ArtifactStore implements ArtifactStore {
+       contentType: 'application/x-ndjson',
+     })
+   }
++
++  async describePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<{ bytes: number; objects: number }> {
++    const keyPrefix = joinKey(this.keyPrefix, args.artifactsPrefix)
++    const prefix = keyPrefix ? `${keyPrefix}/` : ''
++    let continuationToken: string | undefined
++    let bytes = 0
++    let objects = 0
++
++    do {
++      const page = await this.client.send(
++        new ListObjectsV2Command({
++          Bucket: this.bucket,
++          Prefix: prefix,
++          ContinuationToken: continuationToken,
++        }),
++      )
++
++      for (const object of page.Contents ?? []) {
++        bytes += object.Size ?? 0
++        if (object.Key) {
++          objects += 1
++        }
++      }
++
++      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
++    } while (continuationToken)
++
++    return { bytes, objects }
++  }
++
++  async deletePrefix(args: {
++    artifactsPrefix: string
++  }): Promise<{ bytes: number; objects: number }> {
++    const keyPrefix = joinKey(this.keyPrefix, args.artifactsPrefix)
++    const prefix = keyPrefix ? `${keyPrefix}/` : ''
++    let continuationToken: string | undefined
++    let bytes = 0
++    let objects = 0
++
++    do {
++      const page = await this.client.send(
++        new ListObjectsV2Command({
++          Bucket: this.bucket,
++          Prefix: prefix,
++          ContinuationToken: continuationToken,
++        }),
++      )
++
++      const keys = (page.Contents ?? []).flatMap((object) =>
++        object.Key ? [{ Key: object.Key }] : [],
++      )
++
++      for (const object of page.Contents ?? []) {
++        bytes += object.Size ?? 0
++        if (object.Key) {
++          objects += 1
++        }
++      }
++
++      if (keys.length > 0) {
++        await this.client.send(
++          new DeleteObjectsCommand({
++            Bucket: this.bucket,
++            Delete: {
++              Objects: keys,
++              Quiet: true,
++            },
++          }),
++        )
++      }
++
++      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
++    } while (continuationToken)
++
++    return { bytes, objects }
++  }
+ }
+ 
+ export const createS3ArtifactStore = () => new S3ArtifactStore()
+diff --git a/src/lib/indexing/tests/artifact-retention.test.ts b/src/lib/indexing/tests/artifact-retention.test.ts
+new file mode 100644
+index 00000000..7673ab54
+--- /dev/null
++++ b/src/lib/indexing/tests/artifact-retention.test.ts
+@@ -0,0 +1,225 @@
++import { describe, expect, mock, test } from 'bun:test'
++
++type CompletedRun = {
++  id: string
++  branchStateId: string
++  status: 'ready' | 'failed' | 'superseded'
++  artifactsPrefix: string
++  createdAt: Date
++  updatedAt: Date
++}
++
++const loadModule = async (args: {
++  servingPointers: Array<{ lastReadyRunId: string | null }>
++  completedRuns: CompletedRun[]
++  deletePrefix?: (args: { artifactsPrefix: string }) => Promise<{ bytes: number; objects: number }>
++}) => {
++  let selectCall = 0
++  const select = mock(() => {
++    selectCall += 1
++
++    if (selectCall === 1) {
++      return {
++        from: () => ({
++          where: () => Promise.resolve(args.servingPointers),
++        }),
++      }
++    }
++
++    return {
++      from: () => ({
++        where: () => ({
++          orderBy: () => ({
++            limit: () => Promise.resolve(args.completedRuns),
++          }),
++        }),
++      }),
++    }
++  })
++
++  const updateSets: Array<Record<string, unknown>> = []
++  const update = mock(() => ({
++    set: (values: Record<string, unknown>) => {
++      updateSets.push(values)
++      return {
++        where: () => Promise.resolve([]),
++      }
++    },
++  }))
++
++  const db = {
++    select,
++    update,
++  }
++
++  const deletePrefix = mock(
++    args.deletePrefix ??
++      (async ({ artifactsPrefix }: { artifactsPrefix: string }) => ({
++        bytes: artifactsPrefix.length,
++        objects: 1,
++      })),
++  )
++
++  mock.module('@/lib/db', () => ({ db }))
++
++  const mod = await import(`@/lib/indexing/artifact-retention.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++
++  return {
++    cleanupIndexArtifacts: mod.cleanupIndexArtifacts as (
++      options?: {
++        readyKeepPerBranch?: number
++        failedRetentionDays?: number
++        supersededRetentionDays?: number
++        maxTotalBytes?: number
++        runScanLimit?: number
++        deleteLimit?: number
++      },
++      deps?: {
++        cleanupStore?: {
++          describePrefix: (args: { artifactsPrefix: string }) => Promise<{ bytes: number; objects: number }>
++          deletePrefix: (args: { artifactsPrefix: string }) => Promise<{ bytes: number; objects: number }>
++        }
++      },
++    ) => Promise<{
++      lock: 'acquired' | 'skipped'
++      deletedRuns: number
++      trackedRuns: number
++      reasons: Record<'ready_count' | 'failed_age' | 'superseded_age' | 'size_limit', number>
++    }>,
++    deletePrefix,
++    updateSets,
++  }
++}
++
++describe('cleanupIndexArtifacts', () => {
++  test('prunes old failed/superseded and extra ready artifacts while protecting serving run', async () => {
++    const now = Date.now()
++    const recent = new Date(now - 2 * 60 * 60 * 1000)
++    const oldFailed = new Date(now - 20 * 24 * 60 * 60 * 1000)
++    const oldSuperseded = new Date(now - 10 * 24 * 60 * 60 * 1000)
++
++    const { cleanupIndexArtifacts, deletePrefix, updateSets } = await loadModule({
++      servingPointers: [{ lastReadyRunId: 'run-ready-1' }],
++      completedRuns: [
++        {
++          id: 'run-ready-1',
++          branchStateId: 'branch-1',
++          status: 'ready',
++          artifactsPrefix: 'integrations/i/runs/default/main/head-a/run-ready-1',
++          createdAt: recent,
++          updatedAt: recent,
++        },
++        {
++          id: 'run-ready-2',
++          branchStateId: 'branch-1',
++          status: 'ready',
++          artifactsPrefix: 'integrations/i/runs/default/main/head-b/run-ready-2',
++          createdAt: oldSuperseded,
++          updatedAt: oldSuperseded,
++        },
++        {
++          id: 'run-failed-old',
++          branchStateId: 'branch-2',
++          status: 'failed',
++          artifactsPrefix: 'integrations/i/runs/default/release/head-c/run-failed-old',
++          createdAt: oldFailed,
++          updatedAt: oldFailed,
++        },
++        {
++          id: 'run-failed-recent',
++          branchStateId: 'branch-2',
++          status: 'failed',
++          artifactsPrefix: 'integrations/i/runs/default/release/head-d/run-failed-recent',
++          createdAt: recent,
++          updatedAt: recent,
++        },
++        {
++          id: 'run-superseded-old',
++          branchStateId: 'branch-2',
++          status: 'superseded',
++          artifactsPrefix: 'integrations/i/runs/default/release/head-e/run-superseded-old',
++          createdAt: oldSuperseded,
++          updatedAt: oldSuperseded,
++        },
++      ],
++    })
++
++    const summary = await cleanupIndexArtifacts(
++      {
++        readyKeepPerBranch: 1,
++        failedRetentionDays: 7,
++        supersededRetentionDays: 3,
++        maxTotalBytes: 0,
++        runScanLimit: 100,
++        deleteLimit: 10,
++      },
++      {
++        cleanupStore: {
++          describePrefix: async () => ({ bytes: 0, objects: 0 }),
++          deletePrefix,
++        },
++      },
++    )
++
++    expect(summary.lock).toBe('acquired')
++    expect(summary.trackedRuns).toBe(5)
++    expect(summary.deletedRuns).toBe(3)
++    expect(summary.reasons).toEqual({
++      ready_count: 1,
++      failed_age: 1,
++      superseded_age: 1,
++      size_limit: 0,
++    })
++    expect(deletePrefix).toHaveBeenCalledTimes(3)
++    expect(updateSets).toHaveLength(3)
++    expect(updateSets.every((entry) => String(entry.artifactsPrefix).startsWith('pruned:'))).toBe(
++      true,
++    )
++  })
++
++  test('returns skipped when cleanup is already in progress', async () => {
++    let resolveDescribe: ((value: { bytes: number; objects: number }) => void) | null = null
++    const blockedDescribe = () =>
++      new Promise<{ bytes: number; objects: number }>((resolve) => {
++        resolveDescribe = resolve
++      })
++
++    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
++    const { cleanupIndexArtifacts, updateSets } = await loadModule({
++      servingPointers: [],
++      completedRuns: [
++        {
++          id: 'run-ready-1',
++          branchStateId: 'branch-1',
++          status: 'ready',
++          artifactsPrefix: 'integrations/i/runs/default/main/head-x/run-ready-1',
++          createdAt: old,
++          updatedAt: old,
++        },
++      ],
++    })
++
++    const firstCleanupPromise = cleanupIndexArtifacts({
++      maxTotalBytes: 1,
++    }, {
++      cleanupStore: {
++        describePrefix: blockedDescribe,
++        deletePrefix: async () => ({ bytes: 0, objects: 0 }),
++      },
++    })
++    await Promise.resolve()
++
++    const secondSummary = await cleanupIndexArtifacts({
++      maxTotalBytes: 1,
++    })
++
++    expect(secondSummary.lock).toBe('skipped')
++    expect(secondSummary.deletedRuns).toBe(0)
++
++    resolveDescribe?.({ bytes: 123, objects: 1 })
++    const firstSummary = await firstCleanupPromise
++
++    expect(firstSummary.lock).toBe('acquired')
++    expect(updateSets).toHaveLength(0)
++  })
++})

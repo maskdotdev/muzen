@@ -1,0 +1,797 @@
+{
+  "schemaVersion": "muzen.pr-review-callback.v1",
+  "mode": "local-runner-stdio-real-model-planned-unit-review",
+  "runner": {
+    "path": "/Users/mask/code/muzen/target/release/muzen-runner"
+  },
+  "provider": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4-mini",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "workload": {
+    "repo": "/tmp/muzen-concurrent-big-cal-11059-20260607T012827Z",
+    "changedFiles": [
+      ".env.example",
+      "apps/web/pages/api/webhook/app-credential.ts",
+      "packages/app-store/_utils/oauth/createOAuthAppCredential.ts",
+      "packages/app-store/_utils/oauth/decodeOAuthState.ts",
+      "packages/app-store/_utils/oauth/encodeOAuthState.ts",
+      "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+      "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+      "packages/app-store/googlecalendar/api/add.ts",
+      "packages/app-store/googlecalendar/api/callback.ts",
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/hubspot/api/add.ts",
+      "packages/app-store/hubspot/api/callback.ts",
+      "packages/app-store/hubspot/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/api/add.ts",
+      "packages/app-store/larkcalendar/api/callback.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/office365calendar/api/add.ts",
+      "packages/app-store/office365calendar/api/callback.ts",
+      "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "packages/app-store/office365video/api/add.ts",
+      "packages/app-store/office365video/api/callback.ts",
+      "packages/app-store/office365video/lib/VideoApiAdapter.ts",
+      "packages/app-store/salesforce/api/add.ts",
+      "packages/app-store/salesforce/api/callback.ts",
+      "packages/app-store/salesforce/lib/CalendarService.ts",
+      "packages/app-store/stripepayment/api/callback.ts",
+      "packages/app-store/tandemvideo/api/callback.ts",
+      "packages/app-store/webex/api/callback.ts",
+      "packages/app-store/webex/lib/VideoApiAdapter.ts",
+      "packages/app-store/zoho-bigin/api/add.ts",
+      "packages/app-store/zoho-bigin/api/callback.ts",
+      "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+      "packages/app-store/zohocrm/api/_getAdd.ts",
+      "packages/app-store/zohocrm/api/callback.ts",
+      "packages/app-store/zohocrm/lib/CalendarService.ts",
+      "packages/app-store/zoomvideo/api/add.ts",
+      "packages/app-store/zoomvideo/api/callback.ts",
+      "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+      "packages/lib/constants.ts",
+      "turbo.json"
+    ],
+    "baseRef": "aci-martian/pr-11059-base",
+    "maxToolCalls": 8,
+    "maxFileKb": 200,
+    "maxSearchMatches": 120
+  },
+  "timing": {
+    "startedAtUtc": "2026-06-07T01:28:29.129Z",
+    "finishedAtUtc": "2026-06-07T01:29:09.763Z",
+    "elapsedMs": 40634
+  },
+  "modelCallbacks": {
+    "calls": 33,
+    "toolPlanningCalls": 22,
+    "modelCalls": 11,
+    "inputTokens": 59905,
+    "outputTokens": 8801,
+    "totalTokens": 68706,
+    "errors": [],
+    "finalContents": [
+      "{\"summary\":\"Reviewed the newly added webhook handler and the provided related context. No concrete correctness bug is directly supported by the available evidence for the assigned changed file set.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided evidence for the assigned changed files. The only directly supported change in the transcript is the new app-credential webhook handler; no concrete correctness bug is evidenced from the available diff/context for that file, and no evidence was provided for the other listed paths.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided evidence for the assigned changed files. The only directly supported change evidence available was for apps/web/pages/api/webhook/app-credential.ts, and no concrete correctness bug was supported by the transcript for any assigned file.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided evidence for the webhook credential-sharing addition and the listed related files. The only directly supported change visible in the transcript is the new app-credential webhook handler; no concrete correctness bug is supported by the gathered evidence for the assigned files.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided diff evidence. The only directly supported change in the transcript is the new app credential webhook handler; no concrete correctness bug is supported by the available evidence for the assigned files.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided diff evidence. The only directly supported change is the new app credential webhook handler, and no concrete correctness bug is evidenced from the available transcript for the assigned files.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided evidence for the assigned changed files. The only directly supported change evidence was for apps/web/pages/api/webhook/app-credential.ts, and no concrete correctness bug was established from the available transcript. No evidence was provided for the other listed paths, so they are marked clean based on the gathered evidence.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided diff evidence for the new app-credential webhook handler and the assigned changed-file list. The available transcript only contains the full content of apps/web/pages/api/webhook/app-credential.ts; no diff evidence was provided for the other assigned files, and no concrete correctness bug is directly supported by the gathered evidence.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"Reviewed the provided evidence for the assigned change set. The only directly supported issue is in the new app-credential webhook handler: it updates existing credentials by credential id but creates new credentials without any duplicate protection, while the lookup used to decide between update/create is only a non-unique findFirst on (userId, appId). This can create duplicate credential rows if the lookup races or if duplicates already exist. No evidence was provided for the other listed files, so they are marked clean based on available transcript evidence.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"buggy\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[{\"title\":\"Non-atomic create path can duplicate credentials\",\"claim\":\"The handler checks for an existing credential with findFirst on (userId, appId) and then creates a new row when none is found, but there is no uniqueness guarantee or transactional upsert. Concurrent webhook deliveries or pre-existing duplicates can therefore create multiple credential rows for the same user/app pair.\",\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"startLine\":56,\"endLine\":84}]}",
+      "{\"summary\":\"No actionable correctness bugs are supported by the available diff and file evidence for the assigned changes.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}",
+      "{\"summary\":\"No actionable correctness bugs are supported by the provided diff evidence for the assigned files. The only directly inspected changed implementation was the new app credential webhook handler, and the available evidence does not establish a concrete regression in the requested files.\",\"fileVerdicts\":[{\"path\":\".env.example\",\"verdict\":\"clean\"},{\"path\":\"apps/web/pages/api/webhook/app-credential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/createOAuthAppCredential.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/decodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/encodeOAuthState.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/_utils/oauth/refreshOAuthTokens.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/googlecalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/hubspot/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/larkcalendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365calendar/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/office365video/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/salesforce/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/stripepayment/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/tandemvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/webex/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoho-bigin/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/_getAdd.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zohocrm/lib/CalendarService.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/add.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/api/callback.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/app-store/zoomvideo/lib/VideoApiAdapter.ts\",\"verdict\":\"clean\"},{\"path\":\"packages/lib/constants.ts\",\"verdict\":\"clean\"},{\"path\":\"turbo.json\",\"verdict\":\"clean\"}],\"findings\":[]}"
+    ],
+    "finalMessageDebug": [
+      {
+        "messageCount": 14,
+        "chars": 19025,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19474,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19463,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19449,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19370,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19367,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19381,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19353,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19345,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19395,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      },
+      {
+        "messageCount": 14,
+        "chars": 19007,
+        "hasArtifactContent": true,
+        "toolResultMessages": 8,
+        "changedFileMentions": 40
+      }
+    ]
+  },
+  "result": {
+    "fileReviews": [
+      {
+        "evidenceArtifactIds": [],
+        "evidenceCount": 0,
+        "path": ".env.example",
+        "relatedPaths": [],
+        "sessionId": "planner",
+        "summary": "File is not reviewable as text.",
+        "unitId": "planner-excluded",
+        "verdict": "skipped"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_85c9e5fea06f8045aa963fa8f502a1951373b7a2dbe658aa382472ac7c939df0",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 5,
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-001",
+        "summary": "Reviewed apps/web/pages/api/webhook/app-credential.ts with verdict clean.",
+        "unitId": "unit-001",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/_utils/oauth/createOAuthAppCredential.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-002",
+        "summary": "Reviewed packages/app-store/_utils/oauth/createOAuthAppCredential.ts with verdict clean.",
+        "unitId": "unit-002",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/_utils/oauth/decodeOAuthState.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-002",
+        "summary": "Reviewed packages/app-store/_utils/oauth/decodeOAuthState.ts with verdict clean.",
+        "unitId": "unit-002",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/_utils/oauth/encodeOAuthState.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-002",
+        "summary": "Reviewed packages/app-store/_utils/oauth/encodeOAuthState.ts with verdict clean.",
+        "unitId": "unit-002",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/stripepayment/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-002",
+        "summary": "Reviewed packages/app-store/stripepayment/api/callback.ts with verdict clean.",
+        "unitId": "unit-002",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-003",
+        "summary": "Reviewed packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts with verdict clean.",
+        "unitId": "unit-003",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-003",
+        "summary": "Reviewed packages/app-store/_utils/oauth/refreshOAuthTokens.ts with verdict clean.",
+        "unitId": "unit-003",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-003",
+        "summary": "Reviewed packages/app-store/googlecalendar/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-003",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/hubspot/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-003",
+        "summary": "Reviewed packages/app-store/hubspot/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-003",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/larkcalendar/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-004",
+        "summary": "Reviewed packages/app-store/larkcalendar/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-004",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-004",
+        "summary": "Reviewed packages/app-store/office365calendar/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-004",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/salesforce/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-004",
+        "summary": "Reviewed packages/app-store/salesforce/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-004",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-004",
+        "summary": "Reviewed packages/app-store/zoho-bigin/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-004",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/googlecalendar/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-005",
+        "summary": "Reviewed packages/app-store/googlecalendar/api/add.ts with verdict clean.",
+        "unitId": "unit-005",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-005",
+        "summary": "Reviewed packages/app-store/googlecalendar/api/callback.ts with verdict clean.",
+        "unitId": "unit-005",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/hubspot/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-005",
+        "summary": "Reviewed packages/app-store/hubspot/api/add.ts with verdict clean.",
+        "unitId": "unit-005",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-005",
+        "summary": "Reviewed packages/app-store/zohocrm/lib/CalendarService.ts with verdict clean.",
+        "unitId": "unit-005",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/hubspot/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-006",
+        "summary": "Reviewed packages/app-store/hubspot/api/callback.ts with verdict clean.",
+        "unitId": "unit-006",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/larkcalendar/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-006",
+        "summary": "Reviewed packages/app-store/larkcalendar/api/add.ts with verdict clean.",
+        "unitId": "unit-006",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/larkcalendar/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-006",
+        "summary": "Reviewed packages/app-store/larkcalendar/api/callback.ts with verdict clean.",
+        "unitId": "unit-006",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365calendar/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-006",
+        "summary": "Reviewed packages/app-store/office365calendar/api/add.ts with verdict clean.",
+        "unitId": "unit-006",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365calendar/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-007",
+        "summary": "Reviewed packages/app-store/office365calendar/api/callback.ts with verdict clean.",
+        "unitId": "unit-007",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365video/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-007",
+        "summary": "Reviewed packages/app-store/office365video/api/add.ts with verdict clean.",
+        "unitId": "unit-007",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365video/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-007",
+        "summary": "Reviewed packages/app-store/office365video/api/callback.ts with verdict clean.",
+        "unitId": "unit-007",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/salesforce/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-007",
+        "summary": "Reviewed packages/app-store/salesforce/api/add.ts with verdict clean.",
+        "unitId": "unit-007",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/salesforce/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-008",
+        "summary": "Reviewed packages/app-store/salesforce/api/callback.ts with verdict clean.",
+        "unitId": "unit-008",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/tandemvideo/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-008",
+        "summary": "Reviewed packages/app-store/tandemvideo/api/callback.ts with verdict clean.",
+        "unitId": "unit-008",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/webex/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-008",
+        "summary": "Reviewed packages/app-store/webex/api/callback.ts with verdict clean.",
+        "unitId": "unit-008",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoho-bigin/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-008",
+        "summary": "Reviewed packages/app-store/zoho-bigin/api/add.ts with verdict clean.",
+        "unitId": "unit-008",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoho-bigin/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-009",
+        "summary": "Reviewed packages/app-store/zoho-bigin/api/callback.ts with verdict clean.",
+        "unitId": "unit-009",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zohocrm/api/_getAdd.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-009",
+        "summary": "Reviewed packages/app-store/zohocrm/api/_getAdd.ts with verdict clean.",
+        "unitId": "unit-009",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zohocrm/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-009",
+        "summary": "Reviewed packages/app-store/zohocrm/api/callback.ts with verdict clean.",
+        "unitId": "unit-009",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoomvideo/api/add.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-009",
+        "summary": "Reviewed packages/app-store/zoomvideo/api/add.ts with verdict clean.",
+        "unitId": "unit-009",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/office365video/lib/VideoApiAdapter.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-010",
+        "summary": "Reviewed packages/app-store/office365video/lib/VideoApiAdapter.ts with verdict clean.",
+        "unitId": "unit-010",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/webex/lib/VideoApiAdapter.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-010",
+        "summary": "Reviewed packages/app-store/webex/lib/VideoApiAdapter.ts with verdict clean.",
+        "unitId": "unit-010",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoomvideo/api/callback.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-010",
+        "summary": "Reviewed packages/app-store/zoomvideo/api/callback.ts with verdict clean.",
+        "unitId": "unit-010",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-010",
+        "summary": "Reviewed packages/app-store/zoomvideo/lib/VideoApiAdapter.ts with verdict clean.",
+        "unitId": "unit-010",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "packages/lib/constants.ts",
+        "relatedPaths": [],
+        "sessionId": "unit-011",
+        "summary": "Reviewed packages/lib/constants.ts with verdict clean.",
+        "unitId": "unit-011",
+        "verdict": "clean"
+      },
+      {
+        "evidenceArtifactIds": [
+          "art_10f282470bda1ffb2d8a7841f998d06336ccb573dd44b9e4b49612ce2a88ed3a",
+          "art_4793e3778a1a4f55ecfea064c14591972be83ffdd4672222cd39af36ad76cf6c",
+          "art_99184cca240845f68b2530e99ad86d5c5f8bd6102ea2579fb3375127c21dc03b",
+          "art_c5e0c53776e1bc0148506fb7e31c7b86e75ff48632873742c45e8697422ec667"
+        ],
+        "evidenceCount": 4,
+        "path": "turbo.json",
+        "relatedPaths": [],
+        "sessionId": "unit-011",
+        "summary": "Reviewed turbo.json with verdict clean.",
+        "unitId": "unit-011",
+        "verdict": "clean"
+      }
+    ],
+    "findings": [],
+    "metadata": {},
+    "protocolVersion": "muzen.runner.v1",
+    "runId": "typescript-pr-review-1780795709136",
+    "snapshots": [
+      {
+        "capturedBytes": 10468263,
+        "capturedFiles": 3146,
+        "changedFiles": 40,
+        "files": 3858,
+        "snapshotId": "e83397fb03d7a24952e762318336f8bcee2d465a350efa46ea77ae54a0273fa4"
+      }
+    ],
+    "status": "completed",
+    "summary": {
+      "artifactBytes": 5896,
+      "artifacts": 6,
+      "completedSessions": 11,
+      "elapsedMs": 40489,
+      "findings": 0,
+      "inputTokens": 59905,
+      "modelCalls": 33,
+      "outputTokens": 8801,
+      "publishableFindings": 0,
+      "sessions": 11,
+      "snapshotCount": 1,
+      "toolCalls": 88,
+      "totalTokens": 68706
+    }
+  },
+  "reviewValid": true
+}

@@ -17,8 +17,8 @@ Muzen should make this workflow feel natural:
 5. The application fetches the final structured review result.
 
 The caller should not need to know about runner paths, manual run IDs, changed
-file lists, worker leases, Postgres notifications, or manual `Promise.all`
-orchestration.
+file lists, worker leases, store-specific queue internals, or manual
+`Promise.all` orchestration.
 
 ## Preferred API Shape
 
@@ -32,13 +32,10 @@ import {
   gitlab,
   openai,
   anthropic,
-  postgres,
 } from "@muzen/server";
 
 export const muzen = createMuzen({
-  store: postgres({
-    url: process.env.DATABASE_URL,
-  }),
+  storeUrl: process.env.MUZEN_STORE_URL ?? "sqlite://.muzen/muzen.db",
 
   providers: {
     github: github({

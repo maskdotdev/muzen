@@ -120,7 +120,7 @@ mod tests {
         let policy = ReviewerPolicy::new();
         let runtime_sink = Arc::new(RecordingRuntimeSink::default());
         let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
-        let dispatcher = RuntimeEventDispatcher::new(Some(sink), None);
+        let dispatcher = RuntimeEventDispatcher::new(Some(sink));
         let runner = ToolBatchRunner::new(&policy, &tools, &dispatcher);
         let scope = test_scope("tool-batch-session");
 
@@ -176,6 +176,7 @@ mod tests {
                 max_tool_calls: 8,
                 max_prompt_tokens: 32_000,
                 max_output_tokens: 512,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
             },
         )
     }

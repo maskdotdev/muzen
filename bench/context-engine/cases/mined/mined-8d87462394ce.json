@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-8d87462394ce",
+  "repoSource": {
+    "kind": "git",
+    "commit": "8d87462394ce1f6685ba972fd1b51c2cc8e99ea2",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/bin/muzen-service.rs",
+    "src/review_session.rs",
+    "src/review_session/profiles.rs",
+    "src/review_session/store.rs"
+  ],
+  "description": "Mined pair: base 8d87462394ce (feat: add postgres review stores) followed by 779cade4ea2a (feat: materialize provider review sources).",
+  "minedFrom": {
+    "baseCommit": "8d87462394ce1f6685ba972fd1b51c2cc8e99ea2",
+    "followUpCommit": "779cade4ea2aa943f40f0cb1452868712acb4244"
+  },
+  "cases": [
+    {
+      "id": "mined-8d87462394ce-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/python/muzen/client.py",
+        "sdk/python/tests/test_client.py",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "src/runner.rs",
+        "src/runner/execution.rs",
+        "src/runner/types.rs"
+      ]
+    }
+  ]
+}

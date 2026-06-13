@@ -1,0 +1,76 @@
+{
+  "generatedAtUtc": "2026-06-10T01:25:29.753Z",
+  "model": "gpt-5.4-mini",
+  "runnerPath": "target/release/muzen-runner",
+  "outputDir": "bench/results-review-quality/martian-suite-20260609-final",
+  "passed": false,
+  "results": [
+    {
+      "name": "cal-pr-14943",
+      "output": "bench/results-review-quality/martian-suite-20260609-final/cal-pr-14943-gpt-5.4-mini.json",
+      "hits": 1,
+      "goldenIssues": 1,
+      "falsePositives": 0,
+      "contractRiskUnits": 1,
+      "contractPackCount": 1,
+      "passed": true
+    },
+    {
+      "name": "cal-pr-8330",
+      "output": "bench/results-review-quality/martian-suite-20260609-final/cal-pr-8330-gpt-5.4-mini.json",
+      "hits": 0,
+      "goldenIssues": 3,
+      "falsePositives": 0,
+      "contractRiskUnits": 1,
+      "contractPackCount": 4,
+      "passed": false
+    },
+    {
+      "name": "cal-pr-11059",
+      "output": "bench/results-review-quality/martian-suite-20260609-final/cal-pr-11059-gpt-5.4-mini.json",
+      "hits": 1,
+      "goldenIssues": 5,
+      "falsePositives": 0,
+      "contractRiskUnits": 11,
+      "contractPackCount": 10,
+      "passed": false
+    }
+  ],
+  "antiCheat": {
+    "passed": true,
+    "results": [
+      {
+        "fixture": "safe-credential-ownership",
+        "output": "bench/results-review-quality/martian-suite-20260609-final/anti-cheat/safe-credential-ownership-gpt-5.4-mini.json",
+        "findings": 0,
+        "findingTitles": [],
+        "contractPackCount": 1,
+        "passed": true
+      },
+      {
+        "fixture": "safe-oauth-return-shape",
+        "output": "bench/results-review-quality/martian-suite-20260609-final/anti-cheat/safe-oauth-return-shape-gpt-5.4-mini.json",
+        "findings": 0,
+        "findingTitles": [],
+        "contractPackCount": 1,
+        "passed": true
+      },
+      {
+        "fixture": "safe-slots-working-hours",
+        "output": "bench/results-review-quality/martian-suite-20260609-final/anti-cheat/safe-slots-working-hours-gpt-5.4-mini.json",
+        "findings": 0,
+        "findingTitles": [],
+        "contractPackCount": 1,
+        "passed": true
+      },
+      {
+        "fixture": "safe-sms-retry-cleanup",
+        "output": "bench/results-review-quality/martian-suite-20260609-final/anti-cheat/safe-sms-retry-cleanup-gpt-5.4-mini.json",
+        "findings": 0,
+        "findingTitles": [],
+        "contractPackCount": 1,
+        "passed": true
+      }
+    ]
+  }
+}

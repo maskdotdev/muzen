@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-dfd12636de9c",
+  "repoSource": {
+    "kind": "git",
+    "commit": "dfd12636de9ce3aa02cdb5beebf853a710dd2e18",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/tests.rs"
+  ],
+  "description": "Mined pair: base dfd12636de9c (test: trim brittle facade inventory and golden tests) followed by 635d41c15ef5 (chore(test): remove dead helpers and unused imports).",
+  "minedFrom": {
+    "baseCommit": "dfd12636de9ce3aa02cdb5beebf853a710dd2e18",
+    "followUpCommit": "635d41c15ef5901173afae0b7ee9df016736167f"
+  },
+  "cases": [
+    {
+      "id": "mined-dfd12636de9c-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/tests.rs",
+        "src/review_units.rs",
+        "src/runtime/planned_units.rs"
+      ]
+    }
+  ]
+}

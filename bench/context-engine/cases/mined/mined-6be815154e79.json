@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-6be815154e79",
+  "repoSource": {
+    "kind": "git",
+    "commit": "6be815154e79fc31e8642a03e5be602823b04855",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/contracts.rs",
+    "src/lib.rs",
+    "src/review_session.rs"
+  ],
+  "description": "Mined pair: base 6be815154e79 (feat: add rust review session contracts) followed by 5fd89a557e48 (feat: add rust review session facade).",
+  "minedFrom": {
+    "baseCommit": "6be815154e79fc31e8642a03e5be602823b04855",
+    "followUpCommit": "5fd89a557e481614d9b1dac99c316c92fb39892a"
+  },
+  "cases": [
+    {
+      "id": "mined-6be815154e79-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/runner.rs"
+      ]
+    }
+  ]
+}

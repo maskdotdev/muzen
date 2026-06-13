@@ -1,0 +1,1652 @@
+diff --git a/bun.lock b/bun.lock
+index 172fb955..1e6aeaea 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -9,8 +9,10 @@
+         "@dnd-kit/modifiers": "^9.0.0",
+         "@dnd-kit/sortable": "^10.0.0",
+         "@dnd-kit/utilities": "^3.2.2",
++        "@pierre/diffs": "^1.0.10",
+         "@tabler/icons-react": "^3.36.1",
+         "@tanstack/react-table": "^8.21.3",
++        "babel-plugin-react-compiler": "^1.0.0",
+         "better-auth": "^1.4.18",
+         "class-variance-authority": "^0.7.1",
+         "clsx": "^2.1.1",
+@@ -354,6 +356,8 @@
+ 
+     "@open-draft/until": ["@open-draft/until@2.1.0", "", {}, "sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg=="],
+ 
++    "@pierre/diffs": ["@pierre/diffs@1.0.10", "", { "dependencies": { "@shikijs/core": "^3.0.0", "@shikijs/engine-javascript": "^3.0.0", "@shikijs/transformers": "^3.0.0", "diff": "8.0.3", "hast-util-to-html": "9.0.5", "lru_map": "0.4.1", "shiki": "^3.0.0" }, "peerDependencies": { "react": "^18.3.1 || ^19.0.0", "react-dom": "^18.3.1 || ^19.0.0" } }, "sha512-ahkpfS30NfaB+PBxnf0/Mc20ySBRTQmM28a7Ojpd0UZixmTyhGhJfBFjvmhX8dSzR22lB3h3OIMMxpB4yYTIOQ=="],
++
+     "@radix-ui/number": ["@radix-ui/number@1.1.1", "", {}, "sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g=="],
+ 
+     "@radix-ui/primitive": ["@radix-ui/primitive@1.1.3", "", {}, "sha512-JTF99U/6XIjCBo0wqkU5sK10glYe27MRRsfwoiq5zzOEZLHU3A3KCMa5X/azekYRCJ0HlwI0crAXS/5dEHTzDg=="],
+@@ -478,6 +482,22 @@
+ 
+     "@sec-ant/readable-stream": ["@sec-ant/readable-stream@0.4.1", "", {}, "sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg=="],
+ 
++    "@shikijs/core": ["@shikijs/core@3.22.0", "", { "dependencies": { "@shikijs/types": "3.22.0", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4", "hast-util-to-html": "^9.0.5" } }, "sha512-iAlTtSDDbJiRpvgL5ugKEATDtHdUVkqgHDm/gbD2ZS9c88mx7G1zSYjjOxp5Qa0eaW0MAQosFRmJSk354PRoQA=="],
++
++    "@shikijs/engine-javascript": ["@shikijs/engine-javascript@3.22.0", "", { "dependencies": { "@shikijs/types": "3.22.0", "@shikijs/vscode-textmate": "^10.0.2", "oniguruma-to-es": "^4.3.4" } }, "sha512-jdKhfgW9CRtj3Tor0L7+yPwdG3CgP7W+ZEqSsojrMzCjD1e0IxIbwUMDDpYlVBlC08TACg4puwFGkZfLS+56Tw=="],
++
++    "@shikijs/engine-oniguruma": ["@shikijs/engine-oniguruma@3.22.0", "", { "dependencies": { "@shikijs/types": "3.22.0", "@shikijs/vscode-textmate": "^10.0.2" } }, "sha512-DyXsOG0vGtNtl7ygvabHd7Mt5EY8gCNqR9Y7Lpbbd/PbJvgWrqaKzH1JW6H6qFkuUa8aCxoiYVv8/YfFljiQxA=="],
++
++    "@shikijs/langs": ["@shikijs/langs@3.22.0", "", { "dependencies": { "@shikijs/types": "3.22.0" } }, "sha512-x/42TfhWmp6H00T6uwVrdTJGKgNdFbrEdhaDwSR5fd5zhQ1Q46bHq9EO61SCEWJR0HY7z2HNDMaBZp8JRmKiIA=="],
++
++    "@shikijs/themes": ["@shikijs/themes@3.22.0", "", { "dependencies": { "@shikijs/types": "3.22.0" } }, "sha512-o+tlOKqsr6FE4+mYJG08tfCFDS+3CG20HbldXeVoyP+cYSUxDhrFf3GPjE60U55iOkkjbpY2uC3It/eeja35/g=="],
++
++    "@shikijs/transformers": ["@shikijs/transformers@3.22.0", "", { "dependencies": { "@shikijs/core": "3.22.0", "@shikijs/types": "3.22.0" } }, "sha512-E7eRV7mwDBjueLF6852n2oYeJYxBq3NSsDk+uyruYAXONv4U8holGmIrT+mPRJQ1J1SNOH6L8G19KRzmBawrFw=="],
++
++    "@shikijs/types": ["@shikijs/types@3.22.0", "", { "dependencies": { "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4" } }, "sha512-491iAekgKDBFE67z70Ok5a8KBMsQ2IJwOWw3us/7ffQkIBCyOQfm/aNwVMBUriP02QshIfgHCBSIYAl3u2eWjg=="],
++
++    "@shikijs/vscode-textmate": ["@shikijs/vscode-textmate@10.0.2", "", {}, "sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg=="],
++
+     "@sinclair/typebox": ["@sinclair/typebox@0.34.48", "", {}, "sha512-kKJTNuK3AQOrgjjotVxMrCn1sUJwM76wMszfq1kdU4uYVJjvEWuFQ6HgvLt4Xz3fSmZlTOxJ/Ie13KnIcWQXFA=="],
+ 
+     "@sindresorhus/merge-streams": ["@sindresorhus/merge-streams@4.0.0", "", {}, "sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ=="],
+@@ -552,10 +572,14 @@
+ 
+     "@types/estree": ["@types/estree@1.0.8", "", {}, "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="],
+ 
++    "@types/hast": ["@types/hast@3.0.4", "", { "dependencies": { "@types/unist": "*" } }, "sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ=="],
++
+     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
+ 
+     "@types/json5": ["@types/json5@0.0.29", "", {}, "sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ=="],
+ 
++    "@types/mdast": ["@types/mdast@4.0.4", "", { "dependencies": { "@types/unist": "*" } }, "sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA=="],
++
+     "@types/node": ["@types/node@20.19.33", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-Rs1bVAIdBs5gbTIKza/tgpMuG1k3U/UMJLWecIMxNdJFDMzcM5LOiLVRYh3PilWEYDIeUDv7bpiHPLPsbydGcw=="],
+ 
+     "@types/pg": ["@types/pg@8.16.0", "", { "dependencies": { "@types/node": "*", "pg-protocol": "*", "pg-types": "^2.2.0" } }, "sha512-RmhMd/wD+CF8Dfo+cVIy3RR5cl8CyfXQ0tGgW6XBL8L4LM/UTEbNXYRbLwU6w+CgrKBNbrQWt4FUtTfaU5jSYQ=="],
+@@ -566,6 +590,8 @@
+ 
+     "@types/statuses": ["@types/statuses@2.0.6", "", {}, "sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA=="],
+ 
++    "@types/unist": ["@types/unist@3.0.3", "", {}, "sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q=="],
++
+     "@types/validate-npm-package-name": ["@types/validate-npm-package-name@4.0.2", "", {}, "sha512-lrpDziQipxCEeK5kWxvljWYhUvOiB2A9izZd9B2AFarYAkqZshb4lPbRs7zKEic6eGtH8V/2qJW+dPp9OtF6bw=="],
+ 
+     "@typescript-eslint/eslint-plugin": ["@typescript-eslint/eslint-plugin@8.55.0", "", { "dependencies": { "@eslint-community/regexpp": "^4.12.2", "@typescript-eslint/scope-manager": "8.55.0", "@typescript-eslint/type-utils": "8.55.0", "@typescript-eslint/utils": "8.55.0", "@typescript-eslint/visitor-keys": "8.55.0", "ignore": "^7.0.5", "natural-compare": "^1.4.0", "ts-api-utils": "^2.4.0" }, "peerDependencies": { "@typescript-eslint/parser": "^8.55.0", "eslint": "^8.57.0 || ^9.0.0", "typescript": ">=4.8.4 <6.0.0" } }, "sha512-1y/MVSz0NglV1ijHC8OT49mPJ4qhPYjiK08YUQVbIOyu+5k862LKUHFkpKHWu//zmr7hDR2rhwUm6gnCGNmGBQ=="],
+@@ -588,6 +614,8 @@
+ 
+     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.55.0", "", { "dependencies": { "@typescript-eslint/types": "8.55.0", "eslint-visitor-keys": "^4.2.1" } }, "sha512-AxNRwEie8Nn4eFS1FzDMJWIISMGoXMb037sgCBJ3UR6o0fQTzr2tqN9WT+DkWJPhIdQCfV7T6D387566VtnCJA=="],
+ 
++    "@ungap/structured-clone": ["@ungap/structured-clone@1.3.0", "", {}, "sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g=="],
++
+     "@unrs/resolver-binding-android-arm-eabi": ["@unrs/resolver-binding-android-arm-eabi@1.11.1", "", { "os": "android", "cpu": "arm" }, "sha512-ppLRUgHVaGRWUx0R0Ut06Mjo9gBaBkg3v/8AxusGLhsIotbBLuRk51rAzqLC8gq6NyyAojEXglNjzf6R948DNw=="],
+ 
+     "@unrs/resolver-binding-android-arm64": ["@unrs/resolver-binding-android-arm64@1.11.1", "", { "os": "android", "cpu": "arm64" }, "sha512-lCxkVtb4wp1v+EoN+HjIG9cIIzPkX5OtM03pQYkG+U5O/wL53LC4QbIeazgiKqluGeVEeBlZahHalCaBvU1a2g=="],
+@@ -678,6 +706,8 @@
+ 
+     "axobject-query": ["axobject-query@4.1.0", "", {}, "sha512-qIj0G9wZbMGNLjLmg1PT6v2mE9AH2zlnADJD/2tC6E00hgmhUOfEB6greHPAfLRSufHqROIUTkw6E+M3lH0PTQ=="],
+ 
++    "babel-plugin-react-compiler": ["babel-plugin-react-compiler@1.0.0", "", { "dependencies": { "@babel/types": "^7.26.0" } }, "sha512-Ixm8tFfoKKIPYdCCKYTsqv+Fd4IJ0DQqMyEimo+pxUOMUR9cVPlwTrFt9Avu+3cb6Zp3mAzl+t1MrG2fxxKsxw=="],
++
+     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
+ 
+     "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
+@@ -720,8 +750,14 @@
+ 
+     "caniuse-lite": ["caniuse-lite@1.0.30001769", "", {}, "sha512-BCfFL1sHijQlBGWBMuJyhZUhzo7wer5sVj9hqekB/7xn0Ypy+pER/edCYQm4exbXj4WiySGp40P8UuTh6w1srg=="],
+ 
++    "ccount": ["ccount@2.0.1", "", {}, "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg=="],
++
+     "chalk": ["chalk@4.1.2", "", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
+ 
++    "character-entities-html4": ["character-entities-html4@2.1.0", "", {}, "sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA=="],
++
++    "character-entities-legacy": ["character-entities-legacy@3.0.0", "", {}, "sha512-RpPp0asT/6ufRm//AJVwpViZbGM/MkjQFxJccQRHmISF/22NBtsHqAWmL+/pmkPWoIUJdWyeVleTl1wydHATVQ=="],
++
+     "chownr": ["chownr@1.1.4", "", {}, "sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg=="],
+ 
+     "class-variance-authority": ["class-variance-authority@0.7.1", "", { "dependencies": { "clsx": "^2.1.1" } }, "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg=="],
+@@ -744,6 +780,8 @@
+ 
+     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
+ 
++    "comma-separated-tokens": ["comma-separated-tokens@2.0.3", "", {}, "sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg=="],
++
+     "commander": ["commander@14.0.3", "", {}, "sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw=="],
+ 
+     "concat-map": ["concat-map@0.0.1", "", {}, "sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg=="],
+@@ -828,10 +866,14 @@
+ 
+     "depd": ["depd@2.0.0", "", {}, "sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw=="],
+ 
++    "dequal": ["dequal@2.0.3", "", {}, "sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA=="],
++
+     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
+ 
+     "detect-node-es": ["detect-node-es@1.1.0", "", {}, "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ=="],
+ 
++    "devlop": ["devlop@1.1.0", "", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
++
+     "diff": ["diff@8.0.3", "", {}, "sha512-qejHi7bcSD4hQAZE0tNAawRK1ZtafHDmMTMkrrIGgSLl7hTnQHmKCeB45xAcbfTqK2zowkM3j3bHt/4b/ARbYQ=="],
+ 
+     "doctrine": ["doctrine@2.1.0", "", { "dependencies": { "esutils": "^2.0.2" } }, "sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw=="],
+@@ -1054,6 +1096,10 @@
+ 
+     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
+ 
++    "hast-util-to-html": ["hast-util-to-html@9.0.5", "", { "dependencies": { "@types/hast": "^3.0.0", "@types/unist": "^3.0.0", "ccount": "^2.0.0", "comma-separated-tokens": "^2.0.0", "hast-util-whitespace": "^3.0.0", "html-void-elements": "^3.0.0", "mdast-util-to-hast": "^13.0.0", "property-information": "^7.0.0", "space-separated-tokens": "^2.0.0", "stringify-entities": "^4.0.0", "zwitch": "^2.0.4" } }, "sha512-OguPdidb+fbHQSU4Q4ZiLKnzWo8Wwsf5bZfbvu7//a9oTYoqD/fWpe96NuHkoS9h0ccGOTe0C4NGXdtS0iObOw=="],
++
++    "hast-util-whitespace": ["hast-util-whitespace@3.0.0", "", { "dependencies": { "@types/hast": "^3.0.0" } }, "sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw=="],
++
+     "headers-polyfill": ["headers-polyfill@4.0.3", "", {}, "sha512-IScLbePpkvO846sIwOtOTDjutRMWdXdJmXdMvk6gCBHxFO8d+QKOQedyZSxFTTFYRSmlgSTDtXqqq4pcenBXLQ=="],
+ 
+     "hermes-estree": ["hermes-estree@0.25.1", "", {}, "sha512-0wUoCcLp+5Ev5pDW2OriHC2MJCbwLwuRx+gAqMTOkGKJJiBCLjtrvy4PWUGn6MIVefecRpzoOZ/UV6iGdOr+Cw=="],
+@@ -1062,6 +1108,8 @@
+ 
+     "hono": ["hono@4.11.9", "", {}, "sha512-Eaw2YTGM6WOxA6CXbckaEvslr2Ne4NFsKrvc0v97JD5awbmeBLO5w9Ho9L9kmKonrwF9RJlW6BxT1PVv/agBHQ=="],
+ 
++    "html-void-elements": ["html-void-elements@3.0.0", "", {}, "sha512-bEqo66MRXsUGxWHV5IP0PUiAWwoEjba4VCzg0LjFJBpchPaTfyfCKTG6bc5F8ucKec3q5y6qOdGyYTSBEvhCrg=="],
++
+     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ=="],
+ 
+     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
+@@ -1254,12 +1302,16 @@
+ 
+     "lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
+ 
++    "lru_map": ["lru_map@0.4.1", "", {}, "sha512-I+lBvqMMFfqaV8CJCISjI3wbjmwVu/VyOoU7+qtu9d7ioW5klMgsTTiUOUp+DJvfTTzKXoPbyC6YfgkNcyPSOg=="],
++
+     "lucide-react": ["lucide-react@0.563.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-8dXPB2GI4dI8jV4MgUDGBeLdGk8ekfqVZ0BdLcrRzocGgG75ltNEmWS+gE7uokKF/0oSUuczNDT+g9hFJ23FkA=="],
+ 
+     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
+ 
+     "math-intrinsics": ["math-intrinsics@1.1.0", "", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
+ 
++    "mdast-util-to-hast": ["mdast-util-to-hast@13.2.1", "", { "dependencies": { "@types/hast": "^3.0.0", "@types/mdast": "^4.0.0", "@ungap/structured-clone": "^1.0.0", "devlop": "^1.0.0", "micromark-util-sanitize-uri": "^2.0.0", "trim-lines": "^3.0.0", "unist-util-position": "^5.0.0", "unist-util-visit": "^5.0.0", "vfile": "^6.0.0" } }, "sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA=="],
++
+     "media-typer": ["media-typer@1.1.0", "", {}, "sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw=="],
+ 
+     "memoirist": ["memoirist@0.4.0", "", {}, "sha512-zxTgA0mSYELa66DimuNQDvyLq36AwDlTuVRbnQtB+VuTcKWm5Qc4z3WkSpgsFWHNhexqkIooqpv4hdcqrX5Nmg=="],
+@@ -1270,6 +1322,16 @@
+ 
+     "merge2": ["merge2@1.4.1", "", {}, "sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg=="],
+ 
++    "micromark-util-character": ["micromark-util-character@2.1.1", "", { "dependencies": { "micromark-util-symbol": "^2.0.0", "micromark-util-types": "^2.0.0" } }, "sha512-wv8tdUTJ3thSFFFJKtpYKOYiGP2+v96Hvk4Tu8KpCAsTMs6yi+nVmGh1syvSCsaxz45J6Jbw+9DD6g97+NV67Q=="],
++
++    "micromark-util-encode": ["micromark-util-encode@2.0.1", "", {}, "sha512-c3cVx2y4KqUnwopcO9b/SCdo2O67LwJJ/UyqGfbigahfegL9myoEFoDYZgkT7f36T0bLrM9hZTAaAyH+PCAXjw=="],
++
++    "micromark-util-sanitize-uri": ["micromark-util-sanitize-uri@2.0.1", "", { "dependencies": { "micromark-util-character": "^2.0.0", "micromark-util-encode": "^2.0.0", "micromark-util-symbol": "^2.0.0" } }, "sha512-9N9IomZ/YuGGZZmQec1MbgxtlgougxTodVwDzzEouPKo3qFWvymFHWcnDi2vzV1ff6kas9ucW+o3yzJK9YB1AQ=="],
++
++    "micromark-util-symbol": ["micromark-util-symbol@2.0.1", "", {}, "sha512-vs5t8Apaud9N28kgCrRUdEed4UJ+wWNvicHLPxCa9ENlYuAY31M0ETy5y1vA33YoNPDFTghEbnh6efaE8h4x0Q=="],
++
++    "micromark-util-types": ["micromark-util-types@2.0.2", "", {}, "sha512-Yw0ECSpJoViF1qTU4DC6NwtC4aWGt1EkzaQB8KPPyCRR8z9TWeV0HbEFGTO+ZY1wB22zmxnJqhPyTpOVCpeHTA=="],
++
+     "micromatch": ["micromatch@4.0.8", "", { "dependencies": { "braces": "^3.0.3", "picomatch": "^2.3.1" } }, "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="],
+ 
+     "mime-db": ["mime-db@1.54.0", "", {}, "sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ=="],
+@@ -1344,6 +1406,10 @@
+ 
+     "onetime": ["onetime@5.1.2", "", { "dependencies": { "mimic-fn": "^2.1.0" } }, "sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg=="],
+ 
++    "oniguruma-parser": ["oniguruma-parser@0.12.1", "", {}, "sha512-8Unqkvk1RYc6yq2WBYRj4hdnsAxVze8i7iPfQr8e4uSP3tRv0rpZcbGUDvxfQQcdwHt/e9PrMvGCsa8OqG9X3w=="],
++
++    "oniguruma-to-es": ["oniguruma-to-es@4.3.4", "", { "dependencies": { "oniguruma-parser": "^0.12.1", "regex": "^6.0.1", "regex-recursion": "^6.0.2" } }, "sha512-3VhUGN3w2eYxnTzHn+ikMI+fp/96KoRSVK9/kMTcFqj1NRDh2IhQCKvYxDnWePKRXY/AqH+Fuiyb7VHSzBjHfA=="],
++
+     "open": ["open@11.0.0", "", { "dependencies": { "default-browser": "^5.4.0", "define-lazy-prop": "^3.0.0", "is-in-ssh": "^1.0.0", "is-inside-container": "^1.0.0", "powershell-utils": "^0.1.0", "wsl-utils": "^0.3.0" } }, "sha512-smsWv2LzFjP03xmvFoJ331ss6h+jixfA4UUV/Bsiyuu4YJPfN+FIQGOIiv4w9/+MoHkfkJ22UIaQWRVFRfH6Vw=="],
+ 
+     "openapi-types": ["openapi-types@12.1.3", "", {}, "sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw=="],
+@@ -1428,6 +1494,8 @@
+ 
+     "prop-types": ["prop-types@15.8.1", "", { "dependencies": { "loose-envify": "^1.4.0", "object-assign": "^4.1.1", "react-is": "^16.13.1" } }, "sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg=="],
+ 
++    "property-information": ["property-information@7.1.0", "", {}, "sha512-TwEZ+X+yCJmYfL7TPUOcvBZ4QfoT5YenQiJuX//0th53DE6w0xxLEtfK3iyryQFddXuvkIk51EEgrJQ0WJkOmQ=="],
++
+     "proxy-addr": ["proxy-addr@2.0.7", "", { "dependencies": { "forwarded": "0.2.0", "ipaddr.js": "1.9.1" } }, "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg=="],
+ 
+     "pump": ["pump@3.0.3", "", { "dependencies": { "end-of-stream": "^1.1.0", "once": "^1.3.1" } }, "sha512-todwxLMY7/heScKmntwQG8CXVkWUOdYxIvY2s0VWAAMh/nd8SoYiRaKjlr7+iCs984f2P8zvrfWcDDYVb73NfA=="],
+@@ -1472,6 +1540,12 @@
+ 
+     "reflect.getprototypeof": ["reflect.getprototypeof@1.0.10", "", { "dependencies": { "call-bind": "^1.0.8", "define-properties": "^1.2.1", "es-abstract": "^1.23.9", "es-errors": "^1.3.0", "es-object-atoms": "^1.0.0", "get-intrinsic": "^1.2.7", "get-proto": "^1.0.1", "which-builtin-type": "^1.2.1" } }, "sha512-00o4I+DVrefhv+nX0ulyi3biSHCPDe+yLv5o/p6d/UVlirijB8E16FtfwSAi4g3tcqrQ4lRAqQSoFEZJehYEcw=="],
+ 
++    "regex": ["regex@6.1.0", "", { "dependencies": { "regex-utilities": "^2.3.0" } }, "sha512-6VwtthbV4o/7+OaAF9I5L5V3llLEsoPyq9P1JVXkedTP33c7MfCG0/5NOPcSJn0TzXcG9YUrR0gQSWioew3LDg=="],
++
++    "regex-recursion": ["regex-recursion@6.0.2", "", { "dependencies": { "regex-utilities": "^2.3.0" } }, "sha512-0YCaSCq2VRIebiaUviZNs0cBz1kg5kVS2UKUfNIx8YVs1cN3AV7NTctO5FOKBA+UT2BPJIWZauYHPqJODG50cg=="],
++
++    "regex-utilities": ["regex-utilities@2.3.0", "", {}, "sha512-8VhliFJAWRaUiVvREIiW2NXXTmHs4vMNnSzuJVhscgmGav3g9VDxLrQndI3dZZVVdp0ZO/5v0xmX516/7M9cng=="],
++
+     "regexp.prototype.flags": ["regexp.prototype.flags@1.5.4", "", { "dependencies": { "call-bind": "^1.0.8", "define-properties": "^1.2.1", "es-errors": "^1.3.0", "get-proto": "^1.0.1", "gopd": "^1.2.0", "set-function-name": "^2.0.2" } }, "sha512-dYqgNSZbDwkaJ2ceRd9ojCGjBq+mOm9LmtXnAnEGyHhN/5R7iDW2TRw3h+o/jCFxus3P2LfWIIiwowAjANm7IA=="],
+ 
+     "require-directory": ["require-directory@2.1.1", "", {}, "sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q=="],
+@@ -1534,6 +1608,8 @@
+ 
+     "shebang-regex": ["shebang-regex@3.0.0", "", {}, "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A=="],
+ 
++    "shiki": ["shiki@3.22.0", "", { "dependencies": { "@shikijs/core": "3.22.0", "@shikijs/engine-javascript": "3.22.0", "@shikijs/engine-oniguruma": "3.22.0", "@shikijs/langs": "3.22.0", "@shikijs/themes": "3.22.0", "@shikijs/types": "3.22.0", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4" } }, "sha512-LBnhsoYEe0Eou4e1VgJACes+O6S6QC0w71fCSp5Oya79inkwkm15gQ1UF6VtQ8j/taMDh79hAB49WUk8ALQW3g=="],
++
+     "side-channel": ["side-channel@1.1.0", "", { "dependencies": { "es-errors": "^1.3.0", "object-inspect": "^1.13.3", "side-channel-list": "^1.0.0", "side-channel-map": "^1.0.1", "side-channel-weakmap": "^1.0.2" } }, "sha512-ZX99e6tRweoUXqR+VBrslhda51Nh5MTQwou5tnUDgbtyM0dBgmhEDtWGP/xbKn6hqfPRHujUNwz5fy/wbbhnpw=="],
+ 
+     "side-channel-list": ["side-channel-list@1.0.0", "", { "dependencies": { "es-errors": "^1.3.0", "object-inspect": "^1.13.3" } }, "sha512-FCLHtRD/gnpCiCHEiJLOwdmFP+wzCmDEkc9y7NsYxeF4u7Btsn1ZuwgwJGxImImHicJArLP4R0yX4c2KCrMrTA=="],
+@@ -1558,6 +1634,8 @@
+ 
+     "source-map-support": ["source-map-support@0.5.21", "", { "dependencies": { "buffer-from": "^1.0.0", "source-map": "^0.6.0" } }, "sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w=="],
+ 
++    "space-separated-tokens": ["space-separated-tokens@2.0.2", "", {}, "sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q=="],
++
+     "split2": ["split2@4.2.0", "", {}, "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg=="],
+ 
+     "stable-hash": ["stable-hash@0.0.5", "", {}, "sha512-+L3ccpzibovGXFK+Ap/f8LOS0ahMrHTf3xu7mMLSpEGU0EO9ucaysSylKo9eRDFNhWve/y275iPmIZ4z39a9iA=="],
+@@ -1586,6 +1664,8 @@
+ 
+     "string_decoder": ["string_decoder@1.3.0", "", { "dependencies": { "safe-buffer": "~5.2.0" } }, "sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA=="],
+ 
++    "stringify-entities": ["stringify-entities@4.0.4", "", { "dependencies": { "character-entities-html4": "^2.0.0", "character-entities-legacy": "^3.0.0" } }, "sha512-IwfBptatlO+QCJUo19AqvrPNqlVMpW9YEL2LIVY+Rpv2qsjCGxaDLNRgeGsQWJhfItebuJhsGSLjaBbNSQ+ieg=="],
++
+     "stringify-object": ["stringify-object@5.0.0", "", { "dependencies": { "get-own-enumerable-keys": "^1.0.0", "is-obj": "^3.0.0", "is-regexp": "^3.1.0" } }, "sha512-zaJYxz2FtcMb4f+g60KsRNFOpVMUyuJgA51Zi5Z1DOTC3S59+OQiVOzE9GZt0x72uBGWKsQIuBKeF9iusmKFsg=="],
+ 
+     "strip-ansi": ["strip-ansi@7.1.2", "", { "dependencies": { "ansi-regex": "^6.0.1" } }, "sha512-gmBGslpoQJtgnMAvOVqGZpEz9dyoKTCzy2nfz/n8aIFhN/jCE/rCmcxabB6jOOHV+0WNnylOxaxBQPSvcWklhA=="],
+@@ -1634,6 +1714,8 @@
+ 
+     "tough-cookie": ["tough-cookie@6.0.0", "", { "dependencies": { "tldts": "^7.0.5" } }, "sha512-kXuRi1mtaKMrsLUxz3sQYvVl37B0Ns6MzfrtV5DvJceE9bPyspOqk9xxv7XbZWcfLWbFmm997vl83qUWVJA64w=="],
+ 
++    "trim-lines": ["trim-lines@3.0.1", "", {}, "sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg=="],
++
+     "ts-api-utils": ["ts-api-utils@2.4.0", "", { "peerDependencies": { "typescript": ">=4.8.4" } }, "sha512-3TaVTaAv2gTiMB35i3FiGJaRfwb3Pyn/j3m/bfAvGe8FB7CF6u+LMYqYlDh7reQf7UNvoTvdfAqHGmPGOSsPmA=="],
+ 
+     "ts-morph": ["ts-morph@26.0.0", "", { "dependencies": { "@ts-morph/common": "~0.27.0", "code-block-writer": "^13.0.3" } }, "sha512-ztMO++owQnz8c/gIENcM9XfCEzgoGphTv+nKpYNM1bgsdOVC/jRZuEBf6N+mLLDNg68Kl+GgUZfOySaRiG1/Ug=="],
+@@ -1672,6 +1754,16 @@
+ 
+     "unicorn-magic": ["unicorn-magic@0.3.0", "", {}, "sha512-+QBBXBCvifc56fsbuxZQ6Sic3wqqc3WWaqxs58gvJrcOuN83HGTCwz3oS5phzU9LthRNE9VrJCFCLUgHeeFnfA=="],
+ 
++    "unist-util-is": ["unist-util-is@6.0.1", "", { "dependencies": { "@types/unist": "^3.0.0" } }, "sha512-LsiILbtBETkDz8I9p1dQ0uyRUWuaQzd/cuEeS1hoRSyW5E5XGmTzlwY1OrNzzakGowI9Dr/I8HVaw4hTtnxy8g=="],
++
++    "unist-util-position": ["unist-util-position@5.0.0", "", { "dependencies": { "@types/unist": "^3.0.0" } }, "sha512-fucsC7HjXvkB5R3kTCO7kUjRdrS0BJt3M/FPxmHMBOm8JQi2BsHAHFsy27E0EolP8rp0NzXsJ+jNPyDWvOJZPA=="],
++
++    "unist-util-stringify-position": ["unist-util-stringify-position@4.0.0", "", { "dependencies": { "@types/unist": "^3.0.0" } }, "sha512-0ASV06AAoKCDkS2+xw5RXJywruurpbC4JZSm7nr7MOt1ojAzvyyaO+UxZf18j8FCF6kmzCZKcAgN/yu2gm2XgQ=="],
++
++    "unist-util-visit": ["unist-util-visit@5.1.0", "", { "dependencies": { "@types/unist": "^3.0.0", "unist-util-is": "^6.0.0", "unist-util-visit-parents": "^6.0.0" } }, "sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg=="],
++
++    "unist-util-visit-parents": ["unist-util-visit-parents@6.0.2", "", { "dependencies": { "@types/unist": "^3.0.0", "unist-util-is": "^6.0.0" } }, "sha512-goh1s1TBrqSqukSc8wrjwWhL0hiJxgA8m4kFxGlQ+8FYQ3C/m11FcTs4YYem7V664AhHVvgoQLk890Ssdsr2IQ=="],
++
+     "universalify": ["universalify@2.0.1", "", {}, "sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw=="],
+ 
+     "unpipe": ["unpipe@1.0.0", "", {}, "sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ=="],
+@@ -1698,6 +1790,10 @@
+ 
+     "vaul": ["vaul@1.1.2", "", { "dependencies": { "@radix-ui/react-dialog": "^1.1.1" }, "peerDependencies": { "react": "^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-ZFkClGpWyI2WUQjdLJ/BaGuV6AVQiJ3uELGk3OYtP+B6yCO7Cmn9vPFXVJkRaGkOJu3m8bQMgtyzNHixULceQA=="],
+ 
++    "vfile": ["vfile@6.0.3", "", { "dependencies": { "@types/unist": "^3.0.0", "vfile-message": "^4.0.0" } }, "sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q=="],
++
++    "vfile-message": ["vfile-message@4.0.3", "", { "dependencies": { "@types/unist": "^3.0.0", "unist-util-stringify-position": "^4.0.0" } }, "sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw=="],
++
+     "victory-vendor": ["victory-vendor@36.9.2", "", { "dependencies": { "@types/d3-array": "^3.0.3", "@types/d3-ease": "^3.0.0", "@types/d3-interpolate": "^3.0.1", "@types/d3-scale": "^4.0.2", "@types/d3-shape": "^3.1.0", "@types/d3-time": "^3.0.0", "@types/d3-timer": "^3.0.0", "d3-array": "^3.1.6", "d3-ease": "^3.0.1", "d3-interpolate": "^3.0.1", "d3-scale": "^4.0.2", "d3-shape": "^3.1.0", "d3-time": "^3.0.0", "d3-timer": "^3.0.1" } }, "sha512-PnpQQMuxlwYdocC8fIJqVXvkeViHYzotI+NJrCuav0ZYFoq912ZHBk3mCeuj+5/VpodOjPe1z0Fk2ihgzlXqjQ=="],
+ 
+     "web-streams-polyfill": ["web-streams-polyfill@3.3.3", "", {}, "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw=="],
+@@ -1742,6 +1838,8 @@
+ 
+     "zod-validation-error": ["zod-validation-error@4.0.2", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ=="],
+ 
++    "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
++
+     "@dotenvx/dotenvx/commander": ["commander@11.1.0", "", {}, "sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ=="],
+ 
+     "@dotenvx/dotenvx/execa": ["execa@5.1.1", "", { "dependencies": { "cross-spawn": "^7.0.3", "get-stream": "^6.0.0", "human-signals": "^2.1.0", "is-stream": "^2.0.0", "merge-stream": "^2.0.0", "npm-run-path": "^4.0.1", "onetime": "^5.1.2", "signal-exit": "^3.0.3", "strip-final-newline": "^2.0.0" } }, "sha512-8uSpZZocAZRBAPIEINJj3Lo9HyGitllczc27Eh5YYojjMFMn8yHMDMaUHE2Jqfq05D/wucwI4JGURyXt1vchyg=="],
+diff --git a/package.json b/package.json
+index 36633583..20d2210b 100644
+--- a/package.json
++++ b/package.json
+@@ -6,15 +6,21 @@
+     "dev": "next dev",
+     "build": "next build",
+     "start": "next start",
+-    "lint": "eslint"
++    "lint": "eslint",
++    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
++    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
++    "db:push": "drizzle-kit push --config=drizzle.config.ts",
++    "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
+   },
+   "dependencies": {
+     "@dnd-kit/core": "^6.3.1",
+     "@dnd-kit/modifiers": "^9.0.0",
+     "@dnd-kit/sortable": "^10.0.0",
+     "@dnd-kit/utilities": "^3.2.2",
++    "@pierre/diffs": "^1.0.10",
+     "@tabler/icons-react": "^3.36.1",
+     "@tanstack/react-table": "^8.21.3",
++    "babel-plugin-react-compiler": "^1.0.0",
+     "better-auth": "^1.4.18",
+     "class-variance-authority": "^0.7.1",
+     "clsx": "^2.1.1",
+diff --git a/src/app/api/gitlab/route.ts b/src/app/api/gitlab/route.ts
+new file mode 100644
+index 00000000..6e31c13e
+--- /dev/null
++++ b/src/app/api/gitlab/route.ts
+@@ -0,0 +1,309 @@
++import { NextResponse } from "next/server"
++
++type GitLabAction = "projects" | "merge-requests" | "merge-request-diff"
++
++type GitLabProjectPayload = {
++  action: GitLabAction
++  instanceUrl: string
++  token: string
++  projectId?: string
++  mergeRequestIid?: string
++}
++
++type Project = {
++  id: string
++  name: string
++  path: string
++  webUrl: string
++}
++
++type MergeRequest = {
++  id: string
++  iid: string
++  title: string
++  state: string
++  author: string
++  webUrl: string
++}
++
++const MAX_PATCH_BYTES = 2_500_000
++
++class GitLabRouteError extends Error {
++  status: number
++
++  constructor(message: string, status = 502) {
++    super(message)
++    this.status = status
++  }
++}
++
++const isNonEmptyString = (value: unknown): value is string =>
++  typeof value === "string" && value.trim().length > 0
++
++const normalizeInstanceUrl = (input: string) => {
++  const trimmed = input.trim().replace(/\/+$/, "")
++  if (!trimmed) {
++    throw new Error("GitLab instance URL is required.")
++  }
++
++  if (/^https?:\/\//i.test(trimmed)) {
++    return trimmed
++  }
++
++  return `https://${trimmed}`
++}
++
++const getGitLabRequest = async (
++  instanceUrl: string,
++  token: string,
++  apiPath: string,
++) => {
++  const response = await fetch(`${instanceUrl}${apiPath}`, {
++    headers: {
++      "PRIVATE-TOKEN": token,
++      "User-Agent": "argus-app",
++    },
++    method: "GET",
++  })
++
++  if (!response.ok) {
++    const responseText = await response.text()
++    const bodyMessage =
++      responseText.length > 0 ? responseText.slice(0, 400) : undefined
++    throw new GitLabRouteError(
++      `GitLab request failed (${response.status}): ${bodyMessage ?? "no details"}`,
++    )
++  }
++
++  return response
++}
++
++const getGitLabJson = async <T>(
++  instanceUrl: string,
++  token: string,
++  apiPath: string,
++) => {
++  const response = await getGitLabRequest(instanceUrl, token, apiPath)
++  return (await response.json()) as T
++}
++
++const getPatchSizeBytes = (patch: string) => Buffer.byteLength(patch, "utf8")
++
++const buildPatchFromChanges = (payload: unknown) => {
++  const root =
++    payload && typeof payload === "object"
++      ? (payload as Record<string, unknown>)
++      : null
++
++  const changes = Array.isArray(root?.changes)
++    ? root.changes.filter(
++        (item): item is Record<string, unknown> =>
++          Boolean(item) && typeof item === "object",
++      )
++    : []
++
++  return changes
++    .map((change) => {
++      const rawDiff = String(change.diff ?? "").trimEnd()
++      if (!rawDiff) {
++        return null
++      }
++
++      if (rawDiff.startsWith("diff --git ")) {
++        return rawDiff
++      }
++
++      const oldPath = String(change.old_path ?? change.new_path ?? "unknown")
++      const newPath = String(change.new_path ?? change.old_path ?? "unknown")
++      const oldHeader = change.new_file === true ? "/dev/null" : `a/${oldPath}`
++      const newHeader = change.deleted_file === true ? "/dev/null" : `b/${newPath}`
++      const diffHeader = `diff --git a/${oldPath} b/${newPath}`
++      const includesFileHeaders =
++        /^---\s/m.test(rawDiff) && /^\+\+\+\s/m.test(rawDiff)
++
++      if (includesFileHeaders) {
++        return `${diffHeader}\n${rawDiff}`
++      }
++
++      return `${diffHeader}\n--- ${oldHeader}\n+++ ${newHeader}\n${rawDiff}`
++    })
++    .filter((value): value is string => Boolean(value))
++    .join("\n\n")
++}
++
++const getMergeRequestPatch = async ({
++  instanceUrl,
++  token,
++  projectId,
++  mergeRequestIid,
++}: {
++  instanceUrl: string
++  token: string
++  projectId: string
++  mergeRequestIid: string
++}) => {
++  const encodedProjectId = encodeURIComponent(projectId)
++  const encodedMergeRequestIid = encodeURIComponent(mergeRequestIid)
++
++  try {
++    const rawDiffResponse = await getGitLabRequest(
++      instanceUrl,
++      token,
++      `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/raw_diffs`,
++    )
++    const contentLength = Number(rawDiffResponse.headers.get("content-length"))
++    if (Number.isFinite(contentLength) && contentLength > MAX_PATCH_BYTES) {
++      throw new GitLabRouteError(
++        "Diff is too large to render reliably in the browser.",
++        413,
++      )
++    }
++
++    const patch = await rawDiffResponse.text()
++    if (getPatchSizeBytes(patch) > MAX_PATCH_BYTES) {
++      throw new GitLabRouteError(
++        "Diff is too large to render reliably in the browser.",
++        413,
++      )
++    }
++
++    if (patch.trim().length > 0) {
++      return { patch, source: "raw_diffs" as const }
++    }
++  } catch (rawDiffError) {
++    if (rawDiffError instanceof GitLabRouteError && rawDiffError.status === 413) {
++      throw rawDiffError
++    }
++  }
++
++  const changesPayload = await getGitLabJson<Record<string, unknown>>(
++    instanceUrl,
++    token,
++    `/api/v4/projects/${encodedProjectId}/merge_requests/${encodedMergeRequestIid}/changes?access_raw_diffs=true`,
++  )
++  const fallbackPatch = buildPatchFromChanges(changesPayload)
++
++  if (!fallbackPatch.trim()) {
++    throw new GitLabRouteError("Merge request has no diff content to render.", 404)
++  }
++
++  if (getPatchSizeBytes(fallbackPatch) > MAX_PATCH_BYTES) {
++    throw new GitLabRouteError(
++      "Diff is too large to render reliably in the browser.",
++      413,
++    )
++  }
++
++  return { patch: fallbackPatch, source: "changes" as const }
++}
++
++export async function POST(request: Request) {
++  const payload = (await request.json().catch(() => null)) as
++    | GitLabProjectPayload
++    | null
++
++  if (!payload || payload.action === undefined) {
++    return NextResponse.json({ error: "Invalid request payload." }, { status: 400 })
++  }
++
++  if (
++    payload.action !== "projects" &&
++    payload.action !== "merge-requests" &&
++    payload.action !== "merge-request-diff"
++  ) {
++    return NextResponse.json({ error: "Unsupported action." }, { status: 400 })
++  }
++
++  if (!isNonEmptyString(payload.instanceUrl)) {
++    return NextResponse.json(
++      { error: "GitLab instance URL is required." },
++      { status: 400 },
++    )
++  }
++
++  if (!isNonEmptyString(payload.token)) {
++    return NextResponse.json(
++      { error: "Personal access token is required." },
++      { status: 400 },
++    )
++  }
++
++  const normalizedInstanceUrl = normalizeInstanceUrl(payload.instanceUrl)
++
++  try {
++    if (payload.action === "projects") {
++      const responseData = await getGitLabJson<Array<Record<string, unknown>>>(
++        normalizedInstanceUrl,
++        payload.token,
++        "/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at&sort=desc",
++      )
++
++      const projects: Project[] = responseData
++        .filter((item) => item && typeof item === "object")
++        .map((item) => ({
++          id: String(item.id),
++          name: String(item.name_with_namespace ?? item.name ?? item.path),
++          path: String(item.path_with_namespace ?? item.path),
++          webUrl: String(item.web_url ?? ""),
++        }))
++
++      return NextResponse.json({ data: projects })
++    }
++
++    if (!isNonEmptyString(payload.projectId)) {
++      return NextResponse.json(
++        { error: "Project selection is required." },
++        { status: 400 },
++      )
++    }
++
++    if (payload.action === "merge-requests") {
++      const responseData = await getGitLabJson<Array<Record<string, unknown>>>(
++        normalizedInstanceUrl,
++        payload.token,
++        `/api/v4/projects/${encodeURIComponent(payload.projectId)}/merge_requests?state=opened&per_page=100&order_by=updated_at&sort=desc`,
++      )
++
++      const mergeRequests: MergeRequest[] = responseData
++        .filter((item) => item && typeof item === "object")
++        .map((item) => ({
++          id: String(item.id),
++          iid: String(item.iid),
++          title: String(item.title ?? ""),
++          state: String(item.state ?? "unknown"),
++          author:
++            item.author &&
++            typeof item.author === "object" &&
++            "name" in item.author
++              ? String((item.author as { name?: unknown }).name ?? "Unknown author")
++              : "Unknown author",
++          webUrl: String(item.web_url ?? ""),
++        }))
++
++      return NextResponse.json({ data: mergeRequests })
++    }
++
++    if (!isNonEmptyString(payload.mergeRequestIid)) {
++      return NextResponse.json(
++        { error: "Merge request selection is required." },
++        { status: 400 },
++      )
++    }
++
++    const mergeRequestDiff = await getMergeRequestPatch({
++      instanceUrl: normalizedInstanceUrl,
++      token: payload.token,
++      projectId: payload.projectId,
++      mergeRequestIid: payload.mergeRequestIid,
++    })
++
++    return NextResponse.json({ data: mergeRequestDiff })
++  } catch (error) {
++    const status = error instanceof GitLabRouteError ? error.status : 502
++    const message =
++      error instanceof Error
++        ? error.message
++        : "Unexpected GitLab lookup error."
++    return NextResponse.json({ error: message }, { status })
++  }
++}
+diff --git a/src/components/data-table.tsx b/src/components/data-table.tsx
+index 1d977f82..7850bbaf 100644
+--- a/src/components/data-table.tsx
++++ b/src/components/data-table.tsx
+@@ -365,6 +365,7 @@ export function DataTable({
+     [data]
+   )
+ 
++  // eslint-disable-next-line react-hooks/incompatible-library
+   const table = useReactTable({
+     data,
+     columns,
+diff --git a/src/components/merge-request-diff-viewer.tsx b/src/components/merge-request-diff-viewer.tsx
+new file mode 100644
+index 00000000..683336f5
+--- /dev/null
++++ b/src/components/merge-request-diff-viewer.tsx
+@@ -0,0 +1,388 @@
++"use client"
++
++import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs"
++import { FileDiff, WorkerPoolContextProvider } from "@pierre/diffs/react"
++import { useCallback, useEffect, useMemo, useState } from "react"
++
++import { Badge } from "@/components/ui/badge"
++import { Button } from "@/components/ui/button"
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++
++type DiffDataSource = "raw_diffs" | "changes"
++type DiffStyle = "split" | "unified"
++
++type MergeRequestDiffViewerProps = {
++  instanceUrl: string
++  token: string
++  projectId: string
++  mergeRequestIid: string
++}
++
++type DiffPayload = {
++  data?: {
++    patch?: unknown
++    source?: unknown
++  }
++  error?: unknown
++}
++
++const INITIAL_FILE_BATCH_SIZE = 12
++const FILE_BATCH_SIZE = 8
++const DIFF_CACHE_SIZE = 400
++const DEFAULT_WORKER_COUNT = 4
++
++const getErrorMessage = (value: unknown) => {
++  if (typeof value === "string") {
++    return value
++  }
++  if (value && typeof value === "object" && "error" in value) {
++    return String((value as { error?: string }).error)
++  }
++  return "Unable to load merge request diff."
++}
++
++const getFileLabel = (file: FileDiffMetadata) => {
++  if (file.prevName && file.prevName !== file.name) {
++    return `${file.prevName} -> ${file.name}`
++  }
++
++  return file.name
++}
++
++const getChangeTypeLabel = (type: FileDiffMetadata["type"]) => {
++  switch (type) {
++    case "new":
++      return "new"
++    case "deleted":
++      return "deleted"
++    case "rename-pure":
++      return "renamed"
++    case "rename-changed":
++      return "renamed+changed"
++    default:
++      return "changed"
++  }
++}
++
++const getChangeTypeBadgeVariant = (type: FileDiffMetadata["type"]) => {
++  switch (type) {
++    case "new":
++      return "secondary"
++    case "deleted":
++      return "destructive"
++    default:
++      return "outline"
++  }
++}
++
++export function MergeRequestDiffViewer({
++  instanceUrl,
++  token,
++  projectId,
++  mergeRequestIid,
++}: MergeRequestDiffViewerProps) {
++  const [isLoading, setIsLoading] = useState(false)
++  const [loadError, setLoadError] = useState("")
++  const [patchText, setPatchText] = useState("")
++  const [dataSource, setDataSource] = useState<DiffDataSource | null>(null)
++
++  const [filenameFilter, setFilenameFilter] = useState("")
++  const [diffStyle, setDiffStyle] = useState<DiffStyle>("split")
++  const [wrapLines, setWrapLines] = useState(false)
++  const [showLineNumbers, setShowLineNumbers] = useState(true)
++  const [visibleFileCount, setVisibleFileCount] = useState(INITIAL_FILE_BATCH_SIZE)
++
++  const loadDiff = useCallback(async () => {
++    setIsLoading(true)
++    setLoadError("")
++
++    try {
++      const response = await fetch("/api/gitlab", {
++        method: "POST",
++        headers: {
++          "content-type": "application/json",
++        },
++        body: JSON.stringify({
++          action: "merge-request-diff",
++          instanceUrl,
++          token,
++          projectId,
++          mergeRequestIid,
++        }),
++      })
++
++      const payload = (await response.json().catch(() => null)) as DiffPayload | null
++      if (!response.ok) {
++        throw new Error(getErrorMessage(payload))
++      }
++
++      if (!payload?.data || typeof payload.data.patch !== "string") {
++        throw new Error("Unexpected diff response from server.")
++      }
++
++      const source = payload.data.source === "changes" ? "changes" : "raw_diffs"
++      setPatchText(payload.data.patch)
++      setDataSource(source)
++      setVisibleFileCount(INITIAL_FILE_BATCH_SIZE)
++    } catch (error) {
++      setPatchText("")
++      setDataSource(null)
++      setLoadError(getErrorMessage(error))
++    } finally {
++      setIsLoading(false)
++    }
++  }, [instanceUrl, token, projectId, mergeRequestIid])
++
++  useEffect(() => {
++    void loadDiff()
++  }, [loadDiff])
++
++  const parsedPatch = useMemo(() => {
++    if (!patchText) {
++      return { files: [] as FileDiffMetadata[], parseError: "" }
++    }
++
++    try {
++      const patches = parsePatchFiles(
++        patchText,
++        `mr-${projectId}-${mergeRequestIid}`,
++      )
++      const files = patches.flatMap((patch) => patch.files)
++      return { files, parseError: "" }
++    } catch (error) {
++      return {
++        files: [] as FileDiffMetadata[],
++        parseError: getErrorMessage(error),
++      }
++    }
++  }, [mergeRequestIid, patchText, projectId])
++
++  const normalizedFilter = filenameFilter.trim().toLowerCase()
++  const filteredFiles = useMemo(() => {
++    if (!normalizedFilter) {
++      return parsedPatch.files
++    }
++
++    return parsedPatch.files.filter((file) => {
++      const label = getFileLabel(file).toLowerCase()
++      return label.includes(normalizedFilter)
++    })
++  }, [normalizedFilter, parsedPatch.files])
++
++  useEffect(() => {
++    setVisibleFileCount(INITIAL_FILE_BATCH_SIZE)
++  }, [normalizedFilter, patchText])
++
++  const totals = useMemo(
++    () =>
++      filteredFiles.reduce(
++        (accumulator, file) => {
++          for (const hunk of file.hunks) {
++            accumulator.additions += hunk.additionCount
++            accumulator.deletions += hunk.deletionCount
++          }
++          return accumulator
++        },
++        { additions: 0, deletions: 0 },
++      ),
++    [filteredFiles],
++  )
++
++  const visibleFiles = filteredFiles.slice(0, visibleFileCount)
++  const canLoadMore = visibleFileCount < filteredFiles.length
++
++  const workerPoolSize = useMemo(() => {
++    if (typeof navigator === "undefined") {
++      return DEFAULT_WORKER_COUNT
++    }
++
++    const cores = navigator.hardwareConcurrency || DEFAULT_WORKER_COUNT
++    return Math.max(2, Math.min(8, cores - 1))
++  }, [])
++
++  const diffOptions = useMemo(
++    () => ({
++      diffStyle,
++      overflow: (wrapLines ? "wrap" : "scroll") as "wrap" | "scroll",
++      disableLineNumbers: !showLineNumbers,
++      lineDiffType: "word" as const,
++      diffIndicators: "classic" as const,
++      hunkSeparators: "line-info" as const,
++      expansionLineCount: 20,
++      tokenizeMaxLineLength: 1500,
++      theme: {
++        light: "github-light",
++        dark: "github-dark",
++      },
++      themeType: "system" as const,
++    }),
++    [diffStyle, showLineNumbers, wrapLines],
++  )
++
++  const poolOptions = useMemo(
++    () => ({
++      workerFactory: () =>
++        new Worker(
++          new URL("@pierre/diffs/worker/worker.js", import.meta.url),
++        ),
++      poolSize: workerPoolSize,
++      totalASTLRUCacheSize: DIFF_CACHE_SIZE,
++    }),
++    [workerPoolSize],
++  )
++
++  const highlighterOptions = useMemo(
++    () => ({
++      theme: {
++        light: "github-light",
++        dark: "github-dark",
++      },
++      lineDiffType: "word" as const,
++      tokenizeMaxLineLength: 1500,
++    }),
++    [],
++  )
++
++  return (
++    <Card>
++      <CardHeader className="gap-3">
++        <CardTitle>5) Review diff</CardTitle>
++        <CardDescription>
++          High-fidelity rendering powered by diffs.com with patch fallback for reliability.
++        </CardDescription>
++      </CardHeader>
++      <CardContent className="space-y-4">
++        <div className="flex flex-wrap gap-2">
++          <Badge variant="outline">{filteredFiles.length} files</Badge>
++          <Badge variant="secondary">+{totals.additions}</Badge>
++          <Badge variant="destructive">-{totals.deletions}</Badge>
++          {dataSource ? (
++            <Badge variant="outline">
++              source: {dataSource === "raw_diffs" ? "raw_diffs" : "changes fallback"}
++            </Badge>
++          ) : null}
++        </div>
++
++        <div className="grid gap-3 md:grid-cols-2">
++          <div className="grid gap-1.5">
++            <Label htmlFor="diff-file-filter">Filter files</Label>
++            <Input
++              id="diff-file-filter"
++              placeholder="Search by filename"
++              value={filenameFilter}
++              onChange={(event) => setFilenameFilter(event.target.value)}
++            />
++          </div>
++          <div className="grid gap-1.5">
++            <Label>Viewer controls</Label>
++            <div className="flex flex-wrap gap-2">
++              <Button
++                type="button"
++                size="sm"
++                variant={diffStyle === "split" ? "default" : "outline"}
++                onClick={() => setDiffStyle("split")}
++              >
++                Split
++              </Button>
++              <Button
++                type="button"
++                size="sm"
++                variant={diffStyle === "unified" ? "default" : "outline"}
++                onClick={() => setDiffStyle("unified")}
++              >
++                Unified
++              </Button>
++              <Button
++                type="button"
++                size="sm"
++                variant={wrapLines ? "default" : "outline"}
++                onClick={() => setWrapLines((current) => !current)}
++              >
++                Wrap lines
++              </Button>
++              <Button
++                type="button"
++                size="sm"
++                variant={showLineNumbers ? "default" : "outline"}
++                onClick={() => setShowLineNumbers((current) => !current)}
++              >
++                Line numbers
++              </Button>
++              <Button
++                type="button"
++                size="sm"
++                variant="outline"
++                disabled={isLoading}
++                onClick={() => void loadDiff()}
++              >
++                {isLoading ? "Reloading..." : "Reload diff"}
++              </Button>
++            </div>
++          </div>
++        </div>
++
++        {loadError ? <p className="text-sm text-destructive">{loadError}</p> : null}
++        {parsedPatch.parseError ? (
++          <p className="text-sm text-destructive">{parsedPatch.parseError}</p>
++        ) : null}
++
++        {isLoading ? (
++          <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
++            Loading merge request diff...
++          </div>
++        ) : null}
++
++        {!isLoading && !loadError && !parsedPatch.parseError && visibleFiles.length === 0 ? (
++          <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
++            No files match your current filter.
++          </div>
++        ) : null}
++
++        {visibleFiles.length > 0 ? (
++          <WorkerPoolContextProvider
++            poolOptions={poolOptions}
++            highlighterOptions={highlighterOptions}
++          >
++            <div className="space-y-4">
++              {visibleFiles.map((file) => (
++                <div key={file.cacheKey ?? getFileLabel(file)} className="space-y-2">
++                  <div className="flex flex-wrap items-center gap-2 text-xs">
++                    <span className="rounded bg-muted px-2 py-1 font-medium text-foreground">
++                      {getFileLabel(file)}
++                    </span>
++                    <Badge variant={getChangeTypeBadgeVariant(file.type)}>
++                      {getChangeTypeLabel(file.type)}
++                    </Badge>
++                  </div>
++                  <FileDiff
++                    fileDiff={file}
++                    options={diffOptions}
++                    className="rounded-lg border"
++                  />
++                </div>
++              ))}
++            </div>
++          </WorkerPoolContextProvider>
++        ) : null}
++
++        {canLoadMore ? (
++          <div className="pt-2">
++            <Button
++              type="button"
++              variant="outline"
++              onClick={() =>
++                setVisibleFileCount((count) =>
++                  Math.min(count + FILE_BATCH_SIZE, filteredFiles.length),
++                )
++              }
++            >
++              Load more files ({filteredFiles.length - visibleFileCount} remaining)
++            </Button>
++          </div>
++        ) : null}
++      </CardContent>
++    </Card>
++  )
++}
+diff --git a/src/components/onboarding/onboarding-flow.tsx b/src/components/onboarding/onboarding-flow.tsx
+new file mode 100644
+index 00000000..044f8a94
+--- /dev/null
++++ b/src/components/onboarding/onboarding-flow.tsx
+@@ -0,0 +1,585 @@
++"use client"
++
++import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
++import { useRouter } from "next/navigation"
++import {
++  IconArrowLeft,
++  IconCheck,
++  IconCloud,
++  IconGitMerge,
++  IconServer,
++} from "@tabler/icons-react"
++
++import { MergeRequestDiffViewer } from "@/components/merge-request-diff-viewer"
++import { Button } from "@/components/ui/button"
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select"
++
++export type OnboardingRouteStep = "tokens" | "projects" | "mrs"
++
++type Project = {
++  id: string
++  name: string
++  path: string
++  webUrl: string
++}
++
++type MergeRequest = {
++  id: string
++  iid: string
++  title: string
++  state: string
++  author: string
++  webUrl: string
++}
++
++type OnboardingSessionState = {
++  gitlabInstance: string
++  customInstance: string
++  token: string
++  projects: Project[]
++  selectedProjectId: string
++  mergeRequests: MergeRequest[]
++  selectedMergeRequestId: string
++}
++
++type OnboardingEventMetadata = {
++  instanceUrl?: string
++  selectedProjectCount?: number
++  projectId?: string
++  mergeRequestId?: string
++}
++
++const INSTANCE_PRESETS = ["https://gitlab.com", "https://gitlab.example.com", "custom"]
++const ONBOARDING_STORAGE_KEY = "argus-onboarding-selections-v2"
++
++const routeStepPosition: Record<OnboardingRouteStep, number> = {
++  tokens: 1,
++  projects: 2,
++  mrs: 3,
++}
++
++const resolveGitLabInstance = (instance: string, customValue: string) => {
++  const value = (instance === "custom" ? customValue : instance).trim()
++  if (!value) {
++    throw new Error("Please select or enter a GitLab instance.")
++  }
++  return value.replace(/\/+$/, "")
++}
++
++const readPersistedState = (): Partial<OnboardingSessionState> => {
++  const raw = window.sessionStorage.getItem(ONBOARDING_STORAGE_KEY)
++  if (!raw) {
++    return {}
++  }
++
++  try {
++    const parsed = JSON.parse(raw) as Partial<OnboardingSessionState>
++    return parsed && typeof parsed === "object" ? parsed : {}
++  } catch {
++    return {}
++  }
++}
++
++const isNonEmptyString = (value: unknown): value is string =>
++  typeof value === "string" && value.trim().length > 0
++
++export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }) {
++  const router = useRouter()
++  const currentStep = routeStepPosition[routeStep]
++  const startedEventTracked = useRef(false)
++  const completionEventTracked = useRef(false)
++
++  const [isHydrated, setIsHydrated] = useState(false)
++
++  const [gitlabInstance, setGitlabInstance] = useState(INSTANCE_PRESETS[0])
++  const [customInstance, setCustomInstance] = useState("https://")
++  const [token, setToken] = useState("")
++  const [projects, setProjects] = useState<Project[]>([])
++  const [projectsError, setProjectsError] = useState("")
++  const [selectedProjectId, setSelectedProjectId] = useState("")
++
++  const [mergeRequests, setMergeRequests] = useState<MergeRequest[]>([])
++  const [mergeRequestsError, setMergeRequestsError] = useState("")
++  const [selectedMergeRequestId, setSelectedMergeRequestId] = useState("")
++  const [actionBusy, setActionBusy] = useState(false)
++
++  const selectedProject = projects.find((project) => project.id === selectedProjectId)
++  const selectedMergeRequest = mergeRequests.find((mr) => mr.id === selectedMergeRequestId)
++
++  const canLoadProjects = useMemo(
++    () =>
++      token.trim().length > 0 &&
++      (gitlabInstance === "custom"
++        ? customInstance.trim().length > 0
++        : gitlabInstance.trim().length > 0),
++    [token, gitlabInstance, customInstance],
++  )
++  const resolvedGitLabInstance = useMemo(() => {
++    if (!token.trim()) {
++      return ""
++    }
++
++    try {
++      return resolveGitLabInstance(gitlabInstance, customInstance)
++    } catch {
++      return ""
++    }
++  }, [token, gitlabInstance, customInstance])
++
++  const trackEvent = async (
++    event:
++      | "onboarding_started"
++      | "onboarding_token_validated"
++      | "onboarding_projects_selected"
++      | "onboarding_completed",
++    metadata?: OnboardingEventMetadata,
++  ) => {
++    await fetch("/api/onboarding/track", {
++      method: "POST",
++      headers: {
++        "content-type": "application/json",
++      },
++      body: JSON.stringify({ event, metadata }),
++    }).catch(() => null)
++  }
++
++  const getErrorMessage = (value: unknown) => {
++    if (typeof value === "string") {
++      return value
++    }
++    if (value && typeof value === "object" && "error" in value) {
++      return String((value as { error?: string }).error)
++    }
++    return "Something went wrong."
++  }
++
++  const callGitLab = async (
++    action: "projects" | "merge-requests",
++    projectId?: string,
++  ) => {
++    const normalizedInstance = resolveGitLabInstance(gitlabInstance, customInstance)
++    const response = await fetch("/api/gitlab", {
++      method: "POST",
++      headers: {
++        "content-type": "application/json",
++      },
++      body: JSON.stringify({
++        action,
++        instanceUrl: normalizedInstance,
++        token,
++        ...(projectId ? { projectId } : {}),
++      }),
++    })
++
++    const payload = await response.json()
++    if (!response.ok) {
++      throw new Error(getErrorMessage(payload))
++    }
++
++    if (!Array.isArray(payload.data)) {
++      throw new Error("Unexpected response from server.")
++    }
++
++    return payload.data
++  }
++
++  const loadProjects = async () => {
++    setActionBusy(true)
++    setProjectsError("")
++    setMergeRequestsError("")
++
++    try {
++      const data = (await callGitLab("projects")) as Project[]
++      setProjects(data)
++      setSelectedProjectId("")
++      setMergeRequests([])
++      setSelectedMergeRequestId("")
++      await trackEvent("onboarding_token_validated", {
++        instanceUrl: resolveGitLabInstance(gitlabInstance, customInstance),
++      })
++      return true
++    } catch (error) {
++      setProjectsError(getErrorMessage(error))
++      return false
++    } finally {
++      setActionBusy(false)
++    }
++  }
++
++  const loadMergeRequests = async (projectId: string) => {
++    setActionBusy(true)
++    setMergeRequestsError("")
++
++    try {
++      const data = (await callGitLab("merge-requests", projectId)) as MergeRequest[]
++      setMergeRequests(data)
++      setSelectedMergeRequestId("")
++      await trackEvent("onboarding_projects_selected", {
++        selectedProjectCount: projects.length,
++        projectId,
++      })
++      router.push("/onboarding/mrs")
++    } catch (error) {
++      setMergeRequestsError(getErrorMessage(error))
++    } finally {
++      setActionBusy(false)
++    }
++  }
++
++  const handleTokenSubmit = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault()
++    const success = await loadProjects()
++    if (success) {
++      router.push("/onboarding/projects")
++    }
++  }
++
++  const handleProjectSelection = async (projectId: string) => {
++    setSelectedProjectId(projectId)
++    await loadMergeRequests(projectId)
++  }
++
++  const handleMergeRequestSelection = (mrId: string) => {
++    setSelectedMergeRequestId(mrId)
++    if (!completionEventTracked.current) {
++      completionEventTracked.current = true
++      void trackEvent("onboarding_completed", {
++        projectId: selectedProjectId,
++        mergeRequestId: mrId,
++      })
++    }
++  }
++
++  useEffect(() => {
++    const persisted = readPersistedState()
++    if (isNonEmptyString(persisted.gitlabInstance)) {
++      setGitlabInstance(persisted.gitlabInstance)
++    }
++    if (isNonEmptyString(persisted.customInstance)) {
++      setCustomInstance(persisted.customInstance)
++    }
++    if (isNonEmptyString(persisted.token)) {
++      setToken(persisted.token)
++    }
++    if (Array.isArray(persisted.projects)) {
++      setProjects(persisted.projects as Project[])
++    }
++    if (isNonEmptyString(persisted.selectedProjectId)) {
++      setSelectedProjectId(persisted.selectedProjectId)
++    }
++    if (Array.isArray(persisted.mergeRequests)) {
++      setMergeRequests(persisted.mergeRequests as MergeRequest[])
++    }
++    if (isNonEmptyString(persisted.selectedMergeRequestId)) {
++      setSelectedMergeRequestId(persisted.selectedMergeRequestId)
++    }
++    setIsHydrated(true)
++  }, [])
++
++  useEffect(() => {
++    if (!isHydrated) {
++      return
++    }
++    window.sessionStorage.setItem(
++      ONBOARDING_STORAGE_KEY,
++      JSON.stringify({
++        gitlabInstance,
++        customInstance,
++        token,
++        projects,
++        selectedProjectId,
++        mergeRequests,
++        selectedMergeRequestId,
++      } satisfies OnboardingSessionState),
++    )
++  }, [
++    isHydrated,
++    gitlabInstance,
++    customInstance,
++    token,
++    projects,
++    selectedProjectId,
++    mergeRequests,
++    selectedMergeRequestId,
++  ])
++
++  useEffect(() => {
++    if (!isHydrated) {
++      return
++    }
++    if (routeStep !== "tokens") {
++      return
++    }
++    if (startedEventTracked.current) {
++      return
++    }
++
++    startedEventTracked.current = true
++    void trackEvent("onboarding_started")
++  }, [isHydrated, routeStep])
++
++  useEffect(() => {
++    if (!isHydrated) {
++      return
++    }
++
++    if (routeStep === "projects" && !token.trim()) {
++      router.replace("/onboarding/tokens")
++      return
++    }
++
++    if (routeStep === "mrs" && !selectedProjectId) {
++      router.replace("/onboarding/projects")
++    }
++  }, [isHydrated, routeStep, token, selectedProjectId, router])
++
++  const renderHeader = (title: string, description: string) => (
++    <section className="flex flex-wrap items-start justify-between gap-3">
++      <div>
++        <h1 className="text-2xl font-semibold">{title}</h1>
++        <p className="text-sm text-muted-foreground">{description}</p>
++      </div>
++      <div className="flex items-center gap-2 text-sm text-muted-foreground">
++        <IconCheck className="size-4 text-primary" />
++        <span>Step {currentStep} of 3</span>
++      </div>
++    </section>
++  )
++
++  if (routeStep === "tokens") {
++    return (
++      <div className="space-y-4">
++        {renderHeader(
++          "Onboarding · Tokens",
++          "Connect GitLab and preload projects to continue.",
++        )}
++
++        <Card>
++          <CardHeader>
++            <CardTitle className="flex items-center gap-2">
++              <IconServer />
++              1) GitLab instance + token
++            </CardTitle>
++            <CardDescription>
++              Choose your GitLab instance and provide a personal access token.
++            </CardDescription>
++          </CardHeader>
++          <CardContent>
++            <form onSubmit={handleTokenSubmit} className="grid gap-3">
++              <div className="grid gap-1">
++                <Label htmlFor="gitlab-instance">Instance</Label>
++                <Select value={gitlabInstance} onValueChange={setGitlabInstance}>
++                  <SelectTrigger className="w-full">
++                    <SelectValue placeholder="Select GitLab instance" />
++                  </SelectTrigger>
++                  <SelectContent>
++                    {INSTANCE_PRESETS.map((instance) => (
++                      <SelectItem key={instance} value={instance}>
++                        {instance === "custom" ? "Custom URL" : instance}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++                {gitlabInstance === "custom" ? (
++                  <Input
++                    value={customInstance}
++                    onChange={(event) => setCustomInstance(event.target.value)}
++                    placeholder="https://gitlab.example.com"
++                  />
++                ) : null}
++              </div>
++              <div className="grid gap-1">
++                <Label htmlFor="gitlab-token">Personal access token</Label>
++                <Input
++                  id="gitlab-token"
++                  type="password"
++                  value={token}
++                  onChange={(event) => setToken(event.target.value)}
++                  placeholder="glpat-..."
++                />
++              </div>
++              {projectsError ? <p className="text-xs text-destructive">{projectsError}</p> : null}
++              <Button type="submit" disabled={actionBusy || !canLoadProjects}>
++                {actionBusy ? "Loading projects..." : "Continue to projects"}
++              </Button>
++            </form>
++          </CardContent>
++        </Card>
++      </div>
++    )
++  }
++
++  if (routeStep === "projects") {
++    return (
++      <div className="space-y-4">
++        {renderHeader(
++          "Onboarding · Projects",
++          "Choose one project and preload open merge requests.",
++        )}
++
++        <Card>
++          <CardHeader>
++            <CardTitle className="flex items-center gap-2">
++              <IconCloud />
++              1) Select project
++            </CardTitle>
++            <CardDescription>
++              Pick a project to continue to merge request selection.
++            </CardDescription>
++          </CardHeader>
++          <CardContent className="grid gap-3">
++            <div className="flex gap-2">
++              <Button variant="outline" onClick={() => router.push("/onboarding/tokens")}>
++                <IconArrowLeft />
++                Back to tokens
++              </Button>
++              <Button onClick={loadProjects} disabled={!canLoadProjects || actionBusy}>
++                {actionBusy ? "Loading projects..." : "Reload projects"}
++              </Button>
++            </div>
++
++            {projects.length > 0 ? (
++              <>
++                <Label htmlFor="project-select">Project</Label>
++                <Select value={selectedProjectId} onValueChange={handleProjectSelection}>
++                  <SelectTrigger id="project-select" className="w-full">
++                    <SelectValue placeholder="Select a project" />
++                  </SelectTrigger>
++                  <SelectContent>
++                    {projects.map((project) => (
++                      <SelectItem key={project.id} value={project.id}>
++                        {project.name}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++              </>
++            ) : (
++              <p className="text-sm text-muted-foreground">
++                No projects loaded yet. Use Reload projects to fetch them.
++              </p>
++            )}
++
++            {projectsError ? <p className="text-xs text-destructive">{projectsError}</p> : null}
++            {mergeRequestsError ? (
++              <p className="text-xs text-destructive">{mergeRequestsError}</p>
++            ) : null}
++          </CardContent>
++        </Card>
++      </div>
++    )
++  }
++
++  return (
++    <div className="space-y-4">
++      {renderHeader(
++        "Onboarding · Merge Requests",
++        "Choose a merge request to complete onboarding.",
++      )}
++
++      <Card>
++        <CardHeader>
++          <CardTitle className="flex items-center gap-2">
++            <IconGitMerge />
++            1) Select merge request
++          </CardTitle>
++          <CardDescription>
++            Choose one merge request from the selected project.
++          </CardDescription>
++        </CardHeader>
++        <CardContent className="grid gap-3">
++          <div className="flex gap-2">
++            <Button variant="outline" onClick={() => router.push("/onboarding/projects")}>
++              <IconArrowLeft />
++              Back to projects
++            </Button>
++            <Button
++              variant="outline"
++              onClick={() => selectedProjectId && loadMergeRequests(selectedProjectId)}
++              disabled={!selectedProjectId || actionBusy}
++            >
++              {actionBusy ? "Loading merge requests..." : "Reload merge requests"}
++            </Button>
++          </div>
++
++          {mergeRequests.length > 0 ? (
++            <>
++              <Label htmlFor="mr-select">Merge request</Label>
++              <Select value={selectedMergeRequestId} onValueChange={handleMergeRequestSelection}>
++                <SelectTrigger id="mr-select" className="w-full">
++                  <SelectValue placeholder="Select a merge request" />
++                </SelectTrigger>
++                <SelectContent>
++                  {mergeRequests.map((mr) => (
++                    <SelectItem key={mr.id} value={mr.id}>
++                      {`#${mr.iid} ${mr.title} — ${mr.state}`}
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++            </>
++          ) : (
++            <p className="text-sm text-muted-foreground">
++              No merge requests loaded yet. Reload from this page or pick another project.
++            </p>
++          )}
++
++          {selectedMergeRequest && (
++            <div className="rounded-md border p-3 text-sm">
++              <p className="font-medium">Selected: {selectedMergeRequest.title}</p>
++              <p className="text-xs text-muted-foreground">Author: {selectedMergeRequest.author}</p>
++              <p className="text-xs text-muted-foreground">IID: {selectedMergeRequest.iid}</p>
++              <a
++                href={selectedMergeRequest.webUrl}
++                target="_blank"
++                rel="noreferrer"
++                className="text-xs text-blue-600 underline"
++              >
++                Open MR in GitLab
++              </a>
++            </div>
++          )}
++
++          {mergeRequestsError ? (
++            <p className="text-xs text-destructive">{mergeRequestsError}</p>
++          ) : null}
++        </CardContent>
++      </Card>
++
++      {selectedProject && selectedMergeRequest ? (
++        <Card>
++          <CardHeader>
++            <CardTitle>Onboarding complete</CardTitle>
++            <CardDescription>
++              Your onboarding choices are captured. Review the live merge request diff below.
++            </CardDescription>
++          </CardHeader>
++          <CardContent className="space-y-2">
++            <p className="text-sm">Project: {selectedProject.path ?? selectedProject.name}</p>
++            <p className="text-sm">
++              Merge request: #{selectedMergeRequest.iid} {selectedMergeRequest.title}
++            </p>
++          </CardContent>
++        </Card>
++      ) : null}
++
++      {selectedProject && selectedMergeRequest && resolvedGitLabInstance ? (
++        <MergeRequestDiffViewer
++          instanceUrl={resolvedGitLabInstance}
++          token={token}
++          projectId={selectedProject.id}
++          mergeRequestIid={selectedMergeRequest.iid}
++        />
++      ) : null}
++    </div>
++  )
++}
+diff --git a/src/components/ui/sidebar.tsx b/src/components/ui/sidebar.tsx
+index 6a507834..b60f0910 100644
+--- a/src/components/ui/sidebar.tsx
++++ b/src/components/ui/sidebar.tsx
+@@ -606,10 +606,17 @@ function SidebarMenuSkeleton({
+ }: React.ComponentProps<"div"> & {
+   showIcon?: boolean
+ }) {
+-  // Random width between 50 to 90%.
++  const skeletonSeed = React.useId()
++
++  // Deterministic pseudo-random width between 50% and 90%.
+   const width = React.useMemo(() => {
+-    return `${Math.floor(Math.random() * 40) + 50}%`
+-  }, [])
++    let hash = 0
++    for (let index = 0; index < skeletonSeed.length; index += 1) {
++      hash = (hash * 31 + skeletonSeed.charCodeAt(index)) | 0
++    }
++    const normalized = Math.abs(hash) % 41
++    return `${50 + normalized}%`
++  }, [skeletonSeed])
+ 
+   return (
+     <div

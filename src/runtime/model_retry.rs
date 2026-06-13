@@ -186,6 +186,7 @@ mod tests {
                 max_tool_calls: 1,
                 max_prompt_tokens: 1_024,
                 max_output_tokens: 64,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
             },
         }
     }
@@ -204,7 +205,7 @@ mod tests {
         sink: Arc<CaptureSink>,
     ) -> ModelTurnOutcome {
         let scope = test_scope();
-        let events = RuntimeEventDispatcher::new(Some(sink), None);
+        let events = RuntimeEventDispatcher::new(Some(sink));
         complete_model_turn(
             model,
             &ReviewerPolicy::new(),

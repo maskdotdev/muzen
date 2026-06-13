@@ -54,6 +54,7 @@ def _to_runner_start_params(
         "limits": _limits_to_runner(options.limits),
         "model": model_plan["runnerModel"],
         "tools": [_tool_to_runner(tool) for tool in options.tools],
+        "contextEngine": _context_engine_to_runner(options.context_engine),
     }
     if source.type == "local":
         payload["repo"] = source.repo
@@ -165,7 +166,7 @@ def _add_hosted_profile(
         return profiles[key]["id"]
     profiles[key] = {
         "id": profile_id,
-        "provider": model.provider,
+        "provider": _runner_provider_for_hosted_model(model.provider),
         "model": model.model,
         "credential": _credential_to_runner(model.credential),
         "baseUrl": model.base_url,
@@ -176,6 +177,12 @@ def _add_hosted_profile(
         "topP": model.top_p,
     }
     return profile_id
+
+
+def _runner_provider_for_hosted_model(provider: str) -> str:
+    if provider == "openai":
+        return "openai_compatible"
+    return provider
 
 
 def _credential_to_runner(credential: Any) -> Dict[str, str]:
@@ -192,6 +199,42 @@ def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]
         "maxFileBytes": limits.max_file_bytes,
         "maxSearchMatches": limits.max_search_matches,
     }
+
+
+def _context_engine_to_runner(config: Any) -> Optional[Dict[str, Any]]:
+    if config is None:
+        return None
+    payload = {
+        "mode": config.mode,
+        "maxIndexedFiles": config.max_indexed_files,
+        "maxIndexedBytes": config.max_indexed_bytes,
+        "maxEvidenceItems": config.max_evidence_items,
+        "maxPackTokens": config.max_pack_tokens,
+        "maxQueryResults": config.max_query_results,
+        "includeRepositoryGuidance": config.include_repository_guidance,
+        "includeHostContext": config.include_host_context,
+        "strictEvidenceRequired": config.strict_evidence_required,
+    }
+    if getattr(config, "semantic", None) is not None:
+        payload["semantic"] = _semantic_config_to_runner(config.semantic)
+    return payload
+
+
+def _semantic_config_to_runner(config: Any) -> Dict[str, Any]:
+    payload = {
+        "mode": config.mode,
+        "allowRestrictedHostedInputs": config.allow_restricted_hosted_inputs,
+        "maxEmbeddingInputs": config.max_embedding_inputs,
+    }
+    if config.provider is not None:
+        payload["provider"] = config.provider
+    if getattr(config, "hosted_base_url", None) is not None:
+        payload["hostedBaseUrl"] = config.hosted_base_url
+    if getattr(config, "hosted_model", None) is not None:
+        payload["hostedModel"] = config.hosted_model
+    if getattr(config, "hosted_credential_ref", None) is not None:
+        payload["hostedCredentialRef"] = config.hosted_credential_ref
+    return payload
 
 
 def _changed_file_paths(options: ReviewOptions) -> List[str]:

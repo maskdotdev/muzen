@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-1ca728244ab4",
+  "repoSource": {
+    "kind": "git",
+    "commit": "1ca728244ab4d75e155c1902a480baba06f61390",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.test.ts",
+    "apps/web/src/app/api/gitlab/integrations/[integrationId]/index/runs/route.ts",
+    "apps/web/src/features/gitlab/server/list-gitlab-index-runs.test.ts",
+    "apps/web/src/features/gitlab/server/list-gitlab-index-runs.ts"
+  ],
+  "description": "Mined pair: base 1ca728244ab4 (refactor(web): migrate gitlab index runs api) followed by b127489719ea (test(web): stabilize ensure-mr feature tests).",
+  "minedFrom": {
+    "baseCommit": "1ca728244ab4d75e155c1902a480baba06f61390",
+    "followUpCommit": "b127489719ea0abbb27e7b7ab288185129fbf672"
+  },
+  "cases": [
+    {
+      "id": "mined-1ca728244ab4-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.test.ts",
+        "apps/web/src/features/gitlab/server/ensure-gitlab-merge-request-indexing.ts"
+      ]
+    }
+  ]
+}

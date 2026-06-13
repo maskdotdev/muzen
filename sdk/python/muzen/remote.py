@@ -19,6 +19,12 @@ from .runner_mapping import (
 from .sources import parse_review_source
 from .errors import MuzenUnsupportedFeatureError
 from .types import (
+    ContextEngineConfig,
+    ContextLearningScope,
+    ContextLearningSource,
+    ContextPackPurpose,
+    ContextQueryKind,
+    ContextQueryLimits,
     ModelProfileInput,
     OpenAIReviewModelSpec,
     ProviderProfileInput,
@@ -148,6 +154,7 @@ class RemoteWorkspace:
             _unwrap_provider_profiles,
             _provider_profile_input_to_remote,
         )
+        self.context = RemoteContextWorkspace(client, workspace_id)
 
     async def review(
         self,
@@ -166,6 +173,155 @@ class RemoteWorkspace:
             )
         )
         return RemoteReviewSession(self._client, snapshot)
+
+
+class RemoteContextWorkspace:
+    def __init__(self, client: RemoteClient, workspace_id: str) -> None:
+        self._client = client
+        self._workspace_id = workspace_id
+
+    async def index(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        return (
+            await self._client._request_json(
+                "POST",
+                self._path("index"),
+                _context_index_body(
+                    source,
+                    changed_files,
+                    host_metadata,
+                    cross_repo_contracts,
+                    allowed_cross_repo_resources,
+                    config,
+                ),
+            )
+        )["manifest"]
+
+    async def build_pack(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        max_tokens: Optional[int] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(
+            source,
+            changed_files,
+            host_metadata,
+            cross_repo_contracts,
+            allowed_cross_repo_resources,
+            config,
+        )
+        payload["purpose"] = purpose
+        payload["maxTokens"] = max_tokens
+        return (
+            await self._client._request_json("POST", self._path("packs"), payload)
+        )["pack"]
+
+    async def query(
+        self,
+        *,
+        source: ReviewSourceLike,
+        kind: ContextQueryKind,
+        arguments: Optional[Dict[str, Any]] = None,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        current_evidence: Optional[List[str]] = None,
+        limits: Optional[ContextQueryLimits] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(
+            source,
+            changed_files,
+            host_metadata,
+            cross_repo_contracts,
+            allowed_cross_repo_resources,
+            config,
+        )
+        payload["purpose"] = purpose
+        payload["kind"] = kind
+        payload["arguments"] = arguments or {}
+        payload["currentEvidence"] = current_evidence or []
+        if limits is not None:
+            payload["limits"] = {
+                "maxResults": limits.max_results,
+                "maxTokens": limits.max_tokens,
+            }
+        return (
+            await self._client._request_json("POST", self._path("query"), payload)
+        )["result"]
+
+    async def record_feedback(
+        self,
+        *,
+        source: ReviewSourceLike,
+        feedback: str,
+        evidence_ids: Optional[List[str]] = None,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        learning_source: Optional[ContextLearningSource] = None,
+        scope: Optional[ContextLearningScope] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        payload = _context_index_body(
+            source,
+            changed_files,
+            host_metadata,
+            cross_repo_contracts,
+            allowed_cross_repo_resources,
+            config,
+        )
+        payload["evidenceIds"] = evidence_ids or []
+        payload["feedback"] = feedback
+        if learning_source is not None:
+            payload["learningSource"] = learning_source
+        if scope is not None:
+            payload["scope"] = scope
+        return (
+            await self._client._request_json("POST", self._path("feedback"), payload)
+        )["receipt"]
+
+    async def approve_learning(
+        self,
+        *,
+        snapshot_id: str,
+        learning_id: str,
+        approve: bool = False,
+        expires_at_utc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return (
+            await self._client._request_json(
+                "POST",
+                self._path("learnings/approve"),
+                {
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": approve,
+                    "expiresAtUtc": expires_at_utc,
+                },
+            )
+        )["receipt"]
+
+    def _path(self, kind: str) -> str:
+        return f"/v1/workspaces/{_quote(self._workspace_id)}/context/{kind}"
 
 
 class RemoteWorkspaceProfileCollection:
@@ -375,6 +531,55 @@ def _model_to_remote(model: Any) -> Any:
             "topP": model.top_p,
         }
     return None
+
+
+def _context_index_body(
+    source_like: ReviewSourceLike,
+    changed_files: Optional[List[str]],
+    host_metadata: Optional[Dict[str, Any]],
+    cross_repo_contracts: Optional[List[Dict[str, Any]]],
+    allowed_cross_repo_resources: Optional[List[str]],
+    config: Optional[ContextEngineConfig],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "source": _source_to_remote(parse_review_source(source_like)),
+    }
+    if changed_files is not None:
+        payload["changedFiles"] = changed_files
+    if host_metadata is not None:
+        payload["hostMetadata"] = host_metadata
+    if cross_repo_contracts is not None:
+        payload["crossRepoContracts"] = cross_repo_contracts
+    if allowed_cross_repo_resources is not None:
+        payload["allowedCrossRepoResources"] = allowed_cross_repo_resources
+    if config is not None:
+        payload["config"] = _context_config_payload(config)
+    return payload
+
+
+def _context_config_payload(config: ContextEngineConfig) -> Dict[str, Any]:
+    payload = {
+        "mode": config.mode,
+        "maxIndexedFiles": config.max_indexed_files,
+        "maxIndexedBytes": config.max_indexed_bytes,
+        "maxEvidenceItems": config.max_evidence_items,
+        "maxPackTokens": config.max_pack_tokens,
+        "maxQueryResults": config.max_query_results,
+        "includeRepositoryGuidance": config.include_repository_guidance,
+        "includeHostContext": config.include_host_context,
+        "strictEvidenceRequired": config.strict_evidence_required,
+    }
+    if config.semantic is not None:
+        payload["semantic"] = {
+            "mode": config.semantic.mode,
+            "provider": config.semantic.provider,
+            "hostedBaseUrl": config.semantic.hosted_base_url,
+            "hostedModel": config.semantic.hosted_model,
+            "hostedCredentialRef": config.semantic.hosted_credential_ref,
+            "allowRestrictedHostedInputs": config.semantic.allow_restricted_hosted_inputs,
+            "maxEmbeddingInputs": config.semantic.max_embedding_inputs,
+        }
+    return payload
 
 
 def _model_profile_input_to_remote(input: ModelProfileInput) -> Dict[str, Any]:

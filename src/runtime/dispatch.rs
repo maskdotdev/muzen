@@ -1,30 +1,16 @@
 use std::sync::Arc;
 
-use crate::events::{EventEmitter, EventRecord};
 use crate::runtime::contracts::{RuntimeEvent, RuntimeEventContext, RuntimeEventSink};
 use crate::runtime::policy::PlannedRuntimeEvent;
 
 #[derive(Clone)]
 pub(crate) struct RuntimeEventDispatcher {
     runtime_sink: Option<Arc<dyn RuntimeEventSink>>,
-    legacy_emitter: Option<Arc<EventEmitter>>,
 }
 
 impl RuntimeEventDispatcher {
-    pub(crate) fn new(
-        runtime_sink: Option<Arc<dyn RuntimeEventSink>>,
-        legacy_emitter: Option<Arc<EventEmitter>>,
-    ) -> Self {
-        Self {
-            runtime_sink,
-            legacy_emitter,
-        }
-    }
-
-    pub(crate) fn emit_legacy(&self, event: EventRecord) {
-        if let Some(emitter) = &self.legacy_emitter {
-            emitter.emit(event);
-        }
+    pub(crate) fn new(runtime_sink: Option<Arc<dyn RuntimeEventSink>>) -> Self {
+        Self { runtime_sink }
     }
 
     pub(crate) fn emit_planned_runtime(&self, planned: PlannedRuntimeEvent) {

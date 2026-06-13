@@ -443,6 +443,127 @@ mod tests {
     }
 
     #[test]
+    fn stdio_context_index_pack_and_query() {
+        let repo = tempfile::tempdir().expect("temp repo");
+        std::fs::create_dir_all(repo.path().join("src/auth")).expect("src dir");
+        std::fs::write(
+            repo.path().join("src/auth/token.rs"),
+            "pub fn authorize_request() {}\n",
+        )
+        .expect("source file");
+        std::fs::create_dir_all(repo.path().join("tests/auth")).expect("tests dir");
+        std::fs::write(
+            repo.path().join("tests/auth/token_test.rs"),
+            "#[test]\nfn authorize_request_test() {}\n",
+        )
+        .expect("test file");
+        let mut session = RunnerStdioSession::default();
+        let mut writer = Vec::new();
+
+        let index = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "context.index",
+                "params": {
+                    "repo": repo.path(),
+                    "changedFiles": ["src/auth/token.rs"]
+                }
+            }),
+        );
+        let snapshot_id = index[0]["result"]["snapshotId"]
+            .as_str()
+            .expect("snapshot id")
+            .to_string();
+        let pack = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "context.pack",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "purpose": "tests",
+                    "maxTokens": 12000
+                }
+            }),
+        );
+        let query = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "context.query",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "kind": "related_tests",
+                    "arguments": { "path": "src/auth/token.rs" },
+                    "currentEvidence": [],
+                    "limits": { "maxResults": 10, "maxTokens": 1000 }
+                }
+            }),
+        );
+        let feedback = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "context.feedback",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "evidenceIds": [],
+                    "feedback": "Suppress duplicate generated auth wrapper warning.",
+                    "source": "human_feedback",
+                    "scope": "repository"
+                }
+            }),
+        );
+        let learning_id = feedback[0]["result"]["proposedLearning"]["id"]
+            .as_str()
+            .expect("learning id")
+            .to_string();
+        let approval = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "context.learning.approve",
+                "params": {
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": true
+                }
+            }),
+        );
+
+        assert_eq!(
+            index[0]["result"]["schemaVersion"],
+            json!("muzen.context_manifest.v1")
+        );
+        assert_eq!(pack[0]["result"]["purpose"], json!("tests"));
+        assert_eq!(query[0]["result"]["kind"], json!("related_tests"));
+        assert!(query[0]["result"]["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|evidence| evidence["path"] == json!("tests/auth/token_test.rs")));
+        assert_eq!(
+            feedback[0]["result"]["proposedLearning"]["status"],
+            json!("proposed")
+        );
+        assert_eq!(
+            approval[0]["result"]["learning"]["status"],
+            json!("approved")
+        );
+    }
+
+    #[test]
     fn stdio_handles_github_webhook_through_rust_core() {
         let mut session = RunnerStdioSession::default();
         let mut writer = Vec::new();

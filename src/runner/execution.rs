@@ -8,11 +8,11 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::context_engine::{ContextEngineMode, SnapshotContextEngine};
 use crate::reviewer::events::{ReviewEventRecord, ReviewEventSink};
 use crate::reviewer::report::{ReviewRunSummary, RunReport};
 use crate::reviewer::run::Run;
 use crate::reviewer::runtime_events::EventSink as RuntimeEventSink;
-use crate::runtime::contracts::ToolEffects;
 
 use super::adapters::StreamingRunnerEventSink;
 use super::planning::plan_run_start;
@@ -20,8 +20,9 @@ use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
-    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation, RunnerRunResult,
-    RunnerRunSummary, RunnerSessionOutput, RunnerSnapshotSummary,
+    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
+    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSessionOutput,
+    RunnerSnapshotSummary,
 };
 use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
@@ -50,6 +51,7 @@ pub(crate) fn execute_run_start(
     )?;
     let model = params.model.clone();
     let tools = params.tools.clone();
+    let context_engine = params.context_engine.clone();
     let plan = plan_run_start(params, transport.as_ref())?;
     let model = model.ok_or_else(|| {
         anyhow::anyhow!("run requires a model; pass a callback or hosted provider model")
@@ -59,7 +61,7 @@ pub(crate) fn execute_run_start(
         Arc::new(StreamingRunnerEventSink::new(transport.clone())) as Arc<dyn RuntimeEventSink>
     });
     let wiring = RunnerWiring::new(&plan.run_id, &tools, transport.clone())?;
-    let builder = wiring.wire_model(
+    let mut builder = wiring.wire_model(
         Run::builder(plan.spec),
         &plan.run_id,
         &model,
@@ -68,6 +70,11 @@ pub(crate) fn execute_run_start(
         #[cfg(test)]
         plan.target_path,
     )?;
+    if let Some(config) = context_engine {
+        if config.mode != ContextEngineMode::Disabled {
+            builder = builder.context_engine(Arc::new(SnapshotContextEngine::new(config)));
+        }
+    }
     let run = if let Some(streaming_sink) = streaming_sink {
         builder.event_sink(streaming_sink).build()
     } else {
@@ -155,29 +162,6 @@ fn start_heartbeat(
     Ok(HeartbeatGuard { stop })
 }
 
-fn parse_tool_effects(effects: &[String]) -> Result<ToolEffects> {
-    if effects.is_empty() {
-        return Ok(ToolEffects::custom_read_only());
-    }
-    let mut parsed = ToolEffects::default();
-    for effect in effects {
-        match effect.as_str() {
-            "read_repo" | "read_diff" => parsed.repo_read = true,
-            "read_artifact" => parsed.artifact_read = true,
-            "write_artifact" => parsed.artifact_write = true,
-            "read_host" => parsed.host_read = true,
-            "read_network" => parsed.network_read = true,
-            "read_scratch" => parsed.scratch_read = true,
-            "write_scratch" => parsed.scratch_write = true,
-            "external_side_effect" => {
-                anyhow::bail!("external_side_effect tools are not supported in V1")
-            }
-            unknown => anyhow::bail!("unknown tool effect {unknown}"),
-        }
-    }
-    Ok(parsed)
-}
-
 fn runner_result_from_report(
     report: &RunReport,
     metadata: BTreeMap<String, Value>,
@@ -216,6 +200,7 @@ fn runner_result_from_report(
                 severity: Some(finding.severity),
                 confidence: Some(finding.confidence),
                 validation_status: Some(finding.validation_status),
+                challenge_status: Some(finding.challenge_status),
                 evidence: finding
                     .evidence
                     .into_iter()
@@ -240,6 +225,7 @@ fn runner_result_from_report(
                     side: None,
                     provider_anchor: None,
                 }),
+                related_paths: finding.related_paths,
             })
             .collect(),
     );
@@ -254,6 +240,8 @@ fn runner_result_from_report(
         .map(|review| RunnerFileReview {
             path: review.path,
             verdict: review.verdict,
+            coverage: runner_coverage(review.coverage).to_string(),
+            review_verdict: runner_review_verdict(review.review_verdict).to_string(),
             summary: review.summary,
             related_paths: review.related_paths,
             evidence_artifact_ids: review.evidence_artifact_ids,
@@ -286,33 +274,67 @@ fn runner_result_from_report(
 }
 
 fn dedupe_runner_findings(findings: Vec<RunnerFinding>) -> Vec<RunnerFinding> {
-    let mut by_key: BTreeMap<String, RunnerFinding> = BTreeMap::new();
-    let mut order = Vec::new();
+    let mut kept: Vec<RunnerFinding> = Vec::new();
     for finding in findings {
-        let key = finding_dedupe_key(&finding);
-        if let Some(existing) = by_key.get_mut(&key) {
+        if let Some(existing) = kept
+            .iter_mut()
+            .find(|existing| is_duplicate_finding(existing, &finding))
+        {
             merge_runner_finding(existing, finding);
             continue;
         }
-        order.push(key.clone());
-        by_key.insert(key, finding);
+        kept.push(finding);
     }
-    order
-        .into_iter()
-        .filter_map(|key| by_key.remove(&key))
-        .collect()
+    kept
 }
 
-fn finding_dedupe_key(finding: &RunnerFinding) -> String {
-    let text = normalize_finding_text(&format!("{} {}", finding.title, finding.claim));
-    if text.contains("foreach")
-        && text.contains("async")
-        && (text.contains("await") || text.contains("promise"))
-        && (text.contains("cleanup") || text.contains("delete") || text.contains("deletion"))
-    {
-        return "root-cause:unawaited-async-iteration-cleanup".to_string();
+/// Independent review passes (units, packs, synthesis) frequently rediscover
+/// the same bug with different phrasing, so duplicates are detected by anchor
+/// overlap plus content similarity instead of exact text equality.
+fn is_duplicate_finding(left: &RunnerFinding, right: &RunnerFinding) -> bool {
+    let left_text = normalize_finding_text(&format!("{} {}", left.title, left.claim));
+    let right_text = normalize_finding_text(&format!("{} {}", right.title, right.claim));
+    if left_text == right_text {
+        return true;
     }
-    format!("text:{text}")
+    let (Some(left_location), Some(right_location)) = (&left.location, &right.location) else {
+        return false;
+    };
+    if left_location.path != right_location.path {
+        return false;
+    }
+    let overlap = finding_token_overlap(&left_text, &right_text);
+    if line_ranges_near(left_location, right_location, 3) {
+        return overlap >= 0.4;
+    }
+    // Models sometimes anchor the same bug to a different spot in the file
+    // (e.g. the enclosing function signature), so a strong content match
+    // still counts as a duplicate within one file.
+    overlap >= 0.55
+}
+
+fn line_ranges_near(
+    left: &RunnerFindingLocation,
+    right: &RunnerFindingLocation,
+    slack: usize,
+) -> bool {
+    let (Some(left_start), Some(right_start)) = (left.start_line, right.start_line) else {
+        return false;
+    };
+    let left_end = left.end_line.unwrap_or(left_start);
+    let right_end = right.end_line.unwrap_or(right_start);
+    left_start <= right_end.saturating_add(slack) && right_start <= left_end.saturating_add(slack)
+}
+
+fn finding_token_overlap(left: &str, right: &str) -> f64 {
+    let left_tokens = left.split_whitespace().collect::<BTreeSet<_>>();
+    let right_tokens = right.split_whitespace().collect::<BTreeSet<_>>();
+    let smaller = left_tokens.len().min(right_tokens.len());
+    if smaller == 0 {
+        return 0.0;
+    }
+    let shared = left_tokens.intersection(&right_tokens).count();
+    shared as f64 / smaller as f64
 }
 
 fn normalize_finding_text(value: &str) -> String {
@@ -385,10 +407,29 @@ fn append_related_location(claim: &mut String, path: &str) {
     }
 }
 
+fn runner_coverage(coverage: crate::contracts::ReviewCoverage) -> &'static str {
+    match coverage {
+        crate::contracts::ReviewCoverage::Full => "full",
+        crate::contracts::ReviewCoverage::Standard => "standard",
+        crate::contracts::ReviewCoverage::Sampled => "sampled",
+        crate::contracts::ReviewCoverage::Insufficient => "insufficient",
+    }
+}
+
+fn runner_review_verdict(verdict: crate::contracts::ReviewVerdict) -> &'static str {
+    match verdict {
+        crate::contracts::ReviewVerdict::Clean => "clean",
+        crate::contracts::ReviewVerdict::IssueFound => "issue_found",
+        crate::contracts::ReviewVerdict::NeedsReview => "needs_review",
+    }
+}
+
 fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
     RunnerRunSummary {
         sessions: summary.sessions,
         completed_sessions: summary.completed_sessions,
+        review_units: summary.sessions,
+        completed_review_units: summary.completed_sessions,
         model_calls: summary.model_calls,
         tool_calls: summary.tool_calls,
         findings: summary.findings,
@@ -401,6 +442,31 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
         artifacts: summary.artifacts,
         artifact_bytes: summary.artifact_bytes,
         snapshot_count: summary.snapshot_count,
+        quality_diagnostics: RunnerReviewQualityDiagnostics {
+            contract_risk_units: summary.quality_diagnostics.contract_risk_units,
+            contract_seed_count: summary.quality_diagnostics.contract_seed_count,
+            contract_pack_count: summary.quality_diagnostics.contract_pack_count,
+            omitted_contract_pack_candidates: summary
+                .quality_diagnostics
+                .omitted_contract_pack_candidates
+                .clone(),
+            selected_contract_packs: summary.quality_diagnostics.selected_contract_packs.clone(),
+            contract_evidence_failures: summary.quality_diagnostics.contract_evidence_failures,
+            coverage_counts: summary.quality_diagnostics.coverage_counts.clone(),
+            coverage_counts_by_lens: summary.quality_diagnostics.coverage_counts_by_lens.clone(),
+            high_risk_files_below_target: summary
+                .quality_diagnostics
+                .high_risk_files_below_target
+                .clone(),
+            challenge_status_counts: summary.quality_diagnostics.challenge_status_counts.clone(),
+            sessions_run: summary.quality_diagnostics.sessions_run,
+            budgets_used: summary.quality_diagnostics.budgets_used.clone(),
+            explicit_caller_cap_sessions: summary.quality_diagnostics.explicit_caller_cap_sessions,
+            candidate_findings: summary.quality_diagnostics.candidate_findings,
+            rescued_candidates: summary.quality_diagnostics.rescued_candidates,
+            rejected_candidates: summary.quality_diagnostics.rejected_candidates,
+            rejection_reasons: summary.quality_diagnostics.rejection_reasons.clone(),
+        },
     }
 }
 
@@ -442,63 +508,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_tool_effects_keep_legacy_custom_read_only_authority() {
-        let effects = parse_tool_effects(&[]).expect("default effects");
-
-        assert_eq!(effects, ToolEffects::custom_read_only());
-    }
-
-    #[test]
-    fn parses_explicit_provider_neutral_tool_effects() {
-        let effects = parse_tool_effects(&[
-            "read_host".to_string(),
-            "read_network".to_string(),
-            "write_artifact".to_string(),
-            "write_scratch".to_string(),
-        ])
-        .expect("explicit effects");
-
-        assert!(effects.host_read);
-        assert!(effects.network_read);
-        assert!(effects.artifact_write);
-        assert!(effects.scratch_write);
-        assert!(!effects.repo_read);
-        assert!(!effects.artifact_read);
-        assert!(!effects.scratch_read);
-        assert!(!effects.external_side_effect);
-    }
-
-    #[test]
-    fn rejects_external_side_effect_tools_in_runner_v1() {
-        let error = parse_tool_effects(&["external_side_effect".to_string()])
-            .expect_err("external side effects are unsupported");
-
-        assert!(error
-            .to_string()
-            .contains("external_side_effect tools are not supported in V1"));
-    }
-
-    #[test]
-    fn rejects_unknown_tool_effects() {
-        let error = parse_tool_effects(&["write_host".to_string()])
-            .expect_err("unknown effects are rejected");
-
-        assert!(error.to_string().contains("unknown tool effect write_host"));
-    }
-
-    #[test]
-    fn dedupes_unawaited_async_iteration_cleanup_findings() {
+    fn dedupes_findings_with_identical_normalized_text() {
         let findings = dedupe_runner_findings(vec![
             test_finding(
                 "finding-a",
-                "Unawaited reschedule cleanup deletions can be lost",
-                "src/a.ts starts async cleanup deletions inside forEach(async ...) without awaiting returned promises.",
+                "Cleanup deletes unrelated reminders",
+                "The changed deleteMany predicate removes reminders outside the SMS scope.",
                 "src/a.ts",
             ),
             test_finding(
                 "finding-b",
-                "Reschedule fires deletion promises without awaiting them",
-                "src/b.ts starts deletion promises from forEach(async ...) and never awaits them.",
+                "Cleanup deletes unrelated reminders",
+                "The changed deleteMany predicate removes reminders outside the SMS scope.",
                 "src/b.ts",
             ),
         ]);
@@ -512,6 +533,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dedupes_rephrased_findings_on_the_same_anchor() {
+        let findings = dedupe_runner_findings(vec![
+            test_finding(
+                "finding-a",
+                "Zero-length override detection uses Dayjs object identity instead of value equality",
+                "The changed override check compares dayjs(date.start) === dayjs(date.end), which compares object identity, so zero-length overrides are never recognized.",
+                "src/slots.ts",
+            ),
+            test_finding(
+                "finding-b",
+                "Zero-length date overrides are never recognized because the code compares Dayjs objects by identity",
+                "dayjs(date.start) === dayjs(date.end) compares two distinct Dayjs object instances, so the zero-length override branch never runs.",
+                "src/slots.ts",
+            ),
+        ]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "finding-a");
+        assert_eq!(
+            findings[0].discovered_by,
+            vec!["session-finding-a", "session-finding-b"]
+        );
+    }
+
+    #[test]
+    fn keeps_distinct_findings_on_different_anchors_in_one_file() {
+        let mut working_hours = test_finding(
+            "finding-a",
+            "Working-hours end check reuses the slot start minute",
+            "The end boundary recomputes slotStartTime minutes instead of using slotEndTime, so slots can pass the end check.",
+            "src/slots.ts",
+        );
+        working_hours.location.as_mut().unwrap().start_line = Some(137);
+        working_hours.location.as_mut().unwrap().end_line = Some(145);
+        let mut dayjs_identity = test_finding(
+            "finding-b",
+            "Zero-length override detection compares Dayjs objects by identity",
+            "dayjs(date.start) === dayjs(date.end) compares object identity so the zero-length branch never runs.",
+            "src/slots.ts",
+        );
+        dayjs_identity.location.as_mut().unwrap().start_line = Some(109);
+        dayjs_identity.location.as_mut().unwrap().end_line = Some(114);
+
+        let findings = dedupe_runner_findings(vec![working_hours, dayjs_identity]);
+
+        assert_eq!(findings.len(), 2);
+    }
+
     fn test_finding(id: &str, title: &str, claim: &str, path: &str) -> RunnerFinding {
         RunnerFinding {
             id: id.to_string(),
@@ -522,6 +592,7 @@ mod tests {
             severity: Some("warning".to_string()),
             confidence: Some(0.72),
             validation_status: Some("validated".to_string()),
+            challenge_status: Some("not_run".to_string()),
             evidence: Vec::new(),
             discovered_by: vec![format!("session-{id}")],
             validated_by: Vec::new(),
@@ -536,6 +607,7 @@ mod tests {
                 side: None,
                 provider_anchor: None,
             }),
+            related_paths: Vec::new(),
         }
     }
 

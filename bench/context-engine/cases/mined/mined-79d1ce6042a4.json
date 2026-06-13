@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-79d1ce6042a4",
+  "repoSource": {
+    "kind": "git",
+    "commit": "79d1ce6042a405cc9f88b62ad8520e700645c310",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "sdk/python/muzen/__init__.py",
+    "sdk/python/muzen/client.py",
+    "sdk/python/muzen/runner.py",
+    "sdk/python/muzen/sources.py",
+    "sdk/python/muzen/types.py",
+    "sdk/python/tests/test_client.py",
+    "sdk/python/tests/test_sources.py"
+  ],
+  "description": "Mined pair: base 79d1ce6042a4 (feat: add python sdk preview) followed by 4643441d02da (feat: add review artifact helpers).",
+  "minedFrom": {
+    "baseCommit": "79d1ce6042a405cc9f88b62ad8520e700645c310",
+    "followUpCommit": "4643441d02daf55d2f6b4c90bc8041acbc60f4cf"
+  },
+  "cases": [
+    {
+      "id": "mined-79d1ce6042a4-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/index.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+        "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+        "sdk/typescript/packages/muzen-sdk/src/types.ts",
+        "src/review_session.rs"
+      ]
+    }
+  ]
+}

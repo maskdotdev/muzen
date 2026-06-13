@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-9edeecc08edf",
+  "repoSource": {
+    "kind": "git",
+    "commit": "9edeecc08edf58937950ec0c4f26d1e57ab2e78d",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/review/diff/active/route.test.ts",
+    "apps/web/src/app/api/review/diff/active/route.ts",
+    "apps/web/src/features/review/hooks/diff/use-ai-review.ts",
+    "apps/web/src/features/review/server/diff/review-diff.test.ts",
+    "apps/web/src/features/review/server/diff/review-diff.ts"
+  ],
+  "description": "Mined pair: base 9edeecc08edf (feat(review): poll for shared active runs) followed by 4afb9adcda08 (refactor(review): move active run discovery into model).",
+  "minedFrom": {
+    "baseCommit": "9edeecc08edf58937950ec0c4f26d1e57ab2e78d",
+    "followUpCommit": "4afb9adcda0808d4eb948d301b7da9babc558754"
+  },
+  "cases": [
+    {
+      "id": "mined-9edeecc08edf-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/review/components/diff/tests/use-ai-review.test.ts"
+      ]
+    }
+  ]
+}

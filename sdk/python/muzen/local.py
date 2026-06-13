@@ -19,6 +19,12 @@ from .runner_mapping import (
 )
 from .sources import parse_review_source
 from .types import (
+    ContextEngineConfig,
+    ContextLearningScope,
+    ContextLearningSource,
+    ContextPackPurpose,
+    ContextQueryKind,
+    ContextQueryLimits,
     ReviewArtifact,
     ReviewArtifactExport,
     ReviewArtifactExportOptions,
@@ -128,6 +134,7 @@ class RunnerBackedWorkspace:
         self.id = workspace_id
         self.models = UnsupportedWorkspaceProfileCollection("model")
         self.providers = UnsupportedWorkspaceProfileCollection("provider")
+        self.context = RunnerBackedContextWorkspace(client._runner)
 
     async def review(
         self,
@@ -135,6 +142,220 @@ class RunnerBackedWorkspace:
         options: Optional[ReviewOptions] = None,
     ) -> "ReviewSession":
         return await self._client.review(source_like, options)
+
+
+class RunnerBackedContextWorkspace:
+    def __init__(self, runner: RunnerStdioClient) -> None:
+        self._runner = runner
+
+    async def index(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        return await self._runner.request(
+            "context.index",
+            _context_index_params(
+                source,
+                changed_files,
+                host_metadata,
+                cross_repo_contracts,
+                allowed_cross_repo_resources,
+                config,
+            ),
+        )
+
+    async def build_pack(
+        self,
+        *,
+        source: ReviewSourceLike,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        max_tokens: Optional[int] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
+            config=config,
+        )
+        return await self._runner.request(
+            "context.pack",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "purpose": purpose or "general_review",
+                "maxTokens": max_tokens
+                or (config.max_pack_tokens if config is not None else 12_000),
+                "seedEvidence": [],
+            },
+        )
+
+    async def query(
+        self,
+        *,
+        source: ReviewSourceLike,
+        kind: ContextQueryKind,
+        arguments: Optional[Dict[str, Any]] = None,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        purpose: Optional[ContextPackPurpose] = None,
+        current_evidence: Optional[List[str]] = None,
+        limits: Optional[ContextQueryLimits] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
+            config=config,
+        )
+        runner_limits = (
+            {
+                "maxResults": limits.max_results,
+                "maxTokens": limits.max_tokens,
+            }
+            if limits is not None
+            else {
+                "maxResults": config.max_query_results if config is not None else 120,
+                "maxTokens": config.max_pack_tokens if config is not None else 12_000,
+            }
+        )
+        return await self._runner.request(
+            "context.query",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "purpose": purpose,
+                "kind": kind,
+                "arguments": arguments or {},
+                "currentEvidence": current_evidence or [],
+                "limits": runner_limits,
+            },
+        )
+
+    async def record_feedback(
+        self,
+        *,
+        source: ReviewSourceLike,
+        feedback: str,
+        evidence_ids: Optional[List[str]] = None,
+        changed_files: Optional[List[str]] = None,
+        host_metadata: Optional[Dict[str, Any]] = None,
+        cross_repo_contracts: Optional[List[Dict[str, Any]]] = None,
+        allowed_cross_repo_resources: Optional[List[str]] = None,
+        learning_source: Optional[ContextLearningSource] = None,
+        scope: Optional[ContextLearningScope] = None,
+        config: Optional[ContextEngineConfig] = None,
+    ) -> Dict[str, Any]:
+        manifest = await self.index(
+            source=source,
+            changed_files=changed_files,
+            host_metadata=host_metadata,
+            cross_repo_contracts=cross_repo_contracts,
+            allowed_cross_repo_resources=allowed_cross_repo_resources,
+            config=config,
+        )
+        return await self._runner.request(
+            "context.feedback",
+            {
+                "snapshotId": manifest["snapshotId"],
+                "evidenceIds": evidence_ids or [],
+                "feedback": feedback,
+                "source": learning_source,
+                "scope": scope,
+            },
+        )
+
+    async def approve_learning(
+        self,
+        *,
+        snapshot_id: str,
+        learning_id: str,
+        approve: bool = False,
+        expires_at_utc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return await self._runner.request(
+            "context.learning.approve",
+            {
+                "snapshotId": snapshot_id,
+                "learningId": learning_id,
+                "approve": approve,
+                "expiresAtUtc": expires_at_utc,
+            },
+        )
+
+
+def _context_index_params(
+    source_like: ReviewSourceLike,
+    changed_files: Optional[List[str]],
+    host_metadata: Optional[Dict[str, Any]],
+    cross_repo_contracts: Optional[List[Dict[str, Any]]],
+    allowed_cross_repo_resources: Optional[List[str]],
+    config: Optional[ContextEngineConfig],
+) -> Dict[str, Any]:
+    source = parse_review_source(source_like)
+    if source.type == "local":
+        repo = source.repo
+        default_changed_files = source.changed_files or []
+    elif source.type == "raw_snapshot":
+        repo = source.root
+        default_changed_files = source.changed_files or []
+    else:
+        raise MuzenUnsupportedFeatureError(
+            "local context methods require a local or raw_snapshot source"
+        )
+    payload: Dict[str, Any] = {
+        "repo": repo,
+        "changedFiles": changed_files if changed_files is not None else default_changed_files,
+    }
+    if host_metadata is not None:
+        payload["hostMetadata"] = host_metadata
+    if cross_repo_contracts is not None:
+        payload["crossRepoContracts"] = cross_repo_contracts
+    if allowed_cross_repo_resources is not None:
+        payload["allowedCrossRepoResources"] = allowed_cross_repo_resources
+    if config is not None:
+        payload["config"] = _context_config_payload(config)
+    return payload
+
+
+def _context_config_payload(config: ContextEngineConfig) -> Dict[str, Any]:
+    payload = {
+        "mode": config.mode,
+        "maxIndexedFiles": config.max_indexed_files,
+        "maxIndexedBytes": config.max_indexed_bytes,
+        "maxEvidenceItems": config.max_evidence_items,
+        "maxPackTokens": config.max_pack_tokens,
+        "maxQueryResults": config.max_query_results,
+        "includeRepositoryGuidance": config.include_repository_guidance,
+        "includeHostContext": config.include_host_context,
+        "strictEvidenceRequired": config.strict_evidence_required,
+    }
+    if config.semantic is not None:
+        payload["semantic"] = {
+            "mode": config.semantic.mode,
+            "provider": config.semantic.provider,
+            "hostedBaseUrl": config.semantic.hosted_base_url,
+            "hostedModel": config.semantic.hosted_model,
+            "hostedCredentialRef": config.semantic.hosted_credential_ref,
+            "allowRestrictedHostedInputs": config.semantic.allow_restricted_hosted_inputs,
+            "maxEmbeddingInputs": config.semantic.max_embedding_inputs,
+        }
+    return payload
 
 
 class UnsupportedWorkspaceProfileCollection:

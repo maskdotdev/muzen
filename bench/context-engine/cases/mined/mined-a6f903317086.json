@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-a6f903317086",
+  "repoSource": {
+    "kind": "git",
+    "commit": "a6f903317086dfb708142b75a34ed892c95673fe",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/runtime/dispatch.rs",
+    "src/runtime/tools/authorization.rs",
+    "src/runtime/tools/engine.rs",
+    "src/runtime/tools/validation.rs"
+  ],
+  "description": "Mined pair: base a6f903317086 (test(runtime): drop internal tool and dispatch unit tests) followed by 09932635efcc (test(review): drop adapter mapping and planner unit tests).",
+  "minedFrom": {
+    "baseCommit": "a6f903317086dfb708142b75a34ed892c95673fe",
+    "followUpCommit": "09932635efcccf5fdc3333c2b982f3cdd4a5762f"
+  },
+  "cases": [
+    {
+      "id": "mined-a6f903317086-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/tests.rs",
+        "src/review_units.rs",
+        "src/runtime/planned_units.rs"
+      ]
+    }
+  ]
+}

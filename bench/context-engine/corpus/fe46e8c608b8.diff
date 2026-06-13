@@ -1,0 +1,375 @@
+diff --git a/docs/rfcs/0001-implementation-progress.md b/docs/rfcs/0001-implementation-progress.md
+index b848acb..640e04d 100644
+--- a/docs/rfcs/0001-implementation-progress.md
++++ b/docs/rfcs/0001-implementation-progress.md
+@@ -245,7 +245,7 @@ Exit criteria:
+ - [x] Store only secret references and non-secret routing metadata in review
+   session records.
+ - [x] Add redaction tests for durable records, events, and results.
+-- [ ] Add log redaction tests when review-session log persistence exists.
++- [x] Add log redaction tests when review-session log persistence exists.
+ 
+ Exit criteria:
+ 
+@@ -308,6 +308,7 @@ Record every milestone with the commands that were run.
+ | 2026-06-05 | ea15ecc | TypeScript remote webhook request facade and HTTP contract routes | `npm test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | dbb980d | Rust runner webhook handling protocol and local TypeScript webhook facade | `cargo fmt --check`; `cargo test runner::tests --lib`; `cargo test`; `npm test`; `scripts/verify-rfc-0001-examples.sh` |
+ | 2026-06-05 | 9fe0c7d | Durable happy-path switch decision and runner protocol mapping refresh | Documentation-only commit |
++| 2026-06-05 | pending | Rust review-session log persistence boundary with redaction-on-write coverage | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `scripts/verify-rfc-0001-examples.sh` |
+ 
+ ## Open Decisions
+ 
+@@ -339,9 +340,10 @@ Record every milestone with the commands that were run.
+   fairness strategy, and global/workspace/user/model/provider concurrency
+   limits. Production persistence still needs to enforce the same contract
+   transactionally.
+-- Durable records, events, and results have redaction coverage around profile
+-  secret references. Log-specific redaction coverage should be added with the
+-  log persistence boundary.
++- Durable records, events, results, and review-session logs have redaction
++  coverage around profile secret references and raw secret values. The
++  in-memory store redacts configured secret values and sensitive metadata keys
++  before retaining log entries.
+ - Rust webhook helpers verify GitHub HMAC-SHA256 signatures and GitLab webhook
+   tokens, map supported pull/merge request events to review sources, schedule
+   queued workspace reviews, and return delivery JSON bodies plus
+diff --git a/src/review_session.rs b/src/review_session.rs
+index 5b0499a..94b1f2f 100644
+--- a/src/review_session.rs
++++ b/src/review_session.rs
+@@ -37,8 +37,9 @@ pub use profiles::{
+ };
+ pub use store::{
+     InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewCancellationRecord,
+-    ReviewLeaseExtension, ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore,
+-    ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
++    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
++    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
++    ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+ };
+ pub use webhooks::{
+     github_webhook_signature, map_github_webhook_source, map_gitlab_webhook_source,
+@@ -654,6 +655,7 @@ impl ReviewSession {
+             options: self.options.clone(),
+             result: self.result.clone(),
+             events: self.events.clone(),
++            logs: Vec::new(),
+             redacted_artifacts: self.redacted_artifacts.clone(),
+             raw_artifacts: self.raw_artifacts.clone(),
+             config_snapshot: self.config_snapshot.clone(),
+@@ -2592,6 +2594,55 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn review_session_logs_are_redacted_before_persistence() {
++        let raw_secret = "sk-live-raw-secret";
++        let store = Arc::new(InMemoryReviewSessionStore::default());
++        let workspace = Muzen::with_store(store.clone()).workspace("acme");
++        let review = workspace
++            .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
++            .unwrap();
++
++        store
++            .append_logs(
++                review.id(),
++                vec![ReviewLogEntry::new(
++                    review.id().clone(),
++                    ReviewLogStream::Worker,
++                    format!("resolved credential {raw_secret} for model call"),
++                )
++                .with_metadata("apiKey", json!(raw_secret))
++                .with_metadata(
++                    "nested",
++                    json!({
++                        "authorization": format!("Bearer {raw_secret}"),
++                        "safe": format!("prefix-{raw_secret}-suffix")
++                    }),
++                )],
++                ReviewLogRedactionPolicy::new([raw_secret]),
++            )
++            .unwrap();
++        let logs = store.logs_after(review.id(), None).unwrap();
++        let record = store.get(review.id()).unwrap().unwrap();
++        let logs_json = serde_json::to_string(&logs).unwrap();
++        let record_json = serde_json::to_string(&record).unwrap();
++
++        assert_eq!(logs[0].cursor, "1");
++        assert_eq!(logs[0].review_id, review.id().clone());
++        assert!(logs_json.contains("[redacted]"));
++        assert!(!logs_json.contains(raw_secret));
++        assert!(!record_json.contains(raw_secret));
++        assert_eq!(logs[0].metadata["apiKey"], json!("[redacted]"));
++        assert_eq!(
++            logs[0].metadata["nested"]["authorization"],
++            json!("[redacted]")
++        );
++        assert_eq!(
++            logs[0].metadata["nested"]["safe"],
++            json!("prefix-[redacted]-suffix")
++        );
++    }
++
+     #[test]
+     fn review_events_response_replays_json_from_store() {
+         let store = Arc::new(InMemoryReviewSessionStore::default());
+@@ -2943,6 +2994,7 @@ mod tests {
+             options: ReviewOptions::default(),
+             result: None,
+             events: Vec::new(),
++            logs: Vec::new(),
+             redacted_artifacts: Vec::new(),
+             raw_artifacts: Vec::new(),
+             config_snapshot: None,
+diff --git a/src/review_session/store.rs b/src/review_session/store.rs
+index 05fb0df..087bb42 100644
+--- a/src/review_session/store.rs
++++ b/src/review_session/store.rs
+@@ -3,7 +3,7 @@ use std::sync::Mutex;
+ use std::time::{Duration, SystemTime, UNIX_EPOCH};
+ 
+ use serde::{Deserialize, Serialize};
+-use serde_json::json;
++use serde_json::{json, Map, Value};
+ 
+ use super::{
+     ReviewArtifact, ReviewCancelOptions, ReviewEvent, ReviewEventType, ReviewResult,
+@@ -21,6 +21,8 @@ pub struct ReviewSessionRecord {
+     pub options: super::ReviewOptions,
+     pub result: Option<ReviewResult>,
+     pub events: Vec<ReviewEvent>,
++    #[serde(default)]
++    pub logs: Vec<ReviewLogEntry>,
+     pub redacted_artifacts: Vec<ReviewArtifact>,
+     pub raw_artifacts: Vec<ReviewArtifact>,
+     pub config_snapshot: Option<super::EffectiveConfigSnapshot>,
+@@ -52,6 +54,142 @@ pub struct ReviewCancellationRecord {
+     pub cancelled_at_utc: String,
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct ReviewLogEntry {
++    pub cursor: String,
++    pub review_id: ReviewSessionId,
++    pub timestamp_utc: String,
++    pub stream: ReviewLogStream,
++    pub message: String,
++    #[serde(default)]
++    pub metadata: BTreeMap<String, Value>,
++}
++
++impl ReviewLogEntry {
++    pub fn new(
++        review_id: ReviewSessionId,
++        stream: ReviewLogStream,
++        message: impl Into<String>,
++    ) -> Self {
++        Self {
++            cursor: String::new(),
++            review_id,
++            timestamp_utc: crate::util::timestamp_utc(),
++            stream,
++            message: message.into(),
++            metadata: BTreeMap::new(),
++        }
++    }
++
++    pub fn with_metadata(mut self, key: impl Into<String>, value: Value) -> Self {
++        self.metadata.insert(key.into(), value);
++        self
++    }
++}
++
++#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "snake_case")]
++pub enum ReviewLogStream {
++    System,
++    Worker,
++    Agent,
++    ToolStdout,
++    ToolStderr,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ReviewLogRedactionPolicy {
++    pub secrets: Vec<String>,
++    pub sensitive_keys: Vec<String>,
++}
++
++impl ReviewLogRedactionPolicy {
++    pub fn new(secrets: impl IntoIterator<Item = impl Into<String>>) -> Self {
++        Self {
++            secrets: secrets
++                .into_iter()
++                .map(Into::into)
++                .filter(|secret: &String| !secret.is_empty())
++                .collect(),
++            ..Self::default()
++        }
++    }
++
++    pub fn redact_entry(&self, mut entry: ReviewLogEntry) -> ReviewLogEntry {
++        entry.message = self.redact_string(&entry.message);
++        entry.metadata = entry
++            .metadata
++            .into_iter()
++            .map(|(key, value)| {
++                let redacted = if self.is_sensitive_key(&key) {
++                    Value::String("[redacted]".to_string())
++                } else {
++                    self.redact_value(value)
++                };
++                (key, redacted)
++            })
++            .collect();
++        entry
++    }
++
++    fn redact_value(&self, value: Value) -> Value {
++        match value {
++            Value::String(value) => Value::String(self.redact_string(&value)),
++            Value::Array(values) => Value::Array(
++                values
++                    .into_iter()
++                    .map(|value| self.redact_value(value))
++                    .collect(),
++            ),
++            Value::Object(values) => {
++                let mut redacted = Map::new();
++                for (key, value) in values {
++                    let value = if self.is_sensitive_key(&key) {
++                        Value::String("[redacted]".to_string())
++                    } else {
++                        self.redact_value(value)
++                    };
++                    redacted.insert(key, value);
++                }
++                Value::Object(redacted)
++            }
++            value => value,
++        }
++    }
++
++    fn redact_string(&self, value: &str) -> String {
++        let mut redacted = value.to_string();
++        for secret in &self.secrets {
++            redacted = redacted.replace(secret, "[redacted]");
++        }
++        redacted
++    }
++
++    fn is_sensitive_key(&self, key: &str) -> bool {
++        let normalized = normalize_sensitive_key(key);
++        self.sensitive_keys
++            .iter()
++            .any(|sensitive| normalize_sensitive_key(sensitive) == normalized)
++    }
++}
++
++impl Default for ReviewLogRedactionPolicy {
++    fn default() -> Self {
++        Self {
++            secrets: Vec::new(),
++            sensitive_keys: vec![
++                "apiKey".to_string(),
++                "api_key".to_string(),
++                "token".to_string(),
++                "accessToken".to_string(),
++                "authorization".to_string(),
++                "secret".to_string(),
++            ],
++        }
++    }
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct ReviewWorkerClaim {
+     pub review_id: ReviewSessionId,
+@@ -177,6 +315,19 @@ pub trait ReviewSessionStore: Send + Sync {
+         after: Option<&str>,
+     ) -> Result<Vec<ReviewEvent>, ReviewSessionError>;
+ 
++    fn append_logs(
++        &self,
++        id: &ReviewSessionId,
++        logs: Vec<ReviewLogEntry>,
++        redaction: ReviewLogRedactionPolicy,
++    ) -> Result<(), ReviewSessionError>;
++
++    fn logs_after(
++        &self,
++        id: &ReviewSessionId,
++        after: Option<&str>,
++    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError>;
++
+     fn write_result(
+         &self,
+         id: &ReviewSessionId,
+@@ -292,6 +443,52 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
+         Ok(record.events[start..].to_vec())
+     }
+ 
++    fn append_logs(
++        &self,
++        id: &ReviewSessionId,
++        logs: Vec<ReviewLogEntry>,
++        redaction: ReviewLogRedactionPolicy,
++    ) -> Result<(), ReviewSessionError> {
++        let mut state = self.lock_state()?;
++        let record = state
++            .sessions
++            .get_mut(id.as_str())
++            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
++        let start = record.logs.len();
++        let review_id = record.id.clone();
++        let rebased = logs
++            .into_iter()
++            .enumerate()
++            .map(|(index, mut log)| {
++                log.cursor = (start + index + 1).to_string();
++                log.review_id = review_id.clone();
++                if log.timestamp_utc.trim().is_empty() {
++                    log.timestamp_utc = crate::util::timestamp_utc();
++                }
++                redaction.redact_entry(log)
++            })
++            .collect::<Vec<_>>();
++        record.logs.extend(rebased);
++        record.updated_at_utc = crate::util::timestamp_utc();
++        Ok(())
++    }
++
++    fn logs_after(
++        &self,
++        id: &ReviewSessionId,
++        after: Option<&str>,
++    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
++        let state = self.lock_state()?;
++        let record = state
++            .sessions
++            .get(id.as_str())
++            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
++        let start = after
++            .and_then(|cursor| record.logs.iter().position(|log| log.cursor == cursor))
++            .map_or(0, |index| index + 1);
++        Ok(record.logs[start..].to_vec())
++    }
++
+     fn write_result(
+         &self,
+         id: &ReviewSessionId,
+@@ -695,6 +892,13 @@ fn retry_backoff_seconds(policy: ReviewRetryPolicy, attempt: u32) -> u64 {
+     initial.saturating_mul(multiplier).min(max)
+ }
+ 
++fn normalize_sensitive_key(key: &str) -> String {
++    key.chars()
++        .filter(|character| character.is_ascii_alphanumeric())
++        .flat_map(char::to_lowercase)
++        .collect()
++}
++
+ fn current_unix_seconds() -> u64 {
+     SystemTime::now()
+         .duration_since(UNIX_EPOCH)

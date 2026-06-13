@@ -1,0 +1,406 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T03:42:42.934Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 5
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gLdCGi/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gLdCGi/frames.jsonl"
+  },
+  "review": {
+    "status": "partial",
+    "sessions": 11,
+    "completedSessions": 10,
+    "reviewUnits": 11,
+    "completedReviewUnits": 10,
+    "fileReviews": 36,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "issue_found": 2,
+      "clean": 15,
+      "needs_review": 18
+    },
+    "findings": 2,
+    "modelCalls": 71,
+    "toolCalls": 104,
+    "tokens": {
+      "inputTokens": 611053,
+      "outputTokens": 3826,
+      "totalTokens": 614879
+    },
+    "artifactStats": {
+      "artifacts": 66,
+      "artifactBytes": 300237
+    },
+    "elapsedMs": 116120
+  },
+  "benchmark": {
+    "elapsedMs": 116258,
+    "hitRate": 0.8,
+    "hits": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "findingId": "e865da0b6f300b1169e310a3d09918fedfe2e4957303b9120179d8597b19b60f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "findingId": "e865da0b6f300b1169e310a3d09918fedfe2e4957303b9120179d8597b19b60f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "findingId": "e865da0b6f300b1169e310a3d09918fedfe2e4957303b9120179d8597b19b60f",
+        "title": "refreshOAuthTokens returns the credential response shape callers do not store"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "findingId": "896c6829128b2ce0aec99aef1e576e3b0341f219ef0247392f69bb3109df135f",
+        "title": "Webhook-created credential uses app ownership instead of user ownership"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "path": "packages/app-store/googlecalendar/api/callback.ts",
+        "title": "Google Calendar callback expects the refreshed credential shape"
+      }
+    ],
+    "falsePositiveCount": 0,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 2,
+    "contractEvidenceFailures": 19,
+    "requiredEvidenceFailures": 19,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 32,
+    "importCount": 0,
+    "needsReviewCount": 18,
+    "cleanCount": 15,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The changed credential create path writes appId/userId ownership from the webhook payload, so the persisted credential is tied to the app contract instead of the expected user credential owner.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "contract-pack-80b39603e1cc7bdcd5c845b8e20e64b241dbd5476a37439689a51361cfadc481"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "contentHash": "5603e07c3eacccaacd61c316b3b1814ec744c33929aa12c5370588bb31a27a93",
+          "evidenceId": "evidence-art_1226a04b93b27174cae7e3376d98ee21d1c7bc0bd210aca13b6926aa10cd5b9a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_12c8a95c4acc5aa5474d1dd91ab3f33915789bd9bfb17c1c7718b9d583f18a58",
+          "contentHash": "a4bea632b6687e674ced4ee09a2fad0e21ee2bd1b8bbc559a57371d928d2620b",
+          "evidenceId": "evidence-art_12c8a95c4acc5aa5474d1dd91ab3f33915789bd9bfb17c1c7718b9d583f18a58",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1707b81bfb9a6a3657c39a3e0853d1c3f64d878e60710ec8ea5ac58f2a379f88",
+          "contentHash": "b89ea06fb1c7ae7f742b57a0540fbd749c14cab5ec3bd27c4132777fbcfb4c4d",
+          "evidenceId": "evidence-art_1707b81bfb9a6a3657c39a3e0853d1c3f64d878e60710ec8ea5ac58f2a379f88",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dc80e65d763b38cd9e902e86f442b962ab88efbb7c58922d0e3b3f1dd7c316db",
+          "contentHash": "f98102f0673648305a6553dd21f78cb4279dc8120e066a1457d6ca836f861570",
+          "evidenceId": "evidence-art_dc80e65d763b38cd9e902e86f442b962ab88efbb7c58922d0e3b3f1dd7c316db",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "896c6829128b2ce0aec99aef1e576e3b0341f219ef0247392f69bb3109df135f",
+      "location": {
+        "endColumn": null,
+        "endLine": 93,
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 1
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Webhook-created credential uses app ownership instead of user ownership",
+      "validatedBy": [
+        "contract-pack-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed refreshOAuthTokens return path now returns the raw response instead of the credential token fields, while the changed credential consumers still read refreshed access/refresh values from packages/app-store/googlecalendar/lib/CalendarService.ts, packages/app-store/hubspot/api/callback.ts, packages/app-store/hubspot/lib/CalendarService.ts, packages/app-store/larkcalendar/api/callback.ts, packages/app-store/larkcalendar/lib/CalendarService.ts, packages/app-store/office365calendar/api/callback.ts, packages/app-store/office365calendar/lib/CalendarService.ts, packages/app-store/office365video/api/callback.ts, packages/app-store/office365video/lib/VideoApiAdapter.ts, packages/app-store/webex/api/callback.ts, packages/app-store/webex/lib/VideoApiAdapter.ts, packages/app-store/zoho-bigin/api/callback.ts, packages/app-store/zoho-bigin/lib/CalendarService.ts, packages/app-store/zohocrm/api/callback.ts, packages/app-store/zoomvideo/api/callback.ts, packages/app-store/zoomvideo/lib/VideoApiAdapter.ts.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "contract-pack-2b46cfdf73104be05ec9180e49f329e6924f94a52e7dcf194699d630f20e990c"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_1089e4841f320b144c44a78b5113203b2150c1b59a7ef7462e0fc44196013d4d",
+          "contentHash": "1d808c2d113fdcf10bd86373a68d9437fde391d1425fd77a3153f60c33c2f5af",
+          "evidenceId": "evidence-art_1089e4841f320b144c44a78b5113203b2150c1b59a7ef7462e0fc44196013d4d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1617a04c9c48e9f1555e2b709baddf15e2501e10b4975af751f035ed196f4982",
+          "contentHash": "bac4dad372bd87007c2094bc37010015e2e44ade13be206b6fd75006e8b346d5",
+          "evidenceId": "evidence-art_1617a04c9c48e9f1555e2b709baddf15e2501e10b4975af751f035ed196f4982",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_188e2ce3ba7f17555eb90b9f6831ae85e1bd9e2b29e2f6fbf9012210de62647a",
+          "contentHash": "d6395168b52be01f8e08769b22b2bc58d2c9294e379212c12926cb29d9f0cd3e",
+          "evidenceId": "evidence-art_188e2ce3ba7f17555eb90b9f6831ae85e1bd9e2b29e2f6fbf9012210de62647a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1daaec98cac8adaf634e1e94f633a210aac980cc79f5da77516a3775d5c072be",
+          "contentHash": "9af85963b9d8ec52b9f28c1b32bd8f596ce74323b9835510899382be14c972a3",
+          "evidenceId": "evidence-art_1daaec98cac8adaf634e1e94f633a210aac980cc79f5da77516a3775d5c072be",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1e7e2cbefa5bd9ed581207a5a7808f5879ffc852d7187801d54e9fb6b1711a04",
+          "contentHash": "62129e1f48e8e5424bc4a5f68d76e66aca555bf5b462d674a156554b338b013a",
+          "evidenceId": "evidence-art_1e7e2cbefa5bd9ed581207a5a7808f5879ffc852d7187801d54e9fb6b1711a04",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_1fb23a745e326d43a2f3b154a281047af767137753fbea8bf567885b99d155bf",
+          "contentHash": "dffadb3b53f5c9273a9cccde9cda5bf3e402aa952dd569b65860bdfa8db0aa3f",
+          "evidenceId": "evidence-art_1fb23a745e326d43a2f3b154a281047af767137753fbea8bf567885b99d155bf",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_2092ecd7064e24ac4fe6d207d240ccbab60fe128bebf4a3241ecbd94a3a89402",
+          "contentHash": "60589f285c37337a536b215a0b5a418a101687417134459c76c15e18049c585d",
+          "evidenceId": "evidence-art_2092ecd7064e24ac4fe6d207d240ccbab60fe128bebf4a3241ecbd94a3a89402",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "contentHash": "5c106ed2361c35b74c2f47dd56e9686fb28116547d349ab7c3e2f4d52b3cff5b",
+          "evidenceId": "evidence-art_269222a188dc30f025f0c35551925b9b5393e32fca1e5e8dfdc9be2dd4dc2fd0",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_2f67c5fa152e2c5b45071088a41d9ffaf85a2ce5015ab1147139b5cc90764c07",
+          "contentHash": "afa3e35a56d50ac4bbfb3dd578c47aa9a791816e277788957682d5cbe29d6223",
+          "evidenceId": "evidence-art_2f67c5fa152e2c5b45071088a41d9ffaf85a2ce5015ab1147139b5cc90764c07",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_34d020233a5cd0b0df6b22f6194d0c2910f054be1c507c01ccd5adafd75dc24c",
+          "contentHash": "2a55ece1ec94305351d7199f7910384f7aa353825e4109b2e068a9e0fc1ee8cd",
+          "evidenceId": "evidence-art_34d020233a5cd0b0df6b22f6194d0c2910f054be1c507c01ccd5adafd75dc24c",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_38ec11632d93dc71f6c8a9b8f8588432921f0cb08441c6b99b1179b8eb5576f6",
+          "contentHash": "b8fa88d6faf6ca80315dd1752fb0bf1dab92ab983a21705309174a069d6084b0",
+          "evidenceId": "evidence-art_38ec11632d93dc71f6c8a9b8f8588432921f0cb08441c6b99b1179b8eb5576f6",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_49f7160d86bb53cda5733e958875a338e79df0ce71ff8e69c8f6dd98b8a6154a",
+          "contentHash": "a50c562afd2008337b0a0aacb0955a56838820568e92dcf2d193c0c25564ef1b",
+          "evidenceId": "evidence-art_49f7160d86bb53cda5733e958875a338e79df0ce71ff8e69c8f6dd98b8a6154a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_53664b43b054056c164012284814956b0a796a40e123a01b9344d3aa02d2eeba",
+          "contentHash": "b34e4441bc987afe297a170e600039b7a94e7e2b696ca2c0f5ffbfa22f0f33a7",
+          "evidenceId": "evidence-art_53664b43b054056c164012284814956b0a796a40e123a01b9344d3aa02d2eeba",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_5b22531ce988df7edcdea783b09a006a922f0b918882621ea2db96216f1e1a06",
+          "contentHash": "43de89505a42a6c8e43847cfd1266e263e85919d50d8c4686cc09b5200017cb3",
+          "evidenceId": "evidence-art_5b22531ce988df7edcdea783b09a006a922f0b918882621ea2db96216f1e1a06",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_5f3fee380eef20bb0f2fec8f8a0746036fc5da33e34d88403f8895ac07fea568",
+          "contentHash": "e98b8144ac3436d29936ab5fd1362ebf9fcaae02973ba691a19837d087185175",
+          "evidenceId": "evidence-art_5f3fee380eef20bb0f2fec8f8a0746036fc5da33e34d88403f8895ac07fea568",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "contentHash": "77fa0e5ed727cb1dbf6c79cec178639e8431448e05ca1b46a9dff5d0a56e9c2f",
+          "evidenceId": "evidence-art_71a2bced04cae4f6d8c499a5355b2857c32c307bd09669cd7bbe3ec59a8925ab",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_87e85c50e0b8423eb93d2a5d3306a1abec4bd79c70356729029b47c342852c08",
+          "contentHash": "b77a0154003668b193d2e98be831d78ba4f553c6c04f9db3e622bb2482a177e4",
+          "evidenceId": "evidence-art_87e85c50e0b8423eb93d2a5d3306a1abec4bd79c70356729029b47c342852c08",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_930916b673caf5dbf0cb07d7c13e29bb29962ef8f9fedb791f815f2c42976e78",
+          "contentHash": "ed1b395be9cb260b3d0749570dde5fdcf10682c2345ce60c6c9b1608946c452f",
+          "evidenceId": "evidence-art_930916b673caf5dbf0cb07d7c13e29bb29962ef8f9fedb791f815f2c42976e78",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c717c38155b48c05727b409e79b24e1e10f4e57e4ec13c4b57e89b9c8e84c2ce",
+          "contentHash": "10e1eea3483f92b3acd619602bf1936afc02334ae3b0c6330c20397f141a0efc",
+          "evidenceId": "evidence-art_c717c38155b48c05727b409e79b24e1e10f4e57e4ec13c4b57e89b9c8e84c2ce",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c863371789aebe4ad15cb7f80fd2aab16ca937bd796195e4f7a2e804c7bf6721",
+          "contentHash": "9402634ea55c0b755d4bc9ecdf9077437ba7c04533ca16327ee30666a1c7d140",
+          "evidenceId": "evidence-art_c863371789aebe4ad15cb7f80fd2aab16ca937bd796195e4f7a2e804c7bf6721",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "contentHash": "a2086c33a04bd54b5ab391dbf3b464822a8a85cd8ed5c012fde7b24cdf9bd523",
+          "evidenceId": "evidence-art_d047019d4f6cd6efbca62a27b0524ef1673d41ee1211b9c4b0da7219fa80b03d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d29b4e1b8a595efcbed0f4c7f95ee8d5217e88723f95b191874bcb06f4a95633",
+          "contentHash": "9cc820215cfce8cd2aba08f612bd8875a6de179fa5e8cbbc37c449797591729c",
+          "evidenceId": "evidence-art_d29b4e1b8a595efcbed0f4c7f95ee8d5217e88723f95b191874bcb06f4a95633",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dd3b3f25266d8965c8411c0cb088d21a105e43785cb085e5f7c363c0ee4fb2ec",
+          "contentHash": "39467e82980a0bdded73f7d88ac7012244a6cead52fd05deaf45fff30ed0dde4",
+          "evidenceId": "evidence-art_dd3b3f25266d8965c8411c0cb088d21a105e43785cb085e5f7c363c0ee4fb2ec",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_e8e12ab6d50b9866720e8d7ad7fd274f71ce9014abda188aeb68b3492c17f62a",
+          "contentHash": "141b396d0732d6007d4f6dd1b62f6466d863803f6766869b0dfe6ff40214e431",
+          "evidenceId": "evidence-art_e8e12ab6d50b9866720e8d7ad7fd274f71ce9014abda188aeb68b3492c17f62a",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2346b69fef27e61619db99a0be657ff463e248253444912f8ea2e9581113b19",
+          "contentHash": "ba20a20b96d959f8b0878d1cb6c3ffec1703623942c68b9c87eb5f2b30b5fa78",
+          "evidenceId": "evidence-art_f2346b69fef27e61619db99a0be657ff463e248253444912f8ea2e9581113b19",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f6609391ba6b3495c327ef430a0ce6f503d775ded580f57d39243629b28b005d",
+          "contentHash": "52cd63e857b89e1eeb2df3d88e4cde070b4ce159eeb42c5427df072aa8507d61",
+          "evidenceId": "evidence-art_f6609391ba6b3495c327ef430a0ce6f503d775ded580f57d39243629b28b005d",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        },
+        {
+          "artifactId": "art_fc457cf8c06c6cff0e0f19595a103960b5aceb7a9faf460a11c59ed98701c7c5",
+          "contentHash": "8fc31adf3fe594abe06892d4c803080afd22ac805be6f730b0c71a4bce6efb3f",
+          "evidenceId": "evidence-art_fc457cf8c06c6cff0e0f19595a103960b5aceb7a9faf460a11c59ed98701c7c5",
+          "kind": "tool_summary",
+          "producingToolCallId": "contract-pack-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 28,
+      "id": "e865da0b6f300b1169e310a3d09918fedfe2e4957303b9120179d8597b19b60f",
+      "location": {
+        "endColumn": null,
+        "endLine": 22,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 1
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "packages/app-store/hubspot/api/callback.ts",
+        "packages/app-store/hubspot/lib/CalendarService.ts",
+        "packages/app-store/larkcalendar/api/callback.ts",
+        "packages/app-store/larkcalendar/lib/CalendarService.ts",
+        "packages/app-store/office365calendar/api/callback.ts",
+        "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "packages/app-store/office365video/api/callback.ts",
+        "packages/app-store/office365video/lib/VideoApiAdapter.ts",
+        "packages/app-store/webex/api/callback.ts",
+        "packages/app-store/webex/lib/VideoApiAdapter.ts",
+        "packages/app-store/zoho-bigin/api/callback.ts",
+        "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "packages/app-store/zohocrm/api/callback.ts",
+        "packages/app-store/zoomvideo/api/callback.ts",
+        "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts"
+      ],
+      "severity": "low",
+      "title": "refreshOAuthTokens returns the credential response shape callers do not store",
+      "validatedBy": [
+        "contract-pack-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

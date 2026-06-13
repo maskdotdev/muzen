@@ -1,0 +1,25 @@
+Error: unknown argument: /Users/mask/code/muzen/bench/results-sdk-memory-real/cal-pr-11059-muzen-review-gpt54mini-20260607T012121Z.json
+    at parseArgs (file:///Users/mask/code/muzen/bench/sdk-memory/typescript-pr-review-callback.mjs:529:16)
+    at main (file:///Users/mask/code/muzen/bench/sdk-memory/typescript-pr-review-callback.mjs:12:16)
+    at file:///Users/mask/code/muzen/bench/sdk-memory/typescript-pr-review-callback.mjs:558:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:633:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+        0.02 real         0.01 user         0.00 sys
+            49692672  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                3818  page reclaims
+                  71  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 108  involuntary context switches
+           308662347  instructions retired
+           101947268  cycles elapsed
+            13748000  peak memory footprint

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-341a5443e33b",
+  "repoSource": {
+    "kind": "git",
+    "commit": "341a5443e33b397e6696d01afbab9fcbb7f1c7c5",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/indexer/src/lib/indexing/runner/scheduling.ts",
+    "apps/indexer/src/lib/indexing/sources/gitlab-source.ts",
+    "apps/web/src/features/gitlab/server/git-repo-cache.test.ts",
+    "apps/web/src/features/gitlab/server/git-repo-cache.ts",
+    "apps/web/src/features/gitlab/server/gitlab-job-runner.ts",
+    "apps/web/src/features/review/server/review-worker-runtime.ts"
+  ],
+  "description": "Mined pair: base 341a5443e33b (fix(test): avoid flaky adapters barrel imports) followed by 928da666c9d2 (fix(test): align indexer repo cache mock path).",
+  "minedFrom": {
+    "baseCommit": "341a5443e33b397e6696d01afbab9fcbb7f1c7c5",
+    "followUpCommit": "928da666c9d28f0b6964b82653ddc912409426cf"
+  },
+  "cases": [
+    {
+      "id": "mined-341a5443e33b-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/indexer/src/lib/indexing/sources/gitlab-source.test.ts"
+      ]
+    }
+  ]
+}

@@ -41,19 +41,25 @@ impl ReviewWorker {
         &self.worker_id
     }
 
-    pub fn run_once(&self, max_sessions: usize) -> Result<ReviewWorkerRun, ReviewSessionError> {
-        let claims = self.store.claim_ready(
-            self.host_config
-                .scheduling
-                .claim_options(self.worker_id.clone(), max_sessions),
-        )?;
+    pub async fn run_once(
+        &self,
+        max_sessions: usize,
+    ) -> Result<ReviewWorkerRun, ReviewSessionError> {
+        let claims = self
+            .store
+            .claim_ready(
+                self.host_config
+                    .scheduling
+                    .claim_options(self.worker_id.clone(), max_sessions),
+            )
+            .await?;
         let mut run = ReviewWorkerRun {
             claimed: claims.len(),
             ..ReviewWorkerRun::default()
         };
 
         for claim in claims {
-            let Some(record) = self.store.get(&claim.review_id)? else {
+            let Some(record) = self.store.get(&claim.review_id).await? else {
                 return Err(ReviewSessionError::Store(format!(
                     "claimed review session {} disappeared before execution",
                     claim.review_id
@@ -68,20 +74,23 @@ impl ReviewWorker {
                 source: record.source.clone(),
                 options: record.options.clone(),
             };
-            match ReviewSession::execute_local(record.id.clone(), input) {
+            match ReviewSession::execute_local_async(record.id.clone(), input).await {
                 Ok(session) => {
                     let result = session.wait()?;
                     let status = session.status();
                     let (events, redacted_artifacts, raw_artifacts) =
                         session.persisted_execution_parts();
-                    let updated = self.store.write_execution_result(
-                        session.id(),
-                        status,
-                        result,
-                        events,
-                        redacted_artifacts,
-                        raw_artifacts,
-                    )?;
+                    let updated = self
+                        .store
+                        .write_execution_result(
+                            session.id(),
+                            status,
+                            result,
+                            events,
+                            redacted_artifacts,
+                            raw_artifacts,
+                        )
+                        .await?;
                     match updated.status {
                         ReviewStatus::Completed => run.completed += 1,
                         ReviewStatus::Failed | ReviewStatus::Cancelled => run.failed += 1,
@@ -91,14 +100,17 @@ impl ReviewWorker {
                     }
                 }
                 Err(error) => {
-                    let updated = self.store.record_attempt_failure(
-                        &claim.review_id,
-                        ReviewAttemptFailure {
-                            error: error.to_string(),
-                            retry_policy: self.host_config.scheduling.default_retry_policy,
-                            now_unix_seconds: None,
-                        },
-                    )?;
+                    let updated = self
+                        .store
+                        .record_attempt_failure(
+                            &claim.review_id,
+                            ReviewAttemptFailure {
+                                error: error.to_string(),
+                                retry_policy: self.host_config.scheduling.default_retry_policy,
+                                now_unix_seconds: None,
+                            },
+                        )
+                        .await?;
                     if updated.status == ReviewStatus::Failed {
                         run.failed += 1;
                     } else {

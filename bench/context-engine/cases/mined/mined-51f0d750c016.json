@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-51f0d750c016",
+  "repoSource": {
+    "kind": "git",
+    "commit": "51f0d750c016739ed44c7f477c513fe5540ea7f9",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/runtime/policy.rs"
+  ],
+  "description": "Mined pair: base 51f0d750c016 (test(policy): keep behavior gating tests, drop planner inventories) followed by a6f903317086 (test(runtime): drop internal tool and dispatch unit tests).",
+  "minedFrom": {
+    "baseCommit": "51f0d750c016739ed44c7f477c513fe5540ea7f9",
+    "followUpCommit": "a6f903317086dfb708142b75a34ed892c95673fe"
+  },
+  "cases": [
+    {
+      "id": "mined-51f0d750c016-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/runtime/dispatch.rs",
+        "src/runtime/tools/authorization.rs",
+        "src/runtime/tools/engine.rs",
+        "src/runtime/tools/validation.rs"
+      ]
+    }
+  ]
+}

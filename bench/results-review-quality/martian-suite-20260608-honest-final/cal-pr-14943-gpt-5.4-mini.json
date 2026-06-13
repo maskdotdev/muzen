@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-08T04:37:18.841Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-NYYi6U/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-NYYi6U/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 48994,
+      "outputTokens": 666,
+      "totalTokens": 49660
+    },
+    "artifactStats": {
+      "artifacts": 9,
+      "artifactBytes": 99239
+    },
+    "elapsedMs": 15552
+  },
+  "benchmark": {
+    "elapsedMs": 15868,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "findingId": "ec90bc363c683b147c6dc0b5a389aa9155e2398c68bdf9f4bd2cd0849bd2a3df",
+        "title": "deleteMany now matches every reminder with retryCount > 1, not just overdue SMS reminders"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 6,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The cleanup query used to delete only reminders where method == SMS and scheduledDate <= now, but after the change it deletes any row that satisfies OR [SMS+overdue, retryCount > 1]. Because retryCount is incremented on send failures, this new OR branch can remove reminders of other methods and even future-dated SMS reminders once they have retried more than once, escaping the method and scheduledDate guards that previously constrained the delete.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-001"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "contentHash": "c11a969410f9545f1e6824ecfd628e2683be3871b9b0df8e614e495b7f280972",
+          "evidenceId": "evidence-art_22b759f665fb51b307c3802207be773770d0c00cedba64bc80cc4a31f8bf2051",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_62b2010d4c5c061e8ef78a0efadd8b34d73c8b059fe1579506ae2909e4e51216",
+          "contentHash": "c2a47052157b34247133d7acb54b92dd14c470163766bd73ad55d5ded57c3fdc",
+          "evidenceId": "evidence-art_62b2010d4c5c061e8ef78a0efadd8b34d73c8b059fe1579506ae2909e4e51216",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_89e1e0be1361cd359b0f4a4eb13bd871a34e6bbf4eaafbb6f8de10723caf6f5d",
+          "contentHash": "7b3f643a89009a9979941139ae0bb93b27dd3a28982fda6f9e7f047b72d368ce",
+          "evidenceId": "evidence-art_89e1e0be1361cd359b0f4a4eb13bd871a34e6bbf4eaafbb6f8de10723caf6f5d",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9f5a866467b3502fbdb4129429459f9a7c9a51c6953df6b451ddb1c1e73f73ce",
+          "contentHash": "97445bd83fe46825350f76ec792d398dc14e2121b981b97b1e7f2d4b85489312",
+          "evidenceId": "evidence-art_9f5a866467b3502fbdb4129429459f9a7c9a51c6953df6b451ddb1c1e73f73ce",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_ad7a858ce3f74a6b1d9361e6c85f4122aa658ff8c606f6892b7e32cc1eed8e19",
+          "contentHash": "cfdcf8158255c37ba6ba1be48e8f739b0b106d84bc18e203980f430328fb34ec",
+          "evidenceId": "evidence-art_ad7a858ce3f74a6b1d9361e6c85f4122aa658ff8c606f6892b7e32cc1eed8e19",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "contentHash": "247a9c763891ab7126ba6dc9b2b3c1b89d3162a67f893b3f09ca4acee653c0ff",
+          "evidenceId": "evidence-art_d71e713ceb2eeb785deaeda14351909c8d7455229015260540c2a4fa686489ed",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 7,
+      "id": "ec90bc363c683b147c6dc0b5a389aa9155e2398c68bdf9f4bd2cd0849bd2a3df",
+      "location": {
+        "endColumn": null,
+        "endLine": 45,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 29
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "deleteMany now matches every reminder with retryCount > 1, not just overdue SMS reminders",
+      "validatedBy": [
+        "unit-001-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

@@ -80,6 +80,7 @@ export interface ReviewOptions {
   sourceProvider?: ReviewSourceProvider;
   hooks?: ReviewHooks;
   heartbeat?: ReviewHeartbeatOptions;
+  contextEngine?: ContextEngineConfig;
   signal?: AbortSignal;
   change?: ReviewChangeSpec;
   scope?: ReviewScope;
@@ -374,6 +375,363 @@ export interface SwarmResult {
   metadata?: Record<string, unknown>;
 }
 
+export type ContextEngineMode = "disabled" | "snapshot_v0";
+export type ContextSemanticMode = "no_vector" | "local" | "hosted";
+export type ContextEmbeddingProviderKind = "local" | "hosted";
+
+export interface ContextSemanticConfig {
+  mode: ContextSemanticMode;
+  provider?: ContextEmbeddingProviderKind;
+  hostedBaseUrl?: string;
+  hostedModel?: string;
+  hostedCredentialRef?: string;
+  allowRestrictedHostedInputs: boolean;
+  maxEmbeddingInputs: number;
+}
+
+export interface ContextEngineConfig {
+  mode: ContextEngineMode;
+  semantic?: ContextSemanticConfig;
+  maxIndexedFiles: number;
+  maxIndexedBytes: number;
+  maxEvidenceItems: number;
+  maxPackTokens: number;
+  maxQueryResults: number;
+  includeRepositoryGuidance: boolean;
+  includeHostContext: boolean;
+  strictEvidenceRequired: boolean;
+}
+
+export type ContextEvidenceKind =
+  | "diff"
+  | "file_span"
+  | "symbol"
+  | "test"
+  | "config"
+  | "doc"
+  | "repository_rule"
+  | "organization_rule"
+  | "ticket"
+  | "historical_pr"
+  | "prior_finding"
+  | "ci_failure"
+  | "dependency"
+  | "cross_repo_contract"
+  | "tool_output"
+  | "pack_summary";
+
+export type ContextEvidenceSource =
+  | "snapshot"
+  | "host"
+  | "history"
+  | "memory"
+  | "tool"
+  | "external";
+
+export type ContextTrust =
+  | "kernel"
+  | "host_trusted"
+  | "organization_trusted"
+  | "repository_untrusted"
+  | "user_untrusted"
+  | "external_untrusted"
+  | "tool_provider";
+
+export type ContextSensitivity =
+  | "public"
+  | "private"
+  | "secret_redacted"
+  | "restricted";
+
+export type ContextScope =
+  | "run"
+  | "snapshot"
+  | "workspace"
+  | "repository"
+  | "organization"
+  | "external";
+
+export interface ContextRange {
+  startLine: number;
+  endLine: number;
+}
+
+export interface ContextProvenance {
+  provider: string;
+  query?: string;
+  toolCallId?: string;
+  snapshotId?: string;
+  originalUrl?: string;
+}
+
+export interface ContextEvidence {
+  id: string;
+  kind: ContextEvidenceKind;
+  source: ContextEvidenceSource;
+  trust: ContextTrust;
+  sensitivity: ContextSensitivity;
+  scope: ContextScope;
+  path?: string;
+  revision?: string;
+  range?: ContextRange;
+  contentHash?: string;
+  summary?: string;
+  tokenEstimate: number;
+  provenance: ContextProvenance;
+  createdAtUtc?: string;
+  expiresAtUtc?: string;
+}
+
+export type ContextRelationshipKind =
+  | "imports"
+  | "calls"
+  | "implements"
+  | "tests"
+  | "configures"
+  | "documents"
+  | "depends_on"
+  | "same_symbol"
+  | "similar_history"
+  | "violates_rule"
+  | "satisfies_ticket"
+  | "contradicts"
+  | "cross_repo_contract";
+
+export interface ContextRelationship {
+  from: string;
+  to: string;
+  kind: ContextRelationshipKind;
+  confidence: number;
+  reason: string;
+}
+
+export type ContextOmissionReason =
+  | "budget_exhausted"
+  | "duplicate"
+  | "low_relevance"
+  | "lower_trust"
+  | "generated_file"
+  | "binary_file"
+  | "secret_redacted"
+  | "outside_scope"
+  | "superseded_by_summary"
+  | "requires_ungranted_capability";
+
+export interface OmittedContextCandidate {
+  evidenceId: string;
+  kind: ContextEvidenceKind;
+  path?: string;
+  score: number;
+  tokenEstimate: number;
+  reason: ContextOmissionReason;
+}
+
+export type ContextPackPurpose =
+  | "general_review"
+  | "correctness"
+  | "security"
+  | "tests"
+  | "architecture"
+  | "performance"
+  | "validator"
+  | "standalone_query";
+
+export interface ContextBudgetUsage {
+  maxTokens: number;
+  usedTokens: number;
+}
+
+export type ContextSufficiencyStatus =
+  | "sufficient"
+  | "probably_sufficient"
+  | "insufficient";
+
+export interface ContextSufficiency {
+  status: ContextSufficiencyStatus;
+  missing: string[];
+}
+
+export interface ContextPack {
+  id: string;
+  runId?: string;
+  snapshotId: string;
+  sessionId?: string;
+  purpose: ContextPackPurpose;
+  evidence: ContextEvidence[];
+  relationships: ContextRelationship[];
+  omittedCandidates: OmittedContextCandidate[];
+  budget: ContextBudgetUsage;
+  sufficiency: ContextSufficiency;
+  compilerVersion: string;
+  createdAtUtc: string;
+}
+
+export type ContextQueryKind =
+  | "search_text"
+  | "read_span"
+  | "explain_pack"
+  | "related_tests"
+  | "related_symbols"
+  | "ticket_requirements"
+  | "history_similar"
+  | "cross_repo_contracts"
+  | "sufficiency_check";
+
+export interface ContextQueryLimits {
+  maxResults: number;
+  maxTokens: number;
+}
+
+export interface ContextQuery {
+  runId?: string;
+  snapshotId: string;
+  sessionId?: string;
+  purpose?: ContextPackPurpose;
+  kind: ContextQueryKind;
+  arguments: unknown;
+  currentEvidence: string[];
+  limits: ContextQueryLimits;
+}
+
+export interface ContextQueryResult {
+  kind: ContextQueryKind;
+  evidence: ContextEvidence[];
+  sufficiency?: ContextSufficiency;
+  data?: unknown;
+  omitted: number;
+}
+
+export type ContextLearningSource =
+  | "accepted_finding"
+  | "dismissed_finding"
+  | "human_feedback"
+  | "merged_pr"
+  | "manual_rule";
+
+export type ContextLearningStatus =
+  | "proposed"
+  | "approved"
+  | "expired"
+  | "rejected";
+
+export type ContextLearningScope =
+  | "repository"
+  | "workspace"
+  | "organization";
+
+export interface ContextLearning {
+  id: string;
+  snapshotId: string;
+  source: ContextLearningSource;
+  status: ContextLearningStatus;
+  scope: ContextLearningScope;
+  evidenceIds: string[];
+  summary: string;
+  createdAtUtc: string;
+  expiresAtUtc?: string;
+}
+
+export interface ContextFeedback {
+  snapshotId: string;
+  evidenceIds: string[];
+  feedback: string;
+  source?: ContextLearningSource;
+  scope?: ContextLearningScope;
+}
+
+export interface ContextFeedbackReceipt {
+  accepted: boolean;
+  message: string;
+  proposedLearning?: ContextLearning;
+}
+
+export interface ContextFeedbackOptions extends ContextIndexOptions {
+  evidenceIds?: string[];
+  feedback: string;
+  learningSource?: ContextLearningSource;
+  scope?: ContextLearningScope;
+}
+
+export interface ContextLearningApproval {
+  learningId: string;
+  approve?: boolean;
+  expiresAtUtc?: string;
+}
+
+export interface ContextLearningApprovalOptions extends ContextLearningApproval {
+  snapshotId: string;
+}
+
+export interface ContextLearningApprovalReceipt {
+  accepted: boolean;
+  learning: ContextLearning;
+}
+
+export interface ContextFindingEvidence {
+  findingId: string;
+  primaryEvidence: string[];
+  supportingEvidence: string[];
+  contradictedBy: string[];
+  sufficiency: ContextSufficiencyStatus;
+  artifactId?: string;
+}
+
+export interface ContextFindingsEvidenceArtifact {
+  schemaVersion: "muzen.context_findings_evidence.v1" | string;
+  runId: string;
+  findings: ContextFindingEvidence[];
+}
+
+export interface ContextManifest {
+  schemaVersion: string;
+  engineVersion: string;
+  snapshotId: string;
+  ruleCount: number;
+  evidenceCount: number;
+  relationshipCount: number;
+  skippedCount: number;
+  createdAtUtc: string;
+}
+
+export interface ContextIndexOptions {
+  source: ReviewSourceLike;
+  changedFiles?: string[];
+  hostMetadata?: Record<string, unknown>;
+  crossRepoContracts?: CrossRepoContractCandidate[];
+  allowedCrossRepoResources?: string[];
+  config?: ContextEngineConfig;
+}
+
+export interface CrossRepoContractCandidate {
+  resourceId: string;
+  repository: string;
+  summary: string;
+  originalUrl?: string;
+}
+
+export interface ContextPackOptions extends ContextIndexOptions {
+  purpose?: ContextPackPurpose;
+  maxTokens?: number;
+}
+
+export interface ContextQueryOptions extends ContextIndexOptions {
+  purpose?: ContextPackPurpose;
+  kind: ContextQueryKind;
+  arguments?: unknown;
+  currentEvidence?: string[];
+  limits?: ContextQueryLimits;
+}
+
+export interface MuzenContextWorkspace {
+  index(options: ContextIndexOptions): Promise<ContextManifest>;
+  buildPack(options: ContextPackOptions): Promise<ContextPack>;
+  query(options: ContextQueryOptions): Promise<ContextQueryResult>;
+  recordFeedback(options: ContextFeedbackOptions): Promise<ContextFeedbackReceipt>;
+  approveLearning(
+    options: ContextLearningApprovalOptions,
+  ): Promise<ContextLearningApprovalReceipt>;
+}
+
 export type ModelProviderKind =
   | "openai"
   | "anthropic"
@@ -429,6 +787,7 @@ export interface MuzenWorkspace {
   readonly id: string;
   readonly models: WorkspaceProfileCollection<ModelProfileInput, ModelProfile>;
   readonly providers: WorkspaceProfileCollection<ProviderProfileInput, ProviderProfile>;
+  readonly context: MuzenContextWorkspace;
   review(source: ReviewSourceLike, options?: ReviewOptions): Promise<ReviewSession>;
 }
 

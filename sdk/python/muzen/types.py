@@ -54,6 +54,329 @@ ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
 SourceProviderKind = Literal["github", "gitlab", "perforce", "custom"]
 WebhookDeliveryType = Literal["review_created", "review_deduped", "ignored"]
 ModelApiProtocol = Literal["responses", "chat_completions"]
+ContextEngineMode = Literal["disabled", "snapshot_v0"]
+ContextEvidenceKind = Literal[
+    "diff",
+    "file_span",
+    "symbol",
+    "test",
+    "config",
+    "doc",
+    "repository_rule",
+    "organization_rule",
+    "ticket",
+    "historical_pr",
+    "prior_finding",
+    "ci_failure",
+    "dependency",
+    "cross_repo_contract",
+    "tool_output",
+    "pack_summary",
+]
+ContextEvidenceSource = Literal["snapshot", "host", "history", "memory", "tool", "external"]
+ContextTrust = Literal[
+    "kernel",
+    "host_trusted",
+    "organization_trusted",
+    "repository_untrusted",
+    "user_untrusted",
+    "external_untrusted",
+    "tool_provider",
+]
+ContextSensitivity = Literal["public", "private", "secret_redacted", "restricted"]
+ContextScope = Literal["run", "snapshot", "workspace", "repository", "organization", "external"]
+ContextRelationshipKind = Literal[
+    "imports",
+    "calls",
+    "implements",
+    "tests",
+    "configures",
+    "documents",
+    "depends_on",
+    "same_symbol",
+    "similar_history",
+    "violates_rule",
+    "satisfies_ticket",
+    "contradicts",
+    "cross_repo_contract",
+]
+ContextOmissionReason = Literal[
+    "budget_exhausted",
+    "duplicate",
+    "low_relevance",
+    "lower_trust",
+    "generated_file",
+    "binary_file",
+    "secret_redacted",
+    "outside_scope",
+    "superseded_by_summary",
+    "requires_ungranted_capability",
+]
+ContextPackPurpose = Literal[
+    "general_review",
+    "correctness",
+    "security",
+    "tests",
+    "architecture",
+    "performance",
+    "validator",
+    "standalone_query",
+]
+ContextSufficiencyStatus = Literal[
+    "sufficient",
+    "probably_sufficient",
+    "insufficient",
+]
+ContextQueryKind = Literal[
+    "search_text",
+    "read_span",
+    "explain_pack",
+    "related_tests",
+    "related_symbols",
+    "ticket_requirements",
+    "history_similar",
+    "cross_repo_contracts",
+    "sufficiency_check",
+]
+ContextLearningSource = Literal[
+    "accepted_finding",
+    "dismissed_finding",
+    "human_feedback",
+    "merged_pr",
+    "manual_rule",
+]
+ContextLearningStatus = Literal[
+    "proposed",
+    "approved",
+    "expired",
+    "rejected",
+]
+ContextLearningScope = Literal[
+    "repository",
+    "workspace",
+    "organization",
+]
+ContextSemanticMode = Literal[
+    "no_vector",
+    "local",
+    "hosted",
+]
+ContextEmbeddingProviderKind = Literal[
+    "local",
+    "hosted",
+]
+
+
+@dataclass(frozen=True)
+class ContextSemanticConfig:
+    mode: ContextSemanticMode
+    allow_restricted_hosted_inputs: bool
+    max_embedding_inputs: int
+    provider: Optional[ContextEmbeddingProviderKind] = None
+    hosted_base_url: Optional[str] = None
+    hosted_model: Optional[str] = None
+    hosted_credential_ref: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextEngineConfig:
+    mode: ContextEngineMode
+    max_indexed_files: int
+    max_indexed_bytes: int
+    max_evidence_items: int
+    max_pack_tokens: int
+    max_query_results: int
+    include_repository_guidance: bool
+    include_host_context: bool
+    strict_evidence_required: bool
+    semantic: Optional[ContextSemanticConfig] = None
+
+
+@dataclass(frozen=True)
+class CrossRepoContractCandidate:
+    resource_id: str
+    repository: str
+    summary: str
+    original_url: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextRange:
+    start_line: int
+    end_line: int
+
+
+@dataclass(frozen=True)
+class ContextProvenance:
+    provider: str
+    query: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    snapshot_id: Optional[str] = None
+    original_url: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextEvidence:
+    id: str
+    kind: ContextEvidenceKind
+    source: ContextEvidenceSource
+    trust: ContextTrust
+    sensitivity: ContextSensitivity
+    scope: ContextScope
+    token_estimate: int
+    provenance: ContextProvenance
+    path: Optional[str] = None
+    revision: Optional[str] = None
+    range: Optional[ContextRange] = None
+    content_hash: Optional[str] = None
+    summary: Optional[str] = None
+    created_at_utc: Optional[str] = None
+    expires_at_utc: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextRelationship:
+    from_id: str
+    to: str
+    kind: ContextRelationshipKind
+    confidence: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class OmittedContextCandidate:
+    evidence_id: str
+    kind: ContextEvidenceKind
+    score: float
+    token_estimate: int
+    reason: ContextOmissionReason
+    path: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextBudgetUsage:
+    max_tokens: int
+    used_tokens: int
+
+
+@dataclass(frozen=True)
+class ContextSufficiency:
+    status: ContextSufficiencyStatus
+    missing: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ContextLearning:
+    id: str
+    snapshot_id: str
+    source: ContextLearningSource
+    status: ContextLearningStatus
+    scope: ContextLearningScope
+    evidence_ids: List[str]
+    summary: str
+    created_at_utc: str
+    expires_at_utc: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextFeedback:
+    snapshot_id: str
+    evidence_ids: List[str]
+    feedback: str
+    source: Optional[ContextLearningSource] = None
+    scope: Optional[ContextLearningScope] = None
+
+
+@dataclass(frozen=True)
+class ContextFeedbackReceipt:
+    accepted: bool
+    message: str
+    proposed_learning: Optional[ContextLearning] = None
+
+
+@dataclass(frozen=True)
+class ContextLearningApproval:
+    learning_id: str
+    approve: bool = False
+    expires_at_utc: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextLearningApprovalReceipt:
+    accepted: bool
+    learning: ContextLearning
+
+
+@dataclass(frozen=True)
+class ContextPack:
+    id: str
+    snapshot_id: str
+    purpose: ContextPackPurpose
+    evidence: List[ContextEvidence]
+    relationships: List[ContextRelationship]
+    omitted_candidates: List[OmittedContextCandidate]
+    budget: ContextBudgetUsage
+    sufficiency: ContextSufficiency
+    compiler_version: str
+    created_at_utc: str
+    run_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextQueryLimits:
+    max_results: int
+    max_tokens: int
+
+
+@dataclass(frozen=True)
+class ContextQuery:
+    snapshot_id: str
+    kind: ContextQueryKind
+    arguments: Any
+    limits: ContextQueryLimits
+    run_id: Optional[str] = None
+    session_id: Optional[str] = None
+    purpose: Optional[ContextPackPurpose] = None
+    current_evidence: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ContextQueryResult:
+    kind: ContextQueryKind
+    evidence: List[ContextEvidence]
+    omitted: int
+    sufficiency: Optional[ContextSufficiency] = None
+    data: Optional[Any] = None
+
+
+@dataclass(frozen=True)
+class ContextFindingEvidence:
+    finding_id: str
+    primary_evidence: List[str]
+    supporting_evidence: List[str]
+    contradicted_by: List[str]
+    sufficiency: ContextSufficiencyStatus
+    artifact_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ContextFindingsEvidenceArtifact:
+    schema_version: str
+    run_id: str
+    findings: List[ContextFindingEvidence]
+
+
+@dataclass(frozen=True)
+class ContextManifest:
+    schema_version: str
+    engine_version: str
+    snapshot_id: str
+    rule_count: int
+    evidence_count: int
+    relationship_count: int
+    skipped_count: int
+    created_at_utc: str
 
 
 @dataclass(frozen=True)
@@ -206,6 +529,7 @@ class ReviewOptions:
     tools: List["ReviewTool"] = field(default_factory=list)
     sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
+    context_engine: Optional[ContextEngineConfig] = None
 
 
 @dataclass(frozen=True)

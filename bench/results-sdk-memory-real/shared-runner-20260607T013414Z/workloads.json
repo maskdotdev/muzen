@@ -1,0 +1,62 @@
+[
+  {
+    "id": "cal-pr-8330",
+    "repo": "/tmp/muzen-shared-cal-8330-20260607T013414Z",
+    "baseRef": "aci-martian/pr-8330-base",
+    "sessions": 1,
+    "changedFiles": [
+      "apps/web/test/lib/getSchedule.test.ts",
+      "packages/lib/slots.ts",
+      "packages/trpc/server/routers/viewer/slots.ts",
+      "packages/types/schedule.d.ts"
+    ]
+  },
+  {
+    "id": "cal-pr-11059",
+    "repo": "/tmp/muzen-shared-cal-11059-20260607T013414Z",
+    "baseRef": "aci-martian/pr-11059-base",
+    "sessions": 11,
+    "changedFiles": [
+      ".env.example",
+      "apps/web/pages/api/webhook/app-credential.ts",
+      "packages/app-store/_utils/oauth/createOAuthAppCredential.ts",
+      "packages/app-store/_utils/oauth/decodeOAuthState.ts",
+      "packages/app-store/_utils/oauth/encodeOAuthState.ts",
+      "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+      "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+      "packages/app-store/googlecalendar/api/add.ts",
+      "packages/app-store/googlecalendar/api/callback.ts",
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/hubspot/api/add.ts",
+      "packages/app-store/hubspot/api/callback.ts",
+      "packages/app-store/hubspot/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/api/add.ts",
+      "packages/app-store/larkcalendar/api/callback.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/office365calendar/api/add.ts",
+      "packages/app-store/office365calendar/api/callback.ts",
+      "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "packages/app-store/office365video/api/add.ts",
+      "packages/app-store/office365video/api/callback.ts",
+      "packages/app-store/office365video/lib/VideoApiAdapter.ts",
+      "packages/app-store/salesforce/api/add.ts",
+      "packages/app-store/salesforce/api/callback.ts",
+      "packages/app-store/salesforce/lib/CalendarService.ts",
+      "packages/app-store/stripepayment/api/callback.ts",
+      "packages/app-store/tandemvideo/api/callback.ts",
+      "packages/app-store/webex/api/callback.ts",
+      "packages/app-store/webex/lib/VideoApiAdapter.ts",
+      "packages/app-store/zoho-bigin/api/add.ts",
+      "packages/app-store/zoho-bigin/api/callback.ts",
+      "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+      "packages/app-store/zohocrm/api/_getAdd.ts",
+      "packages/app-store/zohocrm/api/callback.ts",
+      "packages/app-store/zohocrm/lib/CalendarService.ts",
+      "packages/app-store/zoomvideo/api/add.ts",
+      "packages/app-store/zoomvideo/api/callback.ts",
+      "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+      "packages/lib/constants.ts",
+      "turbo.json"
+    ]
+  }
+]

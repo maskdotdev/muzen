@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:21:21.714Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-4s26BL/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-4s26BL/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 5,
+    "toolCalls": 8,
+    "tokens": {
+      "inputTokens": 35093,
+      "outputTokens": 831,
+      "totalTokens": 35924
+    },
+    "artifactStats": {
+      "artifacts": 6,
+      "artifactBytes": 86652
+    },
+    "elapsedMs": 15459
+  },
+  "benchmark": {
+    "elapsedMs": 15633,
+    "hitRate": 1,
+    "hits": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "findingId": "83ceb87f94c9b3ffc1a303fe67f475910dfceafa6fadbbf9de79506587694007",
+        "title": "Unscoped retryCount branch broadens reminder deletion beyond SMS reminders"
+      }
+    ],
+    "misses": [],
+    "falsePositiveCount": 0,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new OR branch in deleteMany deletes any WorkflowReminder with retryCount > 1, even when it is not an SMS reminder or is not past due. Before the change, only reminders with method = SMS and scheduledDate <= now were deleted; after the change, the matched set becomes (SMS and overdue) OR (retryCount > 1).",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_89e1e0be1361cd359b0f4a4eb13bd871a34e6bbf4eaafbb6f8de10723caf6f5d",
+          "contentHash": "7b3f643a89009a9979941139ae0bb93b27dd3a28982fda6f9e7f047b72d368ce",
+          "evidenceId": "evidence-art_89e1e0be1361cd359b0f4a4eb13bd871a34e6bbf4eaafbb6f8de10723caf6f5d",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "83ceb87f94c9b3ffc1a303fe67f475910dfceafa6fadbbf9de79506587694007",
+      "location": {
+        "endColumn": null,
+        "endLine": 45,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 29
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Unscoped retryCount branch broadens reminder deletion beyond SMS reminders",
+      "validatedBy": [
+        "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

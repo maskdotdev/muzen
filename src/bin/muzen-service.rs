@@ -1,14 +1,14 @@
 use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
 use muzen::review_session::{
-    Muzen, PostgresReviewSessionStore, PostgresWorkspaceProfileStore, ReviewHttpRouter,
-    ReviewHttpRouterOptions,
+    stores_from_url, Muzen, ReviewHttpRouter, ReviewHttpRouterOptions, DEFAULT_MUZEN_STORE_URL,
+    MUZEN_STORE_URL_ENV,
 };
 use muzen::service::{serve, MuzenHttpService};
-use std::sync::Arc;
 
 #[derive(Debug, Parser)]
 #[command(name = "muzen-service")]
@@ -26,9 +26,21 @@ struct ServiceCli {
     #[arg(long, default_value = "GITLAB_WEBHOOK_TOKEN")]
     gitlab_webhook_token_env: String,
 
-    /// Environment variable containing the Postgres database URL.
-    #[arg(long, default_value = "DATABASE_URL")]
-    database_url_env: String,
+    /// Store URL. Supported v1 schemes: sqlite://, postgres://, postgresql://, memory://.
+    #[arg(long)]
+    store_url: Option<String>,
+
+    /// Environment variable containing the Muzen store URL.
+    #[arg(long, default_value = MUZEN_STORE_URL_ENV)]
+    store_url_env: String,
+
+    /// Environment variable containing the context learning store root directory.
+    #[arg(long, default_value = "MUZEN_CONTEXT_LEARNING_STORE_ROOT")]
+    context_learning_store_root_env: String,
+
+    /// Environment variable containing the context derived-data cache root directory.
+    #[arg(long, default_value = "MUZEN_CONTEXT_DERIVED_CACHE_ROOT")]
+    context_derived_cache_root_env: String,
 }
 
 #[tokio::main]
@@ -48,15 +60,19 @@ async fn run() -> Result<()> {
     let router_options = ReviewHttpRouterOptions {
         github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
         gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
+        context_learning_store_root: env::var(cli.context_learning_store_root_env)
+            .ok()
+            .map(PathBuf::from),
+        context_derived_cache_root: env::var(cli.context_derived_cache_root_env)
+            .ok()
+            .map(PathBuf::from),
     };
-    let service = if let Ok(database_url) = env::var(cli.database_url_env) {
-        let muzen = Muzen::with_stores(
-            Arc::new(PostgresReviewSessionStore::connect(&database_url)?),
-            Arc::new(PostgresWorkspaceProfileStore::connect(&database_url)?),
-        );
-        MuzenHttpService::new(ReviewHttpRouter::with_options(muzen, router_options))
-    } else {
-        MuzenHttpService::in_memory(router_options)
-    };
+    let store_url = cli
+        .store_url
+        .or_else(|| env::var(cli.store_url_env).ok())
+        .unwrap_or_else(|| DEFAULT_MUZEN_STORE_URL.to_string());
+    let stores = stores_from_url(&store_url).await?;
+    let muzen = Muzen::with_stores(stores.session_store, stores.profile_store);
+    let service = MuzenHttpService::new(ReviewHttpRouter::with_options(muzen, router_options));
     serve(cli.bind, service).await
 }

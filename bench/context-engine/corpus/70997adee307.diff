@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/components/code-graph-trace-panel.tsx b/apps/web/src/components/code-graph-trace-panel.tsx
+index d0f850ef..aea561cc 100644
+--- a/apps/web/src/components/code-graph-trace-panel.tsx
++++ b/apps/web/src/components/code-graph-trace-panel.tsx
+@@ -121,7 +121,7 @@ export function CodeGraphTracePanel({
+     } finally {
+       setIsLoading(false)
+     }
+-  }, [depth, limit, mode, nodeId, symbol])
++  }, [depth, initialIntegrationId, initialSourceBranch, limit, mode, nodeId, symbol])
+ 
+   const handleTrace = async (event: FormEvent<HTMLFormElement>) => {
+     event.preventDefault()

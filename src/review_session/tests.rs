@@ -4,8 +4,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-#[test]
-fn parses_github_source_shorthand() {
+#[tokio::test]
+async fn parses_github_source_shorthand() {
     let source = ReviewSource::from_str("github:maskdotdev/heimdaal#123").unwrap();
 
     assert_eq!(
@@ -19,8 +19,8 @@ fn parses_github_source_shorthand() {
     assert_eq!(source.source_key(), "github:maskdotdev/heimdaal#123");
 }
 
-#[test]
-fn parses_gitlab_source_shorthand_with_nested_owner() {
+#[tokio::test]
+async fn parses_gitlab_source_shorthand_with_nested_owner() {
     let source = ReviewSource::from_str("gitlab:platform/reviews/heimdaal!42").unwrap();
 
     assert_eq!(
@@ -34,16 +34,16 @@ fn parses_gitlab_source_shorthand_with_nested_owner() {
     assert_eq!(source.source_key(), "gitlab:platform/reviews/heimdaal!42");
 }
 
-#[test]
-fn parses_raw_snapshot_source_shorthand() {
+#[tokio::test]
+async fn parses_raw_snapshot_source_shorthand() {
     let source = ReviewSource::from_str("raw_snapshot:/tmp/muzen-snapshot").unwrap();
 
     assert_eq!(source, ReviewSource::raw_snapshot("/tmp/muzen-snapshot"));
     assert_eq!(source.source_key(), "raw_snapshot:/tmp/muzen-snapshot");
 }
 
-#[test]
-fn builds_non_git_provider_sources() {
+#[tokio::test]
+async fn builds_non_git_provider_sources() {
     let perforce = ReviewSource::perforce_changelist("perforce.example:1666", "12345").unwrap();
     let custom = ReviewSource::custom("acme", "review-123").unwrap();
 
@@ -54,8 +54,8 @@ fn builds_non_git_provider_sources() {
     assert_eq!(custom.source_key(), "custom:acme:review-123");
 }
 
-#[test]
-fn rejects_invalid_source_shorthand() {
+#[tokio::test]
+async fn rejects_invalid_source_shorthand() {
     let error = ReviewSource::from_str("github:maskdotdev/heimdaal").unwrap_err();
 
     assert!(error
@@ -63,8 +63,8 @@ fn rejects_invalid_source_shorthand() {
         .contains("missing `#` review number delimiter"));
 }
 
-#[test]
-fn muzen_executes_local_review_session_and_waits_for_result() {
+#[tokio::test]
+async fn muzen_executes_local_review_session_and_waits_for_result() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(
         repo.path().join("Cargo.toml"),
@@ -78,6 +78,7 @@ fn muzen_executes_local_review_session_and_waits_for_result() {
             repo.path(),
             ["Cargo.toml"],
         ))
+        .await
         .unwrap();
     let result = review.wait().unwrap();
     let event_types = review
@@ -92,8 +93,8 @@ fn muzen_executes_local_review_session_and_waits_for_result() {
     assert!(event_types.contains(&ReviewEventType::SessionCompleted));
 }
 
-#[test]
-fn review_subscribe_replays_recorded_events() {
+#[tokio::test]
+async fn review_subscribe_replays_recorded_events() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let muzen = Muzen::new();
@@ -102,6 +103,7 @@ fn review_subscribe_replays_recorded_events() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
     let mut replayed = Vec::new();
 
@@ -111,8 +113,8 @@ fn review_subscribe_replays_recorded_events() {
     assert!(replayed.contains(&ReviewEventType::SessionStarted));
 }
 
-#[test]
-fn review_refresh_returns_snapshot_without_runner_details() {
+#[tokio::test]
+async fn review_refresh_returns_snapshot_without_runner_details() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let review = Muzen::new()
@@ -120,6 +122,7 @@ fn review_refresh_returns_snapshot_without_runner_details() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
 
     let snapshot = review.refresh();
@@ -129,8 +132,8 @@ fn review_refresh_returns_snapshot_without_runner_details() {
     assert!(snapshot.result.is_some());
 }
 
-#[test]
-fn review_exports_and_reads_redacted_artifacts() {
+#[tokio::test]
+async fn review_exports_and_reads_redacted_artifacts() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(
         repo.path().join("Cargo.toml"),
@@ -142,6 +145,7 @@ fn review_exports_and_reads_redacted_artifacts() {
             repo.path(),
             ["Cargo.toml"],
         ))
+        .await
         .unwrap();
 
     let exported = review
@@ -159,8 +163,8 @@ fn review_exports_and_reads_redacted_artifacts() {
     assert!(!artifact.content.is_empty());
 }
 
-#[test]
-fn review_artifact_export_enforces_limits() {
+#[tokio::test]
+async fn review_artifact_export_enforces_limits() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let review = Muzen::new()
@@ -168,6 +172,7 @@ fn review_artifact_export_enforces_limits() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
 
     let error = review
@@ -183,8 +188,8 @@ fn review_artifact_export_enforces_limits() {
     ));
 }
 
-#[test]
-fn muzen_reuses_existing_session_for_source_dedupe() {
+#[tokio::test]
+async fn muzen_reuses_existing_session_for_source_dedupe() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let store = Arc::new(InMemoryReviewSessionStore::default());
@@ -199,14 +204,16 @@ fn muzen_reuses_existing_session_for_source_dedupe() {
             ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
             options.clone(),
         )
+        .await
         .unwrap();
     let second = muzen
         .review_with_options(
             ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
             options,
         )
+        .await
         .unwrap();
-    let record = store.get(first.id()).unwrap().unwrap();
+    let record = store.get(first.id()).await.unwrap().unwrap();
     let expected_dedupe_key = format!("source:local:{}", repo.path().display());
 
     assert_eq!(first.id(), second.id());
@@ -216,8 +223,8 @@ fn muzen_reuses_existing_session_for_source_dedupe() {
     );
 }
 
-#[test]
-fn review_store_persists_result_events_and_artifacts() {
+#[tokio::test]
+async fn review_store_persists_result_events_and_artifacts() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(
         repo.path().join("Cargo.toml"),
@@ -230,12 +237,14 @@ fn review_store_persists_result_events_and_artifacts() {
             repo.path(),
             ["Cargo.toml"],
         ))
+        .await
         .unwrap();
     let first_cursor = review.event_records()[0].cursor.clone();
 
-    let record = store.get(review.id()).unwrap().unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
     let replayed = store
         .events_after(review.id(), Some(&first_cursor))
+        .await
         .unwrap();
 
     assert!(record.result.is_some());
@@ -245,8 +254,8 @@ fn review_store_persists_result_events_and_artifacts() {
     assert_ne!(replayed[0].cursor, first_cursor);
 }
 
-#[test]
-fn review_store_can_append_events_and_update_result() {
+#[tokio::test]
+async fn review_store_can_append_events_and_update_result() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let store = Arc::new(InMemoryReviewSessionStore::default());
@@ -255,6 +264,7 @@ fn review_store_can_append_events_and_update_result() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
     let result = review.wait().unwrap();
     let extra_event = ReviewEvent {
@@ -267,28 +277,33 @@ fn review_store_can_append_events_and_update_result() {
 
     store
         .append_events(review.id(), vec![extra_event.clone()])
+        .await
         .unwrap();
     store
         .write_result(review.id(), ReviewStatus::Completed, result)
+        .await
         .unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
 
     assert_eq!(record.events.last(), Some(&extra_event));
     assert_eq!(record.status, ReviewStatus::Completed);
     assert!(record.result.is_some());
 }
 
-#[test]
-fn review_store_claims_ready_sessions_with_workspace_concurrency() {
+#[tokio::test]
+async fn review_store_claims_ready_sessions_with_workspace_concurrency() {
     let store = InMemoryReviewSessionStore::default();
     store
         .insert(queued_record("review-1", Some("acme"), 0))
+        .await
         .unwrap();
     store
         .insert(queued_record("review-2", Some("acme"), 0))
+        .await
         .unwrap();
     store
         .insert(queued_record("review-3", Some("beta"), 0))
+        .await
         .unwrap();
 
     let claims = store
@@ -302,6 +317,7 @@ fn review_store_claims_ready_sessions_with_workspace_concurrency() {
                 ..ReviewWorkerConcurrencyLimits::default()
             },
         })
+        .await
         .unwrap();
 
     assert_eq!(claims.len(), 2);
@@ -312,6 +328,7 @@ fn review_store_claims_ready_sessions_with_workspace_concurrency() {
     assert_eq!(
         store
             .get(&ReviewSessionId::new("review-2").unwrap())
+            .await
             .unwrap()
             .unwrap()
             .status,
@@ -320,6 +337,7 @@ fn review_store_claims_ready_sessions_with_workspace_concurrency() {
     assert_eq!(
         store
             .get(&ReviewSessionId::new("review-1").unwrap())
+            .await
             .unwrap()
             .unwrap()
             .events
@@ -329,12 +347,13 @@ fn review_store_claims_ready_sessions_with_workspace_concurrency() {
     );
 }
 
-#[test]
-fn review_store_extends_and_reclaims_leases() {
+#[tokio::test]
+async fn review_store_extends_and_reclaims_leases() {
     let store = InMemoryReviewSessionStore::default();
     let review_id = ReviewSessionId::new("review-1").unwrap();
     store
         .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+        .await
         .unwrap();
     store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -344,6 +363,7 @@ fn review_store_extends_and_reclaims_leases() {
             now_unix_seconds: Some(100),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
 
     let blocked = store
@@ -354,6 +374,7 @@ fn review_store_extends_and_reclaims_leases() {
             now_unix_seconds: Some(105),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
     let extended = store
         .extend_lease(
@@ -364,6 +385,7 @@ fn review_store_extends_and_reclaims_leases() {
                 now_unix_seconds: Some(106),
             },
         )
+        .await
         .unwrap();
     let reclaimed = store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -373,6 +395,7 @@ fn review_store_extends_and_reclaims_leases() {
             now_unix_seconds: Some(127),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
 
     assert!(blocked.is_empty());
@@ -382,12 +405,13 @@ fn review_store_extends_and_reclaims_leases() {
     assert_eq!(reclaimed[0].worker_id, "worker-b");
 }
 
-#[test]
-fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
+#[tokio::test]
+async fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
     let store = InMemoryReviewSessionStore::default();
     let review_id = ReviewSessionId::new("review-1").unwrap();
     store
         .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+        .await
         .unwrap();
     store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -397,10 +421,12 @@ fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
             now_unix_seconds: Some(100),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
 
     let cancelled = store
         .request_cancellation(&review_id, ReviewCancelOptions::new("superseded"))
+        .await
         .unwrap();
     let later_claims = store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -410,6 +436,7 @@ fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
             now_unix_seconds: Some(111),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
 
     assert_eq!(cancelled.status, ReviewStatus::Cancelled);
@@ -428,12 +455,13 @@ fn review_store_durable_cancellation_clears_lease_and_blocks_claims() {
     assert!(later_claims.is_empty());
 }
 
-#[test]
-fn review_store_preserves_cancellation_against_late_execution_result() {
+#[tokio::test]
+async fn review_store_preserves_cancellation_against_late_execution_result() {
     let store = InMemoryReviewSessionStore::default();
     let review_id = ReviewSessionId::new("review-1").unwrap();
     store
         .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+        .await
         .unwrap();
     store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -443,9 +471,11 @@ fn review_store_preserves_cancellation_against_late_execution_result() {
             now_unix_seconds: Some(100),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
     store
         .request_cancellation(&review_id, ReviewCancelOptions::new("superseded"))
+        .await
         .unwrap();
     let late_result = ReviewResult {
         review_id: review_id.clone(),
@@ -471,6 +501,7 @@ fn review_store_preserves_cancellation_against_late_execution_result() {
             Vec::new(),
             Vec::new(),
         )
+        .await
         .unwrap();
 
     assert_eq!(updated.status, ReviewStatus::Cancelled);
@@ -481,8 +512,8 @@ fn review_store_preserves_cancellation_against_late_execution_result() {
     );
 }
 
-#[test]
-fn review_store_records_retry_backoff_and_final_failure() {
+#[tokio::test]
+async fn review_store_records_retry_backoff_and_final_failure() {
     let store = InMemoryReviewSessionStore::default();
     let review_id = ReviewSessionId::new("review-1").unwrap();
     let retry_policy = ReviewRetryPolicy {
@@ -492,6 +523,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
     };
     store
         .insert(queued_record(review_id.as_str(), Some("acme"), 0))
+        .await
         .unwrap();
     store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -501,6 +533,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
             now_unix_seconds: Some(100),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
 
     let retry = store
@@ -512,6 +545,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
                 now_unix_seconds: Some(110),
             },
         )
+        .await
         .unwrap();
     let not_ready = store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -521,6 +555,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
             now_unix_seconds: Some(119),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
     let second_attempt = store
         .claim_ready(ReviewWorkerClaimOptions {
@@ -530,6 +565,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
             now_unix_seconds: Some(120),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
+        .await
         .unwrap();
     let failed = store
         .record_attempt_failure(
@@ -540,6 +576,7 @@ fn review_store_records_retry_backoff_and_final_failure() {
                 now_unix_seconds: Some(130),
             },
         )
+        .await
         .unwrap();
 
     assert_eq!(retry.status, ReviewStatus::Queued);
@@ -555,14 +592,16 @@ fn review_store_records_retry_backoff_and_final_failure() {
     );
 }
 
-#[test]
-fn review_store_enforces_global_running_limit() {
+#[tokio::test]
+async fn review_store_enforces_global_running_limit() {
     let store = InMemoryReviewSessionStore::default();
     store
         .insert(queued_record("review-1", Some("acme"), 0))
+        .await
         .unwrap();
     store
         .insert(queued_record("review-2", Some("beta"), 0))
+        .await
         .unwrap();
 
     let claims = store
@@ -576,14 +615,15 @@ fn review_store_enforces_global_running_limit() {
                 ..ReviewWorkerConcurrencyLimits::default()
             },
         })
+        .await
         .unwrap();
 
     assert_eq!(claims.len(), 1);
     assert_eq!(claims[0].review_id.as_str(), "review-1");
 }
 
-#[test]
-fn review_store_enforces_user_model_and_provider_running_limits() {
+#[tokio::test]
+async fn review_store_enforces_user_model_and_provider_running_limits() {
     let store = InMemoryReviewSessionStore::default();
     store
         .insert(queued_record_with_keys(
@@ -593,6 +633,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
             Some("model-a"),
             Some("provider-a"),
         ))
+        .await
         .unwrap();
     store
         .insert(queued_record_with_keys(
@@ -602,6 +643,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
             Some("model-b"),
             Some("provider-b"),
         ))
+        .await
         .unwrap();
     store
         .insert(queued_record_with_keys(
@@ -611,6 +653,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
             Some("model-a"),
             Some("provider-c"),
         ))
+        .await
         .unwrap();
     store
         .insert(queued_record_with_keys(
@@ -620,6 +663,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
             Some("model-c"),
             Some("provider-a"),
         ))
+        .await
         .unwrap();
     store
         .insert(queued_record_with_keys(
@@ -629,6 +673,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
             Some("model-d"),
             Some("provider-d"),
         ))
+        .await
         .unwrap();
 
     let claims = store
@@ -644,6 +689,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
                 ..ReviewWorkerConcurrencyLimits::default()
             },
         })
+        .await
         .unwrap();
     let claimed_ids = claims
         .iter()
@@ -654,6 +700,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
     assert_eq!(
         store
             .get(&ReviewSessionId::new("review-2").unwrap())
+            .await
             .unwrap()
             .unwrap()
             .status,
@@ -662,6 +709,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
     assert_eq!(
         store
             .get(&ReviewSessionId::new("review-3").unwrap())
+            .await
             .unwrap()
             .unwrap()
             .status,
@@ -670,6 +718,7 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
     assert_eq!(
         store
             .get(&ReviewSessionId::new("review-4").unwrap())
+            .await
             .unwrap()
             .unwrap()
             .status,
@@ -677,8 +726,8 @@ fn review_store_enforces_user_model_and_provider_running_limits() {
     );
 }
 
-#[test]
-fn workspace_schedule_review_persists_queued_record_with_options() {
+#[tokio::test]
+async fn workspace_schedule_review_persists_queued_record_with_options() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let store = Arc::new(InMemoryReviewSessionStore::default());
@@ -693,8 +742,9 @@ fn workspace_schedule_review_persists_queued_record_with_options() {
                 ..ReviewOptions::default()
             },
         )
+        .await
         .unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
 
     assert_eq!(review.status(), ReviewStatus::Queued);
     assert!(matches!(
@@ -712,8 +762,8 @@ fn workspace_schedule_review_persists_queued_record_with_options() {
     );
 }
 
-#[test]
-fn review_worker_executes_claimed_local_review_and_persists_result() {
+#[tokio::test]
+async fn review_worker_executes_claimed_local_review_and_persists_result() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let store = Arc::new(InMemoryReviewSessionStore::default());
@@ -723,11 +773,12 @@ fn review_worker_executes_claimed_local_review_and_persists_result() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
     let worker = ReviewWorker::new("worker-a", store.clone(), HostConfiguration::default());
 
-    let run = worker.run_once(1).unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
+    let run = worker.run_once(1).await.unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
     let event_types = record
         .events
         .iter()
@@ -755,13 +806,14 @@ fn review_worker_executes_claimed_local_review_and_persists_result() {
     );
 }
 
-#[test]
-fn review_worker_records_final_failure_for_execution_error() {
+#[tokio::test]
+async fn review_worker_records_final_failure_for_execution_error() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store.clone()).workspace("acme");
     let repo = tempfile::tempdir().expect("temp repo");
     let review = workspace
         .schedule_review(ReviewSource::local(repo.path()))
+        .await
         .unwrap();
     let worker = ReviewWorker::new(
         "worker-a",
@@ -778,8 +830,8 @@ fn review_worker_records_final_failure_for_execution_error() {
         },
     );
 
-    let run = worker.run_once(1).unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
+    let run = worker.run_once(1).await.unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
 
     assert_eq!(run.claimed, 1);
     assert_eq!(run.failed, 1);
@@ -796,8 +848,8 @@ fn review_worker_records_final_failure_for_execution_error() {
     );
 }
 
-#[test]
-fn workspace_profiles_set_get_list_and_version() {
+#[tokio::test]
+async fn workspace_profiles_set_get_list_and_version() {
     let workspace = Muzen::new().workspace("acme");
 
     let first = workspace
@@ -811,6 +863,7 @@ fn workspace_profiles_set_get_list_and_version() {
                 routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
             },
         )
+        .await
         .unwrap();
     let second = workspace
         .set_model_profile(
@@ -823,6 +876,7 @@ fn workspace_profiles_set_get_list_and_version() {
                 routing: BTreeMap::new(),
             },
         )
+        .await
         .unwrap();
     let provider = workspace
         .set_provider_profile(
@@ -834,6 +888,7 @@ fn workspace_profiles_set_get_list_and_version() {
                 routing: BTreeMap::new(),
             },
         )
+        .await
         .unwrap();
 
     assert_eq!(first.version, "1");
@@ -842,17 +897,18 @@ fn workspace_profiles_set_get_list_and_version() {
     assert_eq!(
         workspace
             .get_model_profile("default")
+            .await
             .unwrap()
             .unwrap()
             .model,
         "gpt-5.1"
     );
-    assert_eq!(workspace.list_model_profiles().unwrap().len(), 1);
-    assert_eq!(workspace.list_provider_profiles().unwrap().len(), 1);
+    assert_eq!(workspace.list_model_profiles().await.unwrap().len(), 1);
+    assert_eq!(workspace.list_provider_profiles().await.unwrap().len(), 1);
 }
 
-#[test]
-fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
+#[tokio::test]
+async fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let session_store = Arc::new(InMemoryReviewSessionStore::default());
@@ -870,6 +926,7 @@ fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
                 routing: BTreeMap::from([("region".to_string(), "us-east".to_string())]),
             },
         )
+        .await
         .unwrap();
 
     let review = workspace
@@ -877,8 +934,9 @@ fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
-    let record = session_store.get(review.id()).unwrap().unwrap();
+    let record = session_store.get(review.id()).await.unwrap().unwrap();
     let snapshot = record.config_snapshot.unwrap();
     let serialized = serde_json::to_string(&snapshot).unwrap();
 
@@ -906,13 +964,14 @@ fn workspace_review_captures_model_config_snapshot_without_raw_secret() {
     assert!(!serialized.contains("sk-live"));
 }
 
-#[test]
-fn review_session_logs_are_redacted_before_persistence() {
+#[tokio::test]
+async fn review_session_logs_are_redacted_before_persistence() {
     let raw_secret = "sk-live-raw-secret";
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store.clone()).workspace("acme");
     let review = workspace
         .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        .await
         .unwrap();
 
     store
@@ -933,9 +992,10 @@ fn review_session_logs_are_redacted_before_persistence() {
             )],
             ReviewLogRedactionPolicy::new([raw_secret]),
         )
+        .await
         .unwrap();
-    let logs = store.logs_after(review.id(), None).unwrap();
-    let record = store.get(review.id()).unwrap().unwrap();
+    let logs = store.logs_after(review.id(), None).await.unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
     let logs_json = serde_json::to_string(&logs).unwrap();
     let record_json = serde_json::to_string(&record).unwrap();
 
@@ -955,15 +1015,19 @@ fn review_session_logs_are_redacted_before_persistence() {
     );
 }
 
-#[test]
-fn review_events_response_replays_json_from_store() {
+#[tokio::test]
+async fn review_events_response_replays_json_from_store() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store).workspace("acme");
     let review = workspace
         .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        .await
         .unwrap();
 
-    let response = workspace.review_events_response(review.id(), None).unwrap();
+    let response = workspace
+        .review_events_response(review.id(), None)
+        .await
+        .unwrap();
     let payload: Value = serde_json::from_str(&response.body).unwrap();
 
     assert_eq!(response.status_code, HTTP_STATUS_OK);
@@ -977,22 +1041,25 @@ fn review_events_response_replays_json_from_store() {
 
     let after_response = workspace
         .review_events_response(review.id(), Some("1"))
+        .await
         .unwrap();
     let after_payload: Value = serde_json::from_str(&after_response.body).unwrap();
 
     assert_eq!(after_payload["events"].as_array().unwrap().len(), 0);
 }
 
-#[test]
-fn review_events_sse_response_renders_service_side_event_stream() {
+#[tokio::test]
+async fn review_events_sse_response_renders_service_side_event_stream() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store).workspace("acme");
     let review = workspace
         .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        .await
         .unwrap();
 
     let response = workspace
         .review_events_sse_response(review.id(), None)
+        .await
         .unwrap();
 
     assert_eq!(response.status_code, HTTP_STATUS_OK);
@@ -1010,8 +1077,8 @@ fn review_events_sse_response_renders_service_side_event_stream() {
     assert!(response.body.ends_with("\n\n"));
 }
 
-#[test]
-fn review_http_router_schedules_root_review_and_replays_events() {
+#[tokio::test]
+async fn review_http_router_schedules_root_review_and_replays_events() {
     let muzen = Muzen::new();
     let router = ReviewHttpRouter::new(muzen.clone());
     let create_request = ReviewHttpRequest::new("POST", "/v1/reviews")
@@ -1027,14 +1094,18 @@ fn review_http_router_schedules_root_review_and_replays_events() {
         }))
         .unwrap();
 
-    let create_response = router.handle(create_request);
+    let create_response = router.handle(create_request).await;
     let create_body: Value = serde_json::from_str(&create_response.body).unwrap();
-    let get_response = router.handle(ReviewHttpRequest::new("GET", "/v1/reviews/review-1"));
+    let get_response = router
+        .handle(ReviewHttpRequest::new("GET", "/v1/reviews/review-1"))
+        .await;
     let get_body: Value = serde_json::from_str(&get_response.body).unwrap();
-    let events_response = router.handle(ReviewHttpRequest::new(
-        "GET",
-        "/v1/reviews/review-1/events?after=1",
-    ));
+    let events_response = router
+        .handle(ReviewHttpRequest::new(
+            "GET",
+            "/v1/reviews/review-1/events?after=1",
+        ))
+        .await;
     let events_body: Value = serde_json::from_str(&events_response.body).unwrap();
 
     assert_eq!(create_response.status_code, HTTP_STATUS_ACCEPTED);
@@ -1053,14 +1124,15 @@ fn review_http_router_schedules_root_review_and_replays_events() {
     let record = muzen
         .store
         .get(&ReviewSessionId::new("review-1").unwrap())
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(record.status, ReviewStatus::Queued);
     assert!(record.result.is_none());
 }
 
-#[test]
-fn review_http_router_serves_results_and_artifacts_from_store() {
+#[tokio::test]
+async fn review_http_router_serves_results_and_artifacts_from_store() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let muzen = Muzen::new();
@@ -1069,32 +1141,39 @@ fn review_http_router_serves_results_and_artifacts_from_store() {
             repo.path(),
             ["README.md"],
         ))
+        .await
         .unwrap();
     let router = ReviewHttpRouter::new(muzen);
 
-    let result_response = router.handle(ReviewHttpRequest::new(
-        "GET",
-        format!("/v1/reviews/{}/result", review.id()).as_str(),
-    ));
-    let export_response = router.handle(ReviewHttpRequest::new(
-        "POST",
-        format!("/v1/reviews/{}/artifacts/export", review.id()).as_str(),
-    ));
+    let result_response = router
+        .handle(ReviewHttpRequest::new(
+            "GET",
+            format!("/v1/reviews/{}/result", review.id()).as_str(),
+        ))
+        .await;
+    let export_response = router
+        .handle(ReviewHttpRequest::new(
+            "POST",
+            format!("/v1/reviews/{}/artifacts/export", review.id()).as_str(),
+        ))
+        .await;
     let result_body: Value = serde_json::from_str(&result_response.body).unwrap();
     let export_body: Value = serde_json::from_str(&export_response.body).unwrap();
     let artifact_id = export_body["artifacts"][0]["artifactId"]
         .as_str()
         .unwrap()
         .to_string();
-    let artifact_response = router.handle(ReviewHttpRequest::new(
-        "GET",
-        format!(
-            "/v1/reviews/{}/artifacts/{}?view=redacted",
-            review.id(),
-            artifact_id
-        )
-        .as_str(),
-    ));
+    let artifact_response = router
+        .handle(ReviewHttpRequest::new(
+            "GET",
+            format!(
+                "/v1/reviews/{}/artifacts/{}?view=redacted",
+                review.id(),
+                artifact_id
+            )
+            .as_str(),
+        ))
+        .await;
     let artifact_body: Value = serde_json::from_str(&artifact_response.body).unwrap();
 
     assert_eq!(result_response.status_code, HTTP_STATUS_OK);
@@ -1105,8 +1184,8 @@ fn review_http_router_serves_results_and_artifacts_from_store() {
     assert_eq!(artifact_body["artifact"]["artifactId"], json!(artifact_id));
 }
 
-#[test]
-fn review_http_router_handles_workspace_profile_routes() {
+#[tokio::test]
+async fn review_http_router_handles_workspace_profile_routes() {
     let router = ReviewHttpRouter::new(Muzen::new());
     let put_model = ReviewHttpRequest::new("PUT", "/v1/workspaces/acme/models/default")
         .json(&ModelProfileInput {
@@ -1126,16 +1205,19 @@ fn review_http_router_handles_workspace_profile_routes() {
         })
         .unwrap();
 
-    let model_response = router.handle(put_model);
-    let provider_response = router.handle(put_provider);
-    let models_response =
-        router.handle(ReviewHttpRequest::new("GET", "/v1/workspaces/acme/models"));
+    let model_response = router.handle(put_model).await;
+    let provider_response = router.handle(put_provider).await;
+    let models_response = router
+        .handle(ReviewHttpRequest::new("GET", "/v1/workspaces/acme/models"))
+        .await;
     let provider_body: Value = serde_json::from_str(&provider_response.body).unwrap();
     let models_body: Value = serde_json::from_str(&models_response.body).unwrap();
-    let missing_response = router.handle(ReviewHttpRequest::new(
-        "GET",
-        "/v1/workspaces/acme/models/missing",
-    ));
+    let missing_response = router
+        .handle(ReviewHttpRequest::new(
+            "GET",
+            "/v1/workspaces/acme/models/missing",
+        ))
+        .await;
 
     assert_eq!(model_response.status_code, HTTP_STATUS_OK);
     assert_eq!(provider_response.status_code, HTTP_STATUS_OK);
@@ -1149,14 +1231,308 @@ fn review_http_router_handles_workspace_profile_routes() {
     assert!(missing_response.body.is_empty());
 }
 
-#[test]
-fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
+#[tokio::test]
+async fn review_http_router_serves_workspace_context_routes() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join("src/auth")).unwrap();
+    std::fs::write(
+        repo.path().join("src/auth/token.rs"),
+        "pub fn authorize_request() {}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo.path().join("tests/auth")).unwrap();
+    std::fs::write(
+        repo.path().join("tests/auth/token_test.rs"),
+        "#[tokio::test]\nfn authorize_request_test() {}\n",
+    )
+    .unwrap();
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let source = json!({
+        "type": "local",
+        "repo": repo.path(),
+        "changedFiles": ["src/auth/token.rs"]
+    });
+
+    let index_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/index")
+                .json(&json!({ "source": source }))
+                .unwrap(),
+        )
+        .await;
+    let pack_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/packs")
+                .json(&json!({
+                    "source": source,
+                    "purpose": "tests"
+                }))
+                .unwrap(),
+        )
+        .await;
+    let query_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+                .json(&json!({
+                    "source": source,
+                    "kind": "related_tests",
+                    "arguments": { "path": "src/auth/token.rs" },
+                    "limits": { "maxResults": 10, "maxTokens": 1000 }
+                }))
+                .unwrap(),
+        )
+        .await;
+    let feedback_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/feedback")
+                .json(&json!({
+                    "source": source,
+                    "feedback": "Suppress duplicate generated auth wrapper warning."
+                }))
+                .unwrap(),
+        )
+        .await;
+    let index_body: Value = serde_json::from_str(&index_response.body).unwrap();
+    let pack_body: Value = serde_json::from_str(&pack_response.body).unwrap();
+    let query_body: Value = serde_json::from_str(&query_response.body).unwrap();
+    let feedback_body: Value = serde_json::from_str(&feedback_response.body).unwrap();
+    let snapshot_id = index_body["manifest"]["snapshotId"].as_str().unwrap();
+    let learning_id = feedback_body["receipt"]["proposedLearning"]["id"]
+        .as_str()
+        .unwrap();
+    let approval_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/learnings/approve")
+                .json(&json!({
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": true
+                }))
+                .unwrap(),
+        )
+        .await;
+    let approval_body: Value = serde_json::from_str(&approval_response.body).unwrap();
+
+    assert_eq!(index_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        index_body["manifest"]["schemaVersion"],
+        json!("muzen.context_manifest.v1")
+    );
+    assert_eq!(pack_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(pack_body["pack"]["purpose"], json!("tests"));
+    assert!(pack_body["pack"]["evidence"].as_array().unwrap().len() >= 2);
+    assert_eq!(query_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(query_body["result"]["kind"], json!("related_tests"));
+    assert!(query_body["result"]["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["path"] == json!("tests/auth/token_test.rs")));
+    assert_eq!(feedback_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        feedback_body["receipt"]["proposedLearning"]["status"],
+        json!("proposed")
+    );
+    assert_eq!(approval_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        approval_body["receipt"]["learning"]["status"],
+        json!("approved")
+    );
+}
+
+#[tokio::test]
+async fn review_http_router_persists_workspace_context_learnings() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let learning_root = tempfile::tempdir().unwrap();
+    let router = ReviewHttpRouter::with_options(
+        Muzen::new(),
+        ReviewHttpRouterOptions {
+            github_webhook_secret: None,
+            gitlab_webhook_secret: None,
+            context_learning_store_root: Some(learning_root.path().to_path_buf()),
+            context_derived_cache_root: None,
+        },
+    );
+    let source = json!({
+        "type": "local",
+        "repo": repo.path(),
+        "changedFiles": ["lib.rs"]
+    });
+
+    let index_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/index")
+                .json(&json!({ "source": source }))
+                .unwrap(),
+        )
+        .await;
+    let feedback_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/feedback")
+                .json(&json!({
+                    "source": source,
+                    "feedback": "Remember generated wrappers in this repository are intentional."
+                }))
+                .unwrap(),
+        )
+        .await;
+    let index_body: Value = serde_json::from_str(&index_response.body).unwrap();
+    let feedback_body: Value = serde_json::from_str(&feedback_response.body).unwrap();
+    let snapshot_id = index_body["manifest"]["snapshotId"].as_str().unwrap();
+    let learning_id = feedback_body["receipt"]["proposedLearning"]["id"]
+        .as_str()
+        .unwrap();
+    let approval_response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/learnings/approve")
+                .json(&json!({
+                    "snapshotId": snapshot_id,
+                    "learningId": learning_id,
+                    "approve": true
+                }))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(approval_response.status_code, HTTP_STATUS_OK);
+
+    let restarted = ReviewHttpRouter::with_options(
+        Muzen::new(),
+        ReviewHttpRouterOptions {
+            github_webhook_secret: None,
+            gitlab_webhook_secret: None,
+            context_learning_store_root: Some(learning_root.path().to_path_buf()),
+            context_derived_cache_root: None,
+        },
+    );
+    let history_response = restarted
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+                .json(&json!({
+                    "source": source,
+                    "kind": "history_similar",
+                    "arguments": { "query": "generated wrappers" },
+                    "limits": { "maxResults": 10, "maxTokens": 1000 }
+                }))
+                .unwrap(),
+        )
+        .await;
+    let history_body: Value = serde_json::from_str(&history_response.body).unwrap();
+
+    assert_eq!(history_response.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        history_body["result"]["data"]["learnings"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(learning_root
+        .path()
+        .join("acme")
+        .join("context-learnings.json")
+        .exists());
+}
+
+#[tokio::test]
+async fn review_http_router_context_cross_repo_contracts_require_grants() {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::write(repo.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let source = json!({
+        "type": "local",
+        "repo": repo.path(),
+        "changedFiles": ["lib.rs"]
+    });
+    let candidate = json!({
+        "resourceId": "github/acme/mobile",
+        "repository": "acme/mobile",
+        "summary": "consumer requires expires_at on auth token response",
+        "originalUrl": "https://example.invalid/acme/mobile/contracts/auth"
+    });
+
+    let denied = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+                .json(&json!({
+                    "source": source,
+                    "kind": "cross_repo_contracts",
+                    "arguments": { "query": "expires_at" },
+                    "crossRepoContracts": [candidate],
+                    "limits": { "maxResults": 10, "maxTokens": 1000 }
+                }))
+                .unwrap(),
+        )
+        .await;
+    let denied_body: Value = serde_json::from_str(&denied.body).unwrap();
+    assert_eq!(denied.status_code, HTTP_STATUS_OK);
+    assert!(denied_body["result"]["evidence"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        denied_body["result"]["data"]["omissions"][0]["deniedCandidates"],
+        json!(1)
+    );
+
+    let granted = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/query")
+                .json(&json!({
+                    "source": source,
+                    "kind": "cross_repo_contracts",
+                    "arguments": { "query": "expires_at" },
+                    "crossRepoContracts": [candidate],
+                    "allowedCrossRepoResources": ["github/acme/mobile"],
+                    "limits": { "maxResults": 10, "maxTokens": 1000 }
+                }))
+                .unwrap(),
+        )
+        .await;
+    let granted_body: Value = serde_json::from_str(&granted.body).unwrap();
+    assert_eq!(granted.status_code, HTTP_STATUS_OK);
+    assert_eq!(
+        granted_body["result"]["evidence"][0]["source"],
+        json!("external")
+    );
+    assert_eq!(
+        granted_body["result"]["evidence"][0]["trust"],
+        json!("tool_provider")
+    );
+}
+
+#[tokio::test]
+async fn review_http_router_rejects_provider_context_sources_without_materialization() {
+    let router = ReviewHttpRouter::new(Muzen::new());
+    let response = router
+        .handle(
+            ReviewHttpRequest::new("POST", "/v1/workspaces/acme/context/index")
+                .json(&json!({
+                    "source": {
+                        "type": "github_pull_request",
+                        "owner": "maskdotdev",
+                        "repo": "muzen",
+                        "number": 1
+                    }
+                }))
+                .unwrap(),
+        )
+        .await;
+
+    assert_eq!(response.status_code, HTTP_STATUS_BAD_REQUEST);
+    assert!(response.body.contains("local or raw_snapshot source"));
+}
+
+#[tokio::test]
+async fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
     let muzen = Muzen::new();
     let router = ReviewHttpRouter::with_options(
         muzen.clone(),
         ReviewHttpRouterOptions {
             github_webhook_secret: Some("secret".to_string()),
             gitlab_webhook_secret: None,
+            context_learning_store_root: None,
+            context_derived_cache_root: None,
         },
     );
     let body = json!({
@@ -1179,11 +1555,12 @@ fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
         .header("X-Hub-Signature-256", signature)
         .body(body.into_bytes());
 
-    let response = router.handle(request);
+    let response = router.handle(request).await;
     let response_body: Value = serde_json::from_str(&response.body).unwrap();
     let record = muzen
         .store
         .get(&ReviewSessionId::new("review-1").unwrap())
+        .await
         .unwrap()
         .unwrap();
 
@@ -1195,8 +1572,8 @@ fn review_http_router_verifies_and_schedules_workspace_github_webhook() {
     assert_eq!(record.options.metadata["webhook.provider"], json!("github"));
 }
 
-#[test]
-fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
+#[tokio::test]
+async fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store.clone()).workspace("acme");
     let body = json!({
@@ -1225,9 +1602,11 @@ fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
 
     let first = workspace
         .handle_github_webhook(&headers, body.as_bytes(), Some("secret"), options.clone())
+        .await
         .unwrap();
     let second = workspace
         .handle_github_webhook(&headers, body.as_bytes(), Some("secret"), options)
+        .await
         .unwrap();
     let first_response = first.http_response().unwrap();
     let second_response = second.http_response().unwrap();
@@ -1253,7 +1632,7 @@ fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
         }
         delivery => panic!("expected review_created, got {delivery:?}"),
     };
-    let record = store.get(review.id()).unwrap().unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
     assert_eq!(
         record.source,
         ReviewSource::GithubPullRequest {
@@ -1284,8 +1663,8 @@ fn github_webhook_verifies_maps_schedules_and_dedupes_pull_request() {
     }
 }
 
-#[test]
-fn github_webhook_source_head_dedupe_includes_head_sha() {
+#[tokio::test]
+async fn github_webhook_source_head_dedupe_includes_head_sha() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store.clone()).workspace("acme");
     let options = WebhookReviewOptions::new(ReviewOptions {
@@ -1319,6 +1698,7 @@ fn github_webhook_source_head_dedupe_includes_head_sha() {
             None,
             options.clone(),
         )
+        .await
         .unwrap();
     let duplicate = workspace
         .handle_github_webhook(
@@ -1327,6 +1707,7 @@ fn github_webhook_source_head_dedupe_includes_head_sha() {
             None,
             options.clone(),
         )
+        .await
         .unwrap();
     let changed_head = workspace
         .handle_github_webhook(
@@ -1335,6 +1716,7 @@ fn github_webhook_source_head_dedupe_includes_head_sha() {
             None,
             options,
         )
+        .await
         .unwrap();
 
     assert!(matches!(first, WebhookReviewDelivery::ReviewCreated { .. }));
@@ -1350,18 +1732,20 @@ fn github_webhook_source_head_dedupe_includes_head_sha() {
         .get_by_dedupe_key(
             "source-head:github:maskdotdev/heimdaal#123@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         )
+        .await
         .unwrap()
         .is_some());
     assert!(store
         .get_by_dedupe_key(
             "source-head:github:maskdotdev/heimdaal#123@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         )
+        .await
         .unwrap()
         .is_some());
 }
 
-#[test]
-fn github_webhook_ignores_unsupported_pull_request_action() {
+#[tokio::test]
+async fn github_webhook_ignores_unsupported_pull_request_action() {
     let workspace = Muzen::new().workspace("acme");
     let body = json!({
         "action": "closed",
@@ -1385,6 +1769,7 @@ fn github_webhook_ignores_unsupported_pull_request_action() {
             None,
             WebhookReviewOptions::default(),
         )
+        .await
         .unwrap();
 
     match delivery {
@@ -1399,8 +1784,8 @@ fn github_webhook_ignores_unsupported_pull_request_action() {
     }
 }
 
-#[test]
-fn github_webhook_rejects_invalid_signature() {
+#[tokio::test]
+async fn github_webhook_rejects_invalid_signature() {
     let workspace = Muzen::new().workspace("acme");
     let body = json!({
         "action": "opened",
@@ -1425,13 +1810,14 @@ fn github_webhook_rejects_invalid_signature() {
             Some("secret"),
             WebhookReviewOptions::default(),
         )
+        .await
         .unwrap_err();
 
     assert!(error.to_string().contains("signature verification failed"));
 }
 
-#[test]
-fn gitlab_webhook_verifies_token_and_maps_merge_request() {
+#[tokio::test]
+async fn gitlab_webhook_verifies_token_and_maps_merge_request() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let workspace = Muzen::with_store(store.clone()).workspace("acme");
     let body = json!({
@@ -1461,6 +1847,7 @@ fn gitlab_webhook_verifies_token_and_maps_merge_request() {
             Some("secret"),
             WebhookReviewOptions::default(),
         )
+        .await
         .unwrap();
     let review = match delivery {
         WebhookReviewDelivery::ReviewCreated {
@@ -1472,7 +1859,7 @@ fn gitlab_webhook_verifies_token_and_maps_merge_request() {
         }
         delivery => panic!("expected review_created, got {delivery:?}"),
     };
-    let record = store.get(review.id()).unwrap().unwrap();
+    let record = store.get(review.id()).await.unwrap().unwrap();
 
     assert_eq!(
         record.source,
@@ -1490,8 +1877,8 @@ fn gitlab_webhook_verifies_token_and_maps_merge_request() {
     );
 }
 
-#[test]
-fn gitlab_webhook_rejects_invalid_token() {
+#[tokio::test]
+async fn gitlab_webhook_rejects_invalid_token() {
     let workspace = Muzen::new().workspace("acme");
     let body = json!({
         "object_kind": "merge_request",
@@ -1516,13 +1903,14 @@ fn gitlab_webhook_rejects_invalid_token() {
             Some("secret"),
             WebhookReviewOptions::default(),
         )
+        .await
         .unwrap_err();
 
     assert!(error.to_string().contains("token verification failed"));
 }
 
-#[test]
-fn workspace_effective_snapshot_includes_source_provider_profile() {
+#[tokio::test]
+async fn workspace_effective_snapshot_includes_source_provider_profile() {
     let workspace = Muzen::new().workspace("acme");
     workspace
         .set_provider_profile(
@@ -1534,10 +1922,14 @@ fn workspace_effective_snapshot_includes_source_provider_profile() {
                 routing: BTreeMap::from([("installation".to_string(), "123".to_string())]),
             },
         )
+        .await
         .unwrap();
     let source = ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap();
 
-    let snapshot = workspace.effective_config_snapshot(&source, None).unwrap();
+    let snapshot = workspace
+        .effective_config_snapshot(&source, None)
+        .await
+        .unwrap();
 
     assert_eq!(
         snapshot
@@ -1564,6 +1956,591 @@ fn workspace_effective_snapshot_includes_source_provider_profile() {
             .and_then(|profile| profile.secret_ref.as_deref()),
         Some("vault://workspaces/acme/providers/github")
     );
+}
+
+#[tokio::test]
+async fn review_session_store_conformance_memory() {
+    assert_review_session_store_conformance(Arc::new(InMemoryReviewSessionStore::default())).await;
+}
+
+#[tokio::test]
+async fn review_session_store_conformance_libsql() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(
+        LibsqlReviewSessionStore::connect(temp.path().join("muzen.db"))
+            .await
+            .unwrap(),
+    );
+
+    assert_review_session_store_conformance(store).await;
+}
+
+#[tokio::test]
+async fn workspace_profile_store_conformance_memory() {
+    assert_workspace_profile_store_conformance(Arc::new(InMemoryWorkspaceProfileStore::default()))
+        .await;
+}
+
+#[tokio::test]
+async fn workspace_profile_store_conformance_libsql() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(
+        LibsqlWorkspaceProfileStore::connect(temp.path().join("muzen.db"))
+            .await
+            .unwrap(),
+    );
+
+    assert_workspace_profile_store_conformance(store).await;
+}
+
+#[tokio::test]
+async fn libsql_store_factory_creates_sqlite_parent_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join(".muzen").join("muzen.db");
+    let store_url = format!("sqlite://{}", db_path.display());
+
+    let stores = stores_from_url(&store_url).await.unwrap();
+    stores
+        .session_store
+        .insert(queued_record("review-1", Some("acme"), 0))
+        .await
+        .unwrap();
+    let record = stores
+        .session_store
+        .get(&ReviewSessionId::new("review-1").unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(db_path.exists());
+    assert_eq!(record.workspace_id.as_deref(), Some("acme"));
+}
+
+#[tokio::test]
+async fn libsql_review_store_reopens_persisted_review() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("muzen.db");
+    let review_id = ReviewSessionId::new("review-1").unwrap();
+    let mut record = queued_record(review_id.as_str(), Some("acme"), 0);
+    record.dedupe_key = Some("source:local:.".to_string());
+    record.events.push(ReviewEvent {
+        cursor: "1".to_string(),
+        event_type: ReviewEventType::SessionQueued,
+        review_id: review_id.clone(),
+        timestamp_utc: timestamp_utc(),
+        payload: json!({}),
+    });
+    record.logs.push(ReviewLogEntry::new(
+        review_id.clone(),
+        ReviewLogStream::System,
+        "queued",
+    ));
+    record.logs.push(ReviewLogEntry::new(
+        review_id.clone(),
+        ReviewLogStream::ToolStdout,
+        "running",
+    ));
+    record.redacted_artifacts.push(ReviewArtifact {
+        artifact_id: "artifact-1".to_string(),
+        bytes: 2,
+        content_hash: "hash".to_string(),
+        content: "{}".to_string(),
+    });
+    record.redacted_artifacts.push(ReviewArtifact {
+        artifact_id: "artifact-2".to_string(),
+        bytes: 4,
+        content_hash: "hash-2".to_string(),
+        content: "{\"ok\":true}".to_string(),
+    });
+
+    let first = LibsqlReviewSessionStore::connect(&db_path).await.unwrap();
+    first.insert(record).await.unwrap();
+    drop(first);
+
+    let reopened = LibsqlReviewSessionStore::connect(&db_path).await.unwrap();
+    let loaded = reopened.get(&review_id).await.unwrap().unwrap();
+    let deduped = reopened
+        .get_by_dedupe_key("source:local:.")
+        .await
+        .unwrap()
+        .unwrap();
+    let duplicate_error = reopened
+        .insert({
+            let mut duplicate = queued_record("review-2", Some("acme"), 0);
+            duplicate.dedupe_key = Some("source:local:.".to_string());
+            duplicate
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(loaded.events.len(), 1);
+    assert_eq!(
+        loaded
+            .logs
+            .iter()
+            .map(|log| log.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["queued", "running"]
+    );
+    assert_eq!(
+        loaded
+            .redacted_artifacts
+            .iter()
+            .map(|artifact| artifact.artifact_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["artifact-1", "artifact-2"]
+    );
+    assert_eq!(deduped.id, review_id);
+    assert!(
+        duplicate_error.to_string().contains("dedupe_key")
+            || duplicate_error.to_string().contains("UNIQUE")
+    );
+}
+
+#[tokio::test]
+async fn libsql_workspace_profiles_reopen_with_versions() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("muzen.db");
+    let first = LibsqlWorkspaceProfileStore::connect(&db_path)
+        .await
+        .unwrap();
+    first
+        .set_model_profile(
+            "acme",
+            "default".to_string(),
+            ModelProfileInput {
+                provider: ModelProviderKind::Openai,
+                model: "gpt-5-mini".to_string(),
+                secret_ref: Some("vault://model".to_string()),
+                base_url: None,
+                routing: BTreeMap::new(),
+            },
+        )
+        .await
+        .unwrap();
+    let updated = first
+        .set_model_profile(
+            "acme",
+            "default".to_string(),
+            ModelProfileInput {
+                provider: ModelProviderKind::Openai,
+                model: "gpt-5.1".to_string(),
+                secret_ref: Some("vault://model".to_string()),
+                base_url: None,
+                routing: BTreeMap::new(),
+            },
+        )
+        .await
+        .unwrap();
+    drop(first);
+
+    let reopened = LibsqlWorkspaceProfileStore::connect(&db_path)
+        .await
+        .unwrap();
+    let loaded = reopened
+        .get_model_profile("acme", "default")
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(updated.version, "2");
+    assert_eq!(loaded.model, "gpt-5.1");
+    assert_eq!(loaded.version, "2");
+}
+
+#[tokio::test]
+async fn libsql_claim_ready_does_not_double_claim_across_connections() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("muzen.db");
+    let first = Arc::new(LibsqlReviewSessionStore::connect(&db_path).await.unwrap());
+    let second = Arc::new(LibsqlReviewSessionStore::connect(&db_path).await.unwrap());
+    first
+        .insert(queued_record("review-1", Some("acme"), 0))
+        .await
+        .unwrap();
+
+    let first_worker = first.clone();
+    let second_worker = second.clone();
+    let first_claim = tokio::spawn(async move {
+        first_worker
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-a".to_string(),
+                max_sessions: 1,
+                lease_seconds: 30,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .await
+            .unwrap()
+    });
+    let second_claim = tokio::spawn(async move {
+        second_worker
+            .claim_ready(ReviewWorkerClaimOptions {
+                worker_id: "worker-b".to_string(),
+                max_sessions: 1,
+                lease_seconds: 30,
+                now_unix_seconds: Some(100),
+                concurrency: ReviewWorkerConcurrencyLimits::default(),
+            })
+            .await
+            .unwrap()
+    });
+
+    let first_claim = first_claim.await.unwrap();
+    let second_claim = second_claim.await.unwrap();
+    let total_claims = first_claim.len() + second_claim.len();
+    let record = first
+        .get(&ReviewSessionId::new("review-1").unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(total_claims, 1);
+    assert_eq!(record.status, ReviewStatus::Running);
+    assert_eq!(record.attempt, 1);
+}
+
+async fn assert_review_session_store_conformance(store: Arc<dyn ReviewSessionStore>) {
+    let review_id = ReviewSessionId::new("conformance-basic").unwrap();
+    let mut record = queued_record(review_id.as_str(), Some("acme"), 0);
+    record.dedupe_key = Some("source:conformance-basic".to_string());
+    store.insert(record).await.unwrap();
+
+    let loaded = store.get(&review_id).await.unwrap().unwrap();
+    let deduped = store
+        .get_by_dedupe_key("source:conformance-basic")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.id, review_id);
+    assert_eq!(deduped.id, review_id);
+
+    store
+        .append_events(
+            &review_id,
+            vec![
+                ReviewEvent {
+                    cursor: "1".to_string(),
+                    event_type: ReviewEventType::SessionQueued,
+                    review_id: review_id.clone(),
+                    timestamp_utc: timestamp_utc(),
+                    payload: json!({"step": 1}),
+                },
+                ReviewEvent {
+                    cursor: "2".to_string(),
+                    event_type: ReviewEventType::RunnerEvent,
+                    review_id: review_id.clone(),
+                    timestamp_utc: timestamp_utc(),
+                    payload: json!({"step": 2}),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+    let events = store.events_after(&review_id, None).await.unwrap();
+    let events_after_first = store.events_after(&review_id, Some("1")).await.unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.cursor.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1", "2"]
+    );
+    assert_eq!(events_after_first[0].cursor, "2");
+
+    store
+        .append_logs(
+            &review_id,
+            vec![
+                ReviewLogEntry::new(review_id.clone(), ReviewLogStream::System, "first"),
+                ReviewLogEntry::new(review_id.clone(), ReviewLogStream::ToolStdout, "second"),
+            ],
+            ReviewLogRedactionPolicy::default(),
+        )
+        .await
+        .unwrap();
+    let logs = store.logs_after(&review_id, None).await.unwrap();
+    let logs_after_first = store.logs_after(&review_id, Some("1")).await.unwrap();
+    assert_eq!(
+        logs.iter()
+            .map(|log| (log.cursor.as_str(), log.message.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("1", "first"), ("2", "second")]
+    );
+    assert_eq!(logs_after_first[0].message, "second");
+
+    store
+        .write_result(
+            &review_id,
+            ReviewStatus::Completed,
+            completed_result(&review_id, "conformance complete"),
+        )
+        .await
+        .unwrap();
+    let completed = store.get(&review_id).await.unwrap().unwrap();
+    assert_eq!(completed.status, ReviewStatus::Completed);
+    assert_eq!(
+        completed
+            .result
+            .as_ref()
+            .map(|result| result.summary.as_str()),
+        Some("conformance complete")
+    );
+
+    let lease_id = ReviewSessionId::new("conformance-lease").unwrap();
+    store
+        .insert(queued_record(lease_id.as_str(), Some("acme"), 0))
+        .await
+        .unwrap();
+    let first_claim = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-a".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(100),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    let blocked_claim = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-b".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(105),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    let reclaimed = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-b".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(111),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(first_claim[0].attempt, 1);
+    assert!(blocked_claim.is_empty());
+    assert_eq!(reclaimed[0].attempt, 2);
+    store
+        .request_cancellation(&lease_id, ReviewCancelOptions::new("conformance done"))
+        .await
+        .unwrap();
+
+    let retry_id = ReviewSessionId::new("conformance-retry").unwrap();
+    store
+        .insert(queued_record(retry_id.as_str(), Some("acme"), 0))
+        .await
+        .unwrap();
+    store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-a".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(200),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    let retry = store
+        .record_attempt_failure(
+            &retry_id,
+            ReviewAttemptFailure {
+                error: "temporary outage".to_string(),
+                retry_policy: ReviewRetryPolicy {
+                    max_attempts: 3,
+                    initial_backoff_seconds: 10,
+                    max_backoff_seconds: 60,
+                },
+                now_unix_seconds: Some(210),
+            },
+        )
+        .await
+        .unwrap();
+    let not_ready = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-a".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(219),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    let retry_claim = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-a".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(220),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(retry.status, ReviewStatus::Queued);
+    assert_eq!(retry.run_after_unix_seconds, 220);
+    assert!(not_ready.is_empty());
+    assert_eq!(retry_claim[0].attempt, 2);
+    store
+        .request_cancellation(&retry_id, ReviewCancelOptions::new("conformance done"))
+        .await
+        .unwrap();
+
+    let cancel_id = ReviewSessionId::new("conformance-cancel").unwrap();
+    store
+        .insert(queued_record(cancel_id.as_str(), Some("acme"), 0))
+        .await
+        .unwrap();
+    store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-a".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(300),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    let cancelled = store
+        .request_cancellation(&cancel_id, ReviewCancelOptions::new("superseded"))
+        .await
+        .unwrap();
+    let late = store
+        .write_execution_result(
+            &cancel_id,
+            ReviewStatus::Completed,
+            completed_result(&cancel_id, "late"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .unwrap();
+    let later_claim = store
+        .claim_ready(ReviewWorkerClaimOptions {
+            worker_id: "worker-b".to_string(),
+            max_sessions: 1,
+            lease_seconds: 10,
+            now_unix_seconds: Some(320),
+            concurrency: ReviewWorkerConcurrencyLimits::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(cancelled.status, ReviewStatus::Cancelled);
+    assert_eq!(late.status, ReviewStatus::Cancelled);
+    assert!(late.result.is_none());
+    assert!(later_claim.is_empty());
+}
+
+async fn assert_workspace_profile_store_conformance(store: Arc<dyn WorkspaceProfileStore>) {
+    let model = store
+        .set_model_profile(
+            "acme",
+            "default".to_string(),
+            model_profile_input("gpt-5-mini"),
+        )
+        .await
+        .unwrap();
+    let updated_model = store
+        .set_model_profile(
+            "acme",
+            "default".to_string(),
+            model_profile_input("gpt-5.1"),
+        )
+        .await
+        .unwrap();
+    let loaded_model = store
+        .get_model_profile("acme", "default")
+        .await
+        .unwrap()
+        .unwrap();
+    let model_list = store.list_model_profiles("acme").await.unwrap();
+
+    assert_eq!(model.version, "1");
+    assert_eq!(updated_model.version, "2");
+    assert_eq!(loaded_model.model, "gpt-5.1");
+    assert_eq!(model_list.len(), 1);
+
+    let provider = store
+        .set_provider_profile("acme", "github".to_string(), provider_profile_input("123"))
+        .await
+        .unwrap();
+    let updated_provider = store
+        .set_provider_profile("acme", "github".to_string(), provider_profile_input("456"))
+        .await
+        .unwrap();
+    let loaded_provider = store
+        .get_provider_profile("acme", "github")
+        .await
+        .unwrap()
+        .unwrap();
+    let provider_list = store.list_provider_profiles("acme").await.unwrap();
+
+    assert_eq!(provider.version, "1");
+    assert_eq!(updated_provider.version, "2");
+    assert_eq!(
+        loaded_provider
+            .routing
+            .get("installation")
+            .map(String::as_str),
+        Some("456")
+    );
+    assert_eq!(provider_list.len(), 1);
+
+    let empty_workspace_error = store
+        .set_model_profile("", "default".to_string(), model_profile_input("gpt-5-mini"))
+        .await
+        .unwrap_err();
+    let empty_name_error = store
+        .set_provider_profile("acme", " ".to_string(), provider_profile_input("789"))
+        .await
+        .unwrap_err();
+
+    assert!(empty_workspace_error
+        .to_string()
+        .contains("workspace id cannot be empty"));
+    assert!(empty_name_error
+        .to_string()
+        .contains("profile name cannot be empty"));
+}
+
+fn completed_result(review_id: &ReviewSessionId, summary: &str) -> ReviewResult {
+    ReviewResult {
+        review_id: review_id.clone(),
+        session_id: review_id.clone(),
+        status: ReviewStatus::Completed,
+        conclusion: ReviewConclusion::Approved,
+        summary: summary.to_string(),
+        findings: Vec::new(),
+        coverage: ReviewCoverage {
+            files_considered: 0,
+            files_reviewed: 0,
+            files_skipped: 0,
+        },
+        metadata: BTreeMap::new(),
+    }
+}
+
+fn model_profile_input(model: &str) -> ModelProfileInput {
+    ModelProfileInput {
+        provider: ModelProviderKind::Openai,
+        model: model.to_string(),
+        secret_ref: Some("vault://models/default".to_string()),
+        base_url: None,
+        routing: BTreeMap::new(),
+    }
+}
+
+fn provider_profile_input(installation: &str) -> ProviderProfileInput {
+    ProviderProfileInput {
+        provider: SourceProviderKind::Github,
+        secret_ref: Some("vault://providers/github".to_string()),
+        base_url: Some("https://api.github.com".to_string()),
+        routing: BTreeMap::from([("installation".to_string(), installation.to_string())]),
+    }
 }
 
 fn queued_record(

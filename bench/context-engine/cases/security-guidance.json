@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "security-guidance",
+  "repoSource": {
+    "kind": "fixture",
+    "path": "fixtures/context-engine/security-guidance"
+  },
+  "changedFiles": [
+    "src/lib.rs"
+  ],
+  "description": "Fixture for redaction and prompt-injection resistance checks.",
+  "cases": [
+    {
+      "id": "read-span-redacts-github-token",
+      "kind": "read-span",
+      "path": "src/secrets.rs",
+      "startLine": 1,
+      "endLine": 1,
+      "maxResults": 5,
+      "expectedPaths": [
+        "src/secrets.rs"
+      ],
+      "requiredContent": [
+        "[REDACTED]"
+      ],
+      "forbiddenContent": [
+        "ghp_1234567890abcdefghijklmnopqrst"
+      ],
+      "strict": true
+    },
+    {
+      "id": "repository-guidance-remains-untrusted",
+      "command": "pack",
+      "purpose": "security",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "CONTEXT.md"
+      ],
+      "forbiddenTrustedPaths": [
+        "CONTEXT.md"
+      ],
+      "strict": true
+    },
+    {
+      "id": "host-ticket-context-enters-pack",
+      "command": "pack",
+      "purpose": "correctness",
+      "maxTokens": 12000,
+      "hostMetadata": {
+        "ticket": "Review ticket requires validating hosted SSO callback ownership."
+      },
+      "hostInstructions": [
+        {
+          "kind": "ticket_requirement",
+          "text": "Acceptance: callback owners must match request workspace.",
+          "trusted": true
+        }
+      ],
+      "expectedPaths": [
+        "src/lib.rs"
+      ],
+      "requiredContent": [
+        "host metadata ticket: Review ticket requires validating hosted SSO callback ownership.",
+        "host ticket_requirement: Acceptance: callback owners must match request workspace."
+      ],
+      "strict": true
+    }
+  ]
+}

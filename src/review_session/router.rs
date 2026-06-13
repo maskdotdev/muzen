@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use super::{
     ModelProfile, ModelProfileInput, Muzen, ProviderProfile, ProviderProfileInput, ReviewArtifact,
@@ -8,7 +10,21 @@ use super::{
     HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND,
     HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
+use crate::context_engine::{
+    ContextEngine, ContextEngineConfig, ContextFeedback, ContextFeedbackReceipt,
+    ContextIndexRequest, ContextLearningApproval, ContextLearningApprovalReceipt,
+    ContextLearningScope, ContextLearningSource, ContextManifestArtifact, ContextPack,
+    ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
+    ContextQueryResult, CrossRepoContractCandidate, SnapshotContextEngine,
+};
+use crate::contracts::{
+    ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
+    RenameDetection, SnapshotMode,
+};
+use crate::runtime::contracts::{EvidenceId, RuntimeError, SnapshotStoragePolicy};
+use crate::runtime::repo::RepoSnapshot;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewHttpRequest {
@@ -74,12 +90,17 @@ impl ReviewHttpRequest {
 pub struct ReviewHttpRouterOptions {
     pub github_webhook_secret: Option<String>,
     pub gitlab_webhook_secret: Option<String>,
+    pub context_learning_store_root: Option<PathBuf>,
+    /// Root for per-workspace durable derived-data caches (R9): chunk,
+    /// skeleton, symbol, and embedding-vector reuse across re-indexes.
+    pub context_derived_cache_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ReviewHttpRouter {
     muzen: Muzen,
     options: ReviewHttpRouterOptions,
+    context_engines: Arc<Mutex<BTreeMap<String, SnapshotContextEngine>>>,
 }
 
 impl ReviewHttpRouter {
@@ -88,55 +109,85 @@ impl ReviewHttpRouter {
     }
 
     pub fn with_options(muzen: Muzen, options: ReviewHttpRouterOptions) -> Self {
-        Self { muzen, options }
+        Self {
+            muzen,
+            options,
+            context_engines: Arc::new(Mutex::new(BTreeMap::new())),
+        }
     }
 
-    pub fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
-        match self.try_handle(&request) {
+    pub async fn handle(&self, request: ReviewHttpRequest) -> ReviewHttpResponse {
+        match self.try_handle(&request).await {
             Ok(response) => response,
             Err(error) => error.into_response(),
         }
     }
 
-    pub fn try_handle(
+    pub async fn try_handle(
         &self,
         request: &ReviewHttpRequest,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         let segments = path_segments(&request.path)?;
         let segment_refs = segments.iter().map(String::as_str).collect::<Vec<_>>();
         match segment_refs.as_slice() {
-            ["v1", "reviews"] => self.handle_reviews_collection(request),
-            ["v1", "reviews", review_id] => self.handle_review(request, review_id),
-            ["v1", "reviews", review_id, "result"] => self.handle_review_result(request, review_id),
-            ["v1", "reviews", review_id, "cancel"] => self.handle_cancel(request, review_id),
-            ["v1", "reviews", review_id, "events"] => self.handle_review_events(request, review_id),
+            ["v1", "reviews"] => self.handle_reviews_collection(request).await,
+            ["v1", "reviews", review_id] => self.handle_review(request, review_id).await,
+            ["v1", "reviews", review_id, "result"] => {
+                self.handle_review_result(request, review_id).await
+            }
+            ["v1", "reviews", review_id, "cancel"] => self.handle_cancel(request, review_id).await,
+            ["v1", "reviews", review_id, "events"] => {
+                self.handle_review_events(request, review_id).await
+            }
             ["v1", "reviews", review_id, "events", "stream"] => {
-                self.handle_review_event_stream(request, review_id)
+                self.handle_review_event_stream(request, review_id).await
             }
             ["v1", "reviews", review_id, "artifacts", "export"] => {
-                self.handle_artifact_export(request, review_id)
+                self.handle_artifact_export(request, review_id).await
             }
             ["v1", "reviews", review_id, "artifacts", artifact_id] => {
                 self.handle_artifact_read(request, review_id, artifact_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "reviews"] => {
                 self.handle_workspace_reviews_collection(request, workspace_id)
+                    .await
             }
-            ["v1", "webhooks", provider] => self.handle_webhook(request, None, provider),
+            ["v1", "webhooks", provider] => self.handle_webhook(request, None, provider).await,
             ["v1", "workspaces", workspace_id, "webhooks", provider] => {
                 self.handle_webhook(request, Some(workspace_id), provider)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "models"] => {
                 self.handle_model_profiles_collection(request, workspace_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "models", name] => {
-                self.handle_model_profile(request, workspace_id, name)
+                self.handle_model_profile(request, workspace_id, name).await
             }
             ["v1", "workspaces", workspace_id, "providers"] => {
                 self.handle_provider_profiles_collection(request, workspace_id)
+                    .await
             }
             ["v1", "workspaces", workspace_id, "providers", name] => {
                 self.handle_provider_profile(request, workspace_id, name)
+                    .await
+            }
+            ["v1", "workspaces", workspace_id, "context", "index"] => {
+                self.handle_context_index(request, workspace_id).await
+            }
+            ["v1", "workspaces", workspace_id, "context", "packs"] => {
+                self.handle_context_pack(request, workspace_id).await
+            }
+            ["v1", "workspaces", workspace_id, "context", "query"] => {
+                self.handle_context_query(request, workspace_id).await
+            }
+            ["v1", "workspaces", workspace_id, "context", "feedback"] => {
+                self.handle_context_feedback(request, workspace_id).await
+            }
+            ["v1", "workspaces", workspace_id, "context", "learnings", "approve"] => {
+                self.handle_context_learning_approval(request, workspace_id)
+                    .await
             }
             _ => Err(ReviewHttpRouteError::NotFound(format!(
                 "no Muzen route matches {} {}",
@@ -145,7 +196,7 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn handle_reviews_collection(
+    async fn handle_reviews_collection(
         &self,
         request: &ReviewHttpRequest,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
@@ -153,7 +204,8 @@ impl ReviewHttpRouter {
         let body: CreateReviewBody = json_body(request)?;
         let review = self
             .muzen
-            .schedule_review_with_options(body.source, body.options)?;
+            .schedule_review_with_options(body.source, body.options)
+            .await?;
         response_json(
             HTTP_STATUS_ACCEPTED,
             &ReviewResponse {
@@ -162,7 +214,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_workspace_reviews_collection(
+    async fn handle_workspace_reviews_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -172,7 +224,8 @@ impl ReviewHttpRouter {
         let review = self
             .muzen
             .workspace(workspace_id)
-            .schedule_review_with_options(body.source, body.options)?;
+            .schedule_review_with_options(body.source, body.options)
+            .await?;
         response_json(
             HTTP_STATUS_ACCEPTED,
             &ReviewResponse {
@@ -181,7 +234,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_review(
+    async fn handle_review(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -190,26 +243,26 @@ impl ReviewHttpRouter {
         response_json(
             HTTP_STATUS_OK,
             &ReviewResponse {
-                review: self.review_snapshot(review_id)?,
+                review: self.review_snapshot(review_id).await?,
             },
         )
     }
 
-    fn handle_review_result(
+    async fn handle_review_result(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
         let id = ReviewSessionId::new(review_id)?;
-        let record = self.review_record(&id)?;
+        let record = self.review_record(&id).await?;
         let Some(result) = record.result else {
             return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
         };
         response_json(HTTP_STATUS_OK, &ReviewResultResponse { result })
     }
 
-    fn handle_cancel(
+    async fn handle_cancel(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -217,7 +270,7 @@ impl ReviewHttpRouter {
         require_method(request, "POST")?;
         let options = optional_json_body::<ReviewCancelOptions>(request)?;
         let id = ReviewSessionId::new(review_id)?;
-        let record = self.muzen.store.request_cancellation(&id, options)?;
+        let record = self.muzen.store.request_cancellation(&id, options).await?;
         response_json(
             HTTP_STATUS_OK,
             &ReviewResponse {
@@ -226,7 +279,7 @@ impl ReviewHttpRouter {
         )
     }
 
-    fn handle_review_events(
+    async fn handle_review_events(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -235,10 +288,11 @@ impl ReviewHttpRouter {
         let id = ReviewSessionId::new(review_id)?;
         Ok(self
             .muzen
-            .review_events_response(&id, request.query("after"))?)
+            .review_events_response(&id, request.query("after"))
+            .await?)
     }
 
-    fn handle_review_event_stream(
+    async fn handle_review_event_stream(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -247,10 +301,11 @@ impl ReviewHttpRouter {
         let id = ReviewSessionId::new(review_id)?;
         Ok(self
             .muzen
-            .review_events_sse_response(&id, request.query("after"))?)
+            .review_events_sse_response(&id, request.query("after"))
+            .await?)
     }
 
-    fn handle_artifact_read(
+    async fn handle_artifact_read(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
@@ -258,7 +313,7 @@ impl ReviewHttpRouter {
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
         let id = ReviewSessionId::new(review_id)?;
-        let review = super::ReviewSession::from_record(self.review_record(&id)?);
+        let review = super::ReviewSession::from_record(self.review_record(&id).await?);
         let artifact = review.read_artifact(
             artifact_id,
             ReviewArtifactReadOptions {
@@ -268,19 +323,19 @@ impl ReviewHttpRouter {
         response_json(HTTP_STATUS_OK, &ReviewArtifactResponse { artifact })
     }
 
-    fn handle_artifact_export(
+    async fn handle_artifact_export(
         &self,
         request: &ReviewHttpRequest,
         review_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let id = ReviewSessionId::new(review_id)?;
-        let review = super::ReviewSession::from_record(self.review_record(&id)?);
+        let review = super::ReviewSession::from_record(self.review_record(&id).await?);
         let export = review.export_artifacts(optional_json_body(request)?)?;
         response_json(HTTP_STATUS_OK, &export)
     }
 
-    fn handle_webhook(
+    async fn handle_webhook(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: Option<&str>,
@@ -295,18 +350,26 @@ impl ReviewHttpRouter {
         );
         let workspace = self.muzen.workspace(workspace_id.unwrap_or("default"));
         let delivery = match provider {
-            "github" => workspace.handle_github_webhook(
-                &headers,
-                &request.body,
-                self.options.github_webhook_secret.as_deref(),
-                WebhookReviewOptions::new(ReviewOptions::default()),
-            )?,
-            "gitlab" => workspace.handle_gitlab_webhook(
-                &headers,
-                &request.body,
-                self.options.gitlab_webhook_secret.as_deref(),
-                WebhookReviewOptions::new(ReviewOptions::default()),
-            )?,
+            "github" => {
+                workspace
+                    .handle_github_webhook(
+                        &headers,
+                        &request.body,
+                        self.options.github_webhook_secret.as_deref(),
+                        WebhookReviewOptions::new(ReviewOptions::default()),
+                    )
+                    .await?
+            }
+            "gitlab" => {
+                workspace
+                    .handle_gitlab_webhook(
+                        &headers,
+                        &request.body,
+                        self.options.gitlab_webhook_secret.as_deref(),
+                        WebhookReviewOptions::new(ReviewOptions::default()),
+                    )
+                    .await?
+            }
             _ => {
                 return Err(ReviewHttpRouteError::NotFound(format!(
                     "unsupported webhook provider `{provider}`"
@@ -316,17 +379,21 @@ impl ReviewHttpRouter {
         Ok(delivery.http_response()?)
     }
 
-    fn handle_model_profiles_collection(
+    async fn handle_model_profiles_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "GET")?;
-        let profiles = self.muzen.workspace(workspace_id).list_model_profiles()?;
+        let profiles = self
+            .muzen
+            .workspace(workspace_id)
+            .list_model_profiles()
+            .await?;
         response_json(HTTP_STATUS_OK, &ModelProfilesResponse { profiles })
     }
 
-    fn handle_model_profile(
+    async fn handle_model_profile(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -335,12 +402,13 @@ impl ReviewHttpRouter {
         let workspace = self.muzen.workspace(workspace_id);
         match request.method.as_str() {
             "PUT" => {
-                let profile =
-                    workspace.set_model_profile(name, json_body::<ModelProfileInput>(request)?)?;
+                let profile = workspace
+                    .set_model_profile(name, json_body::<ModelProfileInput>(request)?)
+                    .await?;
                 response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
             }
             "GET" => {
-                let Some(profile) = workspace.get_model_profile(name)? else {
+                let Some(profile) = workspace.get_model_profile(name).await? else {
                     return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
                 };
                 response_json(HTTP_STATUS_OK, &ModelProfileResponse { profile })
@@ -352,7 +420,7 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn handle_provider_profiles_collection(
+    async fn handle_provider_profiles_collection(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -361,11 +429,12 @@ impl ReviewHttpRouter {
         let profiles = self
             .muzen
             .workspace(workspace_id)
-            .list_provider_profiles()?;
+            .list_provider_profiles()
+            .await?;
         response_json(HTTP_STATUS_OK, &ProviderProfilesResponse { profiles })
     }
 
-    fn handle_provider_profile(
+    async fn handle_provider_profile(
         &self,
         request: &ReviewHttpRequest,
         workspace_id: &str,
@@ -375,11 +444,12 @@ impl ReviewHttpRouter {
         match request.method.as_str() {
             "PUT" => {
                 let profile = workspace
-                    .set_provider_profile(name, json_body::<ProviderProfileInput>(request)?)?;
+                    .set_provider_profile(name, json_body::<ProviderProfileInput>(request)?)
+                    .await?;
                 response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
             }
             "GET" => {
-                let Some(profile) = workspace.get_provider_profile(name)? else {
+                let Some(profile) = workspace.get_provider_profile(name).await? else {
                     return Ok(ReviewHttpResponse::empty(HTTP_STATUS_NO_CONTENT));
                 };
                 response_json(HTTP_STATUS_OK, &ProviderProfileResponse { profile })
@@ -391,21 +461,216 @@ impl ReviewHttpRouter {
         }
     }
 
-    fn review_snapshot(
+    async fn handle_context_index(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextIndexBody = json_body(request)?;
+        let (_engine, _snapshot, manifest) = self.index_context_request(workspace_id, body)?;
+        response_json(HTTP_STATUS_OK, &ContextIndexResponse { manifest })
+    }
+
+    async fn handle_context_pack(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextPackBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let pack_engine = engine.clone();
+        let pack = block_on_context(async move {
+            pack_engine
+                .build_pack(
+                    ContextPackRequest {
+                        run_id: None,
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        session_id: None,
+                        purpose: body.purpose.unwrap_or(ContextPackPurpose::GeneralReview),
+                        max_tokens: body
+                            .max_tokens
+                            .unwrap_or_else(|| pack_engine.config_ref().max_pack_tokens),
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextPackResponse { pack })
+    }
+
+    async fn handle_context_query(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextQueryBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let query_engine = engine.clone();
+        let result = block_on_context(async move {
+            query_engine
+                .query(
+                    ContextQuery {
+                        run_id: None,
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        session_id: None,
+                        purpose: body.purpose,
+                        kind: body.kind,
+                        arguments: body.arguments,
+                        current_evidence: body.current_evidence,
+                        limits: body.limits.unwrap_or(ContextQueryLimits {
+                            max_results: query_engine.config_ref().max_query_results,
+                            max_tokens: query_engine.config_ref().max_pack_tokens,
+                        }),
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextQueryResponse { result })
+    }
+
+    async fn handle_context_feedback(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextFeedbackBody = json_body(request)?;
+        let (engine, snapshot, _manifest) = self.index_context_request(workspace_id, body.index)?;
+        let feedback_engine = engine.clone();
+        let receipt = block_on_context(async move {
+            feedback_engine
+                .record_feedback(
+                    ContextFeedback {
+                        snapshot_id: snapshot.snapshot_id.clone(),
+                        evidence_ids: body.evidence_ids,
+                        feedback: body.feedback,
+                        source: body.learning_source,
+                        scope: body.scope,
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextFeedbackResponse { receipt })
+    }
+
+    async fn handle_context_learning_approval(
+        &self,
+        request: &ReviewHttpRequest,
+        workspace_id: &str,
+    ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
+        require_method(request, "POST")?;
+        let body: ContextLearningApprovalBody = json_body(request)?;
+        let engine = self.context_engine_for_snapshot(workspace_id, &body.snapshot_id)?;
+        let receipt = block_on_context(async move {
+            engine
+                .approve_learning(body.approval, CancellationToken::new())
+                .await
+        })?;
+        response_json(HTTP_STATUS_OK, &ContextLearningApprovalResponse { receipt })
+    }
+
+    fn index_context_request(
+        &self,
+        workspace_id: &str,
+        body: ContextIndexBody,
+    ) -> Result<
+        (
+            SnapshotContextEngine,
+            Arc<RepoSnapshot>,
+            ContextManifestArtifact,
+        ),
+        ReviewHttpRouteError,
+    > {
+        let config = body.config.unwrap_or_else(ContextEngineConfig::snapshot_v0);
+        let snapshot = build_context_snapshot_from_source(body.source, body.changed_files)?;
+        let engine = self.context_engine_for_workspace(workspace_id, config)?;
+        let index_engine = engine.clone();
+        let index_snapshot = Arc::clone(&snapshot);
+        let mut request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
+        request.host_metadata = body.host_metadata;
+        request.cross_repo_contracts = body.cross_repo_contracts;
+        request.allowed_cross_repo_resources =
+            body.allowed_cross_repo_resources.into_iter().collect();
+        block_on_context(async move {
+            index_engine
+                .index_snapshot(request, CancellationToken::new())
+                .await
+        })?;
+        let index = engine.get_index(&snapshot.snapshot_id).ok_or_else(|| {
+            ReviewHttpRouteError::BadRequest("context index was not stored".to_string())
+        })?;
+        self.context_engines
+            .lock()
+            .expect("context engine store poisoned")
+            .insert(
+                context_engine_key(workspace_id, &snapshot.snapshot_id.0),
+                engine.clone(),
+            );
+        Ok((engine, snapshot, index.manifest_artifact.clone()))
+    }
+
+    fn context_engine_for_workspace(
+        &self,
+        workspace_id: &str,
+        config: ContextEngineConfig,
+    ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
+        let mut engine = if let Some(root) = &self.options.context_learning_store_root {
+            SnapshotContextEngine::with_learning_store_file(
+                config,
+                workspace_store_path(root, workspace_id, "context-learnings.json"),
+            )
+            .map_err(context_runtime_error)?
+        } else {
+            SnapshotContextEngine::new(config)
+        };
+        if let Some(root) = &self.options.context_derived_cache_root {
+            engine = engine.with_derived_cache_file(workspace_store_path(
+                root,
+                workspace_id,
+                "context-derived-cache.json",
+            ));
+        }
+        Ok(engine)
+    }
+
+    fn context_engine_for_snapshot(
+        &self,
+        workspace_id: &str,
+        snapshot_id: &str,
+    ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
+        self.context_engines
+            .lock()
+            .expect("context engine store poisoned")
+            .get(&context_engine_key(workspace_id, snapshot_id))
+            .cloned()
+            .ok_or_else(|| {
+                ReviewHttpRouteError::BadRequest(format!(
+                    "context index not found for snapshot {snapshot_id}"
+                ))
+            })
+    }
+
+    async fn review_snapshot(
         &self,
         review_id: &str,
     ) -> Result<ReviewSessionSnapshot, ReviewHttpRouteError> {
         let id = ReviewSessionId::new(review_id)?;
-        Ok(super::ReviewSession::from_record(self.review_record(&id)?).refresh())
+        Ok(super::ReviewSession::from_record(self.review_record(&id).await?).refresh())
     }
 
-    fn review_record(
+    async fn review_record(
         &self,
         id: &ReviewSessionId,
     ) -> Result<super::ReviewSessionRecord, ReviewHttpRouteError> {
         self.muzen
             .store
-            .get(id)?
+            .get(id)
+            .await?
             .ok_or_else(|| ReviewHttpRouteError::NotFound(format!("unknown review session `{id}`")))
     }
 }
@@ -488,6 +753,101 @@ struct ReviewResultResponse {
 #[serde(rename_all = "camelCase")]
 struct ReviewArtifactResponse {
     artifact: ReviewArtifact,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextIndexBody {
+    source: ReviewSource,
+    #[serde(default)]
+    changed_files: Vec<String>,
+    #[serde(default)]
+    host_metadata: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+    #[serde(default)]
+    allowed_cross_repo_resources: Vec<String>,
+    #[serde(default)]
+    config: Option<ContextEngineConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextPackBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    purpose: Option<ContextPackPurpose>,
+    #[serde(default)]
+    max_tokens: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextQueryBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    purpose: Option<ContextPackPurpose>,
+    kind: ContextQueryKind,
+    #[serde(default)]
+    arguments: serde_json::Value,
+    #[serde(default)]
+    current_evidence: Vec<EvidenceId>,
+    #[serde(default)]
+    limits: Option<ContextQueryLimits>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextFeedbackBody {
+    #[serde(flatten)]
+    index: ContextIndexBody,
+    #[serde(default)]
+    evidence_ids: Vec<EvidenceId>,
+    feedback: String,
+    #[serde(default)]
+    learning_source: Option<ContextLearningSource>,
+    #[serde(default)]
+    scope: Option<ContextLearningScope>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextLearningApprovalBody {
+    snapshot_id: String,
+    #[serde(flatten)]
+    approval: ContextLearningApproval,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextIndexResponse {
+    manifest: ContextManifestArtifact,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextPackResponse {
+    pack: ContextPack,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextQueryResponse {
+    result: ContextQueryResult,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextFeedbackResponse {
+    receipt: ContextFeedbackReceipt,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextLearningApprovalResponse {
+    receipt: ContextLearningApprovalReceipt,
 }
 
 #[derive(Debug, Serialize)]
@@ -574,6 +934,104 @@ fn artifact_view(request: &ReviewHttpRequest) -> Result<ReviewArtifactView, Revi
     }
 }
 
+fn build_context_snapshot_from_source(
+    source: ReviewSource,
+    changed_files_override: Vec<String>,
+) -> Result<Arc<RepoSnapshot>, ReviewHttpRouteError> {
+    let (root, source_changed_files) = match source {
+        ReviewSource::Local {
+            repo,
+            changed_files,
+        } => (repo, changed_files),
+        ReviewSource::RawSnapshot {
+            root,
+            changed_files,
+        } => (root, changed_files),
+        other => {
+            return Err(ReviewHttpRouteError::BadRequest(format!(
+                "context HTTP routes require local or raw_snapshot source, got {}",
+                other.source_key()
+            )))
+        }
+    };
+    let changed_files = if changed_files_override.is_empty() {
+        source_changed_files
+    } else {
+        changed_files_override
+    };
+    if changed_files.is_empty() {
+        return Err(ReviewHttpRouteError::BadRequest(
+            "context request requires at least one changed file".to_string(),
+        ));
+    }
+    let changed_files = changed_files
+        .into_iter()
+        .map(|path| ChangedFileEntryV1 {
+            status: ChangedFileStatus::Modified,
+            old_path: Some(PathBuf::from(&path)),
+            new_path: Some(PathBuf::from(path)),
+            old_content_hash: None,
+            new_content_hash: None,
+            is_binary: false,
+            is_generated: false,
+        })
+        .collect::<Vec<_>>();
+    let change = ChangeScopeV1 {
+        kind: ChangeKind::LocalDiff,
+        change_id: "context-http".to_string(),
+        source_ref: "head".to_string(),
+        target_ref: "base".to_string(),
+        base_revision_id: "base".to_string(),
+        head_revision_id: "head".to_string(),
+        merge_base_revision_id: None,
+        changed_files_manifest_ref: None,
+        diff_manifest_ref: None,
+        inline_diff: None,
+        snapshot_mode: SnapshotMode::WorktreeHead,
+        rename_detection: RenameDetection::None,
+        changed_files,
+    };
+    RepoSnapshot::build_with_storage(
+        &root,
+        &PathPolicyV1::bench(200, 120),
+        &change,
+        SnapshotStoragePolicy::default(),
+    )
+    .map_err(|error| ReviewHttpRouteError::BadRequest(error.to_string()))
+}
+
+fn block_on_context<T>(
+    future: impl std::future::Future<Output = Result<T, RuntimeError>> + Send + 'static,
+) -> Result<T, ReviewHttpRouteError>
+where
+    T: Send + 'static,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        std::thread::spawn(move || run_context_future(future))
+            .join()
+            .map_err(|_| {
+                ReviewHttpRouteError::BadRequest("context worker thread panicked".to_string())
+            })?
+    } else {
+        run_context_future(future)
+    }
+}
+
+fn run_context_future<T>(
+    future: impl std::future::Future<Output = Result<T, RuntimeError>>,
+) -> Result<T, ReviewHttpRouteError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| ReviewHttpRouteError::BadRequest(error.to_string()))?
+        .block_on(future)
+        .map_err(context_runtime_error)
+}
+
+fn context_runtime_error(error: RuntimeError) -> ReviewHttpRouteError {
+    ReviewHttpRouteError::BadRequest(error.to_string())
+}
+
 fn route_error_status(error: &ReviewSessionError) -> (u16, String) {
     match error {
         ReviewSessionError::ResultUnavailable { .. } => (HTTP_STATUS_NO_CONTENT, error.to_string()),
@@ -602,6 +1060,24 @@ fn parse_query_lossy(query: &str) -> BTreeMap<String, String> {
         );
     }
     result
+}
+
+fn context_engine_key(workspace_id: &str, snapshot_id: &str) -> String {
+    format!("{workspace_id}:{snapshot_id}")
+}
+
+fn workspace_store_path(root: &std::path::Path, workspace_id: &str, file_name: &str) -> PathBuf {
+    let safe_workspace = workspace_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    root.join(safe_workspace).join(file_name)
 }
 
 fn percent_decode(input: &str, plus_as_space: bool) -> Result<String, ReviewHttpRouteError> {

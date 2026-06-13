@@ -10,7 +10,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const repoSlug = required(args.repoSlug, "--repo-slug is required, e.g. calcom/cal.com");
   const prNumber = required(args.pr, "--pr is required");
-  const runnerPath = args.runnerPath || "target/release/muzen";
+  const runnerPath = args.runnerPath || "target/release/muzen-runner";
   const golden = args.golden || `bench/review-quality/goldens/cal-pr-${prNumber}.json`;
   const worktreeRoot = path.resolve(args.worktreeRoot || DEFAULT_WORKTREE_ROOT);
   const worktree = path.join(worktreeRoot, safeName(`${repoSlug}-pr-${prNumber}`));
@@ -36,13 +36,13 @@ function main() {
     "--golden",
     golden,
     "--sessions",
-    args.sessions || "11",
+    args.sessions || "0",
     "--max-active",
-    args.maxActive || "4",
+    args.maxActive || "8",
     "--max-turns",
-    args.maxTurns || "7",
+    args.maxTurns || "10",
     "--max-tool-calls",
-    args.maxToolCalls || "14",
+    args.maxToolCalls || "32",
     "--output",
     output,
   ];

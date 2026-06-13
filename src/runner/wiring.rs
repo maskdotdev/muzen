@@ -182,15 +182,14 @@ fn hosted_model_default_base_url(model: &RunModelParams) -> String {
             return base_url.to_string();
         }
     }
-    std::env::var("OAI_BASE_URL")
-        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+    std::env::var("OPENAI_BASE_URL")
         .ok()
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
 }
 
 fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
     let provider_kind = match params.provider.as_str() {
-        "openai" | "openai_compatible" => ProviderKind::OpenaiCompatible,
+        "openai_compatible" => ProviderKind::OpenaiCompatible,
         "anthropic" => ProviderKind::Anthropic,
         unknown => {
             return Err(RuntimeError::InvalidInput(format!(

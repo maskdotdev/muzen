@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-efaa992c9223",
+  "repoSource": {
+    "kind": "git",
+    "commit": "efaa992c9223d356a4a8c3f3869b2eb01fe2ab18",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "sdk/typescript/packages/muzen-sdk/src/index.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+    "sdk/typescript/packages/muzen-sdk/src/protocol.ts",
+    "sdk/typescript/packages/muzen-sdk/src/sources.test.ts",
+    "sdk/typescript/packages/muzen-sdk/src/sources.ts",
+    "sdk/typescript/packages/muzen-sdk/src/types.ts"
+  ],
+  "description": "Mined pair: base efaa992c9223 (feat: add typescript sdk preview) followed by 4643441d02da (feat: add review artifact helpers).",
+  "minedFrom": {
+    "baseCommit": "efaa992c9223d356a4a8c3f3869b2eb01fe2ab18",
+    "followUpCommit": "4643441d02daf55d2f6b4c90bc8041acbc60f4cf"
+  },
+  "cases": [
+    {
+      "id": "mined-efaa992c9223-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session.rs"
+      ]
+    }
+  ]
+}

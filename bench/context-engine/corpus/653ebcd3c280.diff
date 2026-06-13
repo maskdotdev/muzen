@@ -1,0 +1,366 @@
+diff --git a/src/components/onboarding/onboarding-flow.tsx b/src/components/onboarding/onboarding-flow.tsx
+index 871d2ac0..0c1011aa 100644
+--- a/src/components/onboarding/onboarding-flow.tsx
++++ b/src/components/onboarding/onboarding-flow.tsx
+@@ -63,6 +63,16 @@ type TokenTestFeedback = {
+   message: string
+ }
+ 
++type ProjectsCacheEntry = {
++  key: string
++  projects: Project[]
++}
++
++type ProjectsRequestEntry = {
++  key: string
++  promise: Promise<Project[]>
++}
++
+ const INSTANCE_PRESETS = ["https://gitlab.com", "https://gitlab.example.com", "custom"]
+ const ONBOARDING_STORAGE_KEY = "argus-onboarding-selections-v2"
+ 
+@@ -97,11 +107,19 @@ const readPersistedState = (): Partial<OnboardingSessionState> => {
+ const isNonEmptyString = (value: unknown): value is string =>
+   typeof value === "string" && value.trim().length > 0
+ 
++const buildProjectsCacheKey = (instanceUrl: string, token: string) =>
++  `${instanceUrl}::${token.trim()}`
++
+ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }) {
+   const router = useRouter()
+   const currentStep = routeStepPosition[routeStep]
+   const startedEventTracked = useRef(false)
+   const completionEventTracked = useRef(false)
++  const projectSelectionHandlerRef = useRef<
++    ((projectId: string) => Promise<void>) | null
++  >(null)
++  const projectsCacheRef = useRef<ProjectsCacheEntry | null>(null)
++  const projectsRequestRef = useRef<ProjectsRequestEntry | null>(null)
+ 
+   const [isHydrated, setIsHydrated] = useState(false)
+ 
+@@ -111,6 +129,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+   const [projects, setProjects] = useState<Project[]>([])
+   const [projectsError, setProjectsError] = useState("")
+   const [selectedProjectId, setSelectedProjectId] = useState("")
++  const [projectSearchQuery, setProjectSearchQuery] = useState("")
+ 
+   const [mergeRequests, setMergeRequests] = useState<MergeRequest[]>([])
+   const [mergeRequestsError, setMergeRequestsError] = useState("")
+@@ -131,6 +150,25 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+         : gitlabInstance.trim().length > 0),
+     [token, gitlabInstance, customInstance],
+   )
++  const normalizedProjectSearchQuery = useMemo(
++    () => projectSearchQuery.trim().toLowerCase(),
++    [projectSearchQuery],
++  )
++  const filteredProjects = useMemo(() => {
++    if (!normalizedProjectSearchQuery) {
++      return projects
++    }
++
++    return projects.filter((project) => {
++      const name = project.name.toLowerCase()
++      const path = project.path.toLowerCase()
++      return (
++        name.includes(normalizedProjectSearchQuery) ||
++        path.includes(normalizedProjectSearchQuery)
++      )
++    })
++  }, [projects, normalizedProjectSearchQuery])
++  const recentProjects = useMemo(() => filteredProjects.slice(0, 10), [filteredProjects])
+   const resolvedGitLabInstance = useMemo(() => {
+     if (!token.trim()) {
+       return ""
+@@ -142,6 +180,18 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+       return ""
+     }
+   }, [token, gitlabInstance, customInstance])
++  const projectsCacheKey = useMemo(() => {
++    if (!token.trim()) {
++      return ""
++    }
++
++    try {
++      const normalizedInstance = resolveGitLabInstance(gitlabInstance, customInstance)
++      return buildProjectsCacheKey(normalizedInstance, token)
++    } catch {
++      return ""
++    }
++  }, [token, gitlabInstance, customInstance])
+ 
+   const trackEvent = async (
+     event:
+@@ -200,18 +250,63 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     return payload.data
+   }
+ 
+-  const loadProjects = async () => {
++  const applyLoadedProjects = (data: Project[]) => {
++    setProjects(data)
++    setSelectedProjectId("")
++    setMergeRequests([])
++    setSelectedMergeRequestId("")
++  }
++
++  const fetchProjects = async ({ force = false }: { force?: boolean } = {}) => {
++    if (!projectsCacheKey) {
++      throw new Error("Personal access token is required.")
++    }
++
++    const pendingRequest = projectsRequestRef.current
++    if (pendingRequest && pendingRequest.key === projectsCacheKey) {
++      return pendingRequest.promise
++    }
++
++    const cachedEntry = projectsCacheRef.current
++    if (!force && cachedEntry && cachedEntry.key === projectsCacheKey) {
++      return cachedEntry.projects
++    }
++
++    const request = (async () => {
++      const data = (await callGitLab("projects")) as Project[]
++      projectsCacheRef.current = { key: projectsCacheKey, projects: data }
++      return data
++    })()
++
++    projectsRequestRef.current = { key: projectsCacheKey, promise: request }
++
++    try {
++      return await request
++    } finally {
++      if (projectsRequestRef.current?.promise === request) {
++        projectsRequestRef.current = null
++      }
++    }
++  }
++
++  const preloadProjectsForContinue = () => {
++    if (!canLoadProjects || actionBusy || tokenTestBusy) {
++      return
++    }
++
++    router.prefetch("/onboarding/projects")
++    void fetchProjects().catch(() => null)
++  }
++
++  const loadProjects = async ({ force = false }: { force?: boolean } = {}) => {
+     setActionBusy(true)
+     setProjectsError("")
+     setMergeRequestsError("")
+     setTokenTestFeedback(null)
+ 
+     try {
+-      const data = (await callGitLab("projects")) as Project[]
+-      setProjects(data)
+-      setSelectedProjectId("")
+-      setMergeRequests([])
+-      setSelectedMergeRequestId("")
++      const data = await fetchProjects({ force })
++      applyLoadedProjects(data)
+       await trackEvent("onboarding_token_validated", {
+         instanceUrl: resolveGitLabInstance(gitlabInstance, customInstance),
+       })
+@@ -231,11 +326,8 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     setTokenTestFeedback(null)
+ 
+     try {
+-      const data = (await callGitLab("projects")) as Project[]
+-      setProjects(data)
+-      setSelectedProjectId("")
+-      setMergeRequests([])
+-      setSelectedMergeRequestId("")
++      const data = await fetchProjects()
++      applyLoadedProjects(data)
+       const countLabel = data.length === 1 ? "1 project" : `${data.length} projects`
+       setTokenTestFeedback({
+         kind: "success",
+@@ -283,6 +375,7 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     setSelectedProjectId(projectId)
+     await loadMergeRequests(projectId)
+   }
++  projectSelectionHandlerRef.current = handleProjectSelection
+ 
+   const handleMergeRequestSelection = (mrId: string) => {
+     setSelectedMergeRequestId(mrId)
+@@ -307,7 +400,32 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+       setToken(persisted.token)
+     }
+     if (Array.isArray(persisted.projects)) {
+-      setProjects(persisted.projects as Project[])
++      const persistedProjects = persisted.projects as Project[]
++      setProjects(persistedProjects)
++      if (
++        isNonEmptyString(persisted.token) &&
++        (isNonEmptyString(persisted.gitlabInstance) ||
++          isNonEmptyString(persisted.customInstance))
++      ) {
++        try {
++          const persistedInstance = isNonEmptyString(persisted.gitlabInstance)
++            ? persisted.gitlabInstance
++            : INSTANCE_PRESETS[0]
++          const persistedCustomInstance = isNonEmptyString(persisted.customInstance)
++            ? persisted.customInstance
++            : ""
++          const normalizedInstance = resolveGitLabInstance(
++            persistedInstance,
++            persistedCustomInstance,
++          )
++          projectsCacheRef.current = {
++            key: buildProjectsCacheKey(normalizedInstance, persisted.token),
++            projects: persistedProjects,
++          }
++        } catch {
++          projectsCacheRef.current = null
++        }
++      }
+     }
+     if (isNonEmptyString(persisted.selectedProjectId)) {
+       setSelectedProjectId(persisted.selectedProjectId)
+@@ -382,6 +500,51 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+     }
+   }, [isHydrated, routeStep, token, selectedProjectId, router])
+ 
++  useEffect(() => {
++    if (!isHydrated || routeStep !== "projects" || actionBusy || recentProjects.length === 0) {
++      return
++    }
++
++    const onKeyDown = (event: KeyboardEvent) => {
++      if (
++        event.defaultPrevented ||
++        event.metaKey ||
++        event.ctrlKey ||
++        event.altKey ||
++        event.repeat
++      ) {
++        return
++      }
++
++      const target = event.target as HTMLElement | null
++      if (
++        target &&
++        (target.tagName === "INPUT" ||
++          target.tagName === "TEXTAREA" ||
++          target.tagName === "SELECT" ||
++          target.isContentEditable)
++      ) {
++        return
++      }
++
++      if (!/^[0-9]$/.test(event.key)) {
++        return
++      }
++
++      const index = event.key === "0" ? 9 : Number(event.key) - 1
++      const project = recentProjects[index]
++      if (!project) {
++        return
++      }
++
++      event.preventDefault()
++      void projectSelectionHandlerRef.current?.(project.id)
++    }
++
++    window.addEventListener("keydown", onKeyDown)
++    return () => window.removeEventListener("keydown", onKeyDown)
++  }, [isHydrated, routeStep, actionBusy, recentProjects])
++
+   const renderHeader = (title: string, description: string) => (
+     <section className="flex flex-wrap items-start justify-between gap-3">
+       <div>
+@@ -468,7 +631,13 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+                 >
+                   {tokenTestBusy ? "Testing token..." : "Test token"}
+                 </Button>
+-                <Button type="submit" disabled={actionBusy || tokenTestBusy || !canLoadProjects}>
++                <Button
++                  type="submit"
++                  onMouseEnter={preloadProjectsForContinue}
++                  onFocus={preloadProjectsForContinue}
++                  onTouchStart={preloadProjectsForContinue}
++                  disabled={actionBusy || tokenTestBusy || !canLoadProjects}
++                >
+                   {actionBusy ? "Loading projects..." : "Continue to projects"}
+                 </Button>
+               </div>
+@@ -503,26 +672,65 @@ export function OnboardingFlow({ routeStep }: { routeStep: OnboardingRouteStep }
+                 <IconArrowLeft />
+                 Back to tokens
+               </Button>
+-              <Button onClick={loadProjects} disabled={!canLoadProjects || actionBusy}>
++              <Button
++                onMouseEnter={preloadProjectsForContinue}
++                onFocus={preloadProjectsForContinue}
++                onClick={() => void loadProjects({ force: true })}
++                disabled={!canLoadProjects || actionBusy}
++              >
+                 {actionBusy ? "Loading projects..." : "Reload projects"}
+               </Button>
+             </div>
+ 
+             {projects.length > 0 ? (
+               <>
+-                <Label htmlFor="project-select">Project</Label>
+-                <Select value={selectedProjectId} onValueChange={handleProjectSelection}>
+-                  <SelectTrigger id="project-select" className="w-full">
+-                    <SelectValue placeholder="Select a project" />
+-                  </SelectTrigger>
+-                  <SelectContent>
+-                    {projects.map((project) => (
+-                      <SelectItem key={project.id} value={project.id}>
+-                        {project.name}
+-                      </SelectItem>
++                <div className="grid gap-1">
++                  <Label htmlFor="project-search">Search projects</Label>
++                  <Input
++                    id="project-search"
++                    value={projectSearchQuery}
++                    onChange={(event) => setProjectSearchQuery(event.target.value)}
++                    placeholder="Search by project name or path"
++                  />
++                </div>
++
++                <Label>{normalizedProjectSearchQuery ? "Search results" : "Recent projects"}</Label>
++                {recentProjects.length > 0 ? (
++                  <div className="grid gap-2 sm:grid-cols-2">
++                    {recentProjects.map((project, index) => (
++                      <button
++                        key={project.id}
++                        type="button"
++                        onClick={() => void handleProjectSelection(project.id)}
++                        disabled={actionBusy}
++                        className={`rounded-md border p-3 text-left transition-colors hover:bg-muted/50 ${
++                          selectedProjectId === project.id
++                            ? "border-primary bg-primary/5"
++                            : "border-border bg-background"
++                        }`}
++                      >
++                        <div className="flex items-start justify-between gap-2">
++                          <p className="truncate text-sm font-medium">{project.name}</p>
++                          <span className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground">
++                            {index === 9 ? "0" : index + 1}
++                          </span>
++                        </div>
++                        <p className="truncate text-xs text-muted-foreground">{project.path}</p>
++                      </button>
+                     ))}
+-                  </SelectContent>
+-                </Select>
++                  </div>
++                ) : (
++                  <p className="text-sm text-muted-foreground">
++                    No projects match that search. Try a different keyword.
++                  </p>
++                )}
++                <p className="text-xs text-muted-foreground">
++                  Showing {recentProjects.length} most recent project
++                  {recentProjects.length === 1 ? "" : "s"} by activity.
++                </p>
++                <p className="text-xs text-muted-foreground">
++                  Shortcut: press keys 1-9, then 0 for the 10th visible card.
++                </p>
+               </>
+             ) : (
+               <p className="text-sm text-muted-foreground">

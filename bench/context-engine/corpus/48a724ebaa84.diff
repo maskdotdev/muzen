@@ -1,0 +1,1117 @@
+diff --git a/src/lib/indexing/finalize.test.ts b/src/lib/indexing/finalize.test.ts
+new file mode 100644
+index 00000000..b0f5ebf9
+--- /dev/null
++++ b/src/lib/indexing/finalize.test.ts
+@@ -0,0 +1,211 @@
++import { describe, expect, mock, test } from "bun:test"
++
++import {
++  indexBranchStates,
++  indexFileStates,
++  indexRunFileChanges,
++  indexRuns,
++} from "@/lib/db/schema"
++
++type FinalizeRun = {
++  id: string
++  branchStateId: string
++  baseSha: string | null
++  headSha: string
++  status: string
++}
++
++const loadFinalizeModule = async (dbMock: unknown) => {
++  mock.module("@/lib/db", () => ({ db: dbMock }))
++  return import(`./finalize.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++}
++
++const createFinalizeDbMock = (args: {
++  run: FinalizeRun | null
++  casSuccess: boolean
++  stagedChanges?: Array<{
++    path: string
++    changeType: "upsert" | "delete"
++    fileId: string | null
++    sizeBytes: number | null
++    skipReason: string | null
++  }>
++}) => {
++  const calls = {
++    deleteCalls: 0,
++    insertCalls: 0,
++    runUpdates: [] as Array<Record<string, unknown>>,
++  }
++
++  const tx = {
++    select: () => ({
++      from: (table: unknown) => {
++        if (table === indexRuns) {
++          return {
++            where: () => ({
++              limit: () => Promise.resolve(args.run ? [args.run] : []),
++            }),
++          }
++        }
++
++        if (table === indexRunFileChanges) {
++          return {
++            where: () => Promise.resolve(args.stagedChanges ?? []),
++          }
++        }
++
++        throw new Error("Unexpected select table in finalize test.")
++      },
++    }),
++    update: (table: unknown) => ({
++      set: (values: Record<string, unknown>) => {
++        if (table === indexRuns) {
++          calls.runUpdates.push(values)
++          return {
++            where: () => Promise.resolve([]),
++          }
++        }
++
++        if (table === indexBranchStates) {
++          return {
++            where: () => ({
++              returning: () => Promise.resolve(args.casSuccess ? [{ id: "branch-state-1" }] : []),
++            }),
++          }
++        }
++
++        throw new Error("Unexpected update table in finalize test.")
++      },
++    }),
++    delete: (table: unknown) => {
++      if (table !== indexFileStates) {
++        throw new Error("Unexpected delete table in finalize test.")
++      }
++
++      return {
++        where: () => {
++          calls.deleteCalls += 1
++          return Promise.resolve([])
++        },
++      }
++    },
++    insert: (table: unknown) => {
++      if (table !== indexFileStates) {
++        throw new Error("Unexpected insert table in finalize test.")
++      }
++
++      return {
++        values: () => ({
++          onConflictDoUpdate: () => {
++            calls.insertCalls += 1
++            return Promise.resolve([])
++          },
++        }),
++      }
++    },
++  }
++
++  const db = {
++    transaction: async <T>(callback: (txArg: typeof tx) => Promise<T>) => callback(tx),
++    update: () => ({
++      set: () => ({
++        where: () => Promise.resolve([]),
++      }),
++    }),
++  }
++
++  return { db, calls }
++}
++
++describe("finalizeIndexRun", () => {
++  test("applies staged changes and marks ready when CAS succeeds", async () => {
++    const dbMock = createFinalizeDbMock({
++      run: {
++        id: "run-1",
++        branchStateId: "branch-state-1",
++        baseSha: "base-sha-1",
++        headSha: "head-sha-1",
++        status: "indexing",
++      },
++      casSuccess: true,
++      stagedChanges: [
++        {
++          path: "deleted.ts",
++          changeType: "delete",
++          fileId: null,
++          sizeBytes: null,
++          skipReason: "deleted",
++        },
++        {
++          path: "new.ts",
++          changeType: "upsert",
++          fileId: "file-1",
++          sizeBytes: 123,
++          skipReason: null,
++        },
++      ],
++    })
++
++    const mod = await loadFinalizeModule(dbMock.db)
++    const result = await mod.finalizeIndexRun("run-1")
++
++    expect(result.status).toBe("ready")
++    expect(dbMock.calls.deleteCalls).toBe(1)
++    expect(dbMock.calls.insertCalls).toBe(1)
++    expect(
++      dbMock.calls.runUpdates.some((entry) => entry.status === "ready"),
++    ).toBe(true)
++  })
++
++  test("marks run superseded and skips file mutations on CAS miss", async () => {
++    const dbMock = createFinalizeDbMock({
++      run: {
++        id: "run-2",
++        branchStateId: "branch-state-1",
++        baseSha: "base-sha-1",
++        headSha: "head-sha-2",
++        status: "ingesting",
++      },
++      casSuccess: false,
++      stagedChanges: [
++        {
++          path: "new.ts",
++          changeType: "upsert",
++          fileId: "file-2",
++          sizeBytes: 456,
++          skipReason: null,
++        },
++      ],
++    })
++
++    const mod = await loadFinalizeModule(dbMock.db)
++    const result = await mod.finalizeIndexRun("run-2")
++
++    expect(result.status).toBe("superseded")
++    expect(dbMock.calls.deleteCalls).toBe(0)
++    expect(dbMock.calls.insertCalls).toBe(0)
++    expect(
++      dbMock.calls.runUpdates.some((entry) => entry.status === "superseded"),
++    ).toBe(true)
++  })
++
++  test("returns invalid_state for non-finalizable statuses", async () => {
++    const dbMock = createFinalizeDbMock({
++      run: {
++        id: "run-3",
++        branchStateId: "branch-state-1",
++        baseSha: null,
++        headSha: "head-sha-3",
++        status: "ready",
++      },
++      casSuccess: true,
++    })
++
++    const mod = await loadFinalizeModule(dbMock.db)
++    const result = await mod.finalizeIndexRun("run-3")
++
++    expect(result.status).toBe("invalid_state")
++    expect(dbMock.calls.deleteCalls).toBe(0)
++    expect(dbMock.calls.insertCalls).toBe(0)
++  })
++})
+diff --git a/src/lib/indexing/processors/ingest.test.ts b/src/lib/indexing/processors/ingest.test.ts
+new file mode 100644
+index 00000000..e6eb9bf2
+--- /dev/null
++++ b/src/lib/indexing/processors/ingest.test.ts
+@@ -0,0 +1,379 @@
++import { beforeEach, describe, expect, mock, test } from "bun:test"
++
++import { indexBranchStates, indexRunFileChanges, indexRuns } from "@/lib/db/schema"
++
++const loadIngestModule = async (deps: {
++  db: unknown
++  runSnapshotIngest: ReturnType<typeof mock>
++  runDeltaIngest: ReturnType<typeof mock>
++  finalizeIndexRun: ReturnType<typeof mock>
++  markIndexRunFailed: ReturnType<typeof mock>
++}) => {
++  mock.module("@/lib/db", () => ({ db: deps.db }))
++  mock.module("@/lib/indexing/snapshot", () => ({
++    runSnapshotIngest: deps.runSnapshotIngest,
++  }))
++  mock.module("@/lib/indexing/delta", () => ({
++    runDeltaIngest: deps.runDeltaIngest,
++    DeltaSnapshotFallbackError,
++  }))
++  mock.module("@/lib/indexing/finalize", () => ({
++    finalizeIndexRun: deps.finalizeIndexRun,
++    markIndexRunFailed: deps.markIndexRunFailed,
++  }))
++
++  return import(`./ingest.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++}
++
++type IngestRun = {
++  id: string
++  status: string
++  mode: "snapshot" | "delta"
++  branchStateId: string
++  baseSha: string | null
++  headSha: string
++  artifactsPrefix: string
++  configHash: string
++  integrationId: string
++}
++
++class DeltaSnapshotFallbackError extends Error {
++  readonly reason: string
++
++  constructor(reason: string) {
++    super(`Delta ingest fallback required: ${reason}`)
++    this.reason = reason
++    this.name = "DeltaSnapshotFallbackError"
++  }
++}
++
++const createIngestDbMock = (args: {
++  run: IngestRun | null
++  stagedChanges?: Array<{
++    path: string
++    changeType: "upsert" | "delete"
++    fileId: string | null
++  }>
++}) => {
++  const calls = {
++    updates: [] as Array<Record<string, unknown>>,
++  }
++
++  const db = {
++    select: () => ({
++      from: (table: unknown) => {
++        if (table === indexRuns) {
++          return {
++            innerJoin: (_joinTable: unknown) => {
++              if (_joinTable !== indexBranchStates) {
++                throw new Error("Unexpected join table in ingest test.")
++              }
++              return {
++                where: () => ({
++                  limit: () => Promise.resolve(args.run ? [args.run] : []),
++                }),
++              }
++            },
++          }
++        }
++
++        if (table === indexRunFileChanges) {
++          return {
++            where: () => Promise.resolve(args.stagedChanges ?? []),
++          }
++        }
++
++        throw new Error("Unexpected select table in ingest test.")
++      },
++    }),
++    update: () => ({
++      set: (values: Record<string, unknown>) => {
++        calls.updates.push(values)
++        return {
++          where: () => Promise.resolve([]),
++        }
++      },
++    }),
++  }
++
++  return {
++    db,
++    calls,
++  }
++}
++
++const createVectorStoreMock = () => ({
++  upsertChunks: async () => {},
++  queryCandidates: async () => [],
++  deleteStaleByPath: mock(async () => {}),
++})
++
++beforeEach(() => {
++  delete process.env.INDEXER_ARTIFACTS_BACKEND
++})
++
++describe("processIngestJob", () => {
++  test("returns skipped when run does not exist", async () => {
++    const ingestDb = createIngestDbMock({
++      run: null,
++    })
++    const runSnapshotIngest = mock(async () => ({ stats: { filesIndexed: 0 } }))
++    const runDeltaIngest = mock(async () => ({ stats: { filesIndexed: 0 } }))
++    const finalizeIndexRun = mock(async () => ({ runId: "x", status: "ready" as const }))
++    const markIndexRunFailed = mock(async () => {})
++    const mod = await loadIngestModule({
++      db: ingestDb.db,
++      runSnapshotIngest,
++      runDeltaIngest,
++      finalizeIndexRun,
++      markIndexRunFailed,
++    })
++
++    const vectorStore = createVectorStoreMock()
++    const result = await mod.processIngestJob(
++      { runId: "missing" },
++      {
++        source: {} as never,
++        vectorStore,
++        artifactStore: {} as never,
++      },
++    )
++
++    expect(result.status).toBe("skipped")
++    expect(runSnapshotIngest).toHaveBeenCalledTimes(0)
++    expect(runDeltaIngest).toHaveBeenCalledTimes(0)
++    expect(finalizeIndexRun).toHaveBeenCalledTimes(0)
++  })
++
++  test("marks failed when snapshot ingest throws", async () => {
++    const ingestDb = createIngestDbMock({
++      run: {
++        id: "run-1",
++        status: "planned",
++        mode: "snapshot",
++        branchStateId: "branch-state-1",
++        baseSha: null,
++        headSha: "head-sha-1",
++        artifactsPrefix: "integrations/x/runs/default/main/head/run-1",
++        configHash: "default-v1",
++        integrationId: "integration-1",
++      },
++    })
++    const runSnapshotIngest = mock(async () => {
++      throw new Error("boom")
++    })
++    const runDeltaIngest = mock(async () => ({ stats: { filesIndexed: 0 } }))
++    const finalizeIndexRun = mock(async () => ({ runId: "run-1", status: "ready" as const }))
++    const markIndexRunFailed = mock(async () => {})
++    const mod = await loadIngestModule({
++      db: ingestDb.db,
++      runSnapshotIngest,
++      runDeltaIngest,
++      finalizeIndexRun,
++      markIndexRunFailed,
++    })
++
++    const vectorStore = createVectorStoreMock()
++    const result = await mod.processIngestJob(
++      { runId: "run-1" },
++      {
++        source: {} as never,
++        vectorStore,
++        artifactStore: {} as never,
++      },
++    )
++
++    expect(result.status).toBe("failed")
++    expect(markIndexRunFailed).toHaveBeenCalledTimes(1)
++    expect(runDeltaIngest).toHaveBeenCalledTimes(0)
++    expect(finalizeIndexRun).toHaveBeenCalledTimes(0)
++  })
++
++  test("uses delta path for delta-mode runs and cleans stale vectors when ready", async () => {
++    const ingestDb = createIngestDbMock({
++      run: {
++        id: "run-2",
++        status: "planned",
++        mode: "delta",
++        branchStateId: "branch-state-1",
++        baseSha: "base-sha-1",
++        headSha: "head-sha-2",
++        artifactsPrefix: "integrations/x/runs/default/main/head/run-2",
++        configHash: "default-v1",
++        integrationId: "integration-1",
++      },
++      stagedChanges: [
++        {
++          path: "src/a.ts",
++          changeType: "upsert",
++          fileId: "file-a",
++        },
++        {
++          path: "src/b.ts",
++          changeType: "delete",
++          fileId: null,
++        },
++      ],
++    })
++    const runSnapshotIngest = mock(async () => ({
++      stats: {
++        filesScanned: 10,
++      },
++    }))
++    const runDeltaIngest = mock(async () => ({
++      stats: {
++        filesFetched: 2,
++      },
++    }))
++    const finalizeIndexRun = mock(async () => ({ runId: "run-2", status: "ready" as const }))
++    const markIndexRunFailed = mock(async () => {})
++    const mod = await loadIngestModule({
++      db: ingestDb.db,
++      runSnapshotIngest,
++      runDeltaIngest,
++      finalizeIndexRun,
++      markIndexRunFailed,
++    })
++
++    const vectorStore = createVectorStoreMock()
++    const result = await mod.processIngestJob(
++      { runId: "run-2" },
++      {
++        source: {} as never,
++        vectorStore,
++        artifactStore: {} as never,
++      },
++    )
++
++    expect(result.status).toBe("ready")
++    expect(runDeltaIngest).toHaveBeenCalledTimes(1)
++    expect(runSnapshotIngest).toHaveBeenCalledTimes(0)
++    expect(finalizeIndexRun).toHaveBeenCalledTimes(1)
++    expect(vectorStore.deleteStaleByPath).toHaveBeenCalledTimes(2)
++    expect(vectorStore.deleteStaleByPath).toHaveBeenNthCalledWith(1, {
++      branchStateId: "branch-state-1",
++      path: "src/a.ts",
++      keepFileId: "file-a",
++    })
++    expect(vectorStore.deleteStaleByPath).toHaveBeenNthCalledWith(2, {
++      branchStateId: "branch-state-1",
++      path: "src/b.ts",
++      keepFileId: null,
++    })
++
++    const statsUpdate = ingestDb.calls.updates.find(
++      (entry) => typeof entry.stats === "object" && entry.stats !== null,
++    )
++    expect(statsUpdate?.stats).toMatchObject({
++      filesFetched: 2,
++      ingestMode: "delta",
++      modeFallback: null,
++    })
++  })
++
++  test("falls back from delta to snapshot when delta ingest requests fallback", async () => {
++    const ingestDb = createIngestDbMock({
++      run: {
++        id: "run-22",
++        status: "planned",
++        mode: "delta",
++        branchStateId: "branch-state-1",
++        baseSha: "base-sha-1",
++        headSha: "head-sha-22",
++        artifactsPrefix: "integrations/x/runs/default/main/head/run-22",
++        configHash: "default-v1",
++        integrationId: "integration-1",
++      },
++    })
++    const runSnapshotIngest = mock(async () => ({
++      stats: {
++        filesScanned: 4,
++      },
++    }))
++    const runDeltaIngest = mock(async () => {
++      throw new DeltaSnapshotFallbackError("compare_invalid")
++    })
++    const finalizeIndexRun = mock(async () => ({ runId: "run-22", status: "ready" as const }))
++    const markIndexRunFailed = mock(async () => {})
++    const mod = await loadIngestModule({
++      db: ingestDb.db,
++      runSnapshotIngest,
++      runDeltaIngest,
++      finalizeIndexRun,
++      markIndexRunFailed,
++    })
++
++    const vectorStore = createVectorStoreMock()
++    const result = await mod.processIngestJob(
++      { runId: "run-22" },
++      {
++        source: {} as never,
++        vectorStore,
++        artifactStore: {} as never,
++      },
++    )
++
++    expect(result.status).toBe("ready")
++    expect(runDeltaIngest).toHaveBeenCalledTimes(1)
++    expect(runSnapshotIngest).toHaveBeenCalledTimes(1)
++    expect(finalizeIndexRun).toHaveBeenCalledTimes(1)
++
++    const statsUpdate = ingestDb.calls.updates.find(
++      (entry) => typeof entry.stats === "object" && entry.stats !== null,
++    )
++    expect(statsUpdate?.stats).toMatchObject({
++      filesScanned: 4,
++      ingestMode: "delta",
++      modeFallback: "snapshot",
++      modeFallbackReason: "compare_invalid",
++    })
++  })
++
++  test("does not run stale-vector cleanup when finalize is superseded", async () => {
++    const ingestDb = createIngestDbMock({
++      run: {
++        id: "run-3",
++        status: "planned",
++        mode: "snapshot",
++        branchStateId: "branch-state-1",
++        baseSha: null,
++        headSha: "head-sha-3",
++        artifactsPrefix: "integrations/x/runs/default/main/head/run-3",
++        configHash: "default-v1",
++        integrationId: "integration-1",
++      },
++      stagedChanges: [
++        {
++          path: "src/c.ts",
++          changeType: "upsert",
++          fileId: "file-c",
++        },
++      ],
++    })
++    const runSnapshotIngest = mock(async () => ({ stats: { filesScanned: 1 } }))
++    const runDeltaIngest = mock(async () => ({ stats: { filesScanned: 1 } }))
++    const finalizeIndexRun = mock(async () => ({ runId: "run-3", status: "superseded" as const }))
++    const markIndexRunFailed = mock(async () => {})
++    const mod = await loadIngestModule({
++      db: ingestDb.db,
++      runSnapshotIngest,
++      runDeltaIngest,
++      finalizeIndexRun,
++      markIndexRunFailed,
++    })
++
++    const vectorStore = createVectorStoreMock()
++    const result = await mod.processIngestJob(
++      { runId: "run-3" },
++      {
++        source: {} as never,
++        vectorStore,
++        artifactStore: {} as never,
++      },
++    )
++
++    expect(result.status).toBe("superseded")
++    expect(runDeltaIngest).toHaveBeenCalledTimes(0)
++    expect(vectorStore.deleteStaleByPath).toHaveBeenCalledTimes(0)
++  })
++})
+diff --git a/src/lib/indexing/processors/plan.test.ts b/src/lib/indexing/processors/plan.test.ts
+new file mode 100644
+index 00000000..98e4185f
+--- /dev/null
++++ b/src/lib/indexing/processors/plan.test.ts
+@@ -0,0 +1,291 @@
++import { beforeEach, describe, expect, mock, test } from "bun:test"
++
++import { indexBranchStates, indexConfigs, indexRuns } from "@/lib/db/schema"
++import type { GitLabSource, PlanJob } from "@/lib/indexing/contracts"
++
++const withEnv = async <T>(
++  overrides: Partial<NodeJS.ProcessEnv>,
++  fn: () => Promise<T> | T,
++) => {
++  const previous = new Map<string, string | undefined>()
++  for (const [key, value] of Object.entries(overrides)) {
++    previous.set(key, process.env[key])
++    if (value === undefined) {
++      delete process.env[key]
++    } else {
++      process.env[key] = value
++    }
++  }
++
++  try {
++    return await fn()
++  } finally {
++    for (const [key, value] of previous.entries()) {
++      if (value === undefined) {
++        delete process.env[key]
++      } else {
++        process.env[key] = value
++      }
++    }
++  }
++}
++
++type PlanDbOptions = {
++  lastReadySha: string | null
++  insertedRun?: {
++    id: string
++    branchStateId: string
++    headSha: string
++    baseSha: string | null
++    mode: "snapshot" | "delta"
++  } | null
++}
++
++const createPlanDbMock = (options: PlanDbOptions) => {
++  const calls: {
++    configInsert?: Record<string, unknown>
++    branchInsert?: Record<string, unknown>
++    runInsert?: Record<string, unknown>
++    runUpdate?: Record<string, unknown>
++  } = {}
++
++  const db = {
++    insert: (table: unknown) => ({
++      values: (values: Record<string, unknown>) => {
++        if (table === indexConfigs) {
++          calls.configInsert = values
++          return {
++            onConflictDoUpdate: () => Promise.resolve([]),
++          }
++        }
++
++        if (table === indexBranchStates) {
++          calls.branchInsert = values
++          return {
++            onConflictDoUpdate: () => ({
++              returning: () =>
++                Promise.resolve([
++                  {
++                    id: "branch-state-1",
++                    lastReadySha: options.lastReadySha,
++                  },
++                ]),
++            }),
++          }
++        }
++
++        if (table === indexRuns) {
++          calls.runInsert = values
++          return {
++            onConflictDoNothing: () => ({
++              returning: () =>
++                Promise.resolve(
++                  options.insertedRun
++                    ? [options.insertedRun]
++                    : [],
++                ),
++            }),
++          }
++        }
++
++        throw new Error("Unexpected insert table in plan test.")
++      },
++    }),
++    select: () => ({
++      from: (table: unknown) => {
++        if (table !== indexRuns) {
++          throw new Error("Unexpected select table in plan test.")
++        }
++
++        return {
++          where: () => ({
++            limit: () =>
++              Promise.resolve([
++                {
++                  id: "existing-run-id",
++                  branchStateId: "branch-state-1",
++                  headSha: "head-sha-123",
++                  baseSha: options.lastReadySha,
++                  mode: "snapshot" as const,
++                },
++              ]),
++          }),
++        }
++      },
++    }),
++    update: (table: unknown) => ({
++      set: (values: Record<string, unknown>) => {
++        if (table === indexRuns) {
++          calls.runUpdate = values
++        }
++        return {
++          where: () => Promise.resolve([]),
++        }
++      },
++    }),
++  }
++
++  return {
++    db,
++    calls,
++  }
++}
++
++const createSourceMock = (args?: {
++  headSha?: string
++  compare?: {
++    valid: boolean
++    incomplete: boolean
++    changes: Array<{ oldPath: string | null; newPath: string | null; type: "added" | "modified" | "deleted" | "renamed" }>
++  }
++}) => {
++  const resolveHeadSha = mock(async () => args?.headSha ?? "head-sha-123")
++  const compare = mock(async () => args?.compare ?? { valid: true, incomplete: false, changes: [] })
++
++  const source = {
++    resolveHeadSha,
++    compare,
++    fetchFile: async () => ({ path: "x.ts", content: Buffer.from("x") }),
++    downloadArchive: async () => ({ archivePath: "/tmp/archive.tar.gz" }),
++  } satisfies GitLabSource
++
++  return {
++    source,
++    resolveHeadSha,
++    compare,
++  }
++}
++
++const loadPlanModule = async (dbMock: unknown) => {
++  mock.module("@/lib/db", () => ({ db: dbMock }))
++  return import(`./plan.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++}
++
++const baseJob: PlanJob = {
++  integrationId: "11111111-1111-1111-1111-111111111111",
++  branch: "main",
++}
++
++beforeEach(() => {
++  delete process.env.INDEXER_ENABLE_DELTA
++  delete process.env.INDEXER_DELTA_FALLBACK_THRESHOLD
++})
++
++describe("processPlanJob", () => {
++  test("uses snapshot mode when branch has no last ready sha", async () =>
++    withEnv(
++      {
++        INDEXER_ENABLE_DELTA: "1",
++      },
++      async () => {
++        const planDb = createPlanDbMock({
++          lastReadySha: null,
++          insertedRun: {
++            id: "run-1",
++            branchStateId: "branch-state-1",
++            headSha: "head-sha-123",
++            baseSha: null,
++            mode: "snapshot",
++          },
++        })
++        const sourceMock = createSourceMock()
++        const mod = await loadPlanModule(planDb.db)
++
++        const result = await mod.processPlanJob(baseJob, { source: sourceMock.source })
++
++        expect(result.mode).toBe("snapshot")
++        expect(planDb.calls.runInsert?.mode).toBe("snapshot")
++        expect(sourceMock.compare).toHaveBeenCalledTimes(0)
++      },
++    ))
++
++  test("uses delta mode when compare is valid and below fallback threshold", async () =>
++    withEnv(
++      {
++        INDEXER_ENABLE_DELTA: "1",
++        INDEXER_DELTA_FALLBACK_THRESHOLD: "5",
++      },
++      async () => {
++        const planDb = createPlanDbMock({
++          lastReadySha: "base-sha-456",
++          insertedRun: {
++            id: "run-2",
++            branchStateId: "branch-state-1",
++            headSha: "head-sha-123",
++            baseSha: "base-sha-456",
++            mode: "delta",
++          },
++        })
++        const sourceMock = createSourceMock({
++          compare: {
++            valid: true,
++            incomplete: false,
++            changes: [{ oldPath: "a.ts", newPath: "a.ts", type: "modified" }],
++          },
++        })
++        const mod = await loadPlanModule(planDb.db)
++
++        const result = await mod.processPlanJob(baseJob, { source: sourceMock.source })
++
++        expect(result.mode).toBe("delta")
++        expect(planDb.calls.runInsert?.mode).toBe("delta")
++        expect(sourceMock.compare).toHaveBeenCalledTimes(1)
++      },
++    ))
++
++  test("falls back to snapshot when compare is invalid or too large", async () =>
++    withEnv(
++      {
++        INDEXER_ENABLE_DELTA: "1",
++        INDEXER_DELTA_FALLBACK_THRESHOLD: "2",
++      },
++      async () => {
++        const planDb = createPlanDbMock({
++          lastReadySha: "base-sha-456",
++          insertedRun: {
++            id: "run-3",
++            branchStateId: "branch-state-1",
++            headSha: "head-sha-123",
++            baseSha: "base-sha-456",
++            mode: "snapshot",
++          },
++        })
++        const sourceMock = createSourceMock({
++          compare: {
++            valid: true,
++            incomplete: false,
++            changes: [
++              { oldPath: "a.ts", newPath: "a.ts", type: "modified" },
++              { oldPath: "b.ts", newPath: "b.ts", type: "modified" },
++              { oldPath: "c.ts", newPath: "c.ts", type: "modified" },
++            ],
++          },
++        })
++        const mod = await loadPlanModule(planDb.db)
++
++        const result = await mod.processPlanJob(baseJob, { source: sourceMock.source })
++
++        expect(result.mode).toBe("snapshot")
++        expect(planDb.calls.runInsert?.mode).toBe("snapshot")
++      },
++    ))
++
++  test("rejects invalid config hash", async () => {
++    const planDb = createPlanDbMock({
++      lastReadySha: null,
++      insertedRun: null,
++    })
++    const sourceMock = createSourceMock()
++    const mod = await loadPlanModule(planDb.db)
++
++    await expect(
++      mod.processPlanJob(
++        {
++          ...baseJob,
++          configHash: "../bad",
++        },
++        { source: sourceMock.source },
++      ),
++    ).rejects.toThrow("Invalid config hash.")
++  })
++})
+diff --git a/src/lib/indexing/snapshot.test.ts b/src/lib/indexing/snapshot.test.ts
+new file mode 100644
+index 00000000..cef34c65
+--- /dev/null
++++ b/src/lib/indexing/snapshot.test.ts
+@@ -0,0 +1,212 @@
++import { execFile } from "node:child_process"
++import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
++import os from "node:os"
++import path from "node:path"
++import { promisify } from "node:util"
++import { describe, expect, mock, test } from "bun:test"
++
++import { indexFileStates, indexRunFileChanges } from "@/lib/db/schema"
++import { sha256Hex } from "@/lib/utils/hash"
++
++const execFileAsync = promisify(execFile)
++
++const loadSnapshotModule = async (deps: {
++  db: unknown
++  buildVectorChunks: ReturnType<typeof mock>
++  embedVectorChunks: ReturnType<typeof mock>
++}) => {
++  mock.module("@/lib/db", () => ({ db: deps.db }))
++  mock.module("@/lib/indexing/chunker", () => ({
++    buildVectorChunks: deps.buildVectorChunks,
++  }))
++  mock.module("@/lib/indexing/embedder", () => ({
++    embedVectorChunks: deps.embedVectorChunks,
++  }))
++
++  return import(`./snapshot.ts?cacheBust=${Math.random().toString(36).slice(2)}`)
++}
++
++const createArchive = async (files: Record<string, string>) => {
++  const root = await mkdtemp(path.join(os.tmpdir(), "argus-snapshot-test-"))
++  const repoDir = path.join(root, "repo")
++  await mkdir(repoDir, { recursive: true })
++
++  for (const [relativePath, content] of Object.entries(files)) {
++    const absolutePath = path.join(repoDir, relativePath)
++    await mkdir(path.dirname(absolutePath), { recursive: true })
++    await writeFile(absolutePath, content, "utf8")
++  }
++
++  const archivePath = path.join(root, "repo.tar.gz")
++  await execFileAsync("tar", ["-czf", archivePath, "-C", root, "repo"])
++  return {
++    root,
++    archivePath,
++  }
++}
++
++const createSnapshotDbMock = (args: {
++  existingStates: Array<{ path: string; fileId: string }>
++}) => {
++  const staged = new Map<
++    string,
++    {
++      runId: string
++      path: string
++      changeType: "upsert" | "delete"
++      fileId: string | null
++      sizeBytes: number | null
++      skipReason: string | null
++    }
++  >()
++
++  const db = {
++    select: () => ({
++      from: (table: unknown) => {
++        if (table !== indexFileStates) {
++          throw new Error("Unexpected select table in snapshot test.")
++        }
++        return {
++          where: () => Promise.resolve(args.existingStates),
++        }
++      },
++    }),
++    delete: (table: unknown) => {
++      if (table !== indexRunFileChanges) {
++        throw new Error("Unexpected delete table in snapshot test.")
++      }
++      return {
++        where: () => {
++          staged.clear()
++          return Promise.resolve([])
++        },
++      }
++    },
++    insert: (table: unknown) => {
++      if (table !== indexRunFileChanges) {
++        throw new Error("Unexpected insert table in snapshot test.")
++      }
++      return {
++        values: (value: {
++          runId: string
++          path: string
++          changeType: "upsert" | "delete"
++          fileId: string | null
++          sizeBytes: number | null
++          skipReason: string | null
++        }) => ({
++          onConflictDoUpdate: () => {
++            staged.set(value.path, value)
++            return Promise.resolve([])
++          },
++        }),
++      }
++    },
++  }
++
++  return {
++    db,
++    staged,
++  }
++}
++
++describe("runSnapshotIngest", () => {
++  test("stages only changed files and deletes removed paths", async () => {
++    const sameContent = "const same = 1\n"
++    const changedContent = "export const changed = true\n"
++
++    const archive = await createArchive({
++      "same.ts": sameContent,
++      "change.ts": changedContent,
++    })
++
++    try {
++      const dbMock = createSnapshotDbMock({
++        existingStates: [
++          {
++            path: "same.ts",
++            fileId: sha256Hex(Buffer.from(sameContent, "utf8")),
++          },
++          {
++            path: "gone.ts",
++            fileId: "gone-file-id",
++          },
++        ],
++      })
++
++      const buildVectorChunks = mock(async ({ path: filePath, content }: { path: string; content: string }) => [
++        {
++          chunkIndex: 0,
++          chunkId: `${filePath}-chunk-0`,
++          content,
++          metadata: { path: filePath },
++        },
++      ])
++      const embedVectorChunks = mock(async (chunks: Array<Record<string, unknown>>) =>
++        chunks.map((chunk) => ({
++          ...chunk,
++          embedding: [0.1, 0.2, 0.3],
++        })),
++      )
++
++      const mod = await loadSnapshotModule({
++        db: dbMock.db,
++        buildVectorChunks,
++        embedVectorChunks,
++      })
++
++      const vectorStore = {
++        upsertChunks: mock(async () => {}),
++        queryCandidates: async () => [],
++        deleteStaleByPath: async () => {},
++      }
++      const artifactStore = {
++        writeManifest: mock(async () => {}),
++        writeChangedFiles: mock(async () => {}),
++        writeRunJson: mock(async () => {}),
++      }
++      const source = {
++        resolveHeadSha: async () => "head-sha-1",
++        compare: async () => ({ valid: true, incomplete: false, changes: [] }),
++        fetchFile: async () => ({ path: "x.ts", content: Buffer.from("x") }),
++        downloadArchive: async () => ({ archivePath: archive.archivePath }),
++      }
++
++      const result = await mod.runSnapshotIngest({
++        run: {
++          runId: "run-1",
++          branchStateId: "branch-state-1",
++          integrationId: "integration-1",
++          configHash: "default-v1",
++          headSha: "head-sha-1",
++          artifactsPrefix: "integrations/x/runs/default/main/head-sha-1/run-1",
++        },
++        source,
++        vectorStore,
++        artifactStore,
++      })
++
++      expect(result.stats).toMatchObject({
++        filesScanned: 2,
++        filesUnchanged: 1,
++        filesIndexed: 1,
++        filesDeleted: 1,
++      })
++
++      expect(dbMock.staged.get("change.ts")).toMatchObject({
++        changeType: "upsert",
++      })
++      expect(dbMock.staged.get("gone.ts")).toMatchObject({
++        changeType: "delete",
++        skipReason: "deleted",
++      })
++      expect(dbMock.staged.has("same.ts")).toBe(false)
++      expect(vectorStore.upsertChunks).toHaveBeenCalledTimes(1)
++      expect(artifactStore.writeManifest).toHaveBeenCalledTimes(1)
++      expect(artifactStore.writeChangedFiles).toHaveBeenCalledTimes(1)
++      expect(artifactStore.writeRunJson).toHaveBeenCalledTimes(1)
++    } finally {
++      await rm(archive.root, { recursive: true, force: true })
++    }
++  })
++})

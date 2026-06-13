@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T00:53:34.004Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-14943",
+    "baseRef": "muzen-bench/pr-14943-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 3,
+    "goldenIssueCount": 1
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gKjXKO/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gKjXKO/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 3,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 1,
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 7,
+    "toolCalls": 10,
+    "tokens": {
+      "inputTokens": 33084,
+      "outputTokens": 1248,
+      "totalTokens": 34332
+    },
+    "artifactStats": {
+      "artifacts": 8,
+      "artifactBytes": 100426
+    },
+    "elapsedMs": 14849
+  },
+  "benchmark": {
+    "elapsedMs": 15173,
+    "hitRate": 0,
+    "hits": [],
+    "misses": [
+      {
+        "issueId": "cal-14943-sms-retry-cleanup-scope",
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "title": "SMS retry cleanup deletes reminders from other delivery methods"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The deleteMany predicate used to match only SMS reminders whose scheduledDate was in the past. After the change it also matches any workflowReminder with retryCount > 1, even if it is not SMS and even if its scheduledDate is not past, broadening the deleted set beyond the prior scope.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4db634bc0ce19f30c5ba548bd999bd38bc593055194702f4f50a7bab8662061b",
+          "contentHash": "843fb9d5e7ceb7d3d00a88d8c7fc53c2ee6a8de6c446d4d254e2d81a2c4036bc",
+          "evidenceId": "evidence-art_4db634bc0ce19f30c5ba548bd999bd38bc593055194702f4f50a7bab8662061b",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+        },
+        {
+          "artifactId": "art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "contentHash": "04655f72879ad2d563d4998855d6503918b8caa9992bfd4e66dc1961c61b6569",
+          "evidenceId": "evidence-art_cf3d577fcdab2e1c3cf71ee6a895b280751ddae77515c1cec92d224f0cd35911",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+        },
+        {
+          "artifactId": "art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "contentHash": "d5aee9de4d413f2016a93ecbae38c679eba6f62b33c0d120560a1551887e2100",
+          "evidenceId": "evidence-art_eb91cf0f117bd204f2dde90e4789a58f58337332509a05bcecde7b931f65a16f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "76e723a0c38c5f9b0a9eaa55a08ce59fad46b87881d0791ef4a2ab0262f9b6dd",
+      "location": {
+        "endColumn": null,
+        "endLine": 43,
+        "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 31
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Unscoped OR branch deletes non-SMS or future reminders when retryCount > 1",
+      "validatedBy": [
+        "pack-8d4466c38ae487387ebe8dbf9eadb30239fe66e649013e05bb27379c59d5d2dd-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

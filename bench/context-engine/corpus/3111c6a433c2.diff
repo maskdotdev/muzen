@@ -1,0 +1,959 @@
+diff --git a/src/app/(app)/settings/page.tsx b/src/app/(app)/settings/page.tsx
+index 4ec60f50..8eb46dd1 100644
+--- a/src/app/(app)/settings/page.tsx
++++ b/src/app/(app)/settings/page.tsx
+@@ -35,7 +35,6 @@ const emptyTokens = {
+ type AISettings = {
+   apiUrl: string
+   model: string
+-  token: string
+ }
+ 
+ type IntegrationStatus = "active" | "degraded" | "disabled"
+@@ -56,11 +55,22 @@ type ThemeMode = "system" | "light" | "dark" | "argus"
+ 
+ const AI_SETTINGS_STORAGE_KEY = "argus-ai-settings"
+ const THEME_SETTINGS_STORAGE_KEY = "argus-theme-mode"
+-
+-const emptyAiSettings = {
+-  apiUrl: "",
+-  model: "",
+-  token: "",
++const DEFAULT_AI_API_URL = "https://api.openai.com/v1"
++const DEFAULT_AI_MODEL = "gpt-4o-mini"
++
++const getEnvAiDefaults = (): AISettings => ({
++  apiUrl:
++    process.env.NEXT_PUBLIC_AI_API_URL?.trim() ||
++    process.env.NEXT_PUBLIC_OPENAI_BASE_URL?.trim() ||
++    DEFAULT_AI_API_URL,
++  model:
++    process.env.NEXT_PUBLIC_AI_MODEL?.trim() ||
++    process.env.NEXT_PUBLIC_OPENAI_MODEL?.trim() ||
++    DEFAULT_AI_MODEL,
++})
++
++const defaultAiSettings = {
++  ...getEnvAiDefaults(),
+ } satisfies AISettings
+ 
+ const THEME_MODES: Array<{ value: ThemeMode; label: string }> = [
+@@ -135,24 +145,30 @@ const readSavedTokensFromStorage = (): SavedTokens => {
+ }
+ 
+ const readAiSettingsFromStorage = (): AISettings => {
++  const envDefaults = getEnvAiDefaults()
+   if (typeof window === "undefined") {
+-    return emptyAiSettings
++    return envDefaults
+   }
+ 
+   const aiRaw = window.localStorage.getItem(AI_SETTINGS_STORAGE_KEY)
+   if (!aiRaw) {
+-    return emptyAiSettings
++    return envDefaults
+   }
+ 
+   try {
+     const parsed = JSON.parse(aiRaw) as Partial<AISettings>
+     return {
+-      apiUrl: typeof parsed.apiUrl === "string" ? parsed.apiUrl : "",
+-      model: typeof parsed.model === "string" ? parsed.model : "",
+-      token: typeof parsed.token === "string" ? parsed.token : "",
++      apiUrl:
++        typeof parsed.apiUrl === "string" && parsed.apiUrl.trim().length > 0
++          ? parsed.apiUrl
++          : envDefaults.apiUrl,
++      model:
++        typeof parsed.model === "string" && parsed.model.trim().length > 0
++          ? parsed.model
++          : envDefaults.model,
+     }
+   } catch {
+-    return emptyAiSettings
++    return envDefaults
+   }
+ }
+ 
+@@ -223,9 +239,9 @@ export default function SettingsPage() {
+     if (!response.ok) {
+       const message =
+         payload &&
+-        typeof payload === "object" &&
+-        "error" in payload &&
+-        typeof (payload as { error?: unknown }).error === "string"
++          typeof payload === "object" &&
++          "error" in payload &&
++          typeof (payload as { error?: unknown }).error === "string"
+           ? (payload as { error: string }).error
+           : "Failed to load integrations."
+       throw new Error(message)
+@@ -233,9 +249,9 @@ export default function SettingsPage() {
+ 
+     const data =
+       payload &&
+-      typeof payload === "object" &&
+-      "data" in payload &&
+-      Array.isArray((payload as { data?: unknown }).data)
++        typeof payload === "object" &&
++        "data" in payload &&
++        Array.isArray((payload as { data?: unknown }).data)
+         ? (payload as { data: GitLabIntegration[] }).data
+         : []
+ 
+@@ -259,9 +275,9 @@ export default function SettingsPage() {
+     if (!response.ok) {
+       const message =
+         payload &&
+-        typeof payload === "object" &&
+-        "error" in payload &&
+-        typeof (payload as { error?: unknown }).error === "string"
++          typeof payload === "object" &&
++          "error" in payload &&
++          typeof (payload as { error?: unknown }).error === "string"
+           ? (payload as { error: string }).error
+           : `Failed to ${action} integration.`
+       throw new Error(message)
+@@ -280,17 +296,17 @@ export default function SettingsPage() {
+       const payload = await callIntegrationAction(integrationId, action, options?.token)
+       const warning =
+         payload &&
+-        typeof payload === "object" &&
+-        "warning" in payload &&
+-        typeof (payload as { warning?: unknown }).warning === "string"
++          typeof payload === "object" &&
++          "warning" in payload &&
++          typeof (payload as { warning?: unknown }).warning === "string"
+           ? (payload as { warning: string }).warning
+           : ""
+ 
+       setIntegrationStatus(
+         warning ||
+-          (action === "resync"
+-            ? "Integration resync requested."
+-            : "Integration disconnected."),
++        (action === "resync"
++          ? "Integration resync requested."
++          : "Integration disconnected."),
+       )
+       clearStatusLater(setIntegrationStatus)
+       await loadIntegrations()
+@@ -315,7 +331,7 @@ export default function SettingsPage() {
+   }
+ 
+   const clearAISettings = () => {
+-    setAiSettings(emptyAiSettings)
++    setAiSettings(defaultAiSettings)
+     setAiStatus("AI settings cleared.")
+     clearStatusLater(setAiStatus)
+   }
+@@ -581,7 +597,7 @@ export default function SettingsPage() {
+             <CardHeader>
+               <CardTitle>AI settings</CardTitle>
+               <CardDescription>
+-                Configure AI endpoint, model and token per your provider.
++                Configure AI endpoint and model. Token stays server-side via env.
+               </CardDescription>
+             </CardHeader>
+             <CardContent className="space-y-4">
+@@ -604,17 +620,6 @@ export default function SettingsPage() {
+                   placeholder="gpt-4o-mini"
+                 />
+               </div>
+-              <div className="space-y-2">
+-                <Label htmlFor="ai-token">Token</Label>
+-                <Input
+-                  id="ai-token"
+-                  type="password"
+-                  autoComplete="off"
+-                  value={aiSettings.token}
+-                  onChange={(event) => handleAiSettingChange("token", event.target.value)}
+-                  placeholder="Paste AI API token"
+-                />
+-              </div>
+               <p className="text-xs text-muted-foreground">{aiStatus || "Auto-loaded from local storage."}</p>
+             </CardContent>
+             <CardFooter className="justify-between">
+@@ -645,11 +650,10 @@ export default function SettingsPage() {
+                       key={mode.value}
+                       type="button"
+                       onClick={() => handleThemeModeChange(mode.value)}
+-                      className={`rounded-md border p-3 text-left transition-colors ${
+-                        themeMode === mode.value
+-                          ? "border-primary bg-primary/10"
+-                          : "border-border hover:bg-muted/40"
+-                      }`}
++                      className={`rounded-md border p-3 text-left transition-colors ${themeMode === mode.value
++                        ? "border-primary bg-primary/10"
++                        : "border-border hover:bg-muted/40"
++                        }`}
+                     >
+                       <p className="text-sm font-medium">{mode.label}</p>
+                       <p className="text-xs text-muted-foreground">
+diff --git a/src/app/api/review/diff/route.ts b/src/app/api/review/diff/route.ts
+new file mode 100644
+index 00000000..1a9a5a1c
+--- /dev/null
++++ b/src/app/api/review/diff/route.ts
+@@ -0,0 +1,306 @@
++import { NextResponse } from "next/server"
++
++import { getSessionUserId } from "@/lib/session"
++
++const MAX_PATCH_CHARS = 120_000
++const MAX_FINDINGS = 32
++const CHAT_TIMEOUT_MS = 35_000
++const DEFAULT_AI_API_URL = "https://api.openai.com/v1"
++const DEFAULT_AI_MODEL = "gpt-4o-mini"
++
++type ReviewRequestPayload = {
++  patch?: unknown
++  apiUrl?: unknown
++  model?: unknown
++}
++
++type ReviewFinding = {
++  file: string
++  line: number
++  side: "additions" | "deletions"
++  severity: "high" | "med" | "low"
++  title: string
++  body: string
++  confidence: number
++}
++
++type ChatCompletionsResponse = {
++  choices?: Array<{
++    message?: {
++      content?: unknown
++    }
++  }>
++}
++
++const isNonEmptyString = (value: unknown): value is string =>
++  typeof value === "string" && value.trim().length > 0
++
++const normalizeApiUrl = (value: string) => value.trim().replace(/\/+$/, "")
++
++const pickFirstNonEmpty = (...values: Array<string | undefined>) => {
++  for (const value of values) {
++    if (isNonEmptyString(value)) {
++      return value.trim()
++    }
++  }
++  return ""
++}
++
++const getEnvApiUrl = () =>
++  pickFirstNonEmpty(
++    process.env.AI_API_URL,
++    process.env.OPENAI_BASE_URL,
++    process.env.NEXT_PUBLIC_AI_API_URL,
++    process.env.NEXT_PUBLIC_OPENAI_BASE_URL,
++  ) || DEFAULT_AI_API_URL
++
++const getEnvModel = () =>
++  pickFirstNonEmpty(
++    process.env.AI_MODEL,
++    process.env.OPENAI_MODEL,
++    process.env.NEXT_PUBLIC_AI_MODEL,
++    process.env.NEXT_PUBLIC_OPENAI_MODEL,
++  ) || DEFAULT_AI_MODEL
++
++const getEnvToken = () =>
++  pickFirstNonEmpty(
++    process.env.AI_API_TOKEN,
++    process.env.OPENAI_API_KEY,
++  )
++
++const toReviewSide = (value: unknown): ReviewFinding["side"] => {
++  const normalized = String(value ?? "")
++    .trim()
++    .toLowerCase()
++
++  if (
++    normalized === "deletions" ||
++    normalized === "deletion" ||
++    normalized === "removed" ||
++    normalized === "left"
++  ) {
++    return "deletions"
++  }
++
++  return "additions"
++}
++
++const toReviewSeverity = (value: unknown): ReviewFinding["severity"] => {
++  const normalized = String(value ?? "")
++    .trim()
++    .toLowerCase()
++  if (normalized === "high") {
++    return "high"
++  }
++  if (normalized === "medium" || normalized === "med") {
++    return "med"
++  }
++  return "low"
++}
++
++const toConfidence = (value: unknown) => {
++  if (typeof value !== "number" || !Number.isFinite(value)) {
++    return 0.7
++  }
++
++  return Math.max(0, Math.min(1, value))
++}
++
++const sanitizeAssistantContent = (content: string) => {
++  const trimmed = content.trim()
++  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
++  const candidate = (fenced?.[1] ?? trimmed).trim()
++  const firstBrace = candidate.indexOf("{")
++  const lastBrace = candidate.lastIndexOf("}")
++
++  if (firstBrace >= 0 && lastBrace > firstBrace) {
++    return candidate.slice(firstBrace, lastBrace + 1)
++  }
++
++  return candidate
++}
++
++const parseFindings = (content: unknown): ReviewFinding[] => {
++  if (!isNonEmptyString(content)) {
++    return []
++  }
++
++  let parsed: unknown
++  try {
++    parsed = JSON.parse(sanitizeAssistantContent(content))
++  } catch {
++    return []
++  }
++
++  const rawFindings = (() => {
++    if (Array.isArray(parsed)) {
++      return parsed
++    }
++    if (parsed && typeof parsed === "object") {
++      const maybeFindings = (parsed as { findings?: unknown }).findings
++      if (Array.isArray(maybeFindings)) {
++        return maybeFindings
++      }
++    }
++    return []
++  })()
++
++  const normalized = rawFindings
++    .map((value) => {
++      if (!value || typeof value !== "object") {
++        return null
++      }
++
++      const finding = value as Record<string, unknown>
++      const line = Number(finding.line)
++      const file = String(finding.file ?? "").trim()
++      const title = String(finding.title ?? "").trim()
++      const body = String(finding.body ?? finding.explanation ?? "").trim()
++
++      if (!file || !title || !body || !Number.isFinite(line) || line < 1) {
++        return null
++      }
++
++      return {
++        file,
++        line: Math.floor(line),
++        side: toReviewSide(finding.side),
++        severity: toReviewSeverity(finding.severity),
++        title,
++        body,
++        confidence: toConfidence(finding.confidence),
++      } satisfies ReviewFinding
++    })
++    .filter((finding): finding is ReviewFinding => finding !== null)
++
++  return normalized.slice(0, MAX_FINDINGS)
++}
++
++const getChatCompletionsUrl = (apiUrl: string) => {
++  const normalized = normalizeApiUrl(apiUrl)
++  if (/\/chat\/completions$/i.test(normalized)) {
++    return normalized
++  }
++  return `${normalized}/chat/completions`
++}
++
++const readProviderError = async (response: Response) => {
++  const bodyText = await response.text().catch(() => "")
++  return bodyText.slice(0, 400)
++}
++
++const buildSystemPrompt = () =>
++  [
++    "You are a senior software code reviewer.",
++    "Review a git patch and identify likely real issues only.",
++    "Focus on syntax, logic bugs, regressions, null/async issues, and security risks.",
++    "Avoid style-only feedback unless it materially affects maintainability or correctness.",
++    "Return strictly JSON with shape:",
++    '{"findings":[{"file":"path","line":1,"side":"additions|deletions","severity":"high|med|low","title":"short","body":"why it matters + fix hint","confidence":0.0}]}',
++    "Use only file paths and changed line numbers from the patch.",
++    `Limit findings to ${MAX_FINDINGS}.`,
++  ].join("\n")
++
++const requestReview = async ({
++  patch,
++  apiUrl,
++  model,
++  token,
++}: {
++  patch: string
++  apiUrl: string
++  model: string
++  token: string
++}) => {
++  const controller = new AbortController()
++  const timeout = setTimeout(() => {
++    controller.abort()
++  }, CHAT_TIMEOUT_MS)
++
++  try {
++    const response = await fetch(getChatCompletionsUrl(apiUrl), {
++      method: "POST",
++      headers: {
++        "content-type": "application/json",
++        authorization: `Bearer ${token}`,
++      },
++      body: JSON.stringify({
++        model,
++        temperature: 0.1,
++        messages: [
++          { role: "system", content: buildSystemPrompt() },
++          { role: "user", content: `Review this patch:\n\n${patch}` },
++        ],
++      }),
++      signal: controller.signal,
++    })
++
++    if (!response.ok) {
++      const providerError = await readProviderError(response)
++      throw new Error(
++        `AI provider request failed (${response.status})${providerError ? `: ${providerError}` : ""}`,
++      )
++    }
++
++    const payload = (await response.json()) as ChatCompletionsResponse
++    const content = payload.choices?.[0]?.message?.content
++    return parseFindings(content)
++  } catch (error) {
++    if (error instanceof Error && error.name === "AbortError") {
++      throw new Error("AI review timed out.")
++    }
++    throw error
++  } finally {
++    clearTimeout(timeout)
++  }
++}
++
++export async function POST(request: Request) {
++  const userId = await getSessionUserId()
++  if (!userId) {
++    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
++  }
++
++  const payload = (await request.json().catch(() => null)) as
++    | ReviewRequestPayload
++    | null
++
++  const patch = isNonEmptyString(payload?.patch) ? payload.patch : ""
++  const apiUrl = normalizeApiUrl(
++    isNonEmptyString(payload?.apiUrl) ? payload.apiUrl : getEnvApiUrl(),
++  )
++  const model = isNonEmptyString(payload?.model)
++    ? payload.model.trim()
++    : getEnvModel()
++  const token = getEnvToken()
++
++  if (!patch) {
++    return NextResponse.json({ error: "Patch is required." }, { status: 400 })
++  }
++  if (!apiUrl || !model || !token) {
++    return NextResponse.json(
++      { error: "AI token missing. Set AI_API_TOKEN or OPENAI_API_KEY on the server." },
++      { status: 400 },
++    )
++  }
++  if (patch.length > MAX_PATCH_CHARS) {
++    return NextResponse.json(
++      { error: `Diff too large for AI review. Limit is ${MAX_PATCH_CHARS.toLocaleString()} characters.` },
++      { status: 413 },
++    )
++  }
++
++  try {
++    const findings = await requestReview({
++      patch,
++      apiUrl,
++      model,
++      token,
++    })
++
++    return NextResponse.json({ data: { findings } })
++  } catch (error) {
++    const message = error instanceof Error ? error.message : "AI review failed."
++    return NextResponse.json({ error: message }, { status: 502 })
++  }
++}
+diff --git a/src/components/merge-request-diff-viewer.tsx b/src/components/merge-request-diff-viewer.tsx
+index c328d6e9..0e8f35c6 100644
+--- a/src/components/merge-request-diff-viewer.tsx
++++ b/src/components/merge-request-diff-viewer.tsx
+@@ -1,6 +1,6 @@
+ "use client"
+ 
+-import type { FileDiffMetadata } from "@pierre/diffs"
++import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs"
+ import { FileDiff, WorkerPoolContextProvider } from "@pierre/diffs/react"
+ import { useTheme } from "next-themes"
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+@@ -35,12 +35,44 @@ type ParsePatchWorkerResponse = {
+   parseError: string
+ }
+ 
++type AiSettings = {
++  apiUrl: string
++  model: string
++}
++
++type DiffReviewPayload = {
++  data?: {
++    findings?: unknown
++  }
++  error?: unknown
++}
++
++type ReviewFinding = {
++  file: string
++  line: number
++  side: "additions" | "deletions"
++  severity: "high" | "med" | "low"
++  title: string
++  body: string
++  confidence: number
++}
++
++type ReviewAnnotationMetadata = {
++  severity: ReviewFinding["severity"]
++  title: string
++  body: string
++  confidence: number
++}
++
+ const INITIAL_FILE_BATCH_SIZE = 12
+ const FILE_BATCH_SIZE = 8
+ const INITIAL_PARSE_FILE_BATCH_SIZE = 1
+ const BACKGROUND_PARSE_FILE_BATCH_SIZE = 8
+ const DIFF_CACHE_SIZE = 400
+ const DEFAULT_WORKER_COUNT = 4
++const AI_SETTINGS_STORAGE_KEY = "argus-ai-settings"
++const DEFAULT_AI_API_URL = "https://api.openai.com/v1"
++const DEFAULT_AI_MODEL = "gpt-4o-mini"
+ type DiffThemeMode = "system" | "light" | "dark"
+ const DIFF_THEME = {
+   light: "pierre-light",
+@@ -57,6 +89,139 @@ const getErrorMessage = (value: unknown) => {
+   return "Unable to load merge request diff."
+ }
+ 
++const getReviewErrorMessage = (value: unknown) => {
++  if (typeof value === "string") {
++    return value
++  }
++  if (value && typeof value === "object" && "error" in value) {
++    return String((value as { error?: string }).error)
++  }
++  return "Unable to complete AI review."
++}
++
++const isNonEmptyString = (value: unknown): value is string =>
++  typeof value === "string" && value.trim().length > 0
++
++const getEnvAiDefaults = (): AiSettings => ({
++  apiUrl:
++    process.env.NEXT_PUBLIC_AI_API_URL?.trim() ||
++    process.env.NEXT_PUBLIC_OPENAI_BASE_URL?.trim() ||
++    DEFAULT_AI_API_URL,
++  model:
++    process.env.NEXT_PUBLIC_AI_MODEL?.trim() ||
++    process.env.NEXT_PUBLIC_OPENAI_MODEL?.trim() ||
++    DEFAULT_AI_MODEL,
++})
++
++const parseAiSettings = (): AiSettings | null => {
++  const envDefaults = getEnvAiDefaults()
++
++  if (typeof window === "undefined") {
++    return envDefaults
++  }
++
++  const raw = window.localStorage.getItem(AI_SETTINGS_STORAGE_KEY)
++  if (!raw) {
++    return envDefaults
++  }
++
++  try {
++    const parsed = JSON.parse(raw) as Partial<AiSettings>
++    const merged = {
++      apiUrl:
++        isNonEmptyString(parsed.apiUrl) ? parsed.apiUrl.trim() : envDefaults.apiUrl,
++      model:
++        isNonEmptyString(parsed.model) ? parsed.model.trim() : envDefaults.model,
++    } satisfies AiSettings
++
++    if (
++      !isNonEmptyString(merged.apiUrl) ||
++      !isNonEmptyString(merged.model)
++    ) {
++      return null
++    }
++
++    return merged
++  } catch {
++    return envDefaults
++  }
++}
++
++const normalizePatchPath = (value: string) =>
++  value
++    .trim()
++    .replace(/^(\.\/)+/, "")
++    .replace(/^[ab]\//, "")
++
++const toReviewSide = (value: unknown): ReviewFinding["side"] => {
++  const normalized = String(value ?? "")
++    .trim()
++    .toLowerCase()
++  if (
++    normalized === "deletions" ||
++    normalized === "deletion" ||
++    normalized === "removed" ||
++    normalized === "left"
++  ) {
++    return "deletions"
++  }
++  return "additions"
++}
++
++const toReviewSeverity = (value: unknown): ReviewFinding["severity"] => {
++  const normalized = String(value ?? "")
++    .trim()
++    .toLowerCase()
++  if (normalized === "high") {
++    return "high"
++  }
++  if (normalized === "medium" || normalized === "med") {
++    return "med"
++  }
++  return "low"
++}
++
++const toReviewConfidence = (value: unknown) => {
++  if (typeof value !== "number" || !Number.isFinite(value)) {
++    return 0.7
++  }
++  return Math.max(0, Math.min(1, value))
++}
++
++const normalizeReviewFindings = (value: unknown): ReviewFinding[] => {
++  if (!Array.isArray(value)) {
++    return []
++  }
++
++  return value
++    .map((item) => {
++      if (!item || typeof item !== "object") {
++        return null
++      }
++
++      const finding = item as Record<string, unknown>
++      const file = String(finding.file ?? "").trim()
++      const line = Number(finding.line)
++      const title = String(finding.title ?? "").trim()
++      const body = String(finding.body ?? finding.explanation ?? "").trim()
++
++      if (!file || !title || !body || !Number.isFinite(line) || line < 1) {
++        return null
++      }
++
++      return {
++        file,
++        line: Math.floor(line),
++        side: toReviewSide(finding.side),
++        severity: toReviewSeverity(finding.severity),
++        title,
++        body,
++        confidence: toReviewConfidence(finding.confidence),
++      } satisfies ReviewFinding
++    })
++    .filter((item): item is ReviewFinding => item !== null)
++}
++
+ const getFileLabel = (file: FileDiffMetadata) => {
+   if (file.prevName && file.prevName !== file.name) {
+     return `${file.prevName} -> ${file.name}`
+@@ -143,6 +308,10 @@ export function MergeRequestDiffViewer({
+   })
+   const [isParsingInitialPatch, setIsParsingInitialPatch] = useState(false)
+   const [isParsingRemainingPatch, setIsParsingRemainingPatch] = useState(false)
++  const [isReviewing, setIsReviewing] = useState(false)
++  const [reviewError, setReviewError] = useState("")
++  const [reviewSummary, setReviewSummary] = useState("")
++  const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([])
+   const { resolvedTheme } = useTheme()
+   const parseWorkerRef = useRef<Worker | null>(null)
+   const parseRequestIdRef = useRef(0)
+@@ -266,6 +435,9 @@ export function MergeRequestDiffViewer({
+         fullParseMs: null,
+       })
+       setVisibleFileCount(INITIAL_FILE_BATCH_SIZE)
++      setReviewError("")
++      setReviewSummary("")
++      setReviewFindings([])
+     } catch (error) {
+       setPatchText("")
+       setDataSource(null)
+@@ -275,6 +447,9 @@ export function MergeRequestDiffViewer({
+         firstParseMs: null,
+         fullParseMs: null,
+       })
++      setReviewError("")
++      setReviewSummary("")
++      setReviewFindings([])
+     } finally {
+       setIsLoading(false)
+     }
+@@ -517,11 +692,168 @@ export function MergeRequestDiffViewer({
+   const canLoadMore = visibleFileCount < filteredFiles.length
+   const isDiffBusy = isLoading || isParsingInitialPatch
+   const isDiffLoading = isLoading || isParsingInitialPatch || isParsingRemainingPatch
++  const loadProfileSummary = useMemo(() => {
++    if (!dataSource || loadProfile.fetchMs == null) {
++      return ""
++    }
++
++    const parts = [`Source: ${dataSource === "changes" ? "changes" : "raw_diffs"}`, `fetch ${loadProfile.fetchMs}ms`]
++    if (loadProfile.firstParseMs != null) {
++      parts.push(`first parse ${loadProfile.firstParseMs}ms`)
++    }
++    if (loadProfile.fullParseMs != null) {
++      parts.push(`full parse ${loadProfile.fullParseMs}ms`)
++    }
++    return parts.join(" · ")
++  }, [dataSource, loadProfile.fetchMs, loadProfile.firstParseMs, loadProfile.fullParseMs])
+ 
+   const getFileKey = useCallback((file: FileDiffMetadata) => {
+     return getStableFileKey(file)
+   }, [])
+ 
++  const parsedFileLookup = useMemo(() => {
++    const lookup = new Map<string, FileDiffMetadata>()
++    for (const file of parsedFiles) {
++      const candidates = [file.name, file.prevName].filter(
++        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
++      )
++
++      for (const candidate of candidates) {
++        const normalized = normalizePatchPath(candidate)
++        if (!lookup.has(normalized)) {
++          lookup.set(normalized, file)
++        }
++      }
++    }
++    return lookup
++  }, [parsedFiles])
++
++  const reviewAnnotationsByFileKey = useMemo<
++    Record<string, DiffLineAnnotation<ReviewAnnotationMetadata>[]>
++  >(() => {
++    const next: Record<string, DiffLineAnnotation<ReviewAnnotationMetadata>[]> = {}
++
++    for (const finding of reviewFindings) {
++      const targetFile = parsedFileLookup.get(normalizePatchPath(finding.file))
++      if (!targetFile) {
++        continue
++      }
++
++      const key = getFileKey(targetFile)
++      const annotations = next[key] ?? []
++      annotations.push({
++        side: finding.side,
++        lineNumber: finding.line,
++        metadata: {
++          severity: finding.severity,
++          title: finding.title,
++          body: finding.body,
++          confidence: finding.confidence,
++        },
++      })
++      next[key] = annotations
++    }
++
++    for (const annotations of Object.values(next)) {
++      annotations.sort((a, b) => a.lineNumber - b.lineNumber)
++    }
++
++    return next
++  }, [getFileKey, parsedFileLookup, reviewFindings])
++
++  const clearReviewFindings = useCallback(() => {
++    setReviewFindings([])
++    setReviewError("")
++    setReviewSummary("")
++  }, [])
++
++  const runAiReview = useCallback(async () => {
++    if (!patchText.trim()) {
++      setReviewError("Load a diff before running AI review.")
++      setReviewSummary("")
++      setReviewFindings([])
++      return
++    }
++
++    const aiSettings = parseAiSettings()
++    if (!aiSettings) {
++      setReviewError("AI settings are missing. Set API URL and model in Settings.")
++      setReviewSummary("")
++      setReviewFindings([])
++      return
++    }
++
++    setIsReviewing(true)
++    setReviewError("")
++    setReviewSummary("")
++
++    try {
++      const response = await fetch("/api/review/diff", {
++        method: "POST",
++        headers: {
++          "content-type": "application/json",
++        },
++        body: JSON.stringify({
++          patch: patchText,
++          apiUrl: aiSettings.apiUrl,
++          model: aiSettings.model,
++        }),
++      })
++
++      const payload = (await response.json().catch(() => null)) as DiffReviewPayload | null
++      if (!response.ok) {
++        throw new Error(getReviewErrorMessage(payload))
++      }
++
++      const findings = normalizeReviewFindings(payload?.data?.findings)
++      setReviewFindings(findings)
++
++      if (findings.length === 0) {
++        setReviewSummary("AI review complete. No findings.")
++        return
++      }
++
++      const highCount = findings.filter((finding) => finding.severity === "high").length
++      const medCount = findings.filter((finding) => finding.severity === "med").length
++      const lowCount = findings.length - highCount - medCount
++      setReviewSummary(
++        `AI review complete: ${findings.length} findings (${highCount} high, ${medCount} med, ${lowCount} low).`,
++      )
++    } catch (error) {
++      setReviewFindings([])
++      setReviewSummary("")
++      setReviewError(getReviewErrorMessage(error))
++    } finally {
++      setIsReviewing(false)
++    }
++  }, [patchText])
++
++  const renderReviewAnnotation = useCallback(
++    (annotation: DiffLineAnnotation<ReviewAnnotationMetadata>) => {
++      const metadata = annotation.metadata
++      const accentClasses =
++        metadata.severity === "high"
++          ? "border-red-300/80 bg-red-50/90 dark:border-red-900/50 dark:bg-red-950/40"
++          : metadata.severity === "med"
++            ? "border-amber-300/80 bg-amber-50/90 dark:border-amber-900/40 dark:bg-amber-950/30"
++            : "border-slate-300/80 bg-slate-50/80 dark:border-slate-700/70 dark:bg-slate-900/35"
++
++      return (
++        <div className={`mx-2 my-1 rounded border px-2 py-1.5 text-xs ${accentClasses}`}>
++          <p className="font-medium leading-4">{metadata.title}</p>
++          <p className="mt-1 whitespace-pre-wrap leading-4 text-muted-foreground">
++            {metadata.body}
++          </p>
++          <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
++            {metadata.severity}
++            {` \u2022 ${Math.round(metadata.confidence * 100)}%`}
++          </p>
++        </div>
++      )
++    },
++    [],
++  )
++
+   const toggleFileCollapsed = useCallback(
+     (file: FileDiffMetadata) => {
+       const key = getFileKey(file)
+@@ -755,6 +1087,11 @@ export function MergeRequestDiffViewer({
+             <span className="text-destructive">
+               {totals.deletions} {totals.deletions === 1 ? "deletion" : "deletions"}
+             </span>
++            {reviewFindings.length > 0 ? (
++              <span className="text-muted-foreground">
++                {reviewFindings.length} AI {reviewFindings.length === 1 ? "comment" : "comments"}
++              </span>
++            ) : null}
+           </div>
+ 
+           <div className="ml-auto flex items-center gap-2">
+@@ -768,6 +1105,26 @@ export function MergeRequestDiffViewer({
+             />
+ 
+             {/* Controls */}
++            <Button
++              type="button"
++              size="sm"
++              variant="outline"
++              disabled={isDiffLoading || isReviewing || !patchText}
++              onClick={() => void runAiReview()}
++              className="h-8"
++            >
++              {isReviewing ? "Reviewing..." : "AI review"}
++            </Button>
++            <Button
++              type="button"
++              size="sm"
++              variant="ghost"
++              disabled={isReviewing || reviewFindings.length === 0}
++              onClick={clearReviewFindings}
++              className="h-8"
++            >
++              Clear comments
++            </Button>
+             <Tooltip>
+               <TooltipTrigger asChild>
+                 <Button
+@@ -819,6 +1176,9 @@ export function MergeRequestDiffViewer({
+ 
+         {loadError ? <p className="text-xs text-destructive">{loadError}</p> : null}
+         {parseError ? <p className="text-xs text-destructive">{parseError}</p> : null}
++        {reviewError ? <p className="text-xs text-destructive">{reviewError}</p> : null}
++        {reviewSummary ? <p className="text-xs text-muted-foreground">{reviewSummary}</p> : null}
++        {loadProfileSummary ? <p className="text-[11px] text-muted-foreground">{loadProfileSummary}</p> : null}
+         {isParsingRemainingPatch ? (
+           <p className="text-xs text-muted-foreground">Loading remaining files...</p>
+         ) : null}
+@@ -851,6 +1211,8 @@ export function MergeRequestDiffViewer({
+                     <FileDiff
+                       fileDiff={file}
+                       options={diffOptions}
++                      lineAnnotations={reviewAnnotationsByFileKey[getFileKey(file)]}
++                      renderAnnotation={renderReviewAnnotation}
+                       className="rounded-b-lg"
+                     />
+                   ) : null}

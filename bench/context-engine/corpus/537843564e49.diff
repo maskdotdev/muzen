@@ -1,0 +1,390 @@
+diff --git a/sdk/python/muzen/__init__.py b/sdk/python/muzen/__init__.py
+index 40dfc23..1d9eb2b 100644
+--- a/sdk/python/muzen/__init__.py
++++ b/sdk/python/muzen/__init__.py
+@@ -23,6 +23,14 @@ from .types import (
+     ReviewSessionSnapshot,
+     ReviewSource,
+     SourceProviderKind,
++    WebhookDelivery,
++    WebhookHttpResponse,
++)
++from .webhooks import (
++    WEBHOOK_STATUS_ACCEPTED,
++    WEBHOOK_STATUS_OK,
++    create_webhook_response,
++    webhook_delivery_status,
+ )
+ 
+ __all__ = [
+@@ -50,11 +58,17 @@ __all__ = [
+     "ReviewSessionSnapshot",
+     "ReviewSource",
+     "SourceProviderKind",
++    "WEBHOOK_STATUS_ACCEPTED",
++    "WEBHOOK_STATUS_OK",
++    "WebhookDelivery",
++    "WebhookHttpResponse",
+     "create_muzen",
+     "create_muzen_client",
++    "create_webhook_response",
+     "github",
+     "gitlab",
+     "local",
+     "parse_review_source",
+     "source_key",
++    "webhook_delivery_status",
+ ]
+diff --git a/sdk/python/muzen/types.py b/sdk/python/muzen/types.py
+index 301be64..9a7f532 100644
+--- a/sdk/python/muzen/types.py
++++ b/sdk/python/muzen/types.py
+@@ -49,6 +49,7 @@ ReviewEventType = Literal[
+ ReviewArtifactView = Literal["redacted", "raw"]
+ ModelProviderKind = Literal["openai", "anthropic", "openai_compatible"]
+ SourceProviderKind = Literal["github", "gitlab"]
++WebhookDeliveryType = Literal["review_created", "review_deduped", "ignored"]
+ 
+ 
+ @dataclass(frozen=True)
+@@ -232,3 +233,19 @@ class ReviewSessionSnapshot:
+     status: ReviewStatus
+     source: ReviewSource
+     result: Optional[ReviewResult] = None
++
++
++@dataclass(frozen=True)
++class WebhookDelivery:
++    type: WebhookDeliveryType
++    delivery_id: Optional[str] = None
++    review_id: Optional[str] = None
++    status: Optional[ReviewStatus] = None
++    reason: Optional[str] = None
++
++
++@dataclass(frozen=True)
++class WebhookHttpResponse:
++    status_code: int
++    headers: Dict[str, str]
++    body: str
+diff --git a/sdk/python/muzen/webhooks.py b/sdk/python/muzen/webhooks.py
+new file mode 100644
+index 0000000..4214959
+--- /dev/null
++++ b/sdk/python/muzen/webhooks.py
+@@ -0,0 +1,69 @@
++from __future__ import annotations
++
++import json
++from dataclasses import asdict, is_dataclass
++from typing import Any, Dict, Mapping, Optional, Union
++
++from .types import WebhookDelivery, WebhookHttpResponse
++
++WEBHOOK_STATUS_ACCEPTED = 202
++WEBHOOK_STATUS_OK = 200
++
++WebhookDeliveryLike = Union[WebhookDelivery, Mapping[str, Any]]
++
++
++def create_webhook_response(
++    delivery: WebhookDeliveryLike,
++    *,
++    headers: Optional[Mapping[str, str]] = None,
++) -> WebhookHttpResponse:
++    response_headers: Dict[str, str] = dict(headers or {})
++    if not _has_header(response_headers, "Content-Type"):
++        response_headers["Content-Type"] = "application/json"
++    body = _delivery_body(delivery)
++    return WebhookHttpResponse(
++        status_code=webhook_delivery_status(delivery),
++        headers=response_headers,
++        body=json.dumps(body, separators=(",", ":")),
++    )
++
++
++def webhook_delivery_status(delivery: WebhookDeliveryLike) -> int:
++    delivery_type = _delivery_type(delivery)
++    if delivery_type == "review_deduped":
++        return WEBHOOK_STATUS_OK
++    if delivery_type in ("review_created", "ignored"):
++        return WEBHOOK_STATUS_ACCEPTED
++    raise ValueError(f"unsupported webhook delivery type {delivery_type!r}")
++
++
++def _delivery_body(delivery: WebhookDeliveryLike) -> Dict[str, Any]:
++    if isinstance(delivery, WebhookDelivery):
++        body = _camel_dict(asdict(delivery))
++        return {key: value for key, value in body.items() if value is not None}
++    if is_dataclass(delivery):
++        body = _camel_dict(asdict(delivery))
++        return {key: value for key, value in body.items() if value is not None}
++    return dict(delivery)
++
++
++def _delivery_type(delivery: WebhookDeliveryLike) -> Any:
++    if isinstance(delivery, WebhookDelivery):
++        return delivery.type
++    if is_dataclass(delivery):
++        return getattr(delivery, "type")
++    return delivery.get("type")
++
++
++def _camel_dict(value: Mapping[str, Any]) -> Dict[str, Any]:
++    return {_camel_key(key): item for key, item in value.items()}
++
++
++def _camel_key(key: str) -> str:
++    parts = key.split("_")
++    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
++
++
++def _has_header(headers: Mapping[str, str], name: str) -> bool:
++    normalized = name.lower()
++    return any(header.lower() == normalized for header in headers)
+diff --git a/sdk/python/tests/test_client.py b/sdk/python/tests/test_client.py
+index 8d11334..bd409a5 100644
+--- a/sdk/python/tests/test_client.py
++++ b/sdk/python/tests/test_client.py
+@@ -1,3 +1,4 @@
++import json
+ import os
+ import tempfile
+ import unittest
+@@ -8,7 +9,9 @@ from muzen import (
+     ModelProfileInput,
+     ProviderProfileInput,
+     ReviewAgentSession,
++    WebhookDelivery,
+     ReviewOptions,
++    create_webhook_response,
+     create_muzen_client,
+     local,
+ )
+@@ -191,5 +194,48 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
+         )
+ 
+ 
++class WebhookResponseTests(unittest.TestCase):
++    def test_create_webhook_response_returns_framework_neutral_http_response(self) -> None:
++        response = create_webhook_response(
++            WebhookDelivery(
++                type="review_created",
++                delivery_id="delivery-1",
++                review_id="review-1",
++                status="queued",
++            ),
++            headers={"X-Muzen-Test": "yes"},
++        )
++        deduped = create_webhook_response(
++            {
++                "type": "review_deduped",
++                "deliveryId": "delivery-1",
++                "reviewId": "review-1",
++                "status": "queued",
++            }
++        )
++        ignored = create_webhook_response(
++            {
++                "type": "ignored",
++                "deliveryId": "delivery-2",
++                "reason": "unsupported event",
++            }
++        )
++
++        self.assertEqual(response.status_code, 202)
++        self.assertEqual(response.headers["Content-Type"], "application/json")
++        self.assertEqual(response.headers["X-Muzen-Test"], "yes")
++        self.assertEqual(
++            json.loads(response.body),
++            {
++                "type": "review_created",
++                "deliveryId": "delivery-1",
++                "reviewId": "review-1",
++                "status": "queued",
++            },
++        )
++        self.assertEqual(deduped.status_code, 200)
++        self.assertEqual(ignored.status_code, 202)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/sdk/typescript/packages/muzen-sdk/src/index.ts b/sdk/typescript/packages/muzen-sdk/src/index.ts
+index 2ef39a3..67e5ed6 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/index.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/index.ts
+@@ -12,6 +12,13 @@ export {
+   parseReviewSource,
+   sourceKey,
+ } from "./sources.js";
++export {
++  createWebhookHttpResponse,
++  createWebhookResponse,
++  webhookDeliveryStatus,
++  WEBHOOK_STATUS_ACCEPTED,
++  WEBHOOK_STATUS_OK,
++} from "./webhooks.js";
+ export type {
+   CreateMuzenClientOptions,
+   CreateMuzenOptions,
+@@ -56,3 +63,11 @@ export type {
+   SourceProviderKind,
+   WorkspaceProfileCollection,
+ } from "./types.js";
++export type {
++  WebhookDelivery,
++  WebhookHttpResponse,
++  WebhookIgnoredDelivery,
++  WebhookResponseOptions,
++  WebhookReviewCreatedDelivery,
++  WebhookReviewDedupedDelivery,
++} from "./webhooks.js";
+diff --git a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+index 425d970..800dc65 100644
+--- a/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
++++ b/sdk/typescript/packages/muzen-sdk/src/muzen.test.ts
+@@ -5,6 +5,8 @@ import { join } from "node:path";
+ import { tmpdir } from "node:os";
+ 
+ import {
++  createWebhookHttpResponse,
++  createWebhookResponse,
+   createMuzen,
+   createMuzenClient,
+   local,
+@@ -359,3 +361,40 @@ describe("remote Muzen client", () => {
+     ]);
+   });
+ });
++
++describe("webhook response helpers", () => {
++  it("creates framework-facing JSON responses for webhook deliveries", async () => {
++    const created = {
++      type: "review_created" as const,
++      deliveryId: "delivery-1",
++      reviewId: "review-1",
++      status: "queued" as const,
++    };
++    const deduped = {
++      type: "review_deduped" as const,
++      deliveryId: "delivery-1",
++      reviewId: "review-1",
++      status: "queued" as const,
++    };
++    const ignored = {
++      type: "ignored" as const,
++      deliveryId: "delivery-2",
++      reason: "unsupported event",
++    };
++
++    const createdHttp = createWebhookHttpResponse(created, {
++      headers: { "X-Muzen-Test": "yes" },
++    });
++    const dedupedResponse = createWebhookResponse(deduped);
++    const ignoredResponse = createWebhookResponse(ignored);
++
++    assert.equal(createdHttp.statusCode, 202);
++    assert.equal(createdHttp.headers["content-type"], "application/json");
++    assert.equal(createdHttp.headers["x-muzen-test"], "yes");
++    assert.deepEqual(JSON.parse(createdHttp.body), created);
++    assert.equal(dedupedResponse.status, 200);
++    assert.deepEqual(await dedupedResponse.json(), deduped);
++    assert.equal(ignoredResponse.status, 202);
++    assert.deepEqual(await ignoredResponse.json(), ignored);
++  });
++});
+diff --git a/sdk/typescript/packages/muzen-sdk/src/webhooks.ts b/sdk/typescript/packages/muzen-sdk/src/webhooks.ts
+new file mode 100644
+index 0000000..fb451bb
+--- /dev/null
++++ b/sdk/typescript/packages/muzen-sdk/src/webhooks.ts
+@@ -0,0 +1,88 @@
++import type { ReviewStatus } from "./types.js";
++
++export const WEBHOOK_STATUS_ACCEPTED = 202;
++export const WEBHOOK_STATUS_OK = 200;
++
++export type WebhookDelivery =
++  | WebhookReviewCreatedDelivery
++  | WebhookReviewDedupedDelivery
++  | WebhookIgnoredDelivery;
++
++export interface WebhookReviewCreatedDelivery {
++  type: "review_created";
++  deliveryId: string;
++  reviewId: string;
++  status: ReviewStatus;
++}
++
++export interface WebhookReviewDedupedDelivery {
++  type: "review_deduped";
++  deliveryId: string;
++  reviewId: string;
++  status: ReviewStatus;
++}
++
++export interface WebhookIgnoredDelivery {
++  type: "ignored";
++  deliveryId?: string | null;
++  reason: string;
++}
++
++export interface WebhookHttpResponse {
++  statusCode: number;
++  headers: Record<string, string>;
++  body: string;
++}
++
++export interface WebhookResponseOptions {
++  headers?: HeadersInit;
++}
++
++export function createWebhookHttpResponse(
++  delivery: WebhookDelivery,
++  options: WebhookResponseOptions = {},
++): WebhookHttpResponse {
++  const headers = responseHeaders(options.headers);
++  return {
++    statusCode: webhookDeliveryStatus(delivery),
++    headers: headersToRecord(headers),
++    body: JSON.stringify(delivery),
++  };
++}
++
++export function createWebhookResponse(
++  delivery: WebhookDelivery,
++  options: WebhookResponseOptions = {},
++): Response {
++  const response = createWebhookHttpResponse(delivery, options);
++  return new Response(response.body, {
++    status: response.statusCode,
++    headers: response.headers,
++  });
++}
++
++export function webhookDeliveryStatus(delivery: WebhookDelivery): number {
++  switch (delivery.type) {
++    case "review_deduped":
++      return WEBHOOK_STATUS_OK;
++    case "review_created":
++    case "ignored":
++      return WEBHOOK_STATUS_ACCEPTED;
++  }
++}
++
++function responseHeaders(headers: HeadersInit | undefined): Headers {
++  const result = new Headers(headers);
++  if (!result.has("Content-Type")) {
++    result.set("Content-Type", "application/json");
++  }
++  return result;
++}
++
++function headersToRecord(headers: Headers): Record<string, string> {
++  const result: Record<string, string> = {};
++  headers.forEach((value, key) => {
++    result[key] = value;
++  });
++  return result;
++}

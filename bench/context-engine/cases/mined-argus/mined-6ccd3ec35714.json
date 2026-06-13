@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-6ccd3ec35714",
+  "repoSource": {
+    "kind": "git",
+    "commit": "6ccd3ec35714d6a029956050f7b7a3d635cf9222",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/_components/merge-request-review-viewer.test.tsx",
+    "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/_components/merge-request-review-viewer.tsx",
+    "apps/web/src/features/review/components/diff/file-tree.tsx",
+    "apps/web/src/features/review/components/diff/review-actions-bar.test.tsx",
+    "apps/web/src/features/review/components/diff/review-actions-bar.tsx",
+    "apps/web/src/features/review/components/diff/toolbar.tsx"
+  ],
+  "description": "Mined pair: base 6ccd3ec35714 (feat(review): add diff file tree navigation) followed by e3fa8b01d613 (fix(review): stabilize diff file tree reset).",
+  "minedFrom": {
+    "baseCommit": "6ccd3ec35714d6a029956050f7b7a3d635cf9222",
+    "followUpCommit": "e3fa8b01d6131f4ce4033137dee0d65c7868d650"
+  },
+  "cases": [
+    {
+      "id": "mined-6ccd3ec35714-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/connect-gitlab-integration.ts",
+        "apps/web/src/features/gitlab/server/integration-connect.ts",
+        "apps/web/src/features/gitlab/server/integration-mappers.ts",
+        "apps/web/src/features/gitlab/server/integration-types.ts",
+        "apps/web/src/features/gitlab/server/resync-gitlab-integration.test.ts",
+        "apps/web/src/features/gitlab/server/test-harness.ts",
+        "apps/web/src/features/review/server/review-argus-agent.test.ts"
+      ]
+    }
+  ]
+}

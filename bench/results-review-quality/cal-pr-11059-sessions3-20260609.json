@@ -1,0 +1,216 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:20:34.230Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-11059",
+    "baseRef": "muzen-bench/pr-11059-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 40,
+    "goldenIssueCount": 7
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gne00g/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-gne00g/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 11,
+    "completedSessions": 11,
+    "reviewUnits": 11,
+    "completedReviewUnits": 11,
+    "fileReviews": 40,
+    "fileReviewVerdicts": {
+      "skipped": 1,
+      "clean": 25,
+      "issue_found": 2,
+      "needs_review": 12
+    },
+    "findings": 2,
+    "modelCalls": 93,
+    "toolCalls": 174,
+    "tokens": {
+      "inputTokens": 1320513,
+      "outputTokens": 13124,
+      "totalTokens": 1333637
+    },
+    "artifactStats": {
+      "artifacts": 80,
+      "artifactBytes": 409047
+    },
+    "elapsedMs": 211942
+  },
+  "benchmark": {
+    "elapsedMs": 212045,
+    "hitRate": 0.2857142857142857,
+    "hits": [
+      {
+        "issueId": "cal-11059-google-calendar-return-shape",
+        "findingId": "dff539cbe564ca6d62ad6d37ea61c17557646d51a99f96f600c202c4d66e7107",
+        "title": "`parseRefreshTokenResponse` now returns the Zod parse wrapper instead of the token payload"
+      },
+      {
+        "issueId": "cal-11059-office365-calendar-return-shape",
+        "findingId": "dff539cbe564ca6d62ad6d37ea61c17557646d51a99f96f600c202c4d66e7107",
+        "title": "`parseRefreshTokenResponse` now returns the Zod parse wrapper instead of the token payload"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-11059-return-shape-refresh-token",
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "title": "Refresh-token helper returns the wrong app credential shape"
+      },
+      {
+        "issueId": "cal-11059-zoom-video-return-shape",
+        "path": "packages/app-store/zoomvideo/lib/VideoApiAdapter.ts",
+        "title": "Zoom video refresh consumer parses the sync response as token JSON"
+      },
+      {
+        "issueId": "cal-11059-zoho-bigin-return-shape",
+        "path": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+        "title": "Zoho Bigin refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-zohocrm-return-shape",
+        "path": "packages/app-store/zohocrm/lib/CalendarService.ts",
+        "title": "Zoho CRM refresh consumer reads .data from the sync-branch fetch Response"
+      },
+      {
+        "issueId": "cal-11059-webhook-credential-ownership",
+        "path": "apps/web/pages/api/webhook/app-credential.ts",
+        "title": "Webhook-created app credential is not tied to the expected owner contract"
+      }
+    ],
+    "falsePositiveCount": 1,
+    "candidateCount": 2,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 11,
+    "contractSeedCount": 53,
+    "contractPackCount": 10,
+    "contractEvidenceFailures": 12,
+    "requiredEvidenceFailures": 12,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 26,
+    "importCount": 0,
+    "needsReviewCount": 12,
+    "cleanCount": 25,
+    "skippedCount": 1
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The changed `parseRefreshTokenResponse` function returns `refreshTokenResponse` from `safeParse(...)`, which is a `{ success, data? , error? }` wrapper, but its callers still expect the parsed token object and read fields like `access_token` and `expiry_date` directly from the result. This breaks refresh flows when credential syncing is enabled.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-003"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4e6147a1a1e38f06b0ae8021a580bf3da2cc162f2cd9884e340270897067a6b2",
+          "contentHash": "9cd7688d458b8efadeb2723fb88ebf84095234d44af1ea9970ce5ad43614e07c",
+          "evidenceId": "evidence-art_4e6147a1a1e38f06b0ae8021a580bf3da2cc162f2cd9884e340270897067a6b2",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c1305eec1beb43a0feb718b14de14f6303f87c7bfaeebf870057149b11aff0d3",
+          "contentHash": "3f1fea011c7b751008a380617c07e3dab2a9f99f24b0a961cd7e6d7739e64d67",
+          "evidenceId": "evidence-art_c1305eec1beb43a0feb718b14de14f6303f87c7bfaeebf870057149b11aff0d3",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "dff539cbe564ca6d62ad6d37ea61c17557646d51a99f96f600c202c4d66e7107",
+      "location": {
+        "endColumn": null,
+        "endLine": 29,
+        "path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 13
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "packages/app-store/office365calendar/lib/CalendarService.ts",
+        "packages/app-store/salesforce/lib/CalendarService.ts"
+      ],
+      "severity": "low",
+      "title": "`parseRefreshTokenResponse` now returns the Zod parse wrapper instead of the token payload",
+      "validatedBy": [
+        "unit-003-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "In `GoogleCalendarService.refreshAccessToken`, the code assigns `const key = parseRefreshTokenResponse(googleCredentials, googleCredentialSchema);` and then stores `key` into `prisma.credential.update({ data: { key } })`. Because the helper now returns the Zod result wrapper instead of the credential payload, the persisted credential key no longer matches the shape `googleCredentialSchema.parse(credential.key)` expects on the next load.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-003"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4e6147a1a1e38f06b0ae8021a580bf3da2cc162f2cd9884e340270897067a6b2",
+          "contentHash": "9cd7688d458b8efadeb2723fb88ebf84095234d44af1ea9970ce5ad43614e07c",
+          "evidenceId": "evidence-art_4e6147a1a1e38f06b0ae8021a580bf3da2cc162f2cd9884e340270897067a6b2",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        },
+        {
+          "artifactId": "art_c4ff6bc698060ec4260887f5c01a1d1623b28252a6320ad87fa5713122981a17",
+          "contentHash": "fd13638a829f1b36680aec38cb92e1292790d5ad363a46ede44b83275b8cd9fd",
+          "evidenceId": "evidence-art_c4ff6bc698060ec4260887f5c01a1d1623b28252a6320ad87fa5713122981a17",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        },
+        {
+          "artifactId": "art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "contentHash": "55c601c84efdd30e9c4b08bfc2a1f35f2d58f51b341fa9149d238899eb54999c",
+          "evidenceId": "evidence-art_f2d8f21a9ef0d55f3c9cd25e4ec7072ebd7cc50f161af7f7e9c31e60f09b4c7b",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-003-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 3,
+      "id": "e1f69e1230e6f63168273178fb3c6b63b494fdd7064cd87228544b838d6c5de5",
+      "location": {
+        "endColumn": null,
+        "endLine": 101,
+        "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 94
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+      ],
+      "severity": "low",
+      "title": "Google Calendar refresh writes from `parseRefreshTokenResponse` as if it were the token object",
+      "validatedBy": [
+        "unit-003-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

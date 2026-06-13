@@ -868,9 +868,6 @@ Current implementation:
 - `fixtures/runtime-events-v1.jsonl` is a versioned compatibility fixture for
   every `RuntimeEvent` variant, checked through the public
   `export_event_records_jsonl` and `load_event_records_jsonl` adapters.
-- `fixtures/runtime-events-v0-contextless.jsonl` is a legacy compatibility
-  fixture for the contextless schema, checked through the public migration
-  loader and its migration report.
 - Public facade tests assert run id on all run records, snapshot id on run
   events, session/turn/tool-call context on tool events, denial-event context,
   JSONL context serialization, all-variant fixture compatibility, and
@@ -915,8 +912,7 @@ Work:
 - Add public `Run`, `RunBuilder`, `RunSpec`, `RunReport`, `SnapshotSpec`,
   `ReviewSessionSpec`, `RunContext`, and `RunError`.
 - Add `Run::execute` or `RunBuilder::run` as the public path.
-- Move current private `run_job_concurrent_with_events` behavior behind a
-  `ReviewRunJobAdapter`.
+- Move current private `run_job_concurrent` behavior behind a `ReviewRunJobAdapter`.
 - Keep `ReviewRunJobV1` crate-private unless it is intentionally a public wire
   contract.
 - Add in-memory `EventSink` and `ArtifactStore` adapters for public tests.
@@ -1981,15 +1977,13 @@ Implemented state after cancellation event-log roundtrip proof:
   about 9/10. Remaining observability work is future multi-version fixture
   history when another schema is introduced.
 
-Implemented state after legacy event-log fixture hardening:
+Implemented state after event-log fixture hardening:
 
-- `fixtures/runtime-events-v0-contextless.jsonl` now freezes the legacy
-  contextless event-log schema as a compatibility artifact rather than building
-  it inline in the test. The public loader test migrates that fixture, verifies
-  the source schema counts and migrated record count, and checks derived context
-  for snapshot, session/turn, tool-call, artifact, and session-finished events.
-  Stable observability moves to about 9.7/10, testability through public
-  interfaces to about 8.1/10, migration proof to about 9.1/10, and reusable
+- `fixtures/runtime-events-v1.jsonl` freezes the current runtime event-log
+  schema as the compatibility artifact. The public loader rejects unsupported
+  schema versions instead of migrating contextless legacy records. Stable
+  observability moves to about 9.7/10, testability through public interfaces to
+  about 8.1/10, migration proof to about 9.1/10, and reusable
   execution to about 9.6/10. Future schema versions must add fixtures when they
   are introduced.
 
@@ -2455,11 +2449,11 @@ cargo build --release -p muzen
 
 Implemented state after runtime event dispatcher extraction:
 
-- `JobRuntime` no longer stores raw optional legacy and runtime event
+- `JobRuntime` no longer stores raw optional runtime event
   sinks or implements the optional dispatch checks inline.
-  `runtime::dispatch::RuntimeEventDispatcher` now owns legacy
-  `EventEmitter` delivery, structured `RuntimeEventSink` delivery, planned
-  runtime-event delivery, and no-sink dropping behavior.
+  `runtime::dispatch::RuntimeEventDispatcher` now owns structured
+  `RuntimeEventSink` delivery, planned runtime-event delivery, and no-sink
+  dropping behavior.
 - Runtime still owns event timing and event order: session lifecycle, model
   attempts, tool-result side effects, transcript append timing, and
   cancellation windows decide when the dispatcher is called. This narrows the

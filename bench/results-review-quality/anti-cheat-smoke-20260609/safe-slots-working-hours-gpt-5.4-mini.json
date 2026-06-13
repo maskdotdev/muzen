@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T00:45:51.568Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-anti-cheat-safe-slots-working-hours-66FT8N",
+    "baseRef": "HEAD~1",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 1,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-lSdKng/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-lSdKng/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 1,
+    "fileReviewVerdicts": {
+      "issue_found": 1
+    },
+    "findings": 1,
+    "modelCalls": 5,
+    "toolCalls": 8,
+    "tokens": {
+      "inputTokens": 10162,
+      "outputTokens": 899,
+      "totalTokens": 11061
+    },
+    "artifactStats": {
+      "artifacts": 7,
+      "artifactBytes": 1495
+    },
+    "elapsedMs": 11779
+  },
+  "benchmark": {
+    "elapsedMs": 11784,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 1,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 0,
+    "contractSeedCount": 3,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 0,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "The new guard `if (slotEndTime.isAfter(workingHourEnd)) return false;` can reject or accept slots incorrectly if `slotEndTime` is derived from `slotStartTime.add(eventLength, \"minutes\")` in a different instant basis than `workingHourEnd`. The diff adds an end-boundary check but does not show any timezone or date alignment between the compared values, so a slot that should fit within the working window on the same local day may now be misclassified when `workingHourEnd` represents a local-day cutoff and `slotEndTime` is an instant derived from the start timestamp.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_38f1274d31f98299e3d9308b2255be3c2ecff173efca5a51c88e70276065dcc8",
+          "contentHash": "7a9802d125cbfaac9782739f70ef2f960508a826e7e00f66b181c4da016d7fc4",
+          "evidenceId": "evidence-art_38f1274d31f98299e3d9308b2255be3c2ecff173efca5a51c88e70276065dcc8",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_6f539ff99b25cc09341752be8c603f01c7c24be38fe8a723253a56ce98b94988",
+          "contentHash": "a7be7c750650fdd701e864b0c729086bc3f55d45d9b444cd258b688a14f18646",
+          "evidenceId": "evidence-art_6f539ff99b25cc09341752be8c603f01c7c24be38fe8a723253a56ce98b94988",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_b8754eb8b26c47e95dcbca121872c932331156518c5043c2b80b12491585cade",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_b8754eb8b26c47e95dcbca121872c932331156518c5043c2b80b12491585cade",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_caa6b9c924f4f36beb1c3c42d61c98d5552082a3b7e6a7eb15f95de5b043231f",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_caa6b9c924f4f36beb1c3c42d61c98d5552082a3b7e6a7eb15f95de5b043231f",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_db3202560951e654cfda28be808ab7f2aadc3a36e7704064ac419ffccb0e613a",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_db3202560951e654cfda28be808ab7f2aadc3a36e7704064ac419ffccb0e613a",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "d44efef5d757caa9820202ac7864bc4be866134cf44532f442d81dc58427eec3",
+      "location": {
+        "endColumn": null,
+        "endLine": 15,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 12
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Potential boundary misclassification if slotEndTime and workingHourEnd are not expressed in the same local interval",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

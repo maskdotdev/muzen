@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-409401a0fb04",
+  "repoSource": {
+    "kind": "git",
+    "commit": "409401a0fb04511bc628c4deedaefebbef687171",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/runtime/model.rs"
+  ],
+  "description": "Mined pair: base 409401a0fb04 (test(model): drop wire-shape and canary export unit tests) followed by 635d41c15ef5 (chore(test): remove dead helpers and unused imports).",
+  "minedFrom": {
+    "baseCommit": "409401a0fb04511bc628c4deedaefebbef687171",
+    "followUpCommit": "635d41c15ef5901173afae0b7ee9df016736167f"
+  },
+  "cases": [
+    {
+      "id": "mined-409401a0fb04-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/tests.rs",
+        "src/review_units.rs",
+        "src/runtime/planned_units.rs",
+        "src/tests.rs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-97ddbadc20e5",
+  "repoSource": {
+    "kind": "git",
+    "commit": "97ddbadc20e519d5eb9a726b62603214702ccd39",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/components/merge-request-diff/merge-request-diff-viewer.utils.ts",
+    "apps/web/src/components/merge-request-diff/tests/merge-request-diff-viewer.utils.test.ts",
+    "apps/web/src/lib/review/impact-graph-backend.test.ts",
+    "apps/web/src/lib/review/impact-graph-backend.ts"
+  ],
+  "description": "Mined pair: base 97ddbadc20e5 (feat(review-impact): add backend selector and pending_graph status parsing) followed by 26f675ebffac (feat(review-impact): resolve integration branch snapshots via graph backend).",
+  "minedFrom": {
+    "baseCommit": "97ddbadc20e519d5eb9a726b62603214702ccd39",
+    "followUpCommit": "26f675ebffacbc0dd3775894722e03c2cf557af7"
+  },
+  "cases": [
+    {
+      "id": "mined-97ddbadc20e5-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/api/review/impact/route.ts",
+        "apps/web/src/lib/review/impact-service.test.ts",
+        "apps/web/src/lib/review/impact-service.ts"
+      ]
+    }
+  ]
+}

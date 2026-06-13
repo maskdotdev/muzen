@@ -73,7 +73,8 @@ change must update the fixture and the SDK mapping intentionally.
 ## Review Session Store Mapping
 
 The Rust `review_session` module now includes a `ReviewSessionStore` boundary,
-`InMemoryReviewSessionStore`, and `PostgresReviewSessionStore`.
+`InMemoryReviewSessionStore`, `LibsqlReviewSessionStore`, and
+`PostgresReviewSessionStore`.
 
 The store owns:
 
@@ -83,9 +84,11 @@ The store owns:
 - redacted/raw artifact references,
 - dedupe lookup keys.
 
-The Postgres implementation stores durable session records as JSONB and uses
+The libSQL implementation is the default durable local SQLite store. It stores
+JSON payloads as text with scalar queue fields for claiming and indexing. The
+Postgres implementation stores durable session records as JSONB and uses
 transactional `FOR UPDATE SKIP LOCKED` worker claims. The in-memory store
-remains a local preview/test implementation.
+remains an explicit preview/test implementation.
 
 ## Known Gaps
 
@@ -95,7 +98,7 @@ remains a local preview/test implementation.
 - Interrupting an already executing local synchronous `run.start` remains a
   preview limitation; durable cancellation is preserved at the store boundary.
 - A framework-neutral Rust HTTP router and Axum-backed `muzen-service` listener
-  now exist around the core remote HTTP contract. `muzen-service` uses Postgres
-  stores when `DATABASE_URL` is set.
+  now exist around the core remote HTTP contract. `muzen-service` uses durable
+  local SQLite by default, with explicit Postgres and memory store URL modes.
 - A live provider materialization smoke test should run in deployment CI with
   real provider credentials and network access.

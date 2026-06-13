@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-a3384a644bf0",
+  "repoSource": {
+    "kind": "git",
+    "commit": "a3384a644bf069f5d139a0a96086d37827f40b20",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+    "sdk/typescript/packages/muzen-sdk/src/types.ts"
+  ],
+  "description": "Mined pair: base a3384a644bf0 (feat: add typescript remote client) followed by f42dbb6c34c0 (feat: add typescript workspace profile client).",
+  "minedFrom": {
+    "baseCommit": "a3384a644bf069f5d139a0a96086d37827f40b20",
+    "followUpCommit": "f42dbb6c34c01931bf08b041a048637c186e87b4"
+  },
+  "cases": [
+    {
+      "id": "mined-a3384a644bf0-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "sdk/typescript/packages/muzen-sdk/src/index.ts"
+      ]
+    }
+  ]
+}

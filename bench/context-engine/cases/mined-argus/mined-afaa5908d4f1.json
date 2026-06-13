@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-afaa5908d4f1",
+  "repoSource": {
+    "kind": "git",
+    "commit": "afaa5908d4f1c3b79246d5dcee32c9e88681e718",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/app/api/gitlab/integrations/[integrationId]/index/stream/route.heartbeat.test.ts",
+    "apps/web/src/app/api/gitlab/integrations/[integrationId]/index/stream/route.ts",
+    "apps/web/src/components/indexing/indexing-console-model.tsx",
+    "apps/web/src/components/indexing/indexing-console.polling-fallback.test.ts",
+    "apps/web/src/components/indexing/indexing-console.tsx",
+    "apps/web/src/components/repos/repo-project-tabs.polling-behavior.test.ts",
+    "apps/web/src/components/repos/repo-project-tabs.tsx"
+  ],
+  "description": "Mined pair: base afaa5908d4f1 (fix(web): enforce strict sse indexing stream constraints) followed by 97150351b5aa (fix(web): centralize client integrations query cache).",
+  "minedFrom": {
+    "baseCommit": "afaa5908d4f1c3b79246d5dcee32c9e88681e718",
+    "followUpCommit": "97150351b5aa73406d74912c2812b349d445a269"
+  },
+  "cases": [
+    {
+      "id": "mined-afaa5908d4f1-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/settings/page.tsx",
+        "apps/web/src/components/app-sidebar-repo-dialog.tsx",
+        "apps/web/src/components/app-sidebar.tsx",
+        "apps/web/src/components/command-palette.test.ts",
+        "apps/web/src/components/command-palette.tsx"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2682 @@
+diff --git a/fixtures/runner-schema-v1.json b/fixtures/runner-schema-v1.json
+index a615833..3697746 100644
+--- a/fixtures/runner-schema-v1.json
++++ b/fixtures/runner-schema-v1.json
+@@ -6,79 +6,151 @@
+       "method": "runner.handshake",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Negotiate protocol version and capabilities."
++      "summary": "Negotiate protocol version and capabilities.",
++      "params": {
++        "name": "RunnerHandshakeParams"
++      },
++      "result": {
++        "name": "RunnerHandshakeResult"
++      }
+     },
+     {
+       "method": "runner.check",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Return local runner diagnostics."
++      "summary": "Return local runner diagnostics.",
++      "result": {
++        "name": "RunnerCheckResult"
++      }
+     },
+     {
+       "method": "runner.schema.export",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Return protocol method metadata for SDK validation."
++      "summary": "Return protocol method metadata for SDK validation.",
++      "result": {
++        "name": "RunnerProtocolSchema"
++      }
+     },
+     {
+       "method": "run.start",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Start a review run."
++      "summary": "Start a review run.",
++      "params": {
++        "name": "RunStartParams"
++      },
++      "result": {
++        "name": "RunnerRunResult"
++      }
+     },
+     {
+       "method": "run.cancel",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Cancel an active review run."
++      "summary": "Cancel an active review run.",
++      "params": {
++        "name": "RunLookupParams"
++      },
++      "result": {
++        "name": "RunCancelResult"
++      }
+     },
+     {
+       "method": "run.status",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Read active run status."
++      "summary": "Read active run status.",
++      "params": {
++        "name": "RunLookupParams"
++      },
++      "result": {
++        "name": "RunStatusResult"
++      }
+     },
+     {
+       "method": "run.result",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Read final run report."
++      "summary": "Read final run report.",
++      "params": {
++        "name": "RunLookupParams"
++      },
++      "result": {
++        "name": "RunnerRunResult"
++      }
+     },
+     {
+       "method": "artifact.read",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Read one redacted or raw artifact."
++      "summary": "Read one redacted or raw artifact.",
++      "params": {
++        "name": "ArtifactReadParams"
++      },
++      "result": {
++        "name": "RunnerArtifactReadResult"
++      }
+     },
+     {
+       "method": "artifact.export",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Export artifacts using a policy."
++      "summary": "Export artifacts using a policy.",
++      "params": {
++        "name": "ArtifactExportParams"
++      },
++      "result": {
++        "name": "RunnerArtifactExportResult"
++      }
+     },
+     {
+       "method": "snapshot.readText",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Read captured snapshot text."
++      "summary": "Read captured snapshot text.",
++      "params": {
++        "name": "SnapshotReadTextParams"
++      },
++      "result": {
++        "name": "RunnerSnapshotTextResult"
++      }
+     },
+     {
+       "method": "webhook.github.handle",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Verify and schedule a GitHub webhook delivery."
++      "summary": "Verify and schedule a GitHub webhook delivery.",
++      "params": {
++        "name": "WebhookHandleParams"
++      },
++      "result": {
++        "name": "ReviewHttpResponse"
++      }
+     },
+     {
+       "method": "webhook.gitlab.handle",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Verify and schedule a GitLab webhook delivery."
++      "summary": "Verify and schedule a GitLab webhook delivery.",
++      "params": {
++        "name": "WebhookHandleParams"
++      },
++      "result": {
++        "name": "ReviewHttpResponse"
++      }
+     },
+     {
+       "method": "worker.runOnce",
+       "direction": "sdk_to_runner",
+       "status": "implemented",
+-      "summary": "Claim and execute ready durable review sessions through the Rust worker."
++      "summary": "Claim and execute ready durable review sessions through the Rust worker.",
++      "params": {
++        "name": "WorkerRunOnceParams"
++      },
++      "result": {
++        "name": "WorkerRunOnceResult"
++      }
+     }
+   ],
+   "callbacks": [
+@@ -86,13 +158,25 @@
+       "method": "model.complete",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Ask the SDK model adapter for one model turn."
++      "summary": "Ask the SDK model adapter for one model turn.",
++      "params": {
++        "name": "RunnerModelCompleteParams"
++      },
++      "result": {
++        "name": "RunnerModelCompleteResult"
++      }
+     },
+     {
+       "method": "tool.execute",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Ask the SDK to execute a host custom tool."
++      "summary": "Ask the SDK to execute a host custom tool.",
++      "params": {
++        "name": "RunnerToolExecuteParams"
++      },
++      "result": {
++        "name": "RunnerToolExecuteResult"
++      }
+     }
+   ],
+   "notifications": [
+@@ -100,25 +184,1538 @@
+       "method": "event.review",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Emit one host-facing review event."
++      "summary": "Emit one host-facing review event.",
++      "params": {
++        "name": "ReviewEventRecord"
++      }
+     },
+     {
+       "method": "event.runtime",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Emit one advanced runtime event."
++      "summary": "Emit one advanced runtime event.",
++      "params": {
++        "name": "RuntimeEventRecord"
++      }
+     },
+     {
+       "method": "run.finished",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Notify that a run reached a terminal state."
++      "summary": "Notify that a run reached a terminal state.",
++      "params": {
++        "name": "RunnerRunResult"
++      }
+     },
+     {
+       "method": "run.failed",
+       "direction": "runner_to_sdk",
+       "status": "implemented",
+-      "summary": "Notify that a run failed before producing a report."
++      "summary": "Notify that a run failed before producing a report.",
++      "params": {
++        "name": "RunFailedNotification"
++      }
++    }
++  ],
++  "definitions": [
++    {
++      "name": "RunnerHandshakeParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "clientName",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "clientVersion",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerHandshakeResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runnerName",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runnerVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "capabilities",
++          "type": "RunnerCapabilities",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerCapabilities",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "supportedMethods",
++          "type": "string[]",
++          "required": true
++        },
++        {
++          "name": "plannedMethods",
++          "type": "string[]",
++          "required": true
++        },
++        {
++          "name": "transports",
++          "type": "string[]",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerCheckResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "ok",
++          "type": "boolean",
++          "required": true
++        },
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runnerName",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runnerVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "rustPackage",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerProtocolSchema",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "schemaVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "transport",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "requests",
++          "type": "RunnerMethodSchema[]",
++          "required": true
++        },
++        {
++          "name": "callbacks",
++          "type": "RunnerMethodSchema[]",
++          "required": true
++        },
++        {
++          "name": "notifications",
++          "type": "RunnerMethodSchema[]",
++          "required": true
++        },
++        {
++          "name": "definitions",
++          "type": "RunnerPayloadSchema[]",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerMethodSchema",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "method",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "direction",
++          "type": "RunnerMessageDirection",
++          "required": true
++        },
++        {
++          "name": "status",
++          "type": "RunnerMethodStatus",
++          "required": true
++        },
++        {
++          "name": "summary",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "params",
++          "type": "RunnerPayloadRef",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "result",
++          "type": "RunnerPayloadRef",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerPayloadRef",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "name",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerPayloadSchema",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "name",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "shape",
++          "type": "RunnerPayloadShape",
++          "required": true
++        },
++        {
++          "name": "fields",
++          "type": "RunnerPayloadFieldSchema[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "values",
++          "type": "string[]",
++          "required": false,
++          "default": "[]"
++        }
++      ]
++    },
++    {
++      "name": "RunnerPayloadFieldSchema",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "name",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "type",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "required",
++          "type": "boolean",
++          "required": true
++        },
++        {
++          "name": "default",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerMessageDirection",
++      "shape": "enum",
++      "values": [
++        "sdk_to_runner",
++        "runner_to_sdk"
++      ]
++    },
++    {
++      "name": "RunnerMethodStatus",
++      "shape": "enum",
++      "values": [
++        "implemented",
++        "reserved"
++      ]
++    },
++    {
++      "name": "RunnerPayloadShape",
++      "shape": "enum",
++      "values": [
++        "object",
++        "enum"
++      ]
++    },
++    {
++      "name": "RunStartParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "runId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "repo",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "source",
++          "type": "ReviewSource",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "sourceProvider",
++          "type": "RunSourceProviderParams",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "changedFiles",
++          "type": "string[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "sessions",
++          "type": "RunSessionParams[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "limits",
++          "type": "RunLimitParams",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "model",
++          "type": "RunModelParams",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "tools",
++          "type": "RunToolParams[]",
++          "required": false,
++          "default": "[]"
++        }
++      ]
++    },
++    {
++      "name": "ReviewSource",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "type",
++          "type": "local | github_pull_request | gitlab_merge_request",
++          "required": true
++        },
++        {
++          "name": "repo",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "changedFiles",
++          "type": "string[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "owner",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "number",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunSourceProviderParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "baseUrl",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunModelParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "callback",
++          "type": "boolean",
++          "required": false,
++          "default": "false"
++        }
++      ]
++    },
++    {
++      "name": "RunToolParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "id",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "description",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "parameters",
++          "type": "json",
++          "required": true
++        },
++        {
++          "name": "cacheable",
++          "type": "boolean",
++          "required": false,
++          "default": "false"
++        }
++      ]
++    },
++    {
++      "name": "RunSessionParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "id",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "role",
++          "type": "Role",
++          "required": false,
++          "default": "generalist"
++        },
++        {
++          "name": "objective",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "cwd",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "modelProfileId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "budget",
++          "type": "RunAgentBudgetParams",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "Role",
++      "shape": "enum",
++      "values": [
++        "generalist",
++        "security",
++        "performance",
++        "maintainability",
++        "correctness",
++        "architecture",
++        "validator"
++      ]
++    },
++    {
++      "name": "RunAgentBudgetParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "maxTurns",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "maxToolCalls",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "maxPromptTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "maxOutputTokens",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunLimitParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "maxActiveSessions",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxFileBytes",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxSearchMatches",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunLookupParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "ArtifactReadParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "artifactId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "view",
++          "type": "RunnerArtifactView",
++          "required": false,
++          "default": "redacted"
++        }
++      ]
++    },
++    {
++      "name": "ArtifactExportParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "artifactIds",
++          "type": "string[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "view",
++          "type": "RunnerArtifactView",
++          "required": false,
++          "default": "redacted"
++        },
++        {
++          "name": "maxArtifacts",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxBytes",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerArtifactView",
++      "shape": "enum",
++      "values": [
++        "redacted",
++        "raw"
++      ]
++    },
++    {
++      "name": "SnapshotReadTextParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "path",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "maxBytes",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "WebhookHandleParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "workspaceId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "headers",
++          "type": "object<string,string>",
++          "required": false,
++          "default": "{}"
++        },
++        {
++          "name": "body",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "secret",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "options",
++          "type": "WebhookReviewOptions",
++          "required": false,
++          "default": "{}"
++        }
++      ]
++    },
++    {
++      "name": "WebhookReviewOptions",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "reviewOptions",
++          "type": "ReviewOptions",
++          "required": false,
++          "default": "{}"
++        }
++      ]
++    },
++    {
++      "name": "WorkerRunOnceParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "workerId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxSessions",
++          "type": "integer",
++          "required": false,
++          "default": "1"
++        },
++        {
++          "name": "hostConfig",
++          "type": "HostConfiguration",
++          "required": false,
++          "default": "{}"
++        }
++      ]
++    },
++    {
++      "name": "HostConfiguration",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "scheduling",
++          "type": "HostSchedulingConfiguration",
++          "required": false,
++          "default": "default"
++        }
++      ]
++    },
++    {
++      "name": "HostSchedulingConfiguration",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "leaseSeconds",
++          "type": "integer",
++          "required": false,
++          "default": "60"
++        },
++        {
++          "name": "defaultRetryPolicy",
++          "type": "ReviewRetryPolicy",
++          "required": false,
++          "default": "default"
++        },
++        {
++          "name": "concurrency",
++          "type": "ReviewWorkerConcurrencyLimits",
++          "required": false,
++          "default": "default"
++        },
++        {
++          "name": "fairness",
++          "type": "SchedulingFairnessStrategy",
++          "required": false,
++          "default": "fifo"
++        }
++      ]
++    },
++    {
++      "name": "SchedulingFairnessStrategy",
++      "shape": "enum",
++      "values": [
++        "fifo",
++        "round_robin_by_workspace"
++      ]
++    },
++    {
++      "name": "ReviewRetryPolicy",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "maxAttempts",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "initialBackoffSeconds",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "maxBackoffSeconds",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "ReviewWorkerConcurrencyLimits",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "maxRunningGlobal",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxRunningPerWorkspace",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxRunningPerUser",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxRunningPerModelProfile",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "maxRunningPerProviderProfile",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "WorkerRunOnceResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "workerId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "claimed",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "completed",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "retried",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "failed",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "skipped",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunStatusResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "status",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunCancelResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "status",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "cancelled",
++          "type": "boolean",
++          "required": true
++        },
++        {
++          "name": "reason",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerRunResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "status",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "summary",
++          "type": "RunnerRunSummary",
++          "required": true
++        },
++        {
++          "name": "findings",
++          "type": "RunnerFinding[]",
++          "required": true
++        },
++        {
++          "name": "snapshots",
++          "type": "RunnerSnapshotSummary[]",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerRunSummary",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "sessions",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "completedSessions",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "modelCalls",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "toolCalls",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "findings",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "publishableFindings",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "elapsedMs",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "inputTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "outputTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "totalTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "artifacts",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "artifactBytes",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "snapshotCount",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerFinding",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "id",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "title",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "claim",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "evidenceCount",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "publishable",
++          "type": "boolean",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerSnapshotSummary",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "files",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "changedFiles",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "capturedFiles",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "capturedBytes",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerArtifact",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "artifactId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "bytes",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "contentHash",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "content",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerArtifactReadResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "view",
++          "type": "RunnerArtifactView",
++          "required": true
++        },
++        {
++          "name": "artifact",
++          "type": "RunnerArtifact",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerArtifactExportResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "view",
++          "type": "RunnerArtifactView",
++          "required": true
++        },
++        {
++          "name": "artifactCount",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "totalBytes",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "artifacts",
++          "type": "RunnerArtifact[]",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerSnapshotTextResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "path",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "contentHash",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "bytes",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "truncated",
++          "type": "boolean",
++          "required": true
++        },
++        {
++          "name": "content",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "ReviewHttpResponse",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "statusCode",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "headers",
++          "type": "object<string,string>",
++          "required": true
++        },
++        {
++          "name": "body",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "ReviewEventRecord",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "seq",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "timestampUtc",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "sessionId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "turn",
++          "type": "integer",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "toolCallId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "artifactId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "findingId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "event",
++          "type": "ReviewEvent",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RuntimeEventRecord",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "seq",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "timestampUtc",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "context",
++          "type": "RuntimeEventContext",
++          "required": true
++        },
++        {
++          "name": "event",
++          "type": "RuntimeEvent",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunFailedNotification",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "error",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "kind",
++          "type": "string",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerModelCompleteParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "sessionId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "role",
++          "type": "Role",
++          "required": true
++        },
++        {
++          "name": "objective",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "modelProfileId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "turn",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "transcript",
++          "type": "json[]",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerModelCompleteResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "content",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "toolCalls",
++          "type": "RunnerModelToolCallResult[]",
++          "required": false,
++          "default": "[]"
++        },
++        {
++          "name": "usage",
++          "type": "RunnerTokenUsage",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerModelToolCallResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "callId",
++          "type": "string",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "toolId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "arguments",
++          "type": "json",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerTokenUsage",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "inputTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "outputTokens",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "totalTokens",
++          "type": "integer",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerToolExecuteParams",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "protocolVersion",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "runId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "sessionId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "turn",
++          "type": "integer",
++          "required": true
++        },
++        {
++          "name": "callId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "toolId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "snapshotId",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "providerResources",
++          "type": "string[]",
++          "required": true
++        },
++        {
++          "name": "arguments",
++          "type": "json",
++          "required": true
++        }
++      ]
++    },
++    {
++      "name": "RunnerToolExecuteResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "data",
++          "type": "json",
++          "required": false,
++          "default": "null"
++        },
++        {
++          "name": "artifact",
++          "type": "RunnerToolArtifactResult",
++          "required": false,
++          "default": "null"
++        }
++      ]
++    },
++    {
++      "name": "RunnerToolArtifactResult",
++      "shape": "object",
++      "fields": [
++        {
++          "name": "key",
++          "type": "string",
++          "required": true
++        },
++        {
++          "name": "content",
++          "type": "string",
++          "required": true
++        }
++      ]
+     }
+   ]
+ }
+diff --git a/sdk/python/tests/test_protocol_contract.py b/sdk/python/tests/test_protocol_contract.py
+new file mode 100644
+index 0000000..295091f
+--- /dev/null
++++ b/sdk/python/tests/test_protocol_contract.py
+@@ -0,0 +1,74 @@
++import json
++import unittest
++from pathlib import Path
++
++
++class RunnerProtocolContractTests(unittest.TestCase):
++    def test_fixture_documents_sdk_wire_shapes(self) -> None:
++        schema = _load_runner_schema_fixture()
++        definitions = {definition["name"]: definition for definition in schema["definitions"]}
++
++        self.assertEqual(schema["schemaVersion"], "muzen.runner.v1")
++        for method in (
++            schema["requests"] + schema["callbacks"] + schema["notifications"]
++        ):
++            for payload in (method.get("params"), method.get("result")):
++                if payload is not None:
++                    self.assertIn(
++                        payload["name"],
++                        definitions,
++                        f"{method['method']} references missing payload definition {payload['name']}",
++                    )
++
++        run_start = _require_method(schema["requests"], "run.start")
++        self.assertEqual(run_start["params"]["name"], "RunStartParams")
++        self.assertEqual(run_start["result"]["name"], "RunnerRunResult")
++        self.assertEqual(
++            _require_field(definitions, "RunStartParams", "source")["type"],
++            "ReviewSource",
++        )
++        self.assertEqual(
++            _require_field(definitions, "RunStartParams", "changedFiles")["default"],
++            "[]",
++        )
++
++        self.assertEqual(
++            _require_method(schema["callbacks"], "model.complete")["params"]["name"],
++            "RunnerModelCompleteParams",
++        )
++        self.assertEqual(
++            _require_method(schema["callbacks"], "tool.execute")["result"]["name"],
++            "RunnerToolExecuteResult",
++        )
++        self.assertEqual(
++            _require_method(schema["notifications"], "run.failed")["params"]["name"],
++            "RunFailedNotification",
++        )
++
++
++def _load_runner_schema_fixture():
++    fixture_path = (
++        Path(__file__).resolve().parents[3] / "fixtures" / "runner-schema-v1.json"
++    )
++    return json.loads(fixture_path.read_text(encoding="utf-8"))
++
++
++def _require_method(methods, method_name):
++    for method in methods:
++        if method["method"] == method_name:
++            return method
++    raise AssertionError(f"missing method {method_name}")
++
++
++def _require_field(definitions, definition_name, field_name):
++    definition = definitions.get(definition_name)
++    if definition is None:
++        raise AssertionError(f"missing definition {definition_name}")
++    for field in definition.get("fields", []):
++        if field["name"] == field_name:
++            return field
++    raise AssertionError(f"missing field {definition_name}.{field_name}")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/sdk/typescript/packages/muzen-sdk/src/protocol-contract.test.ts b/sdk/typescript/packages/muzen-sdk/src/protocol-contract.test.ts
+new file mode 100644
+index 0000000..6f7246e
+--- /dev/null
++++ b/sdk/typescript/packages/muzen-sdk/src/protocol-contract.test.ts
+@@ -0,0 +1,114 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { readFile } from "node:fs/promises";
++import { join } from "node:path";
++
++interface RunnerPayloadRef {
++  name: string;
++}
++
++interface RunnerMethodSchema {
++  method: string;
++  params?: RunnerPayloadRef;
++  result?: RunnerPayloadRef;
++}
++
++interface RunnerPayloadFieldSchema {
++  name: string;
++  type: string;
++  required: boolean;
++  default?: string;
++}
++
++interface RunnerPayloadSchema {
++  name: string;
++  fields?: RunnerPayloadFieldSchema[];
++  values?: string[];
++}
++
++interface RunnerProtocolSchema {
++  schemaVersion: string;
++  requests: RunnerMethodSchema[];
++  callbacks: RunnerMethodSchema[];
++  notifications: RunnerMethodSchema[];
++  definitions: RunnerPayloadSchema[];
++}
++
++describe("runner protocol fixture", () => {
++  it("documents the SDK wire shapes used by local runner adapters", async () => {
++    const schema = await loadRunnerSchemaFixture();
++    const definitions = new Map(
++      schema.definitions.map((definition) => [definition.name, definition]),
++    );
++
++    assert.equal(schema.schemaVersion, "muzen.runner.v1");
++    for (const method of [
++      ...schema.requests,
++      ...schema.callbacks,
++      ...schema.notifications,
++    ]) {
++      for (const payload of [method.params, method.result]) {
++        if (payload) {
++          assert.ok(
++            definitions.has(payload.name),
++            `${method.method} references missing payload definition ${payload.name}`,
++          );
++        }
++      }
++    }
++
++    const runStart = requireMethod(schema.requests, "run.start");
++    assert.equal(runStart.params?.name, "RunStartParams");
++    assert.equal(runStart.result?.name, "RunnerRunResult");
++    assert.equal(
++      requireField(definitions, "RunStartParams", "source").type,
++      "ReviewSource",
++    );
++    assert.equal(
++      requireField(definitions, "RunStartParams", "changedFiles").default,
++      "[]",
++    );
++
++    assert.equal(
++      requireMethod(schema.callbacks, "model.complete").params?.name,
++      "RunnerModelCompleteParams",
++    );
++    assert.equal(
++      requireMethod(schema.callbacks, "tool.execute").result?.name,
++      "RunnerToolExecuteResult",
++    );
++    assert.equal(
++      requireMethod(schema.notifications, "run.failed").params?.name,
++      "RunFailedNotification",
++    );
++  });
++});
++
++async function loadRunnerSchemaFixture(): Promise<RunnerProtocolSchema> {
++  const fixturePath = join(
++    process.cwd(),
++    "../../../../fixtures/runner-schema-v1.json",
++  );
++  return JSON.parse(await readFile(fixturePath, "utf8")) as RunnerProtocolSchema;
++}
++
++function requireMethod(
++  methods: RunnerMethodSchema[],
++  methodName: string,
++): RunnerMethodSchema {
++  const method = methods.find((candidate) => candidate.method === methodName);
++  assert.ok(method, `missing method ${methodName}`);
++  return method;
++}
++
++function requireField(
++  definitions: Map<string, RunnerPayloadSchema>,
++  definitionName: string,
++  fieldName: string,
++): RunnerPayloadFieldSchema {
++  const definition = definitions.get(definitionName);
++  assert.ok(definition, `missing definition ${definitionName}`);
++  const field = definition.fields?.find((candidate) => candidate.name === fieldName);
++  assert.ok(field, `missing field ${definitionName}.${fieldName}`);
++  return field;
++}
+diff --git a/src/runner.rs b/src/runner.rs
+index 52b8f60..2e59287 100644
+--- a/src/runner.rs
++++ b/src/runner.rs
+@@ -26,6 +26,7 @@ pub(crate) use session::RunnerStdioSession;
+ 
+ #[cfg(test)]
+ mod tests {
++    use std::collections::BTreeSet;
+     use std::io::{Result as IoResult, Write};
+     use std::sync::{Arc, Mutex};
+ 
+@@ -129,6 +130,66 @@ mod tests {
+                 && method.status == RunnerMethodStatus::Implemented));
+     }
+ 
++    #[test]
++    fn schema_links_methods_to_payload_definitions() {
++        let schema = protocol_schema();
++        let definitions = schema
++            .definitions
++            .iter()
++            .map(|definition| definition.name.as_str())
++            .collect::<BTreeSet<_>>();
++
++        for method in schema
++            .requests
++            .iter()
++            .chain(schema.callbacks.iter())
++            .chain(schema.notifications.iter())
++        {
++            for payload in method.params.iter().chain(method.result.iter()) {
++                assert!(
++                    definitions.contains(payload.name.as_str()),
++                    "{} references missing payload definition {}",
++                    method.method,
++                    payload.name
++                );
++            }
++        }
++
++        let run_start = schema
++            .requests
++            .iter()
++            .find(|method| method.method == "run.start")
++            .expect("run.start schema");
++        assert_eq!(
++            run_start
++                .params
++                .as_ref()
++                .map(|payload| payload.name.as_str()),
++            Some("RunStartParams")
++        );
++        assert_eq!(
++            run_start
++                .result
++                .as_ref()
++                .map(|payload| payload.name.as_str()),
++            Some("RunnerRunResult")
++        );
++
++        let run_start_params = schema
++            .definitions
++            .iter()
++            .find(|definition| definition.name == "RunStartParams")
++            .expect("RunStartParams definition");
++        assert!(run_start_params
++            .fields
++            .iter()
++            .any(|field| field.name == "source" && field.value_type == "ReviewSource"));
++        assert!(run_start_params
++            .fields
++            .iter()
++            .any(|field| field.name == "changedFiles" && field.default.as_deref() == Some("[]")));
++    }
++
+     #[test]
+     fn stdio_handles_multiple_requests() {
+         let input = br#"{"jsonrpc":"2.0","id":1,"method":"runner.check"}
+diff --git a/src/runner/schema.rs b/src/runner/schema.rs
+index 56d9818..9741bf1 100644
+--- a/src/runner/schema.rs
++++ b/src/runner/schema.rs
+@@ -1,6 +1,7 @@
+ use super::types::{
+     RunnerCapabilities, RunnerCheckResult, RunnerHandshakeResult, RunnerMessageDirection,
+-    RunnerMethodSchema, RunnerMethodStatus, RunnerProtocolSchema,
++    RunnerMethodSchema, RunnerMethodStatus, RunnerPayloadFieldSchema, RunnerPayloadRef,
++    RunnerPayloadSchema, RunnerPayloadShape, RunnerProtocolSchema,
+ };
+ use super::{RUNNER_NAME, RUNNER_PROTOCOL_VERSION};
+ 
+@@ -100,6 +101,7 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
+                 "Notify that a run failed before producing a report.",
+             ),
+         ],
++        definitions: payload_definitions(),
+     }
+ }
+ 
+@@ -109,6 +111,8 @@ fn implemented(method: &'static str, summary: &'static str) -> RunnerMethodSchem
+         direction: RunnerMessageDirection::SdkToRunner,
+         status: RunnerMethodStatus::Implemented,
+         summary: summary.to_string(),
++        params: method_params(method),
++        result: method_result(method),
+     }
+ }
+ 
+@@ -118,5 +122,574 @@ fn implemented_runner_to_sdk(method: &'static str, summary: &'static str) -> Run
+         direction: RunnerMessageDirection::RunnerToSdk,
+         status: RunnerMethodStatus::Implemented,
+         summary: summary.to_string(),
++        params: method_params(method),
++        result: method_result(method),
++    }
++}
++
++fn method_params(method: &str) -> Option<RunnerPayloadRef> {
++    match method {
++        "runner.handshake" => Some(payload_ref("RunnerHandshakeParams")),
++        "run.start" => Some(payload_ref("RunStartParams")),
++        "run.cancel" | "run.status" | "run.result" => Some(payload_ref("RunLookupParams")),
++        "artifact.read" => Some(payload_ref("ArtifactReadParams")),
++        "artifact.export" => Some(payload_ref("ArtifactExportParams")),
++        "snapshot.readText" => Some(payload_ref("SnapshotReadTextParams")),
++        "webhook.github.handle" | "webhook.gitlab.handle" => {
++            Some(payload_ref("WebhookHandleParams"))
++        }
++        "worker.runOnce" => Some(payload_ref("WorkerRunOnceParams")),
++        "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
++        "tool.execute" => Some(payload_ref("RunnerToolExecuteParams")),
++        "event.review" => Some(payload_ref("ReviewEventRecord")),
++        "event.runtime" => Some(payload_ref("RuntimeEventRecord")),
++        "run.finished" => Some(payload_ref("RunnerRunResult")),
++        "run.failed" => Some(payload_ref("RunFailedNotification")),
++        _ => None,
++    }
++}
++
++fn method_result(method: &str) -> Option<RunnerPayloadRef> {
++    match method {
++        "runner.handshake" => Some(payload_ref("RunnerHandshakeResult")),
++        "runner.check" => Some(payload_ref("RunnerCheckResult")),
++        "runner.schema.export" => Some(payload_ref("RunnerProtocolSchema")),
++        "run.start" | "run.result" => Some(payload_ref("RunnerRunResult")),
++        "run.cancel" => Some(payload_ref("RunCancelResult")),
++        "run.status" => Some(payload_ref("RunStatusResult")),
++        "artifact.read" => Some(payload_ref("RunnerArtifactReadResult")),
++        "artifact.export" => Some(payload_ref("RunnerArtifactExportResult")),
++        "snapshot.readText" => Some(payload_ref("RunnerSnapshotTextResult")),
++        "webhook.github.handle" | "webhook.gitlab.handle" => {
++            Some(payload_ref("ReviewHttpResponse"))
++        }
++        "worker.runOnce" => Some(payload_ref("WorkerRunOnceResult")),
++        "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
++        "tool.execute" => Some(payload_ref("RunnerToolExecuteResult")),
++        _ => None,
++    }
++}
++
++fn payload_definitions() -> Vec<RunnerPayloadSchema> {
++    vec![
++        object(
++            "RunnerHandshakeParams",
++            vec![
++                required("protocolVersion", "string"),
++                optional("clientName", "string"),
++                optional("clientVersion", "string"),
++            ],
++        ),
++        object(
++            "RunnerHandshakeResult",
++            vec![
++                required("protocolVersion", "string"),
++                required("runnerName", "string"),
++                required("runnerVersion", "string"),
++                required("capabilities", "RunnerCapabilities"),
++            ],
++        ),
++        object(
++            "RunnerCapabilities",
++            vec![
++                required("supportedMethods", "string[]"),
++                required("plannedMethods", "string[]"),
++                required("transports", "string[]"),
++            ],
++        ),
++        object(
++            "RunnerCheckResult",
++            vec![
++                required("ok", "boolean"),
++                required("protocolVersion", "string"),
++                required("runnerName", "string"),
++                required("runnerVersion", "string"),
++                required("rustPackage", "string"),
++            ],
++        ),
++        object(
++            "RunnerProtocolSchema",
++            vec![
++                required("schemaVersion", "string"),
++                required("transport", "string"),
++                required("requests", "RunnerMethodSchema[]"),
++                required("callbacks", "RunnerMethodSchema[]"),
++                required("notifications", "RunnerMethodSchema[]"),
++                required("definitions", "RunnerPayloadSchema[]"),
++            ],
++        ),
++        object(
++            "RunnerMethodSchema",
++            vec![
++                required("method", "string"),
++                required("direction", "RunnerMessageDirection"),
++                required("status", "RunnerMethodStatus"),
++                required("summary", "string"),
++                optional("params", "RunnerPayloadRef"),
++                optional("result", "RunnerPayloadRef"),
++            ],
++        ),
++        object("RunnerPayloadRef", vec![required("name", "string")]),
++        object(
++            "RunnerPayloadSchema",
++            vec![
++                required("name", "string"),
++                required("shape", "RunnerPayloadShape"),
++                defaulted("fields", "RunnerPayloadFieldSchema[]", "[]"),
++                defaulted("values", "string[]", "[]"),
++            ],
++        ),
++        object(
++            "RunnerPayloadFieldSchema",
++            vec![
++                required("name", "string"),
++                required("type", "string"),
++                required("required", "boolean"),
++                optional("default", "string"),
++            ],
++        ),
++        enum_definition(
++            "RunnerMessageDirection",
++            vec!["sdk_to_runner", "runner_to_sdk"],
++        ),
++        enum_definition("RunnerMethodStatus", vec!["implemented", "reserved"]),
++        enum_definition("RunnerPayloadShape", vec!["object", "enum"]),
++        object(
++            "RunStartParams",
++            vec![
++                optional("protocolVersion", "string"),
++                optional("runId", "string"),
++                optional("repo", "string"),
++                optional("source", "ReviewSource"),
++                optional("sourceProvider", "RunSourceProviderParams"),
++                defaulted("changedFiles", "string[]", "[]"),
++                defaulted("sessions", "RunSessionParams[]", "[]"),
++                optional("limits", "RunLimitParams"),
++                optional("model", "RunModelParams"),
++                defaulted("tools", "RunToolParams[]", "[]"),
++            ],
++        ),
++        object(
++            "ReviewSource",
++            vec![
++                required("type", "local | github_pull_request | gitlab_merge_request"),
++                required("repo", "string"),
++                defaulted("changedFiles", "string[]", "[]"),
++                optional("owner", "string"),
++                optional("number", "integer"),
++            ],
++        ),
++        object(
++            "RunSourceProviderParams",
++            vec![optional("baseUrl", "string")],
++        ),
++        object(
++            "RunModelParams",
++            vec![defaulted("callback", "boolean", "false")],
++        ),
++        object(
++            "RunToolParams",
++            vec![
++                required("id", "string"),
++                required("description", "string"),
++                required("parameters", "json"),
++                defaulted("cacheable", "boolean", "false"),
++            ],
++        ),
++        object(
++            "RunSessionParams",
++            vec![
++                required("id", "string"),
++                defaulted("role", "Role", "generalist"),
++                required("objective", "string"),
++                optional("cwd", "string"),
++                optional("modelProfileId", "string"),
++                optional("budget", "RunAgentBudgetParams"),
++            ],
++        ),
++        enum_definition(
++            "Role",
++            vec![
++                "generalist",
++                "security",
++                "performance",
++                "maintainability",
++                "correctness",
++                "architecture",
++                "validator",
++            ],
++        ),
++        object(
++            "RunAgentBudgetParams",
++            vec![
++                required("maxTurns", "integer"),
++                required("maxToolCalls", "integer"),
++                required("maxPromptTokens", "integer"),
++                required("maxOutputTokens", "integer"),
++            ],
++        ),
++        object(
++            "RunLimitParams",
++            vec![
++                optional("maxActiveSessions", "integer"),
++                optional("maxFileBytes", "integer"),
++                optional("maxSearchMatches", "integer"),
++            ],
++        ),
++        object("RunLookupParams", vec![required("runId", "string")]),
++        object(
++            "ArtifactReadParams",
++            vec![
++                required("runId", "string"),
++                required("artifactId", "string"),
++                defaulted("view", "RunnerArtifactView", "redacted"),
++            ],
++        ),
++        object(
++            "ArtifactExportParams",
++            vec![
++                required("runId", "string"),
++                defaulted("artifactIds", "string[]", "[]"),
++                defaulted("view", "RunnerArtifactView", "redacted"),
++                optional("maxArtifacts", "integer"),
++                optional("maxBytes", "integer"),
++            ],
++        ),
++        enum_definition("RunnerArtifactView", vec!["redacted", "raw"]),
++        object(
++            "SnapshotReadTextParams",
++            vec![
++                required("runId", "string"),
++                optional("snapshotId", "string"),
++                required("path", "string"),
++                optional("maxBytes", "integer"),
++            ],
++        ),
++        object(
++            "WebhookHandleParams",
++            vec![
++                optional("workspaceId", "string"),
++                defaulted("headers", "object<string,string>", "{}"),
++                required("body", "string"),
++                optional("secret", "string"),
++                defaulted("options", "WebhookReviewOptions", "{}"),
++            ],
++        ),
++        object(
++            "WebhookReviewOptions",
++            vec![defaulted("reviewOptions", "ReviewOptions", "{}")],
++        ),
++        object(
++            "WorkerRunOnceParams",
++            vec![
++                optional("workerId", "string"),
++                defaulted("maxSessions", "integer", "1"),
++                defaulted("hostConfig", "HostConfiguration", "{}"),
++            ],
++        ),
++        object(
++            "HostConfiguration",
++            vec![defaulted(
++                "scheduling",
++                "HostSchedulingConfiguration",
++                "default",
++            )],
++        ),
++        object(
++            "HostSchedulingConfiguration",
++            vec![
++                defaulted("leaseSeconds", "integer", "60"),
++                defaulted("defaultRetryPolicy", "ReviewRetryPolicy", "default"),
++                defaulted("concurrency", "ReviewWorkerConcurrencyLimits", "default"),
++                defaulted("fairness", "SchedulingFairnessStrategy", "fifo"),
++            ],
++        ),
++        enum_definition(
++            "SchedulingFairnessStrategy",
++            vec!["fifo", "round_robin_by_workspace"],
++        ),
++        object(
++            "ReviewRetryPolicy",
++            vec![
++                required("maxAttempts", "integer"),
++                required("initialBackoffSeconds", "integer"),
++                required("maxBackoffSeconds", "integer"),
++            ],
++        ),
++        object(
++            "ReviewWorkerConcurrencyLimits",
++            vec![
++                optional("maxRunningGlobal", "integer"),
++                optional("maxRunningPerWorkspace", "integer"),
++                optional("maxRunningPerUser", "integer"),
++                optional("maxRunningPerModelProfile", "integer"),
++                optional("maxRunningPerProviderProfile", "integer"),
++            ],
++        ),
++        object(
++            "WorkerRunOnceResult",
++            vec![
++                required("workerId", "string"),
++                required("claimed", "integer"),
++                required("completed", "integer"),
++                required("retried", "integer"),
++                required("failed", "integer"),
++                required("skipped", "integer"),
++            ],
++        ),
++        object(
++            "RunStatusResult",
++            vec![required("runId", "string"), required("status", "string")],
++        ),
++        object(
++            "RunCancelResult",
++            vec![
++                required("runId", "string"),
++                required("status", "string"),
++                required("cancelled", "boolean"),
++                required("reason", "string"),
++            ],
++        ),
++        object(
++            "RunnerRunResult",
++            vec![
++                required("protocolVersion", "string"),
++                required("runId", "string"),
++                required("status", "string"),
++                required("summary", "RunnerRunSummary"),
++                required("findings", "RunnerFinding[]"),
++                required("snapshots", "RunnerSnapshotSummary[]"),
++            ],
++        ),
++        object(
++            "RunnerRunSummary",
++            vec![
++                required("sessions", "integer"),
++                required("completedSessions", "integer"),
++                required("modelCalls", "integer"),
++                required("toolCalls", "integer"),
++                required("findings", "integer"),
++                required("publishableFindings", "integer"),
++                required("elapsedMs", "integer"),
++                required("inputTokens", "integer"),
++                required("outputTokens", "integer"),
++                required("totalTokens", "integer"),
++                required("artifacts", "integer"),
++                required("artifactBytes", "integer"),
++                required("snapshotCount", "integer"),
++            ],
++        ),
++        object(
++            "RunnerFinding",
++            vec![
++                required("id", "string"),
++                required("title", "string"),
++                required("claim", "string"),
++                required("evidenceCount", "integer"),
++                required("publishable", "boolean"),
++            ],
++        ),
++        object(
++            "RunnerSnapshotSummary",
++            vec![
++                required("snapshotId", "string"),
++                required("files", "integer"),
++                required("changedFiles", "integer"),
++                required("capturedFiles", "integer"),
++                required("capturedBytes", "integer"),
++            ],
++        ),
++        object(
++            "RunnerArtifact",
++            vec![
++                required("artifactId", "string"),
++                required("bytes", "integer"),
++                required("contentHash", "string"),
++                required("content", "string"),
++            ],
++        ),
++        object(
++            "RunnerArtifactReadResult",
++            vec![
++                required("runId", "string"),
++                required("view", "RunnerArtifactView"),
++                required("artifact", "RunnerArtifact"),
++            ],
++        ),
++        object(
++            "RunnerArtifactExportResult",
++            vec![
++                required("runId", "string"),
++                required("view", "RunnerArtifactView"),
++                required("artifactCount", "integer"),
++                required("totalBytes", "integer"),
++                required("artifacts", "RunnerArtifact[]"),
++            ],
++        ),
++        object(
++            "RunnerSnapshotTextResult",
++            vec![
++                required("runId", "string"),
++                required("snapshotId", "string"),
++                required("path", "string"),
++                required("contentHash", "string"),
++                required("bytes", "integer"),
++                required("truncated", "boolean"),
++                required("content", "string"),
++            ],
++        ),
++        object(
++            "ReviewHttpResponse",
++            vec![
++                required("statusCode", "integer"),
++                required("headers", "object<string,string>"),
++                required("body", "string"),
++            ],
++        ),
++        object(
++            "ReviewEventRecord",
++            vec![
++                required("seq", "integer"),
++                required("timestampUtc", "string"),
++                optional("runId", "string"),
++                optional("snapshotId", "string"),
++                optional("sessionId", "string"),
++                optional("turn", "integer"),
++                optional("toolCallId", "string"),
++                optional("artifactId", "string"),
++                optional("findingId", "string"),
++                required("event", "ReviewEvent"),
++            ],
++        ),
++        object(
++            "RuntimeEventRecord",
++            vec![
++                required("seq", "integer"),
++                required("timestampUtc", "string"),
++                required("context", "RuntimeEventContext"),
++                required("event", "RuntimeEvent"),
++            ],
++        ),
++        object(
++            "RunFailedNotification",
++            vec![required("error", "string"), required("kind", "string")],
++        ),
++        object(
++            "RunnerModelCompleteParams",
++            vec![
++                required("protocolVersion", "string"),
++                required("runId", "string"),
++                required("sessionId", "string"),
++                required("role", "Role"),
++                required("objective", "string"),
++                optional("snapshotId", "string"),
++                optional("modelProfileId", "string"),
++                required("turn", "integer"),
++                required("transcript", "json[]"),
++            ],
++        ),
++        object(
++            "RunnerModelCompleteResult",
++            vec![
++                optional("content", "string"),
++                defaulted("toolCalls", "RunnerModelToolCallResult[]", "[]"),
++                optional("usage", "RunnerTokenUsage"),
++            ],
++        ),
++        object(
++            "RunnerModelToolCallResult",
++            vec![
++                optional("callId", "string"),
++                required("toolId", "string"),
++                defaulted("arguments", "json", "null"),
++            ],
++        ),
++        object(
++            "RunnerTokenUsage",
++            vec![
++                required("inputTokens", "integer"),
++                required("outputTokens", "integer"),
++                required("totalTokens", "integer"),
++            ],
++        ),
++        object(
++            "RunnerToolExecuteParams",
++            vec![
++                required("protocolVersion", "string"),
++                required("runId", "string"),
++                required("sessionId", "string"),
++                required("turn", "integer"),
++                required("callId", "string"),
++                required("toolId", "string"),
++                required("snapshotId", "string"),
++                required("providerResources", "string[]"),
++                required("arguments", "json"),
++            ],
++        ),
++        object(
++            "RunnerToolExecuteResult",
++            vec![
++                optional("data", "json"),
++                optional("artifact", "RunnerToolArtifactResult"),
++            ],
++        ),
++        object(
++            "RunnerToolArtifactResult",
++            vec![required("key", "string"), required("content", "string")],
++        ),
++    ]
++}
++
++fn payload_ref(name: &'static str) -> RunnerPayloadRef {
++    RunnerPayloadRef {
++        name: name.to_string(),
++    }
++}
++
++fn object(name: &'static str, fields: Vec<RunnerPayloadFieldSchema>) -> RunnerPayloadSchema {
++    RunnerPayloadSchema {
++        name: name.to_string(),
++        shape: RunnerPayloadShape::Object,
++        fields,
++        values: Vec::new(),
++    }
++}
++
++fn enum_definition(name: &'static str, values: Vec<&'static str>) -> RunnerPayloadSchema {
++    RunnerPayloadSchema {
++        name: name.to_string(),
++        shape: RunnerPayloadShape::Enum,
++        fields: Vec::new(),
++        values: values.into_iter().map(str::to_string).collect(),
++    }
++}
++
++fn required(name: &'static str, value_type: &'static str) -> RunnerPayloadFieldSchema {
++    field(name, value_type, true, None)
++}
++
++fn optional(name: &'static str, value_type: &'static str) -> RunnerPayloadFieldSchema {
++    field(name, value_type, false, Some("null"))
++}
++
++fn defaulted(
++    name: &'static str,
++    value_type: &'static str,
++    default: &'static str,
++) -> RunnerPayloadFieldSchema {
++    field(name, value_type, false, Some(default))
++}
++
++fn field(
++    name: &'static str,
++    value_type: &'static str,
++    required: bool,
++    default: Option<&'static str>,
++) -> RunnerPayloadFieldSchema {
++    RunnerPayloadFieldSchema {
++        name: name.to_string(),
++        value_type: value_type.to_string(),
++        required,
++        default: default.map(str::to_string),
+     }
+ }
+diff --git a/src/runner/types.rs b/src/runner/types.rs
+index ba79ec8..4d6cb6a 100644
+--- a/src/runner/types.rs
++++ b/src/runner/types.rs
+@@ -370,6 +370,7 @@ pub struct RunnerProtocolSchema {
+     pub requests: Vec<RunnerMethodSchema>,
+     pub callbacks: Vec<RunnerMethodSchema>,
+     pub notifications: Vec<RunnerMethodSchema>,
++    pub definitions: Vec<RunnerPayloadSchema>,
+ }
+ 
+ #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+@@ -379,6 +380,45 @@ pub struct RunnerMethodSchema {
+     pub direction: RunnerMessageDirection,
+     pub status: RunnerMethodStatus,
+     pub summary: String,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub params: Option<RunnerPayloadRef>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub result: Option<RunnerPayloadRef>,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "camelCase")]
++pub struct RunnerPayloadRef {
++    pub name: String,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "camelCase")]
++pub struct RunnerPayloadSchema {
++    pub name: String,
++    pub shape: RunnerPayloadShape,
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub fields: Vec<RunnerPayloadFieldSchema>,
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub values: Vec<String>,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "camelCase")]
++pub struct RunnerPayloadFieldSchema {
++    pub name: String,
++    #[serde(rename = "type")]
++    pub value_type: String,
++    pub required: bool,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub default: Option<String>,
++}
++
++#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum RunnerPayloadShape {
++    Object,
++    Enum,
+ }
+ 
+ #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::context_engine::{
+    ContextEngineConfig, ContextLearningApproval, CrossRepoContractCandidate,
+};
 use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
@@ -62,6 +65,8 @@ pub struct RunStartParams {
     /// "planned_review" (default) or "direct_sessions".
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub context_engine: Option<ContextEngineConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -268,6 +273,30 @@ pub struct SnapshotReadTextParams {
     pub path: String,
     #[serde(default)]
     pub max_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerContextIndexParams {
+    pub repo: PathBuf,
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub host_metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
+    #[serde(default)]
+    pub allowed_cross_repo_resources: Vec<String>,
+    #[serde(default)]
+    pub config: Option<ContextEngineConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerContextLearningApprovalParams {
+    pub snapshot_id: crate::runtime::contracts::SnapshotId,
+    #[serde(flatten)]
+    pub approval: ContextLearningApproval,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -557,6 +586,10 @@ pub struct RunnerSessionOutput {
 pub struct RunnerFileReview {
     pub path: String,
     pub verdict: String,
+    #[serde(default)]
+    pub coverage: String,
+    #[serde(default)]
+    pub review_verdict: String,
     pub summary: String,
     #[serde(default)]
     pub related_paths: Vec<String>,
@@ -572,6 +605,10 @@ pub struct RunnerFileReview {
 pub struct RunnerRunSummary {
     pub sessions: usize,
     pub completed_sessions: usize,
+    #[serde(default)]
+    pub review_units: usize,
+    #[serde(default)]
+    pub completed_review_units: usize,
     pub model_calls: usize,
     pub tool_calls: usize,
     pub findings: usize,
@@ -585,6 +622,39 @@ pub struct RunnerRunSummary {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
+    pub quality_diagnostics: RunnerReviewQualityDiagnostics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerReviewQualityDiagnostics {
+    pub contract_risk_units: usize,
+    pub contract_seed_count: usize,
+    pub contract_pack_count: usize,
+    #[serde(default)]
+    pub omitted_contract_pack_candidates: Vec<String>,
+    #[serde(default)]
+    pub selected_contract_packs: Vec<String>,
+    pub contract_evidence_failures: usize,
+    #[serde(default)]
+    pub coverage_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub coverage_counts_by_lens: BTreeMap<String, BTreeMap<String, usize>>,
+    #[serde(default)]
+    pub high_risk_files_below_target: Vec<String>,
+    #[serde(default)]
+    pub challenge_status_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub sessions_run: usize,
+    #[serde(default)]
+    pub budgets_used: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub explicit_caller_cap_sessions: usize,
+    pub candidate_findings: usize,
+    pub rescued_candidates: usize,
+    pub rejected_candidates: usize,
+    #[serde(default)]
+    pub rejection_reasons: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -602,6 +672,8 @@ pub struct RunnerFinding {
     #[serde(default)]
     pub validation_status: Option<String>,
     #[serde(default)]
+    pub challenge_status: Option<String>,
+    #[serde(default)]
     pub evidence: Vec<RunnerFindingEvidence>,
     #[serde(default)]
     pub discovered_by: Vec<String>,
@@ -611,6 +683,8 @@ pub struct RunnerFinding {
     pub challenged_by: Vec<String>,
     #[serde(default)]
     pub location: Option<RunnerFindingLocation>,
+    #[serde(default)]
+    pub related_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

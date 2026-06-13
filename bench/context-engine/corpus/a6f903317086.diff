@@ -1,0 +1,949 @@
+diff --git a/src/runtime/dispatch.rs b/src/runtime/dispatch.rs
+index 5a2e07e..4ed3c8e 100644
+--- a/src/runtime/dispatch.rs
++++ b/src/runtime/dispatch.rs
+@@ -45,127 +45,3 @@ impl RuntimeEventDispatcher {
+         }
+     }
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use std::io::{Result as IoResult, Write};
+-    use std::sync::Mutex;
+-
+-    use serde_json::{json, Value};
+-
+-    use super::*;
+-    use crate::contracts::{EventLevel, EventType};
+-    use crate::events::{EventEmitterState, EventRecord};
+-    use crate::runtime::contracts::{RuntimeEvent, RuntimeEventContext, SessionId};
+-
+-    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+-
+-    impl Write for SharedWriter {
+-        fn write(&mut self, bytes: &[u8]) -> IoResult<usize> {
+-            self.0.lock().expect("writer lock").extend_from_slice(bytes);
+-            Ok(bytes.len())
+-        }
+-
+-        fn flush(&mut self) -> IoResult<()> {
+-            Ok(())
+-        }
+-    }
+-
+-    #[derive(Default)]
+-    struct RecordingRuntimeSink {
+-        records: Mutex<Vec<(RuntimeEventContext, RuntimeEvent)>>,
+-    }
+-
+-    impl RuntimeEventSink for RecordingRuntimeSink {
+-        fn emit(&self, event: RuntimeEvent) {
+-            self.emit_with_context(RuntimeEventContext::from_event(&event), event);
+-        }
+-
+-        fn emit_with_context(&self, context: RuntimeEventContext, event: RuntimeEvent) {
+-            self.records
+-                .lock()
+-                .expect("sink lock")
+-                .push((context, event));
+-        }
+-    }
+-
+-    #[test]
+-    fn dispatcher_emits_legacy_records_when_emitter_is_configured() {
+-        let output = Arc::new(Mutex::new(Vec::new()));
+-        let emitter = Arc::new(EventEmitter {
+-            run_id: "run-1".to_string(),
+-            attempt: 2,
+-            redaction_policy_id: "test-redaction".to_string(),
+-            state: Mutex::new(EventEmitterState {
+-                seq: 0,
+-                writer: Box::new(SharedWriter(Arc::clone(&output))),
+-            }),
+-        });
+-        let dispatcher = RuntimeEventDispatcher::new(None, Some(emitter));
+-
+-        dispatcher.emit_legacy(
+-            EventRecord::new(
+-                EventLevel::Info,
+-                EventType::SessionStarted,
+-                json!({"role": "generalist"}),
+-            )
+-            .session_id("session-1"),
+-        );
+-
+-        let bytes = output.lock().expect("output lock").clone();
+-        let line = String::from_utf8(bytes).expect("utf8 output");
+-        let event: Value = serde_json::from_str(line.trim()).expect("legacy event json");
+-        assert_eq!(event["runId"], "run-1");
+-        assert_eq!(event["attempt"], 2);
+-        assert_eq!(event["seq"], 1);
+-        assert_eq!(event["sessionId"], "session-1");
+-        assert_eq!(event["eventType"], "session_started");
+-    }
+-
+-    #[test]
+-    fn dispatcher_emits_runtime_records_with_context_when_sink_is_configured() {
+-        let sink = Arc::new(RecordingRuntimeSink::default());
+-        let runtime_sink: Arc<dyn RuntimeEventSink> = sink.clone();
+-        let dispatcher = RuntimeEventDispatcher::new(Some(runtime_sink), None);
+-        let context = RuntimeEventContext {
+-            session_id: Some(SessionId("session-1".to_string())),
+-            ..RuntimeEventContext::default()
+-        };
+-
+-        dispatcher.emit_runtime_with_context(
+-            context,
+-            RuntimeEvent::SessionFinished {
+-                session_id: SessionId("session-1".to_string()),
+-                status: "done".to_string(),
+-            },
+-        );
+-
+-        let records = sink.records.lock().expect("sink lock");
+-        assert_eq!(records.len(), 1);
+-        assert_eq!(
+-            records[0].0.session_id.as_ref(),
+-            Some(&SessionId("session-1".to_string()))
+-        );
+-        assert!(matches!(
+-            records[0].1,
+-            RuntimeEvent::SessionFinished { ref status, .. } if status == "done"
+-        ));
+-    }
+-
+-    #[test]
+-    fn dispatcher_without_sinks_drops_events() {
+-        let dispatcher = RuntimeEventDispatcher::none();
+-
+-        dispatcher.emit_legacy(EventRecord::new(
+-            EventLevel::Info,
+-            EventType::SessionStarted,
+-            json!({}),
+-        ));
+-        dispatcher.emit_runtime_with_context(
+-            RuntimeEventContext::default(),
+-            RuntimeEvent::JobFinished {
+-                status: "done".to_string(),
+-            },
+-        );
+-    }
+-}
+diff --git a/src/runtime/tools/authorization.rs b/src/runtime/tools/authorization.rs
+index 707af43..a719051 100644
+--- a/src/runtime/tools/authorization.rs
++++ b/src/runtime/tools/authorization.rs
+@@ -177,301 +177,3 @@ fn effects_allow(required: ToolEffects, allowed: ToolEffects) -> bool {
+         && (!required.scratch_write || allowed.scratch_write)
+         && (!required.external_side_effect || allowed.external_side_effect)
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use crate::contracts::ToolName;
+-    use crate::runtime::contracts::{
+-        CapabilitySet, FsScope, ProviderResourceId, ProviderResourceScope, SnapshotId, ToolArgs,
+-        ToolCallId, TurnId,
+-    };
+-    use crate::runtime::tools::registry::{ToolDefinition, ToolRegistry};
+-
+-    #[test]
+-    fn authorizer_blocks_effects_outside_grant() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let tool_id = ToolId::from(ToolName::ReadFile);
+-        let definition = registry.definition(&tool_id).expect("read_file");
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: ToolEffects::default(),
+-            },
+-        );
+-
+-        let err = ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), definition)
+-            .expect_err("effects should be denied");
+-
+-        assert_eq!(err.code, ToolErrorCode::ToolNotAllowed);
+-    }
+-
+-    #[test]
+-    fn authorizer_enforces_per_session_tool_call_limit() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let tool_id = ToolId::from(ToolName::ReadDiff);
+-        let definition = registry.definition(&tool_id).expect("read_diff");
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: Some(1),
+-                effects_allowed: ToolEffects::review_read_only(),
+-            },
+-        );
+-        let authorizer = ToolAuthorizer::new();
+-
+-        authorizer
+-            .authorize(
+-                &invocation(tool_id.clone(), capabilities.clone()),
+-                definition,
+-            )
+-            .expect("first call allowed");
+-        let err = authorizer
+-            .authorize(&invocation(tool_id, capabilities), definition)
+-            .expect_err("second call denied");
+-
+-        assert_eq!(err.code, ToolErrorCode::BudgetExceeded);
+-    }
+-
+-    #[test]
+-    fn authorizer_blocks_artifact_writes_outside_global_policy() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let tool_id = ToolId::from(ToolName::ReadDiff);
+-        let definition = registry.definition(&tool_id).expect("read_diff");
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities.artifact_access.write = false;
+-
+-        let err = ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), definition)
+-            .expect_err("artifact write should be denied");
+-
+-        assert_eq!(err.code, ToolErrorCode::ToolNotAllowed);
+-    }
+-
+-    #[test]
+-    fn authorizer_blocks_provider_outside_runtime_authority_policy() {
+-        let tool_id = ToolId::parse("provider_scoped_tool").expect("tool id");
+-        let definition = custom_definition(tool_id.clone(), ToolEffects::default());
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.runtime_authority = capabilities
+-            .runtime_authority
+-            .scoped_to_providers(vec![ToolProviderId::parse("other_provider").unwrap()]);
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: ToolEffects::default(),
+-            },
+-        );
+-
+-        let err = ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), &definition)
+-            .expect_err("provider should be denied by runtime authority");
+-
+-        assert_eq!(err.code, ToolErrorCode::ToolNotAllowed);
+-        assert!(err.message.contains("provider"));
+-    }
+-
+-    #[test]
+-    fn authorizer_allows_provider_inside_runtime_authority_policy() {
+-        let tool_id = ToolId::parse("provider_allowed_tool").expect("tool id");
+-        let definition = custom_definition(tool_id.clone(), ToolEffects::default());
+-        let provider_id = definition.provider_id.clone();
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.runtime_authority = capabilities
+-            .runtime_authority
+-            .scoped_to_providers(vec![provider_id]);
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: ToolEffects::default(),
+-            },
+-        );
+-
+-        ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), &definition)
+-            .expect("provider should be allowed by runtime authority");
+-    }
+-
+-    #[test]
+-    fn authorizer_blocks_provider_resource_outside_runtime_authority_policy() {
+-        let tool_id = ToolId::parse("provider_resource_scoped_tool").expect("tool id");
+-        let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
+-        let mut definition = custom_definition(tool_id.clone(), ToolEffects::default());
+-        definition.provider_resources = vec![resource_id];
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.runtime_authority = capabilities
+-            .runtime_authority
+-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
+-                definition.provider_id.clone(),
+-                ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
+-            )]);
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: ToolEffects::default(),
+-            },
+-        );
+-
+-        let err = ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), &definition)
+-            .expect_err("provider resource should be denied by runtime authority");
+-
+-        assert_eq!(err.code, ToolErrorCode::ToolNotAllowed);
+-        assert!(err.message.contains("provider resource"));
+-    }
+-
+-    #[test]
+-    fn authorizer_allows_provider_resource_inside_runtime_authority_policy() {
+-        let tool_id = ToolId::parse("provider_resource_allowed_tool").expect("tool id");
+-        let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
+-        let mut definition = custom_definition(tool_id.clone(), ToolEffects::default());
+-        definition.provider_resources = vec![resource_id.clone()];
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.runtime_authority = capabilities
+-            .runtime_authority
+-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
+-                definition.provider_id.clone(),
+-                resource_id,
+-            )]);
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: ToolEffects::default(),
+-            },
+-        );
+-
+-        ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), &definition)
+-            .expect("provider resource should be allowed by runtime authority");
+-    }
+-
+-    #[test]
+-    fn authorizer_blocks_runtime_authority_outside_global_policy() {
+-        for (effect, message) in [
+-            (
+-                ToolEffects {
+-                    network_read: true,
+-                    ..ToolEffects::default()
+-                },
+-                "network read",
+-            ),
+-            (
+-                ToolEffects {
+-                    host_read: true,
+-                    ..ToolEffects::default()
+-                },
+-                "host read",
+-            ),
+-            (
+-                ToolEffects {
+-                    scratch_write: true,
+-                    ..ToolEffects::default()
+-                },
+-                "scratch write",
+-            ),
+-            (
+-                ToolEffects {
+-                    external_side_effect: true,
+-                    ..ToolEffects::default()
+-                },
+-                "external side effect",
+-            ),
+-        ] {
+-            let tool_id = ToolId::parse(&format!("authority_{}", message.replace(' ', "_")))
+-                .expect("tool id");
+-            let definition = custom_definition(tool_id.clone(), effect);
+-            let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-            capabilities.grant(
+-                tool_id.clone(),
+-                ToolGrant {
+-                    allow: true,
+-                    max_calls: None,
+-                    effects_allowed: effect,
+-                },
+-            );
+-
+-            let err = ToolAuthorizer::new()
+-                .authorize(&invocation(tool_id, capabilities), &definition)
+-                .expect_err("global runtime authority should deny effect");
+-
+-            assert_eq!(err.code, ToolErrorCode::ToolNotAllowed, "{message}");
+-            assert!(err.message.contains(message), "{message}");
+-        }
+-    }
+-
+-    #[test]
+-    fn authorizer_allows_runtime_authority_when_grant_and_global_policy_allow() {
+-        let tool_id = ToolId::parse("trusted_scratch_tool").expect("tool id");
+-        let effects = ToolEffects {
+-            scratch_read: true,
+-            scratch_write: true,
+-            ..ToolEffects::default()
+-        };
+-        let definition = custom_definition(tool_id.clone(), effects);
+-        let mut capabilities = CapabilitySet::empty_review_policy(FsScope::repo_root());
+-        capabilities.runtime_authority.scratch_read = true;
+-        capabilities.runtime_authority.scratch_write = true;
+-        capabilities.grant(
+-            tool_id.clone(),
+-            ToolGrant {
+-                allow: true,
+-                max_calls: None,
+-                effects_allowed: effects,
+-            },
+-        );
+-
+-        ToolAuthorizer::new()
+-            .authorize(&invocation(tool_id, capabilities), &definition)
+-            .expect("grant and global runtime authority should allow effect");
+-    }
+-
+-    fn invocation(tool_id: ToolId, capabilities: CapabilitySet) -> ToolInvocation {
+-        let scope_key = capabilities
+-            .fs_scope
+-            .scope_key(&SnapshotId("snapshot".to_string()));
+-        ToolInvocation {
+-            session_id: SessionId("session".to_string()),
+-            turn_id: TurnId(1),
+-            call_id: ToolCallId("call".to_string()),
+-            builtin_name: tool_id.as_builtin(),
+-            input_bytes: 0,
+-            args: ToolArgs::Empty,
+-            scope_key,
+-            tool_id,
+-            capabilities,
+-            assigned_changed_files: Vec::new(),
+-        }
+-    }
+-
+-    fn custom_definition(tool_id: ToolId, effects: ToolEffects) -> ToolDefinition {
+-        ToolDefinition {
+-            id: tool_id.clone(),
+-            model_alias: tool_id,
+-            description: "Authority test tool".to_string(),
+-            parameters: serde_json::json!({
+-                "type": "object",
+-                "properties": {},
+-            }),
+-            builtin: None,
+-            cacheable: false,
+-            effects,
+-            provider_resources: Vec::new(),
+-            provider_id: ToolProviderId::parse("authority_test_provider").expect("provider id"),
+-            handler: None,
+-        }
+-    }
+-}
+diff --git a/src/runtime/tools/engine.rs b/src/runtime/tools/engine.rs
+index 6396596..79e5168 100644
+--- a/src/runtime/tools/engine.rs
++++ b/src/runtime/tools/engine.rs
+@@ -2292,343 +2292,3 @@ fn validation_error_message(code: ToolErrorCode) -> &'static str {
+         _ => "tool invocation failed validation",
+     }
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use crate::contracts::{
+-        EvidenceLocationV1, FindingPublishability, FindingSeverity, FindingV1, ReportStatus,
+-        ValidationStatus,
+-    };
+-    use crate::runtime::contracts::RepoPath;
+-
+-    use super::{
+-        finding_path_matches, finding_primary_path, inconsistent_clean_review,
+-        inconsistent_issue_found_review, inconsistent_skipped_review, is_non_finding_claim,
+-        scoped_diff_content, weak_clean_review_for_risk_hinted_file,
+-    };
+-
+-    #[test]
+-    fn detects_clean_batch_summaries_as_non_findings() {
+-        assert!(is_non_finding_claim(
+-            "No actionable correctness finding from batch 7 evidence",
+-            "No concrete correctness issue was evidenced in the inspected batch files",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "No supported security finding in batch 6/7",
+-            "I found no concrete security regression in the reviewed batch",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "No issue found in GitHub PR parsing",
+-            "the parser has tests for supported forms",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "Check runner/source scope contract consistency",
+-            "verify these stay consistent because a mismatch could let a client-controlled source override what the server expects",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "Potential source scope mismatch",
+-            "This may be a problem if callers pass unusual options.",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "Async map results are merged into result before being normalized",
+-            "This can surface as unwrapped promise objects leaking into intermediate result handling before the final await, breaking callers that expect concrete objects.",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "Potential URL validation issue",
+-            "This might allow SSRF if callers pass untrusted URLs.",
+-        ));
+-        assert!(is_non_finding_claim(
+-            "Check origin validation",
+-            "Verify that the referrer handling cannot be bypassed.",
+-        ));
+-    }
+-
+-    #[test]
+-    fn scoped_diff_content_returns_only_assigned_file_sections() {
+-        let diff = "\
+-diff --git a/src/a.ts b/src/a.ts
+-index 111..222 100644
+---- a/src/a.ts
+-+++ b/src/a.ts
+-@@ -1 +1 @@
+--old
+-+new
+-diff --git a/src/b.ts b/src/b.ts
+-index 333..444 100644
+---- a/src/b.ts
+-+++ b/src/b.ts
+-@@ -2 +2 @@
+--before
+-+after
+-";
+-        let assigned = [RepoPath::parse("src/b.ts").expect("path")];
+-        let (scoped, paths) = scoped_diff_content(diff, &assigned);
+-
+-        assert!(!scoped.contains("src/a.ts"));
+-        assert!(scoped.contains("src/b.ts"));
+-        assert_eq!(paths, vec!["src/b.ts".to_string()]);
+-    }
+-
+-    #[test]
+-    fn primary_finding_path_is_stricter_than_evidence_path_matching() {
+-        let finding = FindingV1 {
+-            id: "finding-1".to_string(),
+-            title: "Bug".to_string(),
+-            claim: "Bug in primary path".to_string(),
+-            severity: FindingSeverity::Medium,
+-            confidence: 0.8,
+-            validation_status: ValidationStatus::Validated,
+-            report_status: ReportStatus::Included,
+-            publishability: FindingPublishability::Publishable,
+-            evidence: Vec::new(),
+-            file_refs: vec![
+-                EvidenceLocationV1::SinglePath {
+-                    path: "src/primary.ts".to_string(),
+-                },
+-                EvidenceLocationV1::SinglePath {
+-                    path: "src/related.ts".to_string(),
+-                },
+-            ],
+-            location_line_range: None,
+-            discovered_by: vec!["session".to_string()],
+-            challenged_by: Vec::new(),
+-        };
+-
+-        assert!(finding_path_matches(
+-            &finding,
+-            &RepoPath::parse("src/related.ts").expect("path")
+-        ));
+-        assert_eq!(finding_primary_path(&finding), "src/primary.ts");
+-        assert_ne!(finding_primary_path(&finding), "src/related.ts");
+-    }
+-
+-    #[test]
+-    fn risk_hinted_clean_review_allows_concrete_safe_mechanism() {
+-        let diff = r#"
+-diff --git a/app/views/embed/best.html.erb b/app/views/embed/best.html.erb
+---- a/app/views/embed/best.html.erb
+-+++ b/app/views/embed/best.html.erb
+-+<%= render partial: "post", locals: { post: post } %>
+-"#;
+-        let path = RepoPath::parse("app/views/embed/best.html.erb").expect("path");
+-
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The template renders values already escaped by link_to and the controller supplies @topic_view before rendering, so the changed render path does not add a new unescaped user-input sink."
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "This appears pre-existing and I could not link it to a concrete regression."
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "This template only renders cooked content and standard Rails helpers. The changed markup does not introduce an unsafe raw boundary beyond the existing cooked content pipeline, and the direct link/image fields are handled by the framework/helpers on this render path."
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The surrounding controller enforces the embedding host, so the changed layout does not introduce a new trust-boundary issue."
+-        ));
+-    }
+-
+-    #[test]
+-    fn risk_hinted_clean_review_gate_ignores_specs_and_migrations() {
+-        let diff = r#"
+-diff --git a/spec/controllers/embed_controller_spec.rb b/spec/controllers/embed_controller_spec.rb
+---- a/spec/controllers/embed_controller_spec.rb
+-+++ b/spec/controllers/embed_controller_spec.rb
+-+expect(response.headers["X-Frame-Options"]).to eq("ALLOWALL")
+-diff --git a/db/migrate/1_create_widgets.rb b/db/migrate/1_create_widgets.rb
+---- a/db/migrate/1_create_widgets.rb
+-+++ b/db/migrate/1_create_widgets.rb
+-+create_table :widgets do |t|
+-+  t.string :name, null: false
+-+end
+-"#;
+-        let spec_path = RepoPath::parse("spec/controllers/embed_controller_spec.rb").expect("path");
+-        let migration_path = RepoPath::parse("db/migrate/1_create_widgets.rb").expect("path");
+-
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &spec_path,
+-            "clean",
+-            "The spec only checks the existing controller behavior and no issue was found."
+-        ));
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &migration_path,
+-            "clean",
+-            "The migration creates a table with a non-null column and no issue was found."
+-        ));
+-    }
+-
+-    #[test]
+-    fn allows_actionable_bug_findings() {
+-        assert!(!is_non_finding_claim(
+-            "Progress projection silently maps unknown event types to queued",
+-            "Unknown event types are projected as queued, which misreports progress for malformed events.",
+-        ));
+-        assert!(!is_non_finding_claim(
+-            "Missing source scope check lets callback materialize outside target",
+-            "When a callback source returns paths outside the requested scope, the runner accepts them.",
+-        ));
+-        assert!(!is_non_finding_claim(
+-            "Dropped async cleanup leaves stale external events",
+-            "The changed reschedule flow launches deleteEvent promises without awaiting them, so the mutation can report success while old calendar events remain undeleted.",
+-        ));
+-        assert!(!is_non_finding_claim(
+-            "SSRF via unvalidated URL fetch",
+-            "The changed endpoint passes the user-controlled url parameter directly to open(url) before parsing or allowlisting the host, so an attacker can make the server fetch internal addresses.",
+-        ));
+-        assert!(!is_non_finding_claim(
+-            "Origin check accepts attacker-controlled suffix domains",
+-            "The changed referrer check uses indexOf(siteUrl), so https://trusted.example.evil.test embeds the trusted string and passes the check even though the parsed origin is attacker-controlled.",
+-        ));
+-    }
+-
+-    #[test]
+-    fn rejects_weak_clean_review_for_diff_risk_hinted_file() {
+-        let diff = r#"
+-diff --git a/src/reschedule.ts b/src/reschedule.ts
+---- a/src/reschedule.ts
+-+++ b/src/reschedule.ts
+-@@ -10,6 +10,8 @@
+-+items.forEach(async (item) => {
+-+  await deletePayment(item.id);
+-+});
+-"#;
+-        let path = RepoPath::parse("src/reschedule.ts").expect("path");
+-
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The async forEach pattern is pre-existing and the diff does not show a concrete regression.",
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The async forEach only wraps independent per-item work in a fire-and-forget path and is not relied upon for return timing.",
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The remaining async cleanup is not proven to regress because the caller treats deletions as best-effort, but the exact loop body must be inspected.",
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The only changed behavior is awaiting the helper and no actionable correctness regression was found.",
+-        ));
+-        assert!(weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The remaining forEach(async ...) pattern is present in the inspected implementation, but with the available evidence I could not tie it to a concrete introduced failure mode, so no actionable correctness defect is recorded.",
+-        ));
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "clean",
+-            "The callback promises are collected into Promise.all before the cleanup flow returns.",
+-        ));
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            diff,
+-            &path,
+-            "issue_found",
+-            "The callback promises are dropped.",
+-        ));
+-    }
+-
+-    #[test]
+-    fn clean_review_risk_hint_check_ignores_unrelated_diff_sections() {
+-        let clean_path = RepoPath::parse("src/payment.ts").expect("path");
+-        let full_diff = r#"
+-diff --git a/src/risky.ts b/src/risky.ts
+---- a/src/risky.ts
+-+++ b/src/risky.ts
+-@@ -1 +1 @@
+-+items.forEach(async (item) => cleanup(item));
+-diff --git a/src/payment.ts b/src/payment.ts
+---- a/src/payment.ts
+-+++ b/src/payment.ts
+-@@ -1 +1 @@
+--const service = registry.payment;
+-+const service = await registry.payment;
+-"#;
+-        let (path_diff, _) = scoped_diff_content(full_diff, std::slice::from_ref(&clean_path));
+-
+-        assert!(!weak_clean_review_for_risk_hinted_file(
+-            &path_diff,
+-            &clean_path,
+-            "clean",
+-            "The changed await resolves the registry entry before use.",
+-        ));
+-    }
+-
+-    #[test]
+-    fn rejects_issue_found_file_review_with_clean_summary() {
+-        assert!(inconsistent_clean_review(
+-            "clean",
+-            "The reschedule flow never awaits async deletions, so the function can return before cleanup completes and rejection is not observed.",
+-        ));
+-        assert!(!inconsistent_clean_review(
+-            "clean",
+-            "The callback promises are collected and awaited with Promise.all before returning.",
+-        ));
+-        assert!(!inconsistent_clean_review(
+-            "issue_found",
+-            "The reschedule flow never awaits async deletions.",
+-        ));
+-        assert!(inconsistent_issue_found_review(
+-            "issue_found",
+-            "I did not find an additional correctness issue in this file.",
+-        ));
+-        assert!(inconsistent_issue_found_review(
+-            "issue_found",
+-            "No actionable issue was found after inspecting callers.",
+-        ));
+-        assert!(!inconsistent_issue_found_review(
+-            "issue_found",
+-            "This file contributes to a recorded finding because the async cleanup promises are dropped.",
+-        ));
+-        assert!(!inconsistent_issue_found_review(
+-            "clean",
+-            "No actionable issue was found after inspecting callers.",
+-        ));
+-    }
+-
+-    #[test]
+-    fn rejects_skipped_file_review_after_inspection_or_without_skip_reason() {
+-        assert!(inconsistent_skipped_review(
+-            "skipped",
+-            "Inspected the changed file and found no concrete correctness issue.",
+-        ));
+-        assert!(inconsistent_skipped_review(
+-            "skipped",
+-            "No actionable issue was identified in this best-effort cleanup flow.",
+-        ));
+-        assert!(inconsistent_skipped_review(
+-            "skipped",
+-            "The file was not part of the interesting logic.",
+-        ));
+-        assert!(!inconsistent_skipped_review(
+-            "skipped",
+-            "Could not inspect this deleted file because it is not available in the head snapshot.",
+-        ));
+-        assert!(!inconsistent_skipped_review(
+-            "clean",
+-            "Inspected the changed file and found no actionable issue.",
+-        ));
+-    }
+-}
+diff --git a/src/runtime/tools/validation.rs b/src/runtime/tools/validation.rs
+index 5dd816f..bb29873 100644
+--- a/src/runtime/tools/validation.rs
++++ b/src/runtime/tools/validation.rs
+@@ -401,158 +401,3 @@ fn array_schema_accepts(value: &Value, schema: &Value) -> bool {
+             .all(|item| schema_accepts_value(item, item_schema))
+     })
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use std::sync::Arc;
+-
+-    use super::*;
+-    use async_trait::async_trait;
+-    use serde_json::json;
+-    use tokio_util::sync::CancellationToken;
+-
+-    use crate::runtime::tools::registry::{
+-        CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
+-    };
+-
+-    #[test]
+-    fn validation_rejects_arguments_over_capability_input_limit() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities.tool_input.max_argument_bytes = 1;
+-        let call = ModelToolCall {
+-            call_id: ToolCallId("call".to_string()),
+-            index: 0,
+-            name: ToolId::from(ToolName::ReadDiff),
+-            raw_arguments: "{}".to_string(),
+-        };
+-
+-        let err = validate_invocation(
+-            SessionId("session".to_string()),
+-            TurnId(1),
+-            call,
+-            capabilities,
+-            FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string())),
+-            &registry,
+-        )
+-        .expect_err("oversized arguments should be denied");
+-
+-        assert_eq!(err.2, ToolErrorCode::TooLarge);
+-    }
+-
+-    #[test]
+-    fn validation_accepts_flexible_record_file_review_optional_fields() {
+-        let registry = ToolRegistry::review_defaults().expect("registry");
+-        let invocation = validate_invocation(
+-            SessionId("session".to_string()),
+-            TurnId(1),
+-            raw_call(
+-                "review",
+-                ToolId::from(ToolName::RecordFileReview),
+-                r#"{"path":"src/a.ts","verdict":"clean","summary":"inspected","findingId":null,"relatedPaths":"src/b.ts"}"#,
+-            ),
+-            CapabilitySet::review_read_only(),
+-            FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string())),
+-            &registry,
+-        )
+-        .expect("record_file_review args should validate");
+-
+-        let ToolArgs::RecordFileReview {
+-            finding_id,
+-            related_paths,
+-            ..
+-        } = invocation.args
+-        else {
+-            panic!("expected record_file_review args");
+-        };
+-        assert!(finding_id.is_none());
+-        assert_eq!(related_paths.len(), 1);
+-        assert_eq!(related_paths[0].display(), "src/b.ts");
+-    }
+-
+-    #[test]
+-    fn validation_rejects_custom_arguments_outside_declared_schema() {
+-        let mut registry = ToolRegistry::review_defaults().expect("registry");
+-        let tool_id = ToolId::parse("argus.issue_context").expect("tool id");
+-        registry
+-            .register_custom(
+-                tool_id.clone(),
+-                "Issue context",
+-                json!({
+-                    "type": "object",
+-                    "required": ["issueId"],
+-                    "additionalProperties": false,
+-                    "properties": {
+-                        "issueId": { "type": "string" },
+-                        "includeHistory": { "type": "boolean" }
+-                    }
+-                }),
+-                false,
+-                Arc::new(NeverCalledTool),
+-            )
+-            .expect("custom tool");
+-        let mut capabilities = CapabilitySet::review_read_only();
+-        capabilities.grant(tool_id.clone(), ToolGrant::allow_custom_read_only());
+-        let scope_key = FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string()));
+-
+-        let valid = validate_invocation(
+-            SessionId("session".to_string()),
+-            TurnId(1),
+-            raw_call(
+-                "valid",
+-                tool_id.clone(),
+-                r#"{"issueId":"123","includeHistory":false}"#,
+-            ),
+-            capabilities.clone(),
+-            scope_key.clone(),
+-            &registry,
+-        )
+-        .expect("valid custom args");
+-        assert!(matches!(valid.args, ToolArgs::Raw(_)));
+-
+-        let wrong_type = validate_invocation(
+-            SessionId("session".to_string()),
+-            TurnId(1),
+-            raw_call("wrong-type", tool_id.clone(), r#"{"issueId":123}"#),
+-            capabilities.clone(),
+-            scope_key.clone(),
+-            &registry,
+-        )
+-        .expect_err("schema should reject wrong primitive type");
+-        assert_eq!(wrong_type.2, ToolErrorCode::InvalidArgs);
+-
+-        let extra_property = validate_invocation(
+-            SessionId("session".to_string()),
+-            TurnId(1),
+-            raw_call("extra", tool_id, r#"{"issueId":"123","extra":true}"#),
+-            capabilities,
+-            scope_key,
+-            &registry,
+-        )
+-        .expect_err("schema should reject undeclared properties");
+-        assert_eq!(extra_property.2, ToolErrorCode::InvalidArgs);
+-    }
+-
+-    fn raw_call(id: &str, tool_id: ToolId, raw_arguments: &str) -> ModelToolCall {
+-        ModelToolCall {
+-            call_id: ToolCallId(id.to_string()),
+-            index: 0,
+-            name: tool_id,
+-            raw_arguments: raw_arguments.to_string(),
+-        }
+-    }
+-
+-    struct NeverCalledTool;
+-
+-    #[async_trait]
+-    impl CustomToolHandler for NeverCalledTool {
+-        async fn execute(
+-            &self,
+-            _context: CustomToolContext,
+-            _args: Value,
+-            _cancel: CancellationToken,
+-        ) -> RuntimeResult<CustomToolOutput> {
+-            unreachable!("validation should not execute custom tools")
+-        }
+-    }
+-}

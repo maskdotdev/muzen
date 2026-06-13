@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-57a5bcd810f7",
+  "repoSource": {
+    "kind": "git",
+    "commit": "57a5bcd810f7399deb1837216033dcbeb0f800ab",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "src/app/api/gitlab/integrations/connect/route.ts",
+    "src/app/api/gitlab/route.test.ts",
+    "src/app/api/gitlab/route.ts",
+    "src/components/app-sidebar.tsx",
+    "src/lib/gitlab/env.ts"
+  ],
+  "description": "Mined pair: base 57a5bcd810f7 (feat(gitlab): improve repo discovery and diff proxy handling) followed by 88d7e372d978 (refactor(layout): simplify app shell typography and breadcrumbs).",
+  "minedFrom": {
+    "baseCommit": "57a5bcd810f7399deb1837216033dcbeb0f800ab",
+    "followUpCommit": "88d7e372d97856f220d512522303ffe8a58edfc8"
+  },
+  "cases": [
+    {
+      "id": "mined-57a5bcd810f7-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/app/layout.tsx",
+        "src/components/site-header.tsx"
+      ]
+    }
+  ]
+}

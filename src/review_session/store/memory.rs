@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use serde_json::json;
 
 use super::super::{
@@ -26,8 +27,9 @@ struct StoreState {
     dedupe_index: BTreeMap<String, String>,
 }
 
+#[async_trait]
 impl ReviewSessionStore for InMemoryReviewSessionStore {
-    fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
+    async fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError> {
         let mut state = self.lock_state()?;
         let id = record.id.as_str().to_string();
         if let Some(dedupe_key) = &record.dedupe_key {
@@ -37,12 +39,15 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(())
     }
 
-    fn get(&self, id: &ReviewSessionId) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
+    async fn get(
+        &self,
+        id: &ReviewSessionId,
+    ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
         let state = self.lock_state()?;
         Ok(state.sessions.get(id.as_str()).cloned())
     }
 
-    fn get_by_dedupe_key(
+    async fn get_by_dedupe_key(
         &self,
         dedupe_key: &str,
     ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError> {
@@ -53,7 +58,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(state.sessions.get(id).cloned())
     }
 
-    fn append_events(
+    async fn append_events(
         &self,
         id: &ReviewSessionId,
         events: Vec<ReviewEvent>,
@@ -68,7 +73,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(())
     }
 
-    fn events_after(
+    async fn events_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
@@ -89,7 +94,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(record.events[start..].to_vec())
     }
 
-    fn append_logs(
+    async fn append_logs(
         &self,
         id: &ReviewSessionId,
         logs: Vec<ReviewLogEntry>,
@@ -119,7 +124,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(())
     }
 
-    fn logs_after(
+    async fn logs_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
@@ -135,7 +140,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(record.logs[start..].to_vec())
     }
 
-    fn write_result(
+    async fn write_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
@@ -153,7 +158,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(())
     }
 
-    fn write_execution_result(
+    async fn write_execution_result(
         &self,
         id: &ReviewSessionId,
         status: ReviewStatus,
@@ -181,7 +186,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(record.clone())
     }
 
-    fn request_cancellation(
+    async fn request_cancellation(
         &self,
         id: &ReviewSessionId,
         options: ReviewCancelOptions,
@@ -211,7 +216,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(record.clone())
     }
 
-    fn claim_ready(
+    async fn claim_ready(
         &self,
         options: ReviewWorkerClaimOptions,
     ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError> {
@@ -264,7 +269,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(claims)
     }
 
-    fn extend_lease(
+    async fn extend_lease(
         &self,
         id: &ReviewSessionId,
         options: ReviewLeaseExtension,
@@ -302,7 +307,7 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(lease)
     }
 
-    fn record_attempt_failure(
+    async fn record_attempt_failure(
         &self,
         id: &ReviewSessionId,
         failure: ReviewAttemptFailure,

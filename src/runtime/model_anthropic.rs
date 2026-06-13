@@ -614,6 +614,7 @@ mod tests {
                 max_tool_calls: 2,
                 max_prompt_tokens: 32_000,
                 max_output_tokens: 1_024,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
             },
         }
     }

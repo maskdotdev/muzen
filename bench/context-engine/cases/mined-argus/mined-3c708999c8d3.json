@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-3c708999c8d3",
+  "repoSource": {
+    "kind": "git",
+    "commit": "3c708999c8d31fdf61f4c4403828f80f375e18a9",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/review/components/diff/description-stream-page.tsx"
+  ],
+  "description": "Mined pair: base 3c708999c8d3 (fix(web): remove ai access summary from description route) followed by f02fcbee71b6 (feat(review): improve MR descriptions and argus summaries).",
+  "minedFrom": {
+    "baseCommit": "3c708999c8d31fdf61f4c4403828f80f375e18a9",
+    "followUpCommit": "f02fcbee71b65171625b81f0edc9340673cb9792"
+  },
+  "cases": [
+    {
+      "id": "mined-3c708999c8d3-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/features/gitlab/server/gitlab-proxy/handlers.ts",
+        "apps/web/src/features/gitlab/server/gitlab-proxy/types.ts",
+        "apps/web/src/features/review/server/description/llm-client.ts",
+        "apps/web/src/features/review/server/description/request-input.test.ts",
+        "apps/web/src/features/review/server/description/request-input.ts",
+        "apps/web/src/features/review/server/description/review-description.test.ts",
+        "apps/web/src/features/review/server/description/review-description.ts",
+        "apps/web/src/features/review/server/description/types.ts"
+      ]
+    }
+  ]
+}

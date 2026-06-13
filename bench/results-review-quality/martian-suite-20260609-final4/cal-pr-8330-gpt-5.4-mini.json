@@ -1,0 +1,317 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T02:02:14.657Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/tmp/muzen-review-quality-worktrees/calcom-cal.com-pr-8330",
+    "baseRef": "muzen-bench/pr-8330-base",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 4,
+    "goldenIssueCount": 3
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-i5llDl/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-i5llDl/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 4,
+    "fileReviewVerdicts": {
+      "issue_found": 2,
+      "needs_review": 2
+    },
+    "findings": 5,
+    "modelCalls": 14,
+    "toolCalls": 21,
+    "tokens": {
+      "inputTokens": 172746,
+      "outputTokens": 5107,
+      "totalTokens": 177853
+    },
+    "artifactStats": {
+      "artifacts": 12,
+      "artifactBytes": 60245
+    },
+    "elapsedMs": 52581
+  },
+  "benchmark": {
+    "elapsedMs": 52666,
+    "hitRate": 0.6666666666666666,
+    "hits": [
+      {
+        "issueId": "cal-8330-working-hours-end-boundary",
+        "findingId": "de129a8d37220e1dd4f8eec67e55a333133faf83e39ac6bb7d63855c58a1a817",
+        "title": "Working-hours rejection uses the slot start minute for both start and end, so slots extending past the boundary are misclassified"
+      },
+      {
+        "issueId": "cal-8330-dayjs-reference-equality",
+        "findingId": "d9ee4b1c7d8e22200a8092140b75498e7305e584e878407830bc47fcefc8cf7b",
+        "title": "Date override exact-match branch never succeeds for non-zero-length ranges"
+      }
+    ],
+    "misses": [
+      {
+        "issueId": "cal-8330-selected-slot-date-overrides",
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "title": "Selected-slot filtering drops candidate date overrides"
+      }
+    ],
+    "falsePositiveCount": 3,
+    "candidateCount": 6,
+    "rescuedCandidateCount": 3,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 4,
+    "contractEvidenceFailures": 3,
+    "requiredEvidenceFailures": 3,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 2,
+    "cleanCount": 0,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "In `checkIfIsAvailable`, the new `dateOverrideExist` path uses `dayjs(date.start).add(utcOffset, \"minutes\") === dayjs(date.end).add(utcOffset, \"minutes\")` inside the `dateOverrides.find(...)` branch. That compares two Dayjs object identities, not their timestamps, so the exact-match branch only works if both sides are the same object reference. For ordinary overrides where `start !== end`, the branch will not recognize a zero-length or exact-time override as intended and the function can fall through to the working-hours/busy checks instead of honoring the override semantics. Also observed in: packages/trpc/server/routers/viewer/slots.ts",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "unit-001",
+        "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_4687f0f4b055c7d174f4fb01c23b53f32f42abdb2c11a4bed14190cb78083ac5",
+          "contentHash": "62213bb591938f7a24455d53c7e95472e654ebe41f48dd46cd533b2bf3d4fd95",
+          "evidenceId": "evidence-art_4687f0f4b055c7d174f4fb01c23b53f32f42abdb2c11a4bed14190cb78083ac5",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_6e5c155bf00116798ef0c2e769c88acd1b4f38de0cb9f3992f368011b9deef20",
+          "contentHash": "8f97f9db956031c22101905ff82b1ff66aa35f72b9fd16e6e64ffb304de5dd8c",
+          "evidenceId": "evidence-art_6e5c155bf00116798ef0c2e769c88acd1b4f38de0cb9f3992f368011b9deef20",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "unit-001-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 4,
+      "id": "d9ee4b1c7d8e22200a8092140b75498e7305e584e878407830bc47fcefc8cf7b",
+      "location": {
+        "endColumn": null,
+        "endLine": 135,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 105
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/lib/slots.ts",
+        "apps/web/test/lib/getSchedule.test.ts"
+      ],
+      "severity": "low",
+      "title": "Date override exact-match branch never succeeds for non-zero-length ranges",
+      "validatedBy": [
+        "unit-001-candidate-evidence",
+        "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The changed override boundary computation in `packages/lib/slots.ts` converts both `override.start` and `override.end` by the organizer/invitee UTC offset difference before collapsing them to minute-of-day values. This changes which UTC slot intervals are removed from availability for a given date override, so a slot that previously matched the override by raw UTC minutes can now be accepted or rejected based on timezone conversion.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        },
+        {
+          "artifactId": "art_5c550787f5d678a6e06a6ad8c2f3f236e50fbc11246b8faeae481abfc0237bc8",
+          "contentHash": "fd7417a81694c3d053379b6e1acbf2af02cfa723b2d27b012c492e428883a12f",
+          "evidenceId": "evidence-art_5c550787f5d678a6e06a6ad8c2f3f236e50fbc11246b8faeae481abfc0237bc8",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "0c305a57c7d895e45f58e0d75fb4f3c1e9dc1d652afd7724cbd49400b48cc7f9",
+      "location": {
+        "endColumn": null,
+        "endLine": 224,
+        "path": "packages/lib/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 211
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "apps/web/test/lib/getSchedule.test.ts"
+      ],
+      "severity": "low",
+      "title": "Timezone-adjusted override end boundary is now derived from organizer/invitee offset math and can shift slot classification",
+      "validatedBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new guard in `checkIfIsAvailable` compares `date.start`/`date.end` after applying an organizer-timezone offset, then short-circuits based on `slotStartTime` and `slotEndTime` UTC boundaries. Because the comparison now depends on `organizerTimeZone`, a slot can be classified as inside or outside the override based on the converted local day instead of the original UTC instant, which is the changed predicate branch tested by the added +6:00 case.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 1,
+      "id": "d0067bf77a0017df3a2379671b7c3c09690aaf63bb1a1ae16f4b529277e7f941",
+      "location": {
+        "endColumn": null,
+        "endLine": 132,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 99
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "apps/web/test/lib/getSchedule.test.ts"
+      ],
+      "severity": "low",
+      "title": "All-day/date-override availability check now uses timezone-shifted local-day comparisons that can reclassify a slot by day boundary",
+      "validatedBy": [
+        "pack-3e9c12cab0a18d199a9206ed35e10c0e5a4ce385682c1156844d6aabc8037388-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new date-override branch in `checkIfIsAvailable` treats a zero-length override as present only when two Dayjs objects are the same reference, not when they represent the same instant. That can cause a zero-length override to fall through into the later availability checks and be misclassified.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 1,
+      "id": "2d0ae2f71b49bd287f7cb77f305e01a600a44a24317ce9e02173aa1ac177d5d6",
+      "location": {
+        "endColumn": null,
+        "endLine": 88,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 88
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/lib/slots.ts"
+      ],
+      "severity": "low",
+      "title": "Zero-length date overrides are detected with object identity instead of instant equality",
+      "validatedBy": [
+        "pack-c79476a70a8a4c261cc772a07baa7d19d53e5bda68051dd1b01d2cdd99c6dea7-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    },
+    {
+      "challengedBy": [],
+      "claim": "The new working-hours guard computes both start and end from slotStartTime.hour()/minute(). As a result, a slot that starts within working hours but ends outside them is evaluated as if its end were at the start minute, so the guard can accept a slot that should be rejected.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "contentHash": "6efa470e914b04d485355e08586e452372b9405b10f52c84fe30c27575a5eb1f",
+          "evidenceId": "evidence-art_500aa67aa0ec0a6f83c3ea16820517fc02dec7f2edb08cac227b7d218cf1573f",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa-candidate-evidence"
+        },
+        {
+          "artifactId": "art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "contentHash": "84d99655f45d1562d30758f8a9b16d4be812b702998dda8918e68623fa2c79a8",
+          "evidenceId": "evidence-art_9344b79a3eaa7fe640936d0da2c46c05f8afb18a40173df4781f65dc806569e2",
+          "kind": "tool_summary",
+          "producingToolCallId": "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 2,
+      "id": "de129a8d37220e1dd4f8eec67e55a333133faf83e39ac6bb7d63855c58a1a817",
+      "location": {
+        "endColumn": null,
+        "endLine": 143,
+        "path": "packages/trpc/server/routers/viewer/slots.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 141
+      },
+      "publishable": true,
+      "relatedPaths": [],
+      "severity": "low",
+      "title": "Working-hours rejection uses the slot start minute for both start and end, so slots extending past the boundary are misclassified",
+      "validatedBy": [
+        "pack-9cd8d42d86c14c091bafceb801a249f7c1b69104730f02120cb7f20419e0faaa-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

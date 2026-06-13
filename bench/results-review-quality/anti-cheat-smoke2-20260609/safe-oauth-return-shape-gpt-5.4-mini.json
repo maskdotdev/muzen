@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "muzen.review-quality-benchmark.v1",
+  "generatedAtUtc": "2026-06-10T00:49:58.754Z",
+  "mode": "production-review-run",
+  "reviewValid": true,
+  "exitCode": 0,
+  "error": null,
+  "inputs": {
+    "repo": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-anti-cheat-safe-oauth-return-shape-G2epD3",
+    "baseRef": "HEAD~1",
+    "runnerPath": "/Users/mask/code/muzen/target/release/muzen-runner",
+    "model": "gpt-5.4-mini",
+    "changedFileCount": 2,
+    "goldenIssueCount": 0
+  },
+  "artifacts": {
+    "request": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-vMOwTL/run-start.json",
+    "frames": "/var/folders/48/tk2lgsfn76j4hc78m2yjkwvr0000gp/T/muzen-review-quality-vMOwTL/frames.jsonl"
+  },
+  "review": {
+    "status": "completed",
+    "sessions": 1,
+    "completedSessions": 1,
+    "reviewUnits": 1,
+    "completedReviewUnits": 1,
+    "fileReviews": 2,
+    "fileReviewVerdicts": {
+      "issue_found": 1,
+      "clean": 1
+    },
+    "findings": 1,
+    "modelCalls": 6,
+    "toolCalls": 9,
+    "tokens": {
+      "inputTokens": 17230,
+      "outputTokens": 1009,
+      "totalTokens": 18239
+    },
+    "artifactStats": {
+      "artifacts": 8,
+      "artifactBytes": 3623
+    },
+    "elapsedMs": 12624
+  },
+  "benchmark": {
+    "elapsedMs": 12631,
+    "hitRate": null,
+    "hits": [],
+    "misses": [],
+    "falsePositiveCount": 1,
+    "candidateCount": 1,
+    "rescuedCandidateCount": 0,
+    "rejectedCandidateCount": 0,
+    "contractRiskUnits": 1,
+    "contractSeedCount": 12,
+    "contractPackCount": 1,
+    "contractEvidenceFailures": 0,
+    "requiredEvidenceFailures": 0,
+    "rejectionReasons": {},
+    "contractRiskCompletionCount": 0,
+    "searchCount": 4,
+    "importCount": 0,
+    "needsReviewCount": 0,
+    "cleanCount": 1,
+    "skippedCount": 0
+  },
+  "findings": [
+    {
+      "challengedBy": [],
+      "claim": "`refreshOAuthTokens` no longer returns the raw `response.json()` payload; it now returns `{ ...tokens, expiry_date: ... }`, and `packages/app-store/examplevideo/api/callback.ts` reads `tokens.expiry_date`. This creates a caller-visible contract change for any consumer expecting the token payload shape from the helper, because the helper’s return object now synthesizes `expiry_date` instead of preserving the original shape unchanged.",
+      "confidence": 0.7200000286102295,
+      "discoveredBy": [
+        "final-synthesis"
+      ],
+      "evidence": [
+        {
+          "artifactId": "art_3526d53acb95ba2561bb79714c53f8407debe8f7c58b34281478a558ee39d848",
+          "contentHash": "ac41d942656d7de2092a298868c2b67775520679e97ce461379dada9a052c3f2",
+          "evidenceId": "evidence-art_3526d53acb95ba2561bb79714c53f8407debe8f7c58b34281478a558ee39d848",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_360638c58ea6dd23dcfcb816de0fb503656b478befc1cec18a2f7fa159bbbf65",
+          "contentHash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+          "evidenceId": "evidence-art_360638c58ea6dd23dcfcb816de0fb503656b478befc1cec18a2f7fa159bbbf65",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_4032684bf47cc9929a120370accbf1f9f48efde56b320800dab8e72ced7b3775",
+          "contentHash": "93d4bfad606ebeae5a38b88e59ed3dea92dcae39d93e2c583a06bbeb6e3cbedd",
+          "evidenceId": "evidence-art_4032684bf47cc9929a120370accbf1f9f48efde56b320800dab8e72ced7b3775",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_566ad52a32ae2de22a3786adbe78605a556c001e6bf803453ea4279b30aaab47",
+          "contentHash": "3f28874a77ae89796064d1714bab33173784757a6cf2dec859cc33315e7f0c30",
+          "evidenceId": "evidence-art_566ad52a32ae2de22a3786adbe78605a556c001e6bf803453ea4279b30aaab47",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        },
+        {
+          "artifactId": "art_dc73bd131ffef04af71372a83fdead34a5a8893d6fdb2cb0ee25af8be870c3fc",
+          "contentHash": "f8bbb8e9bbc9f8297292dd91bab6f3b90ac7c886c54364771ca03c8e87ac1cba",
+          "evidenceId": "evidence-art_dc73bd131ffef04af71372a83fdead34a5a8893d6fdb2cb0ee25af8be870c3fc",
+          "kind": "tool_summary",
+          "producingToolCallId": "final-synthesis-candidate-evidence"
+        }
+      ],
+      "evidenceCount": 5,
+      "id": "6ebc564e813a75f052a0321156483b38b76d59574820b9bb17bcecd1bc946650",
+      "location": {
+        "endColumn": null,
+        "endLine": 5,
+        "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+        "providerAnchor": null,
+        "revision": null,
+        "side": null,
+        "startColumn": null,
+        "startLine": 2
+      },
+      "publishable": true,
+      "relatedPaths": [
+        "packages/app-store/examplevideo/api/callback.ts"
+      ],
+      "severity": "low",
+      "title": "Helper now returns an object with a renamed expiry field, changing the consumer contract",
+      "validatedBy": [
+        "final-synthesis-candidate-evidence"
+      ],
+      "validationStatus": "validated"
+    }
+  ]
+}

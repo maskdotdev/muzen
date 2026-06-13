@@ -9,15 +9,17 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
-    ArtifactKind, ByteRangeV1, EventLevel, EventType, EvidenceLocationV1, EvidenceRefV1,
+    ArtifactKind, ByteRangeV1, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
     EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
-    RedactionMetadataV1, RedactionState, ReportStatus, Role, TokenUsage, ToolCounts, ToolName,
-    ValidationStatus,
+    RedactionMetadataV1, RedactionState, ReportStatus, ReviewCoverage, ReviewVerdict, Role,
+    TokenUsage, ToolCounts, ToolName, ValidationStatus,
 };
-use crate::events::EventRecord;
 use crate::review_plan::ReviewPlanFileMode;
 use crate::review_plan::{build_review_plan, ReviewPlan};
 use crate::review_units::{build_review_unit_plan, PlannedReviewUnit, ReviewUnitOptions};
+use crate::runtime::contract_packs::{
+    build_contract_pack_plan, ContractPack, ContractPackKind, ContractPackPlan,
+};
 use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
@@ -54,25 +56,28 @@ impl PlannedReviewRuntime {
     ) -> PlannedReviewRunReport {
         let started = Instant::now();
         let review_plan = build_review_plan(&self.snapshot);
-        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let contract_risk =
-            build_contract_risk_plan(&review_plan, self.snapshot.diff.content.as_str());
+        let head_contents = changed_file_head_contents(
+            &self.snapshot,
+            &review_plan,
+            self.limits.max_file_bytes_read,
+        );
+        let contract_packs = build_contract_pack_plan(
+            &review_plan,
+            self.snapshot.diff.content.as_str(),
+            &head_contents,
+        );
+        let unit_plan = build_review_unit_plan(
+            &review_plan,
+            adaptive_review_unit_options(&review_plan, contract_packs.pack_count()),
+        );
+        let contract_risk = build_contract_risk_plan(
+            &review_plan,
+            &unit_plan,
+            self.snapshot.diff.content.as_str(),
+        );
         let review_plan = Arc::new(review_plan);
         let contract_risk = Arc::new(contract_risk);
-        self.events.emit_legacy(EventRecord::new(
-            EventLevel::Info,
-            EventType::ToolCallCompleted,
-            json!({
-                "plannedReview": {
-                    "totalFiles": review_plan.counts.total_files,
-                    "excludedFiles": review_plan.counts.excluded_files,
-                    "fullFiles": review_plan.counts.full_files,
-                    "units": unit_plan.counts.total_units,
-                    "contractRiskUnits": contract_risk.risky_unit_count(),
-                    "contractSeedCount": contract_risk.seed_count(),
-                }
-            }),
-        ));
+        let contract_packs = Arc::new(contract_packs);
         let mut completed_sessions = 0usize;
         let mut model_calls = 0usize;
         let mut model_metrics = ModelMetricsSnapshot::default();
@@ -98,6 +103,7 @@ impl PlannedReviewRuntime {
                 let runtime = Arc::clone(&self);
                 let review_plan = Arc::clone(&review_plan);
                 let contract_risk = Arc::clone(&contract_risk);
+                let contract_packs = Arc::clone(&contract_packs);
                 let active = Arc::clone(&active);
                 let unit = unit.clone();
                 let cancel = cancel.child_token();
@@ -126,6 +132,7 @@ impl PlannedReviewRuntime {
                         .run_unit(
                             review_plan.as_ref(),
                             contract_risk.as_ref(),
+                            contract_packs.as_ref(),
                             unit,
                             lens_index,
                             template_index,
@@ -160,18 +167,39 @@ impl PlannedReviewRuntime {
             completion_diagnostics.push(report.completion_diagnostic);
         }
         append_unverdicted_file_reviews(&unit_plan.units, &mut file_reviews);
-        if should_run_review_quality_enhancements(
-            self.limits.quality_pass_mode,
-            &self.session_templates,
-        ) && !cancel.is_cancelled()
-        {
+        let mut pack_clean_paths = BTreeSet::new();
+        for pack in &contract_packs.packs {
+            if cancel.is_cancelled() {
+                break;
+            }
+            let pack_report = self
+                .run_contract_pack_pass(&review_plan, pack, cancel.child_token())
+                .await;
+            model_calls += pack_report.model_calls;
+            add_model_metrics(&mut model_metrics, &pack_report.model_metrics);
+            tool_counts.add(pack_report.tool_counts);
+            tokens.add(pack_report.tokens);
+            let pack_found_issue = pack_report
+                .candidate_findings
+                .iter()
+                .any(|candidate| candidate.rejection_reason.is_none());
+            if pack_report.completion_diagnostic.completed && !pack_found_issue {
+                pack_clean_paths.insert(pack.primary_path.display());
+                pack_clean_paths.extend(pack.related_paths.iter().map(RepoPath::display));
+            }
+            candidate_findings.extend(pack_report.candidate_findings);
+            completion_diagnostics.push(pack_report.completion_diagnostic);
+        }
+        if self.should_run_final_synthesis(&contract_packs) && !cancel.is_cancelled() {
             let synthesis_report = self
                 .run_final_synthesis_pass(
                     review_plan.as_ref(),
                     &unit_plan.units,
                     contract_risk.as_ref(),
+                    contract_packs.as_ref(),
                     &file_reviews,
                     &candidate_findings,
+                    &pack_clean_paths,
                     cancel.child_token(),
                 )
                 .await;
@@ -206,17 +234,13 @@ impl PlannedReviewRuntime {
                 },
             );
         }
-        if should_run_review_quality_enhancements(
-            self.limits.quality_pass_mode,
-            &self.session_templates,
-        ) && !cancel.is_cancelled()
-            && !findings.is_empty()
-        {
+        if !cancel.is_cancelled() && !findings.is_empty() {
             let challenge_report = self
                 .run_finding_challenge_pass(&mut findings, cancel.child_token())
                 .await;
             model_calls += challenge_report.model_calls;
             add_model_metrics(&mut model_metrics, &challenge_report.model_metrics);
+            tool_counts.add(challenge_report.tool_counts);
             tokens.add(challenge_report.tokens);
             completion_diagnostics.push(challenge_report.completion_diagnostic);
         }
@@ -250,8 +274,22 @@ impl PlannedReviewRuntime {
                 diagnostic.session_id != "synthesis"
                     && diagnostic.session_id != "final-synthesis"
                     && diagnostic.session_id != "finding-challenge"
+                    && !diagnostic.session_id.starts_with("pack-")
             })
             .count();
+        let quality_diagnostics = planned_review_audit_diagnostics(
+            review_plan.as_ref(),
+            contract_risk.as_ref(),
+            contract_packs.as_ref(),
+            &file_reviews,
+            &findings,
+            &self.session_templates,
+            review_sessions,
+            synthesis.candidate_count,
+            synthesis.rescued_count,
+            synthesis.rejected_count,
+            synthesis.rejection_reasons.clone(),
+        );
         let mut metrics = ConcurrentRunReport {
             runtime: "planned_units",
             sessions: review_sessions,
@@ -288,6 +326,7 @@ impl PlannedReviewRuntime {
             }],
             model_metrics,
             completion_diagnostics,
+            quality_diagnostics,
             benchmark_valid: false,
             benchmark_failures: Vec::new(),
         };
@@ -300,10 +339,21 @@ impl PlannedReviewRuntime {
         }
     }
 
+    fn should_run_final_synthesis(&self, contract_packs: &ContractPackPlan) -> bool {
+        if !contract_packs.packs.is_empty() {
+            return true;
+        }
+        self.session_templates
+            .first()
+            .map(can_bootstrap_review)
+            .unwrap_or(true)
+    }
+
     async fn run_unit(
         &self,
         review_plan: &ReviewPlan,
         contract_risk: &ContractRiskPlan,
+        contract_packs: &ContractPackPlan,
         unit: PlannedReviewUnit,
         lens_index: usize,
         template_index: Option<usize>,
@@ -315,9 +365,7 @@ impl PlannedReviewRuntime {
             .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+            Err(_error) => {
                 self.events.emit_planned_runtime(
                     self.policy
                         .plan_session_finished_runtime_event(&scope, "failed"),
@@ -332,6 +380,7 @@ impl PlannedReviewRuntime {
             &unit,
             unit_risk,
             lens_focus(lens_index, scope.role),
+            contract_packs,
         );
         let mut evidence = SessionEvidence::for_scope(&scope);
         let mut tool_counts = ToolCounts::default();
@@ -341,20 +390,20 @@ impl PlannedReviewRuntime {
         let mut file_evidence = FileEvidenceTracker::new(&unit);
         let turn_limit = scope.budget.max_turns.max(1);
 
-        if should_run_review_quality_enhancements_for_scope(self.limits.quality_pass_mode, &scope) {
-            bootstrap_unit_evidence(
-                self,
-                &scope,
-                review_plan,
-                &unit,
-                &mut transcript,
-                &mut evidence,
-                &mut tool_counts,
-                &mut file_evidence,
-                cancel.child_token(),
-            )
-            .await;
-        }
+        bootstrap_unit_evidence(
+            self,
+            &scope,
+            review_plan,
+            &unit,
+            unit_risk,
+            contract_packs,
+            &mut transcript,
+            &mut evidence,
+            &mut tool_counts,
+            &mut file_evidence,
+            cancel.child_token(),
+        )
+        .await;
 
         for turn_index in 0..turn_limit {
             if cancel.is_cancelled() {
@@ -420,6 +469,19 @@ impl PlannedReviewRuntime {
                     );
                     if !validation.missing_obligations.is_empty() && !final_turn {
                         transcript.push(ConversationItem::AssistantText { content });
+                        remediate_missing_evidence(
+                            self,
+                            &scope,
+                            review_plan,
+                            unit_risk,
+                            &validation.missing_obligations,
+                            &mut transcript,
+                            &mut evidence,
+                            &mut tool_counts,
+                            &mut file_evidence,
+                            cancel.child_token(),
+                        )
+                        .await;
                         transcript.push(ConversationItem::User {
                             content: missing_evidence_instruction(
                                 unit_risk,
@@ -548,22 +610,23 @@ impl PlannedReviewRuntime {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_final_synthesis_pass(
         &self,
         review_plan: &ReviewPlan,
         units: &[PlannedReviewUnit],
         contract_risk: &ContractRiskPlan,
+        contract_packs: &ContractPackPlan,
         file_reviews: &[FileReviewV1],
         existing_candidates: &[CandidateFinding],
+        pack_clean_paths: &BTreeSet<String>,
         cancel: CancellationToken,
     ) -> FinalSynthesisReport {
         let scope =
             final_synthesis_scope(&self.snapshot.snapshot_id, self.session_templates.first());
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+            Err(_error) => {
                 return FinalSynthesisReport::empty(final_synthesis_diagnostic(
                     false,
                     "model_router_failed",
@@ -575,6 +638,7 @@ impl PlannedReviewRuntime {
             review_plan,
             units,
             contract_risk,
+            contract_packs,
             file_reviews,
             self.snapshot.diff.content.as_str(),
         );
@@ -632,6 +696,7 @@ impl PlannedReviewRuntime {
                     result.findings,
                     &evidence_by_path,
                     existing_candidates,
+                    pack_clean_paths,
                 );
                 FinalSynthesisReport {
                     model_calls: outcome.attempts,
@@ -689,9 +754,7 @@ impl PlannedReviewRuntime {
             finding_challenge_scope(&self.snapshot.snapshot_id, self.session_templates.first());
         let model = match self.model_router.client_for(&scope).await {
             Ok(model) => model,
-            Err(error) => {
-                self.events
-                    .emit_legacy(self.policy.plan_model_router_error_event(&scope, &error));
+            Err(_error) => {
                 return FindingChallengeReport::empty(finding_challenge_diagnostic(
                     false,
                     "model_router_failed",
@@ -699,119 +762,440 @@ impl PlannedReviewRuntime {
                 ));
             }
         };
-        let transcript =
+        let mut transcript =
             finding_challenge_transcript(findings, self.snapshot.diff.content.as_str());
         let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut evidence = SessionEvidence::for_scope(&scope);
+        let mut tool_counts = ToolCounts::default();
         let mut tokens = TokenUsage::default();
-        let turn_id = TurnId(0);
-        self.events.emit_planned_runtime(
-            self.policy
-                .plan_model_started_runtime_event(&scope, turn_id),
-        );
-        let model_started = Instant::now();
-        let outcome = complete_model_turn(
-            &*model,
-            &self.policy,
-            &self.events,
-            &self.limits,
-            &scope,
-            &final_response_scope(&scope),
-            &transcript,
-            turn_id,
-            &cancel,
-        )
-        .await;
-        model_metrics.calls += outcome.attempts;
-        let turn = match outcome.result {
-            Ok(turn) => {
-                model_metrics.errors += outcome.attempts - 1;
-                turn
+        let mut model_calls = 0usize;
+        let turn_limit = scope.budget.max_turns.max(1);
+        for turn_index in 0..turn_limit {
+            if cancel.is_cancelled() {
+                break;
             }
-            Err(error) => {
-                model_metrics.errors += outcome.attempts;
-                let summary = match error {
-                    RuntimeError::Timeout => "timeout",
-                    _ => "model_failed",
-                };
-                return FindingChallengeReport::empty(finding_challenge_diagnostic(
-                    false, summary, 0,
-                ));
-            }
-        };
-        model_metrics.successes += 1;
-        model_metrics.latency_ms += elapsed_ms(model_started);
-        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-        match turn {
-            ModelTurn::Text { content, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events.emit_planned_runtime(
-                    self.policy
-                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
-                );
-                let refuted = apply_challenge_verdicts(findings, &content, &scope.id.0);
-                FindingChallengeReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    completion_diagnostic: finding_challenge_diagnostic(true, "done", refuted),
+            let turn_id = TurnId(turn_index as u32);
+            self.events.emit_planned_runtime(
+                self.policy
+                    .plan_model_started_runtime_event(&scope, turn_id),
+            );
+            let model_started = Instant::now();
+            let final_turn =
+                turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
+            let model_scope = if final_turn {
+                final_response_scope(&scope)
+            } else {
+                scope.clone()
+            };
+            let outcome = complete_model_turn(
+                &*model,
+                &self.policy,
+                &self.events,
+                &self.limits,
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                &cancel,
+            )
+            .await;
+            model_calls += outcome.attempts;
+            model_metrics.calls += outcome.attempts;
+            let turn = match outcome.result {
+                Ok(turn) => {
+                    model_metrics.errors += outcome.attempts - 1;
+                    turn
                 }
-            }
-            ModelTurn::ToolCalls { calls, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events
-                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
+                Err(error) => {
+                    model_metrics.errors += outcome.attempts;
+                    let summary = match error {
+                        RuntimeError::Timeout => "timeout",
+                        _ => "model_failed",
+                    };
+                    mark_challenge_incomplete(findings);
+                    return FindingChallengeReport {
+                        model_calls,
+                        model_metrics,
+                        tool_counts,
+                        tokens,
+                        completion_diagnostic: finding_challenge_diagnostic(false, summary, 0),
+                    };
+                }
+            };
+            model_metrics.successes += 1;
+            model_metrics.latency_ms += elapsed_ms(model_started);
+            model_metrics.max_latency_ms =
+                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+            match turn {
+                ModelTurn::Text { content, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy
+                            .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                    );
+                    let suppressed = apply_challenge_verdicts(findings, &content, &scope.id.0);
+                    return FindingChallengeReport {
+                        model_calls,
+                        model_metrics,
+                        tool_counts,
+                        tokens,
+                        completion_diagnostic: finding_challenge_diagnostic(
+                            true, "done", suppressed,
+                        ),
+                    };
+                }
+                ModelTurn::ToolCalls { calls, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy.plan_model_completed_runtime_event(
+                            &scope,
+                            turn_id,
+                            calls.len(),
+                        ),
+                    );
+                    if final_turn {
+                        mark_challenge_incomplete(findings);
+                        return FindingChallengeReport {
+                            model_calls,
+                            model_metrics,
+                            tool_counts,
+                            tokens,
+                            completion_diagnostic: finding_challenge_diagnostic(
+                                false,
+                                "unexpected_tool_calls",
+                                0,
+                            ),
+                        };
+                    }
+                    transcript.push(ConversationItem::AssistantToolCalls {
+                        calls: calls.clone(),
+                    });
+                    let results = ToolBatchRunner::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                    )
+                    .execute(
+                        scope.clone(),
+                        turn_id,
+                        calls,
+                        &evidence,
+                        scope
+                            .budget
+                            .max_tool_calls
+                            .saturating_sub(tool_counts.total()),
+                        cancel.child_token(),
+                    )
+                    .await;
+                    ToolResultEffectProcessor::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                        &self.review_revision_id,
+                    )
+                    .apply_batch(
                         &scope,
                         turn_id,
-                        calls.len(),
-                    ));
-                FindingChallengeReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    completion_diagnostic: finding_challenge_diagnostic(
-                        false,
-                        "unexpected_tool_calls",
-                        0,
-                    ),
+                        results,
+                        ToolResultBatchState {
+                            evidence: &mut evidence,
+                            tool_counts: &mut tool_counts,
+                            transcript: &mut transcript,
+                        },
+                    );
+                    transcript.push(ConversationItem::User {
+                        content: "Continue verifying only the listed candidate findings. Do not look for new findings. Return the challenge JSON as soon as each claim is confirmed, refuted, or still insufficient after the checked evidence.".to_string(),
+                    });
                 }
             }
         }
+        mark_challenge_incomplete(findings);
+        FindingChallengeReport {
+            model_calls,
+            model_metrics,
+            tool_counts,
+            tokens,
+            completion_diagnostic: finding_challenge_diagnostic(false, "partial", 0),
+        }
     }
-}
-
-fn should_run_review_quality_enhancements(
-    mode: QualityPassMode,
-    session_templates: &[SessionScope],
-) -> bool {
-    match mode {
-        QualityPassMode::Enabled => true,
-        QualityPassMode::Disabled => false,
-        QualityPassMode::Auto => session_templates
-            .first()
-            .map(scope_matches_legacy_quality_heuristic)
-            .unwrap_or(false),
+    /// Runs one focused investigation per contract pack. The runtime loads the
+    /// pack's primary and related files deterministically, then requires the
+    /// model to answer every pack question and verdict every related path, so
+    /// pack obligations cannot silently degrade into needs_review verdicts.
+    async fn run_contract_pack_pass(
+        &self,
+        review_plan: &ReviewPlan,
+        pack: &ContractPack,
+        cancel: CancellationToken,
+    ) -> ContractPackPassReport {
+        let pack_unit = contract_pack_unit(pack);
+        let scope = unit_scope(
+            &pack_unit,
+            &self.snapshot.snapshot_id,
+            self.session_templates.first(),
+            0,
+        );
+        self.events
+            .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
+        let model = match self.model_router.client_for(&scope).await {
+            Ok(model) => model,
+            Err(_error) => {
+                self.events.emit_planned_runtime(
+                    self.policy
+                        .plan_session_finished_runtime_event(&scope, "failed"),
+                );
+                return ContractPackPassReport::empty(pack_pass_diagnostic(
+                    &pack_unit.id,
+                    false,
+                    "model_router_failed",
+                ));
+            }
+        };
+        let mut transcript = contract_pack_transcript(pack);
+        let mut evidence = SessionEvidence::for_scope(&scope);
+        let mut tool_counts = ToolCounts::default();
+        let mut model_metrics = ModelMetricsSnapshot::default();
+        let mut tokens = TokenUsage::default();
+        let mut model_calls = 0usize;
+        let mut file_evidence = FileEvidenceTracker::new(&pack_unit);
+        let diff = self.snapshot.diff.content.as_str();
+        let changed_ranges = changed_line_ranges_by_path(diff);
+        let read_calls = contract_pack_bootstrap_calls(
+            pack,
+            review_plan,
+            &changed_ranges,
+            self.limits.max_file_bytes_read,
+            scope.budget.max_tool_calls,
+        );
+        if !read_calls.is_empty() && !cancel.is_cancelled() {
+            // The engine rejects any batch over max_tool_calls_per_turn, so
+            // bootstrap reads must execute in turn-sized chunks.
+            let chunk_size = self.limits.max_tool_calls_per_turn.max(1);
+            for (chunk_index, chunk) in read_calls.chunks(chunk_size).enumerate() {
+                if cancel.is_cancelled() {
+                    break;
+                }
+                transcript.push(ConversationItem::AssistantToolCalls {
+                    calls: chunk.to_vec(),
+                });
+                let results =
+                    ToolBatchRunner::new(self.policy.as_ref(), self.tools.as_ref(), &self.events)
+                        .execute(
+                            scope.clone(),
+                            TurnId(u32::MAX - chunk_index as u32),
+                            chunk.to_vec(),
+                            &evidence,
+                            scope.budget.max_tool_calls,
+                            cancel.child_token(),
+                        )
+                        .await;
+                file_evidence.observe_results(&results, &self.tools.artifacts);
+                ToolResultEffectProcessor::new(
+                    self.policy.as_ref(),
+                    self.tools.as_ref(),
+                    &self.events,
+                    &self.review_revision_id,
+                )
+                .apply_batch(
+                    &scope,
+                    TurnId(u32::MAX - chunk_index as u32),
+                    results,
+                    ToolResultBatchState {
+                        evidence: &mut evidence,
+                        tool_counts: &mut tool_counts,
+                        transcript: &mut transcript,
+                    },
+                );
+            }
+            transcript.push(ConversationItem::User {
+                content: "The diff and the contract pack's primary and related files have been loaded above. Use this evidence to answer every pack question. Request focused follow-up tool calls only if a specific question cannot be answered from the loaded evidence, otherwise return the final JSON result now.".to_string(),
+            });
+        }
+        let turn_limit = scope.budget.max_turns.clamp(1, 3);
+        let mut retried_incomplete = false;
+        for turn_index in 0..turn_limit {
+            if cancel.is_cancelled() {
+                break;
+            }
+            let turn_id = TurnId(turn_index as u32);
+            self.events.emit_planned_runtime(
+                self.policy
+                    .plan_model_started_runtime_event(&scope, turn_id),
+            );
+            let model_started = Instant::now();
+            let final_turn =
+                turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
+            let model_scope = if final_turn {
+                final_response_scope(&scope)
+            } else {
+                scope.clone()
+            };
+            let turn = match tokio::time::timeout(
+                std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
+                model.complete(&model_scope, &transcript, turn_id, cancel.child_token()),
+            )
+            .await
+            {
+                Ok(Ok(turn)) => turn,
+                Ok(Err(error)) => {
+                    self.events.emit_planned_runtime(
+                        self.policy
+                            .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
+                    );
+                    break;
+                }
+                Err(_) => {
+                    self.events
+                        .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
+                            &scope,
+                            turn_id,
+                            1,
+                            false,
+                            &RuntimeError::Timeout,
+                        ));
+                    break;
+                }
+            };
+            model_calls += 1;
+            model_metrics.calls += 1;
+            model_metrics.successes += 1;
+            model_metrics.latency_ms += elapsed_ms(model_started);
+            model_metrics.max_latency_ms =
+                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
+            match turn {
+                ModelTurn::Text { content, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy
+                            .plan_model_completed_runtime_event(&scope, turn_id, 0),
+                    );
+                    let result = parse_pack_result(&content);
+                    let missing = missing_pack_obligations(pack, &result);
+                    if !missing.is_empty() && !final_turn && !retried_incomplete {
+                        retried_incomplete = true;
+                        transcript.push(ConversationItem::AssistantText { content });
+                        transcript.push(ConversationItem::User {
+                            content: format!(
+                                "The pack result is incomplete: {}. Return the full JSON result with an explicit answer for every question and an explicit verdict for every related path.",
+                                missing.join("; ")
+                            ),
+                        });
+                        continue;
+                    }
+                    let mut candidate_findings = collect_candidate_findings(
+                        &scope,
+                        &pack_unit,
+                        review_plan,
+                        result.findings,
+                        &file_evidence,
+                    );
+                    candidate_findings.extend(deterministic_contract_pack_candidates(
+                        &scope,
+                        pack,
+                        self.snapshot.diff.content.as_str(),
+                        &file_evidence,
+                    ));
+                    self.events.emit_planned_runtime(
+                        self.policy
+                            .plan_session_finished_runtime_event(&scope, "done"),
+                    );
+                    return ContractPackPassReport {
+                        model_calls,
+                        model_metrics,
+                        tool_counts,
+                        tokens,
+                        candidate_findings,
+                        completion_diagnostic: SessionCompletionDiagnostic {
+                            session_id: pack_unit.id.clone(),
+                            completed: true,
+                            completion_kind: Some("structured_pack_result".to_string()),
+                            completion_summary: Some(format!(
+                                "{} questionsAnswered={}/{} relatedVerdicts={}/{} affectedRelatedPaths={} unresolvedObligations={}",
+                                result.summary,
+                                result.question_answers.len(),
+                                pack.questions.len(),
+                                result.related_path_verdicts.len(),
+                                pack.related_paths.len(),
+                                result
+                                    .related_path_verdicts
+                                    .iter()
+                                    .filter(|verdict| verdict.affected)
+                                    .count(),
+                                missing.len()
+                            )),
+                            saw_diff: true,
+                            saw_file: true,
+                            saw_search: false,
+                            model_calls,
+                            tool_counts,
+                        },
+                    };
+                }
+                ModelTurn::ToolCalls { calls, usage } => {
+                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
+                    self.events.emit_planned_runtime(
+                        self.policy.plan_model_completed_runtime_event(
+                            &scope,
+                            turn_id,
+                            calls.len(),
+                        ),
+                    );
+                    transcript.push(ConversationItem::AssistantToolCalls {
+                        calls: calls.clone(),
+                    });
+                    let results = ToolBatchRunner::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                    )
+                    .execute(
+                        scope.clone(),
+                        turn_id,
+                        calls,
+                        &evidence,
+                        scope
+                            .budget
+                            .max_tool_calls
+                            .saturating_sub(tool_counts.total()),
+                        cancel.child_token(),
+                    )
+                    .await;
+                    file_evidence.observe_results(&results, &self.tools.artifacts);
+                    ToolResultEffectProcessor::new(
+                        self.policy.as_ref(),
+                        self.tools.as_ref(),
+                        &self.events,
+                        &self.review_revision_id,
+                    )
+                    .apply_batch(
+                        &scope,
+                        turn_id,
+                        results,
+                        ToolResultBatchState {
+                            evidence: &mut evidence,
+                            tool_counts: &mut tool_counts,
+                            transcript: &mut transcript,
+                        },
+                    );
+                    transcript.push(ConversationItem::User {
+                        content: "Use the gathered evidence to return the final pack JSON result now with keys summary, questionAnswers, relatedPathVerdicts, and findings.".to_string(),
+                    });
+                }
+            }
+        }
+        self.events.emit_planned_runtime(
+            self.policy
+                .plan_session_finished_runtime_event(&scope, "partial"),
+        );
+        ContractPackPassReport {
+            model_calls,
+            model_metrics,
+            tool_counts,
+            tokens,
+            candidate_findings: Vec::new(),
+            completion_diagnostic: pack_pass_diagnostic(&pack_unit.id, false, "partial"),
+        }
     }
-}
-
-fn should_run_review_quality_enhancements_for_scope(
-    mode: QualityPassMode,
-    scope: &SessionScope,
-) -> bool {
-    match mode {
-        QualityPassMode::Enabled => true,
-        QualityPassMode::Disabled => false,
-        QualityPassMode::Auto => scope_matches_legacy_quality_heuristic(scope),
-    }
-}
-
-/// Legacy activation heuristic, kept as the `Auto` behavior: hosts that
-/// never set `quality_pass_mode` get quality passes exactly when their
-/// objective uses the historical phrasing with a deep-turn budget.
-fn scope_matches_legacy_quality_heuristic(scope: &SessionScope) -> bool {
-    scope.budget.max_turns > 4
-        && scope
-            .objective
-            .contains("production-materialized pull request")
 }
 
 async fn bootstrap_unit_evidence(
@@ -819,18 +1203,22 @@ async fn bootstrap_unit_evidence(
     scope: &SessionScope,
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
+    contract_packs: &ContractPackPlan,
     transcript: &mut Vec<ConversationItem>,
     evidence: &mut SessionEvidence,
     tool_counts: &mut ToolCounts,
     file_evidence: &mut FileEvidenceTracker,
     cancel: CancellationToken,
 ) {
-    if cancel.is_cancelled() || scope.budget.max_tool_calls == 0 {
+    if cancel.is_cancelled() || scope.budget.max_tool_calls == 0 || !can_bootstrap_review(scope) {
         return;
     }
     let plan = deterministic_bootstrap_calls(
         review_plan,
         unit,
+        unit_risk,
+        contract_packs,
         runtime.snapshot.diff.content.as_str(),
         runtime.limits.max_file_bytes_read,
         scope
@@ -892,6 +1280,454 @@ async fn bootstrap_unit_evidence(
     });
 }
 
+fn changed_file_head_contents(
+    snapshot: &RepoSnapshot,
+    review_plan: &ReviewPlan,
+    max_file_bytes_read: usize,
+) -> BTreeMap<String, String> {
+    let mut contents = BTreeMap::new();
+    for file in &review_plan.files {
+        if file.mode != ReviewPlanFileMode::Full {
+            continue;
+        }
+        let Ok(meta) = snapshot.lookup(&file.path) else {
+            continue;
+        };
+        let Ok((bytes, _)) = snapshot.read_bounded(meta.file_id, max_file_bytes_read) else {
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            continue;
+        };
+        contents.insert(file.path.display(), text);
+    }
+    contents
+}
+
+struct ContractPackPassReport {
+    model_calls: usize,
+    model_metrics: ModelMetricsSnapshot,
+    tool_counts: ToolCounts,
+    tokens: TokenUsage,
+    candidate_findings: Vec<CandidateFinding>,
+    completion_diagnostic: SessionCompletionDiagnostic,
+}
+
+impl ContractPackPassReport {
+    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
+        Self {
+            model_calls: 0,
+            model_metrics: ModelMetricsSnapshot::default(),
+            tool_counts: ToolCounts::default(),
+            tokens: TokenUsage::default(),
+            candidate_findings: Vec::new(),
+            completion_diagnostic,
+        }
+    }
+}
+
+fn contract_pack_unit(pack: &ContractPack) -> PlannedReviewUnit {
+    let file_paths = std::iter::once(pack.primary_path.clone())
+        .chain(pack.related_paths.iter().cloned())
+        .collect::<Vec<_>>();
+    PlannedReviewUnit {
+        id: format!("pack-{}", pack.id),
+        file_count: file_paths.len(),
+        file_paths,
+        score_min: 0,
+        score_max: 0,
+        estimated_bytes: 0,
+        requires_further_split: false,
+    }
+}
+
+fn contract_pack_transcript(pack: &ContractPack) -> Vec<ConversationItem> {
+    vec![
+        ConversationItem::System {
+            content: "You are a contract investigation reviewer focused on exactly one contract obligation inside a pull request. Use the loaded read-only evidence to compare both sides of the contract. Return final output as strict JSON with keys summary, questionAnswers, relatedPathVerdicts, and findings. questionAnswers must contain one entry per listed question with keys question, answer, and status (issue or clean). relatedPathVerdicts must contain one entry per listed related path with keys path, affected (boolean), and reason citing the concrete code that supports the verdict. findings must contain one entry per distinct supported bug with keys title, claim, path, relatedPaths, startLine, endLine, behaviorBefore, and behaviorAfter; query/filter findings must also include predicate naming the exact changed predicate branch or guard. When the primary contract is broken and a related path consumes the broken contract, report a separate finding anchored to that related path's changed lines and include the primary path in relatedPaths. Report only issues directly supported by the gathered evidence; when behavior is safe, answer clean and explain why with the evidence you compared. Do not report style, type-only, or speculative concerns. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
+        },
+        ConversationItem::User {
+            content: format!(
+                "Contract investigation pack {} (kind {:?}).\nPrimary path: {}\nRelated paths:\n{}\nRequired evidence:\n{}\nQuestions to answer (every question requires an explicit answer):\n{}\nPublishability criteria:\n{}\nSummary: {}",
+                pack.id,
+                pack.kind,
+                pack.primary_path.display(),
+                if pack.related_paths.is_empty() {
+                    "- none".to_string()
+                } else {
+                    pack.related_paths
+                        .iter()
+                        .map(|path| format!("- {}", path.display()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                },
+                pack.required_evidence
+                    .iter()
+                    .map(|item| format!("- {item}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                pack.questions
+                    .iter()
+                    .map(|item| format!("- {item}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                pack.publishability_criteria
+                    .iter()
+                    .map(|item| format!("- {item}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                pack.summary
+            ),
+        },
+    ]
+}
+
+fn contract_pack_bootstrap_calls(
+    pack: &ContractPack,
+    review_plan: &ReviewPlan,
+    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
+    max_file_bytes_read: usize,
+    max_tool_calls: usize,
+) -> Vec<ModelToolCall> {
+    if max_tool_calls == 0 {
+        return Vec::new();
+    }
+    let mut calls = vec![bootstrap_call(0, ToolName::ReadDiff, "{}".to_string())];
+    let read_budget = max_tool_calls.saturating_sub(2).max(1);
+    for path in std::iter::once(&pack.primary_path).chain(pack.related_paths.iter()) {
+        if calls.len() > read_budget {
+            break;
+        }
+        push_bootstrap_read_call(
+            &mut calls,
+            path,
+            review_plan,
+            changed_ranges,
+            max_file_bytes_read,
+            true,
+        );
+    }
+    calls
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredPackResult {
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    question_answers: Vec<StructuredPackAnswer>,
+    #[serde(default)]
+    related_path_verdicts: Vec<StructuredPackPathVerdict>,
+    #[serde(default)]
+    findings: Vec<StructuredFinding>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredPackAnswer {
+    #[serde(default)]
+    question: String,
+    #[serde(default)]
+    answer: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredPackPathVerdict {
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    affected: bool,
+    #[serde(default)]
+    reason: String,
+}
+
+fn parse_pack_result(content: &str) -> StructuredPackResult {
+    let trimmed = content.trim();
+    if let Ok(result) = serde_json::from_str::<StructuredPackResult>(trimmed) {
+        return result;
+    }
+    let Some(start) = trimmed.find('{') else {
+        return StructuredPackResult::default();
+    };
+    let Some(end) = trimmed.rfind('}') else {
+        return StructuredPackResult::default();
+    };
+    serde_json::from_str(&trimmed[start..=end]).unwrap_or_default()
+}
+
+fn missing_pack_obligations(pack: &ContractPack, result: &StructuredPackResult) -> Vec<String> {
+    let mut missing = Vec::new();
+    let answered = result
+        .question_answers
+        .iter()
+        .filter(|answer| !answer.answer.trim().is_empty() && !answer.question.trim().is_empty())
+        .count();
+    if answered < pack.questions.len() {
+        missing.push(format!(
+            "only {answered}/{} questions have explicit answers",
+            pack.questions.len()
+        ));
+    }
+    for path in &pack.related_paths {
+        let display = path.display();
+        if !result
+            .related_path_verdicts
+            .iter()
+            .any(|verdict| verdict.path.trim() == display && !verdict.reason.trim().is_empty())
+        {
+            missing.push(format!("missing related path verdict for {display}"));
+        }
+    }
+    missing
+}
+
+fn deterministic_contract_pack_candidates(
+    scope: &SessionScope,
+    pack: &ContractPack,
+    diff: &str,
+    evidence_tracker: &FileEvidenceTracker,
+) -> Vec<CandidateFinding> {
+    if pack.kind != ContractPackKind::QueryFilterScope {
+        return Vec::new();
+    }
+    let path = pack.primary_path.display();
+    let Some((line, predicate)) = destructive_or_scope_predicate(diff, &path) else {
+        return Vec::new();
+    };
+    let evidence_artifact_ids = evidence_tracker.evidence_for(&path);
+    if evidence_artifact_ids.is_empty() {
+        return Vec::new();
+    }
+    vec![CandidateFinding {
+        source_unit_id: format!("pack-{}", pack.id),
+        source_session_id: scope.id.0.clone(),
+        title: "Destructive retry cleanup branch bypasses the method scope".to_string(),
+        claim: "The changed deleteMany OR predicate adds a retryCount branch outside the method guard, so the cleanup can delete workflow reminders for non-SMS delivery methods.".to_string(),
+        path,
+        related_paths: Vec::new(),
+        start_line: Some(line),
+        end_line: Some(line),
+        behavior_before: "cleanup deleted only workflow reminders matching the SMS method scope"
+            .to_string(),
+        behavior_after: "cleanup deletes any workflow reminder matching the retryCount branch even when it is not an SMS reminder".to_string(),
+        predicate,
+        evidence_artifact_ids,
+        source_unit_assigned_path: true,
+        rejection_reason: None,
+    }]
+}
+
+fn destructive_or_scope_predicate(diff: &str, target_path: &str) -> Option<(usize, String)> {
+    let mut current_path: Option<String> = None;
+    let mut current_new_line: Option<usize> = None;
+    let mut saw_delete_many = false;
+    let mut saw_added_or = None;
+    let mut saw_method_guard = false;
+    let mut saw_retry_branch = false;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = Some(path.to_string());
+            current_new_line = None;
+            continue;
+        }
+        if line.starts_with("diff --git ") || line.starts_with("--- ") {
+            current_new_line = None;
+            saw_delete_many = false;
+            saw_added_or = None;
+            saw_method_guard = false;
+            saw_retry_branch = false;
+            continue;
+        }
+        let Some(path) = current_path.as_deref() else {
+            continue;
+        };
+        if path != target_path {
+            continue;
+        }
+        if let Some(hunk) = line.strip_prefix("@@ ") {
+            let new_range = hunk.split_whitespace().nth(1)?.strip_prefix('+')?;
+            let (start, _) = new_range
+                .split_once(',')
+                .map_or((new_range, "1"), |(start, count)| (start, count));
+            current_new_line = start.parse::<usize>().ok();
+            saw_delete_many = false;
+            saw_added_or = None;
+            saw_method_guard = false;
+            saw_retry_branch = false;
+            continue;
+        }
+        let Some(new_line) = current_new_line else {
+            continue;
+        };
+        let content = line
+            .strip_prefix('+')
+            .or_else(|| line.strip_prefix(' '))
+            .unwrap_or_default()
+            .trim();
+        if content.contains("deleteMany") || content.contains("updateMany") {
+            saw_delete_many = true;
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            if content.contains("OR:") {
+                saw_added_or = Some(new_line);
+            }
+            if content.contains("method:") {
+                saw_method_guard = true;
+            }
+            if content.contains("retryCount") {
+                saw_retry_branch = true;
+            }
+        }
+        if saw_delete_many && saw_added_or.is_some() && saw_method_guard && saw_retry_branch {
+            return Some((
+                saw_added_or.unwrap_or(new_line),
+                "OR retryCount branch without method guard".to_string(),
+            ));
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            current_new_line = Some(new_line + 1);
+        } else if line.starts_with('-') && !line.starts_with("---") {
+        } else {
+            current_new_line = Some(new_line + 1);
+        }
+    }
+    None
+}
+
+fn pack_pass_diagnostic(
+    session_id: &str,
+    completed: bool,
+    status: &str,
+) -> SessionCompletionDiagnostic {
+    SessionCompletionDiagnostic {
+        session_id: session_id.to_string(),
+        completed,
+        completion_kind: Some("structured_pack_result".to_string()),
+        completion_summary: Some(status.to_string()),
+        saw_diff: completed,
+        saw_file: completed,
+        saw_search: false,
+        model_calls: 0,
+        tool_counts: ToolCounts::default(),
+    }
+}
+
+/// Deterministically loads file evidence the model failed to gather before it
+/// tried to return clean verdicts, so evidence obligations end in remediation
+/// instead of needs_review downgrades.
+#[allow(clippy::too_many_arguments)]
+async fn remediate_missing_evidence(
+    runtime: &PlannedReviewRuntime,
+    scope: &SessionScope,
+    review_plan: &ReviewPlan,
+    _unit_risk: &ContractUnitRisk,
+    obligations: &[ReviewEvidenceObligation],
+    transcript: &mut Vec<ConversationItem>,
+    evidence: &mut SessionEvidence,
+    tool_counts: &mut ToolCounts,
+    file_evidence: &mut FileEvidenceTracker,
+    cancel: CancellationToken,
+) {
+    if cancel.is_cancelled() {
+        return;
+    }
+    let remaining_budget = scope
+        .budget
+        .max_tool_calls
+        .saturating_sub(tool_counts.total())
+        .min(runtime.limits.max_tool_calls_per_turn.max(1));
+    if remaining_budget == 0 {
+        return;
+    }
+    let changed_ranges = changed_line_ranges_by_path(runtime.snapshot.diff.content.as_str());
+    let mut calls = Vec::new();
+    let mut seen = BTreeSet::new();
+    for obligation in obligations {
+        if calls.len() >= remaining_budget {
+            break;
+        }
+        if obligation.reason != "missing_file_evidence" || !seen.insert(obligation.path.clone()) {
+            continue;
+        }
+        if file_evidence.has_file_evidence(&obligation.path) {
+            continue;
+        }
+        let Ok(path) = RepoPath::parse(&obligation.path) else {
+            continue;
+        };
+        push_bootstrap_read_call(
+            &mut calls,
+            &path,
+            review_plan,
+            &changed_ranges,
+            runtime.limits.max_file_bytes_read,
+            false,
+        );
+    }
+    if calls.is_empty() {
+        return;
+    }
+    for (index, call) in calls.iter_mut().enumerate() {
+        call.call_id = ToolCallId(format!("remediation-{index}-{}", scope.id.0));
+        call.index = index;
+    }
+    transcript.push(ConversationItem::AssistantToolCalls {
+        calls: calls.clone(),
+    });
+    let results = ToolBatchRunner::new(
+        runtime.policy.as_ref(),
+        runtime.tools.as_ref(),
+        &runtime.events,
+    )
+    .execute(
+        scope.clone(),
+        TurnId(u32::MAX - 1),
+        calls,
+        evidence,
+        remaining_budget,
+        cancel,
+    )
+    .await;
+    file_evidence.observe_results(&results, &runtime.tools.artifacts);
+    ToolResultEffectProcessor::new(
+        runtime.policy.as_ref(),
+        runtime.tools.as_ref(),
+        &runtime.events,
+        &runtime.review_revision_id,
+    )
+    .apply_batch(
+        scope,
+        TurnId(u32::MAX - 1),
+        results,
+        ToolResultBatchState {
+            evidence,
+            tool_counts,
+            transcript,
+        },
+    );
+}
+
+fn can_bootstrap_review(scope: &SessionScope) -> bool {
+    let grants = &scope.capabilities.tool_grants;
+    let review_tools = ToolName::review_read_only_tools()
+        .iter()
+        .map(|tool| ToolId::from(*tool))
+        .collect::<BTreeSet<_>>();
+    if grants.keys().any(|tool_id| !review_tools.contains(tool_id)) {
+        return false;
+    }
+    grants.contains_key(&ToolId::from(ToolName::ReadDiff))
+        && [
+            ToolName::ReadFile,
+            ToolName::ReadFileRange,
+            ToolName::ReadHeadFile,
+        ]
+        .into_iter()
+        .any(|tool| grants.contains_key(&ToolId::from(tool)))
+}
+
 struct BootstrapPlan {
     calls: Vec<ModelToolCall>,
     skipped_paths: Vec<String>,
@@ -900,12 +1736,17 @@ struct BootstrapPlan {
 fn deterministic_bootstrap_calls(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
+    contract_packs: &ContractPackPlan,
     diff: &str,
     max_file_bytes_read: usize,
     remaining_tool_budget: usize,
 ) -> BootstrapPlan {
+    const MAX_BOOTSTRAP_TOOL_CALLS_PER_TURN: usize = 4;
     const RESERVED_MODEL_TOOL_CALLS: usize = 4;
-    let bootstrap_budget = remaining_tool_budget.saturating_sub(RESERVED_MODEL_TOOL_CALLS);
+    let bootstrap_budget = remaining_tool_budget
+        .saturating_sub(RESERVED_MODEL_TOOL_CALLS)
+        .min(MAX_BOOTSTRAP_TOOL_CALLS_PER_TURN);
     if bootstrap_budget == 0 {
         return BootstrapPlan {
             calls: Vec::new(),
@@ -914,6 +1755,45 @@ fn deterministic_bootstrap_calls(
     }
     let changed_ranges = changed_line_ranges_by_path(diff);
     let mut calls = vec![bootstrap_call(0, ToolName::ReadDiff, "{}".to_string())];
+    let pack_paths = unit
+        .file_paths
+        .iter()
+        .flat_map(|path| contract_packs.packs_for_path(path))
+        .flat_map(|pack| {
+            std::iter::once(&pack.primary_path)
+                .chain(pack.related_paths.iter())
+                .collect::<Vec<_>>()
+        })
+        .collect::<BTreeSet<_>>();
+    for path in &pack_paths {
+        if calls.len() >= bootstrap_budget {
+            break;
+        }
+        push_bootstrap_read_call(
+            &mut calls,
+            path,
+            review_plan,
+            &changed_ranges,
+            max_file_bytes_read,
+            true,
+        );
+    }
+    for pack in unit
+        .file_paths
+        .iter()
+        .flat_map(|path| contract_packs.packs_for_path(path))
+    {
+        for query in &pack.seed_queries {
+            if calls.len() >= bootstrap_budget {
+                break;
+            }
+            calls.push(bootstrap_call(
+                calls.len(),
+                ToolName::SearchText,
+                json!({ "query": query }).to_string(),
+            ));
+        }
+    }
     let file_budget = bootstrap_budget.saturating_sub(calls.len());
     let mut scored_paths = unit
         .file_paths
@@ -937,42 +1817,29 @@ fn deterministic_bootstrap_calls(
             skipped_paths.push(path.display());
             continue;
         }
-        let display = path.display();
-        let estimated_bytes = review_plan
-            .files
-            .iter()
-            .find(|file| file.path == *path)
-            .and_then(|file| file.estimated_bytes)
-            .unwrap_or(0);
-        let (tool, raw_arguments) = if prefer_ranges || estimated_bytes > max_file_bytes_read as u64
-        {
-            changed_ranges
-                .get(&display)
-                .and_then(|ranges| expanded_changed_range(ranges))
-                .map(|(start_line, end_line)| {
-                    (
-                        ToolName::ReadFileRange,
-                        json!({
-                            "path": display,
-                            "start_line": start_line,
-                            "end_line": end_line
-                        })
-                        .to_string(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    (
-                        ToolName::ReadHeadFile,
-                        json!({ "path": display }).to_string(),
-                    )
-                })
-        } else {
-            (
-                ToolName::ReadHeadFile,
-                json!({ "path": display }).to_string(),
-            )
-        };
-        calls.push(bootstrap_call(calls.len(), tool, raw_arguments));
+        if pack_paths.contains(path) {
+            continue;
+        }
+        push_bootstrap_read_call(
+            &mut calls,
+            path,
+            review_plan,
+            &changed_ranges,
+            max_file_bytes_read,
+            prefer_ranges,
+        );
+    }
+    if unit_risk.high_risk {
+        for query in &unit_risk.suggested_queries {
+            if calls.len() >= bootstrap_budget {
+                break;
+            }
+            calls.push(bootstrap_call(
+                calls.len(),
+                ToolName::SearchText,
+                json!({ "query": query }).to_string(),
+            ));
+        }
     }
     BootstrapPlan {
         calls,
@@ -987,6 +1854,51 @@ fn bootstrap_call(index: usize, tool: ToolName, raw_arguments: String) -> ModelT
         name: ToolId::from(tool),
         raw_arguments,
     }
+}
+
+fn push_bootstrap_read_call(
+    calls: &mut Vec<ModelToolCall>,
+    path: &RepoPath,
+    review_plan: &ReviewPlan,
+    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
+    max_file_bytes_read: usize,
+    prefer_range: bool,
+) {
+    let display = path.display();
+    let estimated_bytes = review_plan
+        .files
+        .iter()
+        .find(|file| file.path == *path)
+        .and_then(|file| file.estimated_bytes)
+        .unwrap_or(0);
+    let (tool, raw_arguments) = if prefer_range || estimated_bytes > max_file_bytes_read as u64 {
+        changed_ranges
+            .get(&display)
+            .and_then(|ranges| expanded_changed_range(ranges))
+            .map(|(start_line, end_line)| {
+                (
+                    ToolName::ReadFileRange,
+                    json!({
+                        "path": display,
+                        "start_line": start_line,
+                        "end_line": end_line
+                    })
+                    .to_string(),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    ToolName::ReadHeadFile,
+                    json!({ "path": display }).to_string(),
+                )
+            })
+    } else {
+        (
+            ToolName::ReadHeadFile,
+            json!({ "path": display }).to_string(),
+        )
+    };
+    calls.push(bootstrap_call(calls.len(), tool, raw_arguments));
 }
 
 fn expanded_changed_range(ranges: &[(usize, usize)]) -> Option<(usize, usize)> {
@@ -1063,6 +1975,8 @@ fn skipped_file_reviews(review_plan: &ReviewPlan) -> Vec<FileReviewV1> {
             FileReviewV1 {
                 path: file.path.display(),
                 verdict: "skipped".to_string(),
+                coverage: ReviewCoverage::Insufficient,
+                review_verdict: ReviewVerdict::NeedsReview,
                 summary: reason,
                 related_paths: Vec::new(),
                 evidence_artifact_ids: Vec::new(),
@@ -1091,6 +2005,8 @@ fn append_unverdicted_file_reviews(
             file_reviews.push(FileReviewV1 {
                 path: display,
                 verdict: "needs_review".to_string(),
+                coverage: ReviewCoverage::Insufficient,
+                review_verdict: ReviewVerdict::NeedsReview,
                 summary: "Review session returned no verdict for this assigned file.".to_string(),
                 related_paths: Vec::new(),
                 evidence_artifact_ids: Vec::new(),
@@ -1140,12 +2056,50 @@ static NO_CONTRACT_RISK: ContractUnitRisk = ContractUnitRisk {
     suggested_queries: Vec::new(),
 };
 
-fn build_contract_risk_plan(review_plan: &ReviewPlan, diff: &str) -> ContractRiskPlan {
+fn adaptive_review_unit_options(
+    review_plan: &ReviewPlan,
+    selected_contract_packs: usize,
+) -> ReviewUnitOptions {
+    let changed_files = review_plan.counts.execution_eligible_files;
+    let changed_lines = review_plan
+        .files
+        .iter()
+        .filter(|file| file.mode == ReviewPlanFileMode::Full)
+        .map(|file| file.estimated_bytes.unwrap_or(0) as usize / 80)
+        .sum::<usize>()
+        .max(changed_files);
+    let high_risk_files = review_plan
+        .files
+        .iter()
+        .filter(|file| file.score >= 80)
+        .count();
+    let size_units = changed_files.div_ceil(35) + changed_lines.div_ceil(5000);
+    let risk_units = high_risk_files.div_ceil(4) + selected_contract_packs.div_ceil(4);
+    let target_units = (DEFAULT_LENS_COUNT + size_units + risk_units).clamp(4, 32);
+    let max_files = changed_files.div_ceil(target_units).clamp(1, 8);
+    ReviewUnitOptions {
+        max_files,
+        max_estimated_bytes: if changed_files > 150 {
+            160 * 1024
+        } else {
+            80 * 1024
+        },
+        isolate_score_at: 80,
+        max_units: target_units,
+    }
+}
+
+const DEFAULT_LENS_COUNT: usize = 4;
+
+fn build_contract_risk_plan(
+    review_plan: &ReviewPlan,
+    unit_plan: &crate::review_units::ReviewUnitPlan,
+    diff: &str,
+) -> ContractRiskPlan {
     let path_counts = repeated_path_segment_counts(review_plan);
     let diff_seeds = seeds_by_path(diff);
-    let unit_plan = build_review_unit_plan(review_plan, ReviewUnitOptions::default());
     let mut by_unit = BTreeMap::new();
-    for unit in unit_plan.units {
+    for unit in &unit_plan.units {
         let mut reasons = BTreeSet::new();
         let mut seeds = BTreeSet::new();
         for path in &unit.file_paths {
@@ -1187,7 +2141,7 @@ fn build_contract_risk_plan(review_plan: &ReviewPlan, diff: &str) -> ContractRis
             .map(|seed| seed.to_string())
             .collect::<Vec<_>>();
         by_unit.insert(
-            unit.id,
+            unit.id.clone(),
             ContractUnitRisk {
                 high_risk,
                 reasons: reasons.into_iter().collect(),
@@ -1562,6 +2516,7 @@ struct FinalSynthesisReport {
 struct FindingChallengeReport {
     model_calls: usize,
     model_metrics: ModelMetricsSnapshot,
+    tool_counts: ToolCounts,
     tokens: TokenUsage,
     completion_diagnostic: SessionCompletionDiagnostic,
 }
@@ -1571,6 +2526,7 @@ impl FindingChallengeReport {
         Self {
             model_calls: 0,
             model_metrics: ModelMetricsSnapshot::default(),
+            tool_counts: ToolCounts::default(),
             tokens: TokenUsage::default(),
             completion_diagnostic,
         }
@@ -1637,8 +2593,16 @@ struct StructuredFinding {
     claim: String,
     #[serde(default)]
     path: String,
+    #[serde(default)]
+    related_paths: Vec<String>,
     start_line: Option<usize>,
     end_line: Option<usize>,
+    #[serde(default)]
+    behavior_before: String,
+    #[serde(default)]
+    behavior_after: String,
+    #[serde(default)]
+    predicate: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1663,8 +2627,12 @@ struct CandidateFinding {
     title: String,
     claim: String,
     path: String,
+    related_paths: Vec<String>,
     start_line: Option<usize>,
     end_line: Option<usize>,
+    behavior_before: String,
+    behavior_after: String,
+    predicate: String,
     evidence_artifact_ids: Vec<String>,
     source_unit_assigned_path: bool,
     rejection_reason: Option<String>,
@@ -1771,6 +2739,7 @@ fn planned_unit_transcript(
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
     lens_focus: Option<&str>,
+    contract_packs: &ContractPackPlan,
 ) -> Vec<ConversationItem> {
     let unit_paths = unit
         .file_paths
@@ -1799,22 +2768,24 @@ fn planned_unit_transcript(
         .collect::<Vec<_>>()
         .join("\n");
     let mut system = String::new();
-    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, and endLine.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence.");
+    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths and be backed by reading them.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.");
     if let Some(focus) = lens_focus {
         system.push_str("\n\n");
         system.push_str(focus);
     }
+    let pack_summary = contract_pack_summary_for_unit(unit, contract_packs);
     vec![
         ConversationItem::System { content: system },
         ConversationItem::User {
             content: format!(
-                "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for any changed file when supported by gathered evidence. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
+                "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\nContract investigation obligations:\n{}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. When contract investigations are listed, answer each obligation independently using tool evidence before returning clean; do not stop after the first supported issue. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for every distinct supported bug, including multiple findings in the same file when they affect different ranges or invariants. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
                 unit.id,
                 unit_paths,
                 plan_reasons,
                 unit_risk.high_risk,
                 unit_risk.reasons.join(", "),
-                unit_risk.suggested_queries.join(" | ")
+                unit_risk.suggested_queries.join(" | "),
+                pack_summary
             ),
         },
     ]
@@ -1857,14 +2828,30 @@ fn unit_scope(
         capabilities: template
             .map(|scope| scope.capabilities.clone())
             .unwrap_or_else(CapabilitySet::review_read_only),
-        budget: template.map(|scope| scope.budget.clone()).unwrap_or(
-            crate::contracts::AgentBudget {
-                max_turns: 2,
-                max_tool_calls: 8,
-                max_prompt_tokens: 64_000,
-                max_output_tokens: 8_000,
-            },
-        ),
+        budget: planned_scope_budget(unit, template, lens_index),
+    }
+}
+
+fn planned_scope_budget(
+    unit: &PlannedReviewUnit,
+    template: Option<&SessionScope>,
+    lens_index: usize,
+) -> crate::contracts::AgentBudget {
+    if let Some(template) = template {
+        if template.budget.budget_source == crate::contracts::BudgetSource::CallerHardCap {
+            return template.budget.clone();
+        }
+    }
+    if lens_index > 0 {
+        if unit.score_max >= LENS_FANOUT_MIN_SCORE {
+            crate::contracts::AgentBudget::planned_high_value_secondary_lens()
+        } else {
+            crate::contracts::AgentBudget::planned_secondary_lens()
+        }
+    } else if unit.score_max >= LENS_FANOUT_MIN_SCORE {
+        crate::contracts::AgentBudget::planned_high_risk()
+    } else {
+        crate::contracts::AgentBudget::planned_baseline()
     }
 }
 
@@ -1890,6 +2877,7 @@ fn final_synthesis_scope(
     scope.objective =
         "Synthesize final cross-file review findings from gathered review evidence.".to_string();
     scope.instructions = Vec::new();
+    scope.budget.budget_source = crate::contracts::BudgetSource::RunReserve;
     scope
 }
 
@@ -1916,14 +2904,14 @@ fn finding_challenge_scope(
     scope.objective =
         "Adversarially verify validated review findings against diff evidence.".to_string();
     scope.instructions = Vec::new();
+    scope.budget = crate::contracts::AgentBudget::planned_challenge();
     scope
 }
 
 fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<ConversationItem> {
     let listed = findings
         .iter()
-        .enumerate()
-        .map(|(index, finding)| {
+        .map(|finding| {
             let path = match finding.file_refs.first() {
                 Some(EvidenceLocationV1::SinglePath { path }) => path.as_str(),
                 _ => "unknown",
@@ -1934,7 +2922,8 @@ fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<Conve
                 .map(|range| format!("{}-{}", range.start_line, range.end_line))
                 .unwrap_or_else(|| "unknown".to_string());
             format!(
-                "{index}. path={path} lines={lines} discoveredBy={} title={} claim={}",
+                "findingId={} path={path} lines={lines} discoveredBy={} title={} claim={}",
+                finding.id,
                 finding.discovered_by.len(),
                 finding.title,
                 finding.claim
@@ -1944,11 +2933,11 @@ fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<Conve
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are an adversarial verifier for code review findings. For each numbered finding, attempt to refute it using only the provided diff evidence: check that the claimed defect is real, is anchored to changed lines, and is not a misreading of the code. Return strict JSON with key verdicts: a list of {index, verdict, reason} objects where verdict is one of confirmed, refuted, uncertain. Use refuted only when the diff evidence contradicts the claim or cannot support it; use uncertain when the evidence is incomplete. Cover every finding index.".to_string(),
+            content: "You are an adversarial verifier for code review findings. Verify only the listed candidate claims; do not search for new findings. You may use read-only diff, file, search, import, related-file, and test/fixture discovery tools to check each claim against changed code and the relevant contract. Return strict JSON with key verdicts: a list of {findingId, verdict, reason, supportingArtifactIds, checkedPaths} objects where verdict is one of confirmed, refuted, insufficient. Use refuted when evidence contradicts the claim, insufficient when required evidence is still missing, and confirmed only when the changed code and relevant contract support the failure predicate. Cover every findingId.".to_string(),
         },
         ConversationItem::User {
             content: format!(
-                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nReturn JSON now with key verdicts covering every finding index.",
+                "Findings under challenge:\n{listed}\n\nDiff excerpt:\n{}\n\nUse focused read-only tools if the diff excerpt is not enough. Return JSON with key verdicts covering every findingId.",
                 diff_excerpt(diff, 120_000)
             ),
         },
@@ -1963,14 +2952,20 @@ struct StructuredChallengeResult {
 
 #[derive(Deserialize)]
 struct StructuredChallengeVerdict {
+    #[serde(default, alias = "finding_id")]
+    finding_id: String,
+    #[serde(default)]
     index: usize,
     verdict: String,
     #[serde(default)]
-    #[allow(dead_code)]
     reason: String,
+    #[serde(default)]
+    supporting_artifact_ids: Vec<String>,
+    #[serde(default)]
+    checked_paths: Vec<String>,
 }
 
-/// Applies challenger verdicts to findings and returns how many were refuted.
+/// Applies challenger verdicts to findings and returns how many were suppressed.
 /// Unknown indices and verdict strings are ignored, so a malformed response
 /// degrades to "no adjudication" instead of corrupting findings.
 fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenger: &str) -> usize {
@@ -1986,9 +2981,16 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
             serde_json::from_str(&trimmed[start..=end])
         })
         .unwrap_or_default();
-    let mut refuted_count = 0usize;
+    let mut suppressed_count = 0usize;
     for verdict in result.verdicts {
-        let Some(finding) = findings.get_mut(verdict.index) else {
+        let finding = if verdict.finding_id.trim().is_empty() {
+            findings.get_mut(verdict.index)
+        } else {
+            findings
+                .iter_mut()
+                .find(|finding| finding.id == verdict.finding_id)
+        };
+        let Some(finding) = finding else {
             continue;
         };
         match verdict.verdict.as_str() {
@@ -1999,29 +3001,57 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
                 finding.validation_status = ValidationStatus::Challenged;
                 finding.report_status = ReportStatus::Suppressed;
                 finding.publishability = FindingPublishability::NotPublishable;
+                finding.challenge_status = ChallengeStatus::Refuted;
                 finding.confidence = REFUTED_CONFIDENCE;
-                refuted_count += 1;
+                suppressed_count += 1;
+            }
+            "insufficient" | "uncertain" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.validation_status = ValidationStatus::Challenged;
+                finding.report_status = ReportStatus::Suppressed;
+                finding.publishability = FindingPublishability::NotPublishable;
+                finding.challenge_status = ChallengeStatus::Insufficient;
+                suppressed_count += 1;
             }
             "confirmed" => {
+                if !finding.challenged_by.iter().any(|id| id == challenger) {
+                    finding.challenged_by.push(challenger.to_string());
+                }
+                finding.challenge_status = ChallengeStatus::Confirmed;
                 finding.confidence =
                     (finding.confidence + CONFIRMED_CONFIDENCE_BOOST).min(MAX_CONFIDENCE);
             }
             _ => {}
         }
+        let _ = (
+            &verdict.reason,
+            &verdict.supporting_artifact_ids,
+            &verdict.checked_paths,
+        );
     }
-    refuted_count
+    suppressed_count
+}
+
+fn mark_challenge_incomplete(findings: &mut [FindingV1]) {
+    for finding in findings {
+        if finding.challenge_status == ChallengeStatus::NotRun {
+            finding.challenge_status = ChallengeStatus::Incomplete;
+        }
+    }
 }
 
 fn finding_challenge_diagnostic(
     completed: bool,
     status: &str,
-    refuted_count: usize,
+    suppressed_count: usize,
 ) -> SessionCompletionDiagnostic {
     SessionCompletionDiagnostic {
         session_id: "finding-challenge".to_string(),
         completed,
         completion_kind: Some("structured_finding_challenge".to_string()),
-        completion_summary: Some(format!("{status} refutedFindings={refuted_count}")),
+        completion_summary: Some(format!("{status} suppressedFindings={suppressed_count}")),
         saw_diff: true,
         saw_file: false,
         saw_search: false,
@@ -2034,6 +3064,7 @@ fn final_synthesis_transcript(
     review_plan: &ReviewPlan,
     units: &[PlannedReviewUnit],
     contract_risk: &ContractRiskPlan,
+    contract_packs: &ContractPackPlan,
     file_reviews: &[FileReviewV1],
     diff: &str,
 ) -> Vec<ConversationItem> {
@@ -2076,21 +3107,84 @@ fn final_synthesis_transcript(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let packs = contract_pack_summary(contract_packs);
     vec![
         ConversationItem::System {
-            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, and endLine. Report only changed-file issues directly supported by the provided diff evidence.".to_string(),
+            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths. Report only changed-file issues directly supported by the provided diff evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the diff proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
         },
         ConversationItem::User {
             content: format!(
-                "Changed files:\n{}\n\nContract-risk units:\n{}\n\nUnit verdicts:\n{}\n\nDeterministic contract probe:\n{}\n\nDiff excerpt:\n{}\n\nReturn JSON now with keys summary and findings. Findings should anchor to changed lines and use terms from the changed code where possible.",
+                "Changed files:\n{}\n\nContract-risk units:\n{}\n\nContract investigation obligations:\n{}\n\nUnit verdicts:\n{}\n\nDeterministic contract probe:\n{}\n\nDiff excerpt:\n{}\n\nReturn JSON now with keys summary and findings. Audit each listed contract investigation independently and do not stop after the first supported issue. Findings should anchor to changed lines and use terms from the changed code where possible. For contract-related findings, include the old/new behavior comparison and evidence from each required side of the contract. Include multiple findings in the same file when they affect different changed ranges or different invariants.",
                 changed_files,
                 unit_risks,
+                packs,
                 verdicts,
                 contract_probe_pack(diff, 20_000),
                 diff_excerpt(diff, 120_000)
             ),
         },
     ]
+}
+
+fn contract_pack_summary_for_unit(unit: &PlannedReviewUnit, plan: &ContractPackPlan) -> String {
+    let packs = unit
+        .file_paths
+        .iter()
+        .flat_map(|path| plan.packs_for_path(path))
+        .collect::<Vec<_>>();
+    if packs.is_empty() {
+        return "none".to_string();
+    }
+    packs
+        .into_iter()
+        .map(|pack| {
+            format!(
+                "- {} kind={:?} primary={} related=[{}] seeds=[{}]\n  requiredEvidence=[{}]\n  questions=[{}]\n  publishability=[{}]\n  summary={}",
+                pack.id,
+                pack.kind,
+                pack.primary_path.display(),
+                pack.related_paths
+                    .iter()
+                    .map(RepoPath::display)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                pack.seed_queries.join(" | "),
+                pack.required_evidence.join(" | "),
+                pack.questions.join(" | "),
+                pack.publishability_criteria.join(" | "),
+                pack.summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn contract_pack_summary(plan: &ContractPackPlan) -> String {
+    if plan.packs.is_empty() {
+        return "none".to_string();
+    }
+    plan.packs
+        .iter()
+        .map(|pack| {
+            format!(
+                "- {} kind={:?} primary={} related=[{}] seeds=[{}]\n  requiredEvidence=[{}]\n  questions=[{}]\n  publishability=[{}]\n  summary={}",
+                pack.id,
+                pack.kind,
+                pack.primary_path.display(),
+                pack.related_paths
+                    .iter()
+                    .map(RepoPath::display)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                pack.seed_queries.join(" | "),
+                pack.required_evidence.join(" | "),
+                pack.questions.join(" | "),
+                pack.publishability_criteria.join(" | "),
+                pack.summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn contract_probe_pack(diff: &str, max_chars: usize) -> String {
@@ -2191,6 +3285,7 @@ fn synthesis_evidence_by_path(file_reviews: &[FileReviewV1]) -> BTreeMap<String,
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_synthesis_candidate_findings(
     scope: &SessionScope,
     review_plan: &ReviewPlan,
@@ -2198,23 +3293,8 @@ fn collect_synthesis_candidate_findings(
     candidates: Vec<StructuredFinding>,
     evidence_by_path: &BTreeMap<String, Vec<String>>,
     existing_candidates: &[CandidateFinding],
+    pack_clean_paths: &BTreeSet<String>,
 ) -> VerifiedSynthesisCandidates {
-    if review_plan.counts.full_files > 20 {
-        let rejected_count = candidates.len();
-        let mut rejection_reasons = BTreeMap::new();
-        if rejected_count > 0 {
-            rejection_reasons.insert(
-                "large_pr_synthesis_diagnostic_only".to_string(),
-                rejected_count,
-            );
-        }
-        return VerifiedSynthesisCandidates {
-            candidates: Vec::new(),
-            accepted_count: 0,
-            rejected_count,
-            rejection_reasons,
-        };
-    }
     let changed_paths = changed_paths(review_plan);
     let changed_ranges = changed_line_ranges_by_path(diff);
     let added_tokens = added_line_tokens_by_path(diff);
@@ -2230,19 +3310,25 @@ fn collect_synthesis_candidate_findings(
         let title = candidate.title.trim();
         let claim = candidate.claim.trim();
         let evidence_artifact_ids = evidence_by_path.get(&path).cloned().unwrap_or_default();
-        let rejection_reason = verify_synthesis_candidate(
-            &candidate,
-            parsed_path.as_ref(),
-            &path,
-            title,
-            claim,
-            &evidence_artifact_ids,
-            &changed_paths,
-            &changed_ranges,
-            &added_tokens,
-            evidence_by_path,
-            existing_candidates,
-        );
+        let rejection_reason = if pack_clean_paths.contains(&path) {
+            // The pack pass investigated this path with full file evidence and
+            // found nothing; a diff-only synthesis claim cannot outrank it.
+            Some("pack_investigation_clean".to_string())
+        } else {
+            verify_synthesis_candidate(
+                &candidate,
+                parsed_path.as_ref(),
+                &path,
+                title,
+                claim,
+                &evidence_artifact_ids,
+                &changed_paths,
+                &changed_ranges,
+                &added_tokens,
+                evidence_by_path,
+                existing_candidates,
+            )
+        };
         if let Some(reason) = rejection_reason {
             rejected_count += 1;
             *rejection_reasons.entry(reason).or_insert(0) += 1;
@@ -2254,8 +3340,12 @@ fn collect_synthesis_candidate_findings(
             title: title.to_string(),
             claim: claim.to_string(),
             path,
+            related_paths: candidate.related_paths.clone(),
             start_line: candidate.start_line,
             end_line: candidate.end_line,
+            behavior_before: candidate.behavior_before.trim().to_string(),
+            behavior_after: candidate.behavior_after.trim().to_string(),
+            predicate: candidate.predicate.trim().to_string(),
             evidence_artifact_ids,
             source_unit_assigned_path: true,
             rejection_reason: None,
@@ -2293,8 +3383,15 @@ fn verify_synthesis_candidate(
     if title.is_empty() || claim.is_empty() {
         return Some("empty_title_or_claim".to_string());
     }
-    if is_speculative_finding_text(&format!("{title} {claim}")) {
+    if is_speculative_finding(
+        &format!("{title} {claim}"),
+        &candidate.behavior_before,
+        &candidate.behavior_after,
+    ) {
         return Some("speculative_claim".to_string());
+    }
+    if is_non_finding_text(&format!("{title} {claim}")) {
+        return Some("non_finding_text".to_string());
     }
     let Some((start_line, end_line)) = candidate.start_line.zip(candidate.end_line) else {
         return Some("missing_line_range".to_string());
@@ -2310,7 +3407,10 @@ fn verify_synthesis_candidate(
     } else if !changed_ranges.is_empty() {
         return Some("path_has_no_changed_lines".to_string());
     }
-    let finding_text = format!("{title} {claim}");
+    let finding_text = format!(
+        "{title} {claim} {} {} {}",
+        candidate.behavior_before, candidate.behavior_after, candidate.predicate
+    );
     if let Some(tokens_by_line) = added_tokens.get(path) {
         let mentions_changed_token = tokens_by_line.iter().any(|(line, tokens)| {
             *line >= start_line
@@ -2339,7 +3439,14 @@ fn verify_synthesis_candidate(
         return Some("duplicate_existing_unit_candidate".to_string());
     }
     if is_cross_file_claim(&finding_text)
-        && !has_related_path_evidence(path, &finding_text, changed_paths, evidence_by_path)
+        && !candidate.related_paths.iter().any(|related| {
+            let related = related.trim();
+            related != path
+                && changed_paths.contains(related)
+                && evidence_by_path
+                    .get(related)
+                    .is_some_and(|evidence| !evidence.is_empty())
+        })
     {
         return Some("missing_related_file_evidence".to_string());
     }
@@ -2361,66 +3468,80 @@ fn candidate_ranges_overlap(
     ranges_overlap(left_start, left_end, right_start, right_end)
 }
 
+/// A claim is cross-file when it asserts an effect on the other side of a
+/// contract (callers/consumers), not merely when it mentions contract-flavored
+/// vocabulary about the anchored file itself.
 fn is_cross_file_claim(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     [
         "caller",
-        "callee",
-        "contract",
-        "return shape",
-        "return-shape",
-        "helper",
         "callers",
+        "callee",
+        "consumer",
+        "consumers",
         "cross-file",
-        "schema",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
 }
 
-fn is_speculative_finding_text(text: &str) -> bool {
+/// Claims about hypothetical future code are never publishable.
+fn is_hypothetical_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        " if later ",
+        "if a future",
+        "future change",
+        "could become",
+        "may become",
+        "hypothetical",
+        "speculative",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+/// Hedged wording is common in correct findings, so it only disqualifies a
+/// claim that also lacks a concrete before/after behavior comparison.
+fn is_hedged_finding_text(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     [
         " likely ",
-        " if this ",
-        " if the ",
-        " can break",
-        " may break",
-        " fragile",
-        " subtle ",
-        " depending on",
-        " meant to",
+        " may ",
+        " might ",
+        "potential",
+        "appears to",
         " probably",
-        " can incorrectly",
+        " fragile",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
 }
 
-fn has_related_path_evidence(
-    anchored_path: &str,
-    text: &str,
-    changed_paths: &BTreeSet<String>,
-    evidence_by_path: &BTreeMap<String, Vec<String>>,
-) -> bool {
-    changed_paths.iter().any(|path| {
-        path != anchored_path
-            && !evidence_by_path
-                .get(path)
-                .cloned()
-                .unwrap_or_default()
-                .is_empty()
-            && path_tokens(path)
-                .iter()
-                .any(|token| token.len() >= 4 && contains_token(text, token))
-    })
+fn is_speculative_finding(text: &str, behavior_before: &str, behavior_after: &str) -> bool {
+    if is_hypothetical_finding_text(text) {
+        return true;
+    }
+    is_hedged_finding_text(text)
+        && (behavior_before.trim().is_empty() || behavior_after.trim().is_empty())
 }
 
-fn path_tokens(path: &str) -> Vec<String> {
-    path.split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .map(str::to_ascii_lowercase)
-        .collect()
+/// A model sometimes wraps "no bug found" prose in finding shape; such text
+/// must never publish as a finding.
+fn is_non_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        "no additional",
+        "no actionable",
+        "no concrete",
+        "no supported bug",
+        "not a bug",
+        "does not show",
+        "no further issue",
+        "no issue",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn validate_file_reviews(
@@ -2460,12 +3581,20 @@ fn validate_file_reviews(
                 }
             }
             let summary = candidate.summary.trim();
-            let evidence_artifact_ids = evidence_tracker.evidence_for(&path.display());
+            let path_display = path.display();
+            let evidence_artifact_ids = evidence_tracker.evidence_for(&path_display);
             Some(FileReviewV1 {
-                path: path.display(),
+                path: path_display.clone(),
                 verdict: verdict.to_string(),
+                coverage: derive_review_coverage(
+                    verdict,
+                    &path_display,
+                    unit_risk,
+                    evidence_tracker,
+                ),
+                review_verdict: review_verdict_from_str(verdict),
                 summary: if summary.is_empty() {
-                    format!("Reviewed {} with verdict {verdict}.", path.display())
+                    format!("Reviewed {path_display} with verdict {verdict}.")
                 } else {
                     summary.to_string()
                 },
@@ -2501,6 +3630,38 @@ fn is_clean_verdict(verdict: &str) -> bool {
     )
 }
 
+fn review_verdict_from_str(verdict: &str) -> ReviewVerdict {
+    match verdict.trim().to_ascii_lowercase().as_str() {
+        "issue_found" | "issue" | "bug" | "finding" => ReviewVerdict::IssueFound,
+        "needs_review" | "needs review" | "insufficient" | "partial" => ReviewVerdict::NeedsReview,
+        _ => ReviewVerdict::Clean,
+    }
+}
+
+fn derive_review_coverage(
+    verdict: &str,
+    path: &str,
+    unit_risk: &ContractUnitRisk,
+    evidence_tracker: &FileEvidenceTracker,
+) -> ReviewCoverage {
+    if review_verdict_from_str(verdict) == ReviewVerdict::NeedsReview {
+        return ReviewCoverage::Insufficient;
+    }
+    let has_file = evidence_tracker.has_file_evidence(path);
+    let has_contract = !unit_risk.high_risk || evidence_tracker.has_contract_evidence(unit_risk);
+    if has_file && has_contract {
+        if unit_risk.high_risk {
+            ReviewCoverage::Full
+        } else {
+            ReviewCoverage::Standard
+        }
+    } else if has_file {
+        ReviewCoverage::Sampled
+    } else {
+        ReviewCoverage::Insufficient
+    }
+}
+
 fn missing_evidence_instruction(
     unit_risk: &ContractUnitRisk,
     obligations: &[ReviewEvidenceObligation],
@@ -2512,12 +3673,12 @@ fn missing_evidence_instruction(
         .join(", ");
     if unit_risk.high_risk {
         format!(
-            "Do not return clean verdicts yet. Missing required evidence: {missing}. Gather assigned file evidence and contract evidence with search_text, list_imports, or find_related_files. Suggested seed queries: {}.",
+            "Do not return clean verdicts yet. Missing required evidence: {missing}. Evidence for unread assigned files has been loaded above when available; gather remaining contract evidence with search_text, list_imports, or find_related_files. Suggested seed queries: {}.",
             unit_risk.suggested_queries.join(" | ")
         )
     } else {
         format!(
-            "Do not return clean verdicts yet. Missing required assigned-file evidence: {missing}. Read the assigned file or a relevant range, then return final JSON."
+            "Do not return clean verdicts yet. Missing required assigned-file evidence: {missing}. The unread assigned files have been loaded above when available; re-evaluate them, then return final JSON."
         )
     }
 }
@@ -2547,6 +3708,8 @@ fn append_needs_review_for_missing(
         file_reviews.push(FileReviewV1 {
             path: path.clone(),
             verdict: "needs_review".to_string(),
+            coverage: ReviewCoverage::Insufficient,
+            review_verdict: ReviewVerdict::NeedsReview,
             summary: if unit_risk.high_risk {
                 format!(
                     "Required cross-file contract evidence was not gathered before budget exhaustion. Risk reasons: {}.",
@@ -2594,6 +3757,15 @@ fn collect_candidate_findings(
                 rejection_reason = Some("missing_line_range".to_string());
             } else if evidence_tracker.evidence_for(&path).is_empty() {
                 rejection_reason = Some("missing_artifact_evidence".to_string());
+            } else if is_cross_file_claim(&format!("{title} {claim}"))
+                && !candidate.related_paths.iter().any(|related| {
+                    let related = related.trim();
+                    related != path
+                        && changed_paths.contains(related)
+                        && evidence_tracker.has_file_evidence(related)
+                })
+            {
+                rejection_reason = Some("missing_related_file_evidence".to_string());
             }
             CandidateFinding {
                 source_unit_id: unit.id.clone(),
@@ -2601,8 +3773,12 @@ fn collect_candidate_findings(
                 title: title.to_string(),
                 claim: claim.to_string(),
                 path: path.clone(),
+                related_paths: candidate.related_paths,
                 start_line: candidate.start_line,
                 end_line: candidate.end_line,
+                behavior_before: candidate.behavior_before.trim().to_string(),
+                behavior_after: candidate.behavior_after.trim().to_string(),
+                predicate: candidate.predicate.trim().to_string(),
                 evidence_artifact_ids: evidence_tracker.evidence_for(&path),
                 source_unit_assigned_path: parsed_path
                     .as_ref()
@@ -2710,8 +3886,39 @@ fn validate_candidate_finding(
     if title.is_empty() || claim.is_empty() {
         return Err("empty_title_or_claim".to_string());
     }
-    if is_speculative_finding_text(&format!("{title} {claim}")) {
+    if is_speculative_finding(
+        &format!("{title} {claim}"),
+        &candidate.behavior_before,
+        &candidate.behavior_after,
+    ) {
         return Err("speculative_claim".to_string());
+    }
+    if is_non_finding_text(&format!("{title} {claim}")) {
+        return Err("non_finding_text".to_string());
+    }
+    let finding_text = format!(
+        "{title} {claim} {} {} {}",
+        candidate.behavior_before, candidate.behavior_after, candidate.predicate
+    );
+    if is_contract_sensitive_finding_text(&finding_text)
+        && (candidate.behavior_before.is_empty() || candidate.behavior_after.is_empty())
+    {
+        return Err("contract_missing_behavior_comparison".to_string());
+    }
+    if is_query_or_filter_scope_finding_text(&finding_text) {
+        let predicate_names_changed_token =
+            added_tokens
+                .get(&candidate.path)
+                .is_some_and(|tokens_by_line| {
+                    tokens_by_line.iter().any(|(_, tokens)| {
+                        tokens
+                            .iter()
+                            .any(|token| contains_token(&candidate.predicate, token))
+                    })
+                });
+        if candidate.predicate.is_empty() || !predicate_names_changed_token {
+            return Err("query_scope_missing_predicate".to_string());
+        }
     }
     let mut line_range = candidate
         .start_line
@@ -2725,7 +3932,6 @@ fn validate_candidate_finding(
     if ranges.is_none() && !changed_ranges.is_empty() {
         return Err("path_has_no_changed_lines".to_string());
     }
-    let finding_text = format!("{title} {claim}");
     if let Some(tokens_by_line) = added_tokens.get(&candidate.path) {
         if !tokens_by_line.iter().any(|(line, tokens)| {
             *line >= line_range.start_line
@@ -2764,6 +3970,23 @@ fn validate_candidate_finding(
     let location = EvidenceLocationV1::SinglePath {
         path: candidate.path.clone(),
     };
+    let mut file_refs = vec![location];
+    for related_path in &candidate.related_paths {
+        let normalized = related_path.trim();
+        if normalized.is_empty()
+            || normalized == candidate.path
+            || !changed_paths.contains(normalized)
+            || file_refs.iter().any(|location| match location {
+                EvidenceLocationV1::SinglePath { path } => path == normalized,
+                EvidenceLocationV1::Rename { new_path, .. } => new_path == normalized,
+            })
+        {
+            continue;
+        }
+        file_refs.push(EvidenceLocationV1::SinglePath {
+            path: normalized.to_string(),
+        });
+    }
     Ok(FindingV1 {
         id: stable_id(&[&candidate.source_session_id, title, claim, &candidate.path]),
         title: title.to_string(),
@@ -2773,12 +3996,51 @@ fn validate_candidate_finding(
         validation_status: ValidationStatus::Validated,
         report_status: ReportStatus::Included,
         publishability: FindingPublishability::Publishable,
+        challenge_status: ChallengeStatus::NotRun,
         evidence,
-        file_refs: vec![location],
+        file_refs,
         location_line_range: Some(line_range),
         discovered_by: vec![candidate.source_session_id],
         challenged_by: Vec::new(),
     })
+}
+
+fn is_contract_sensitive_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        "contract",
+        "return",
+        "shape",
+        "caller",
+        "callee",
+        "owner",
+        "ownership",
+        "credential",
+        "query",
+        "filter",
+        "scope",
+        "date",
+        "time",
+        "boundary",
+        "timezone",
+        "equality",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn is_query_or_filter_scope_finding_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        "query",
+        "filter",
+        "deletemany",
+        "updatemany",
+        "findmany",
+        "cleanup",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn evidence_refs_for_candidate(
@@ -2851,8 +4113,10 @@ fn should_merge_findings(existing: &FindingV1, duplicate: &FindingV1) -> bool {
     ) {
         return false;
     }
-    let left_tokens = normalized_token_set(&format!("{} {}", existing.title, existing.claim));
-    let right_tokens = normalized_token_set(&format!("{} {}", duplicate.title, duplicate.claim));
+    let left_text = format!("{} {}", existing.title, existing.claim);
+    let right_text = format!("{} {}", duplicate.title, duplicate.claim);
+    let left_tokens = normalized_token_set(&left_text);
+    let right_tokens = normalized_token_set(&right_text);
     if left_tokens.is_empty() || right_tokens.is_empty() {
         return false;
     }
@@ -2949,6 +4213,10 @@ fn reconcile_file_reviews_with_findings(file_reviews: &mut [FileReviewV1], findi
         };
         if let Some(review) = file_reviews.iter_mut().find(|review| review.path == *path) {
             review.verdict = "issue_found".to_string();
+            review.review_verdict = ReviewVerdict::IssueFound;
+            if review.coverage == ReviewCoverage::Insufficient {
+                review.coverage = ReviewCoverage::Standard;
+            }
             if !review.summary.contains(&finding.title) {
                 review.summary = format!("{} Finding: {}", review.summary, finding.title);
             }
@@ -3211,6 +4479,153 @@ fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
     failures
 }
 
+#[allow(clippy::too_many_arguments)]
+fn planned_review_audit_diagnostics(
+    review_plan: &ReviewPlan,
+    contract_risk: &ContractRiskPlan,
+    contract_packs: &ContractPackPlan,
+    file_reviews: &[FileReviewV1],
+    findings: &[FindingV1],
+    session_templates: &[SessionScope],
+    sessions_run: usize,
+    candidate_findings: usize,
+    rescued_candidates: usize,
+    rejected_candidates: usize,
+    rejection_reasons: BTreeMap<String, usize>,
+) -> ReviewQualityDiagnostics {
+    let mut coverage_counts = BTreeMap::new();
+    let mut coverage_counts_by_lens = BTreeMap::<String, BTreeMap<String, usize>>::new();
+    let mut high_risk_files_below_target = Vec::new();
+    for review in file_reviews {
+        let coverage = coverage_key(review.coverage);
+        *coverage_counts.entry(coverage.clone()).or_insert(0) += 1;
+        let lens = review
+            .session_id
+            .split('#')
+            .nth(1)
+            .unwrap_or("primary")
+            .to_string();
+        *coverage_counts_by_lens
+            .entry(lens)
+            .or_default()
+            .entry(coverage)
+            .or_insert(0) += 1;
+        if matches!(
+            review.coverage,
+            ReviewCoverage::Sampled | ReviewCoverage::Insufficient
+        ) && review_plan
+            .files
+            .iter()
+            .any(|file| file.path.display() == review.path && file.score >= LENS_FANOUT_MIN_SCORE)
+        {
+            high_risk_files_below_target.push(review.path.clone());
+        }
+    }
+    let mut challenge_status_counts = BTreeMap::new();
+    for finding in findings {
+        *challenge_status_counts
+            .entry(challenge_key(finding.challenge_status).to_string())
+            .or_insert(0) += 1;
+    }
+    let mut budgets_used = BTreeMap::new();
+    for template in session_templates {
+        *budgets_used
+            .entry(budget_source_key(template.budget.budget_source).to_string())
+            .or_insert(0) += 1;
+    }
+    ReviewQualityDiagnostics {
+        contract_risk_units: contract_risk.risky_unit_count(),
+        contract_seed_count: contract_risk.seed_count(),
+        contract_pack_count: contract_packs.pack_count(),
+        omitted_contract_pack_candidates: contract_packs
+            .omitted_candidates
+            .iter()
+            .map(|candidate| {
+                format!(
+                    "{} kind={:?} score={} paths=[{}] reason={}",
+                    candidate.id,
+                    candidate.kind,
+                    candidate.score,
+                    candidate
+                        .affected_paths
+                        .iter()
+                        .map(RepoPath::display)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    candidate.omission_reason
+                )
+            })
+            .collect(),
+        selected_contract_packs: contract_packs
+            .packs
+            .iter()
+            .map(|pack| {
+                format!(
+                    "{} kind={:?} score={} primary={}",
+                    pack.id,
+                    pack.kind,
+                    pack.score,
+                    pack.primary_path.display()
+                )
+            })
+            .collect(),
+        contract_evidence_failures: file_reviews
+            .iter()
+            .filter(|review| {
+                review.verdict == "needs_review"
+                    && review
+                        .summary
+                        .contains("Required cross-file contract evidence")
+            })
+            .count(),
+        coverage_counts,
+        coverage_counts_by_lens,
+        high_risk_files_below_target,
+        challenge_status_counts,
+        sessions_run,
+        budgets_used,
+        explicit_caller_cap_sessions: session_templates
+            .iter()
+            .filter(|template| {
+                template.budget.budget_source == crate::contracts::BudgetSource::CallerHardCap
+            })
+            .count(),
+        candidate_findings,
+        rescued_candidates,
+        rejected_candidates,
+        rejection_reasons,
+    }
+}
+
+fn coverage_key(coverage: ReviewCoverage) -> String {
+    match coverage {
+        ReviewCoverage::Full => "full",
+        ReviewCoverage::Standard => "standard",
+        ReviewCoverage::Sampled => "sampled",
+        ReviewCoverage::Insufficient => "insufficient",
+    }
+    .to_string()
+}
+
+fn challenge_key(status: ChallengeStatus) -> &'static str {
+    match status {
+        ChallengeStatus::Confirmed => "confirmed",
+        ChallengeStatus::Refuted => "refuted",
+        ChallengeStatus::Insufficient => "insufficient",
+        ChallengeStatus::NotRun => "not_run",
+        ChallengeStatus::Incomplete => "incomplete",
+    }
+}
+
+fn budget_source_key(source: crate::contracts::BudgetSource) -> &'static str {
+    match source {
+        crate::contracts::BudgetSource::CallerHardCap => "caller_hard_cap",
+        crate::contracts::BudgetSource::PlannedDefault => "planned_default",
+        crate::contracts::BudgetSource::AdaptiveReview => "adaptive_review",
+        crate::contracts::BudgetSource::RunReserve => "run_reserve",
+    }
+}
+
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
 }
@@ -3246,6 +4661,8 @@ mod tests {
         AssertFinalTurnHasNoTools,
         FinalSynthesisFinding,
         ChallengeRefutesFinding,
+        PackConsumerFinding,
+        CleanBeforeEvidence,
     }
 
     #[async_trait]
@@ -3257,6 +4674,41 @@ mod tests {
             turn_id: TurnId,
             _cancel: CancellationToken,
         ) -> RuntimeResult<ModelTurn> {
+            if scope.id.0.starts_with("pack-") {
+                let content = match self.mode {
+                    TestModelMode::PackConsumerFinding => json!({
+                        "summary": "the refresh helper now returns a raw response and the consumer reads token fields",
+                        "questionAnswers": [
+                            {"question": "What concrete value shape does `refreshOAuthTokens` return after this change?", "answer": "It returns the raw response object instead of parsed token fields."},
+                            {"question": "What value shape do changed callers expect at the use site?", "answer": "The consumer reads credential.access_token from the result."},
+                            {"question": "Does the old/new behavior comparison show a caller-visible contract break?", "answer": "Yes, access_token is undefined on the raw response."}
+                        ],
+                        "relatedPathVerdicts": [
+                            {"path": "packages/app-store/googlecalendar/lib/CalendarService.ts", "affected": true, "reason": "It reads credential.access_token which the raw response does not expose."}
+                        ],
+                        "findings": [{
+                            "title": "Calendar consumer reads token fields from the raw refresh response",
+                            "claim": "The changed consumer call now receives a raw response from refreshOAuthTokens, so credential.access_token is undefined.",
+                            "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                            "relatedPaths": ["packages/app-store/_utils/oauth/refreshOAuthTokens.ts"],
+                            "startLine": 1,
+                            "endLine": 2,
+                            "behaviorBefore": "refreshOAuthTokens returned parsed token fields including access_token",
+                            "behaviorAfter": "refreshOAuthTokens returns the raw response without access_token"
+                        }]
+                    }),
+                    _ => json!({
+                        "summary": "pack investigation clean",
+                        "questionAnswers": [],
+                        "relatedPathVerdicts": [],
+                        "findings": []
+                    }),
+                };
+                return Ok(ModelTurn::Text {
+                    content: content.to_string(),
+                    usage: TokenUsage::default(),
+                });
+            }
             if scope.id.0 == "final-synthesis" {
                 let content = match self.mode {
                     TestModelMode::FinalSynthesisFinding => json!({
@@ -3266,7 +4718,9 @@ mod tests {
                             "claim": "The changed render_widget branch returns unsafe_widget_state.",
                             "path": "src/widget.rs",
                             "startLine": 1,
-                            "endLine": 1
+                            "endLine": 1,
+                            "behaviorBefore": "render_widget returned a safe value",
+                            "behaviorAfter": "render_widget returns unsafe_widget_state"
                         }]
                     }),
                     _ => json!({
@@ -3297,6 +4751,28 @@ mod tests {
                 });
             }
             match self.mode {
+                TestModelMode::PackConsumerFinding => {
+                    return Ok(ModelTurn::Text {
+                        content: json!({
+                            "summary": "unit defers contract investigation to the pack pass",
+                            "fileVerdicts": [],
+                            "findings": []
+                        })
+                        .to_string(),
+                        usage: TokenUsage::default(),
+                    });
+                }
+                TestModelMode::CleanBeforeEvidence => {
+                    return Ok(ModelTurn::Text {
+                        content: json!({
+                            "summary": "clean without having read the file",
+                            "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
+                            "findings": []
+                        })
+                        .to_string(),
+                        usage: TokenUsage::default(),
+                    });
+                }
                 TestModelMode::BootstrapClean => {
                     return Ok(ModelTurn::Text {
                         content: json!({
@@ -3461,7 +4937,9 @@ mod tests {
                     TestModelMode::BootstrapClean
                     | TestModelMode::NeedsFiveTurns
                     | TestModelMode::AssertFinalTurnHasNoTools
-                    | TestModelMode::FinalSynthesisFinding => {}
+                    | TestModelMode::FinalSynthesisFinding
+                    | TestModelMode::PackConsumerFinding
+                    | TestModelMode::CleanBeforeEvidence => {}
                 }
                 return Ok(ModelTurn::ToolCalls {
                     calls,
@@ -3496,7 +4974,9 @@ mod tests {
                         "claim": "The changed refresh_token assignment can drop the refresh_token returned by the external callback.",
                         "path": "apps/api/credential-token.ts",
                         "startLine": 1,
-                        "endLine": 1
+                        "endLine": 1,
+                        "behaviorBefore": "the stored refresh_token kept the provider value",
+                        "behaviorAfter": "the changed refresh_token assignment stores an empty value"
                     }]
                 }),
                 TestModelMode::OutOfUnitFinding => json!({
@@ -3545,7 +5025,9 @@ mod tests {
                 TestModelMode::BootstrapClean
                 | TestModelMode::NeedsFiveTurns
                 | TestModelMode::AssertFinalTurnHasNoTools
-                | TestModelMode::FinalSynthesisFinding => json!({
+                | TestModelMode::FinalSynthesisFinding
+                | TestModelMode::PackConsumerFinding
+                | TestModelMode::CleanBeforeEvidence => json!({
                     "summary": "fallback clean",
                     "fileVerdicts": [{"path": "src/widget.rs", "verdict": "clean"}],
                     "findings": []
@@ -3574,7 +5056,7 @@ mod tests {
         assert_eq!(report.metrics.runtime, "planned_units");
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.metrics.model_calls, 4);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -3738,7 +5220,7 @@ mod tests {
                 && diagnostic
                     .completion_summary
                     .as_deref()
-                    .is_some_and(|summary| summary.contains("refutedFindings=1"))));
+                    .is_some_and(|summary| summary.contains("suppressedFindings=1"))));
     }
 
     #[tokio::test]
@@ -3752,7 +5234,8 @@ mod tests {
 
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
-        assert!(finding.challenged_by.is_empty());
+        assert_eq!(finding.challenged_by, vec!["finding-challenge".to_string()]);
+        assert_eq!(finding.challenge_status, ChallengeStatus::Confirmed);
         assert!(matches!(
             finding.publishability,
             FindingPublishability::Publishable
@@ -3780,6 +5263,78 @@ mod tests {
         assert!(agreement_confidence(50) <= AGREEMENT_CONFIDENCE_CEILING);
     }
 
+    #[tokio::test]
+    async fn contract_pack_pass_publishes_consumer_finding_with_answered_questions() {
+        let report = run_test_review_with_quality_budget(
+            vec![
+                (
+                    "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+                    "export async function refreshOAuthTokens() {\n  return response;\n}\n",
+                ),
+                (
+                    "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                    "const credential = await refreshOAuthTokens();\nconst token = credential.access_token;\n",
+                ),
+            ],
+            TestModelMode::PackConsumerFinding,
+            expanded_review_budget(),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].title,
+            "Calendar consumer reads token fields from the raw refresh response"
+        );
+        let EvidenceLocationV1::SinglePath { path } = &report.findings[0].file_refs[0] else {
+            panic!("single path finding");
+        };
+        assert_eq!(
+            path,
+            "packages/app-store/googlecalendar/lib/CalendarService.ts"
+        );
+        assert!(report.findings[0].file_refs.iter().any(|location| {
+            matches!(
+                location,
+                EvidenceLocationV1::SinglePath { path }
+                    if path == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+            )
+        }));
+        let pack_diagnostic = report
+            .metrics
+            .completion_diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.session_id.starts_with("pack-"))
+            .expect("pack diagnostic");
+        assert!(pack_diagnostic.completed);
+        assert!(pack_diagnostic
+            .completion_summary
+            .as_deref()
+            .unwrap_or_default()
+            .contains("questionsAnswered=3/3"));
+    }
+
+    #[tokio::test]
+    async fn remediation_loads_missing_file_evidence_instead_of_needs_review() {
+        let report = run_test_review_with_budget(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::CleanBeforeEvidence,
+            AgentBudget {
+                max_turns: 3,
+                max_tool_calls: 5,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
+            },
+        )
+        .await;
+
+        assert_eq!(report.file_reviews.len(), 1);
+        assert_eq!(report.file_reviews[0].path, "src/widget.rs");
+        assert_eq!(report.file_reviews[0].verdict, "clean");
+        assert!(report.metrics.tool_counts.read_head_file > 0);
+    }
+
     #[test]
     fn contract_risk_classifier_flags_repeated_callback_batch_and_seeds() {
         let snapshot = build_test_snapshot(vec![
@@ -3797,7 +5352,9 @@ mod tests {
             ),
         ]);
         let review_plan = build_review_plan(&snapshot);
-        let risk_plan = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let risk_plan =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
 
         assert!(risk_plan.risky_unit_count() > 0);
         assert!(risk_plan.seed_count() > 0);
@@ -3824,12 +5381,19 @@ mod tests {
 
     #[tokio::test]
     async fn high_risk_clean_requires_contract_evidence() {
-        let report = run_test_review(
+        let report = run_test_review_with_budget(
             vec![(
                 "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithoutContractEvidence,
+            AgentBudget {
+                max_turns: 2,
+                max_tool_calls: 0,
+                max_prompt_tokens: 64_000,
+                max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
+            },
         )
         .await;
 
@@ -3889,12 +5453,13 @@ mod tests {
                 max_tool_calls: 16,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 5);
+        assert_eq!(report.metrics.model_calls, 6);
         assert_eq!(report.file_reviews[0].verdict, "clean");
     }
 
@@ -3908,12 +5473,13 @@ mod tests {
                 max_tool_calls: 0,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::CallerHardCap,
             },
         )
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 1);
+        assert_eq!(report.metrics.model_calls, 2);
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
     }
 
@@ -3928,6 +5494,8 @@ mod tests {
         let calls = deterministic_bootstrap_calls(
             &review_plan,
             unit_plan.units.first().expect("unit"),
+            &NO_CONTRACT_RISK,
+            &ContractPackPlan::empty(),
             snapshot.diff.content.as_str(),
             1,
             8,
@@ -3952,6 +5520,8 @@ mod tests {
         let plan = deterministic_bootstrap_calls(
             &review_plan,
             unit_plan.units.first().expect("unit"),
+            &NO_CONTRACT_RISK,
+            &ContractPackPlan::empty(),
             snapshot.diff.content.as_str(),
             64 * 1024,
             6,
@@ -3960,6 +5530,82 @@ mod tests {
         assert_eq!(plan.calls.len(), 2);
         assert_eq!(plan.calls[0].name, ToolId::from(ToolName::ReadDiff));
         assert_eq!(plan.skipped_paths.len(), 2);
+    }
+
+    #[test]
+    fn deterministic_bootstrap_adds_contract_seed_searches_for_high_risk_units() {
+        let snapshot = build_test_snapshot(vec![(
+            "apps/api/callback.ts",
+            "export function callback() { return { credential_token: true }; }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let risk_plan =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
+        let unit = unit_plan.units.first().expect("unit");
+        let plan = deterministic_bootstrap_calls(
+            &review_plan,
+            unit,
+            risk_plan.unit_risk(unit),
+            &ContractPackPlan::empty(),
+            snapshot.diff.content.as_str(),
+            64 * 1024,
+            8,
+        );
+
+        assert!(plan
+            .calls
+            .iter()
+            .any(|call| call.name == ToolId::from(ToolName::SearchText)));
+    }
+
+    #[test]
+    fn deterministic_bootstrap_prioritizes_contract_pack_paths() {
+        let snapshot = build_test_snapshot(vec![
+            (
+                "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+                "const refreshOAuthTokens = async () => { return response; }\nexport default refreshOAuthTokens;\n",
+            ),
+            (
+                "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                "import refreshOAuthTokens from '../../_utils/oauth/refreshOAuthTokens';\nconst res = await refreshOAuthTokens();\n",
+            ),
+            ("src/low.rs", "pub fn low() -> bool { true }\n"),
+        ]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let pack_plan = build_contract_pack_plan(
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            &BTreeMap::new(),
+        );
+        let unit = unit_plan
+            .units
+            .iter()
+            .find(|unit| {
+                unit.file_paths.iter().any(|path| {
+                    path.display() == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+                })
+            })
+            .expect("unit");
+        let plan = deterministic_bootstrap_calls(
+            &review_plan,
+            unit,
+            &NO_CONTRACT_RISK,
+            &pack_plan,
+            snapshot.diff.content.as_str(),
+            64 * 1024,
+            8,
+        );
+        let call_args = plan
+            .calls
+            .iter()
+            .map(|call| call.raw_arguments.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(call_args.contains("refreshOAuthTokens.ts"));
+        assert!(call_args.contains("googlecalendar/lib/CalendarService.ts"));
     }
 
     #[test]
@@ -3976,8 +5622,12 @@ mod tests {
             title: "Helper return shape breaks caller".to_string(),
             claim: "The changed helper return shape breaks the caller contract.".to_string(),
             path: "src/helper.rs".to_string(),
+            related_paths: Vec::new(),
             start_line: Some(1),
             end_line: Some(1),
+            behavior_before: "helper returned a parsed value".to_string(),
+            behavior_after: "helper returns unsafe_widget_state".to_string(),
+            predicate: String::new(),
         };
         let mut evidence_by_path = BTreeMap::new();
         evidence_by_path.insert("src/helper.rs".to_string(), vec!["art-helper".to_string()]);
@@ -3988,6 +5638,7 @@ mod tests {
             vec![candidate],
             &evidence_by_path,
             &[],
+            &BTreeSet::new(),
         );
 
         assert!(verified.candidates.is_empty());
@@ -4000,7 +5651,7 @@ mod tests {
     }
 
     #[test]
-    fn synthesis_verifier_keeps_large_pr_synthesis_diagnostic_only() {
+    fn synthesis_verifier_accepts_valid_candidates_on_large_prs() {
         let files = (0..21)
             .map(|index| {
                 let path = format!("src/file_{index}.rs");
@@ -4014,8 +5665,12 @@ mod tests {
             title: "Widget synthesis exposes unsafe state".to_string(),
             claim: "The changed file_0 branch returns unsafe_widget_state.".to_string(),
             path: "src/file_0.rs".to_string(),
+            related_paths: Vec::new(),
             start_line: Some(1),
             end_line: Some(1),
+            behavior_before: "file_0 returned a safe value".to_string(),
+            behavior_after: "file_0 returns unsafe_widget_state".to_string(),
+            predicate: String::new(),
         };
         let mut evidence_by_path = BTreeMap::new();
         evidence_by_path.insert("src/file_0.rs".to_string(), vec!["art-file-0".to_string()]);
@@ -4026,15 +5681,149 @@ mod tests {
             vec![candidate],
             &evidence_by_path,
             &[],
+            &BTreeSet::new(),
         );
 
-        assert!(verified.candidates.is_empty());
+        assert_eq!(verified.candidates.len(), 1);
+        assert!(verified.rejection_reasons.is_empty());
+    }
+
+    #[test]
+    fn synthesis_rejects_contract_claim_without_behavior_comparison() {
+        let snapshot = build_test_snapshot(vec![(
+            "src/helper.rs",
+            "pub fn helper() -> bool { return true }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let artifacts = ConcurrentArtifactStore::default();
+        let artifact = artifacts.insert(
+            ArtifactKey("helper".to_string()),
+            "read_file src/helper.rs return true".to_string(),
+        );
+        let candidate = CandidateFinding {
+            source_unit_id: "unit-001".to_string(),
+            source_session_id: "unit-001".to_string(),
+            title: "Helper return contract is wrong".to_string(),
+            claim: "The helper return contract is wrong for callers.".to_string(),
+            path: "src/helper.rs".to_string(),
+            related_paths: Vec::new(),
+            start_line: Some(1),
+            end_line: Some(1),
+            behavior_before: String::new(),
+            behavior_after: String::new(),
+            predicate: String::new(),
+            evidence_artifact_ids: vec![artifact.0],
+            source_unit_assigned_path: true,
+            rejection_reason: None,
+        };
+
+        let synthesis = synthesize_findings(
+            &review_plan,
+            &[],
+            &ContractRiskPlan::default(),
+            snapshot.diff.content.as_str(),
+            vec![candidate],
+            &artifacts,
+            "head",
+        );
+
+        assert!(synthesis.findings.is_empty());
         assert_eq!(
-            verified
+            synthesis
                 .rejection_reasons
-                .get("large_pr_synthesis_diagnostic_only"),
+                .get("contract_missing_behavior_comparison"),
             Some(&1)
         );
+    }
+
+    #[test]
+    fn synthesis_accepts_query_scope_claim_with_changed_predicate() {
+        let snapshot = build_test_snapshot(vec![(
+            "src/workflow.rs",
+            "pub fn cleanup() { deleteMany(where: { OR: [method, retryCount] }) }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let artifacts = ConcurrentArtifactStore::default();
+        let artifact = artifacts.insert(
+            ArtifactKey("workflow".to_string()),
+            "read_file src/workflow.rs deleteMany OR method retryCount".to_string(),
+        );
+        let candidate = CandidateFinding {
+            source_unit_id: "unit-001".to_string(),
+            source_session_id: "unit-001".to_string(),
+            title: "Changed cleanup query broadens the method scope".to_string(),
+            claim: "The changed deleteMany where predicate now puts retryCount in a standalone OR branch, so cleanup can remove rows outside the method scope.".to_string(),
+            path: "src/workflow.rs".to_string(),
+            related_paths: Vec::new(),
+            start_line: Some(1),
+            end_line: Some(1),
+            behavior_before: "cleanup deleted only rows matched by the method predicate"
+                .to_string(),
+            behavior_after: "cleanup deletes every row with retryCount > 1 via the OR branch"
+                .to_string(),
+            predicate: "OR: [method, retryCount]".to_string(),
+            evidence_artifact_ids: vec![artifact.0],
+            source_unit_assigned_path: true,
+            rejection_reason: None,
+        };
+
+        let synthesis = synthesize_findings(
+            &review_plan,
+            &[],
+            &ContractRiskPlan::default(),
+            snapshot.diff.content.as_str(),
+            vec![candidate],
+            &artifacts,
+            "head",
+        );
+
+        assert_eq!(synthesis.findings.len(), 1);
+    }
+
+    #[test]
+    fn contract_pack_prompt_lists_investigation_obligations() {
+        let snapshot = build_test_snapshot(vec![
+            (
+                "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+                "export async function refreshOAuthTokens() {\n  return response;\n}\n",
+            ),
+            (
+                "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                "const credential = await refreshOAuthTokens();\n",
+            ),
+        ]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let pack_plan = build_contract_pack_plan(
+            &review_plan,
+            snapshot.diff.content.as_str(),
+            &BTreeMap::new(),
+        );
+        let unit = unit_plan
+            .units
+            .iter()
+            .find(|unit| {
+                unit.file_paths.iter().any(|path| {
+                    path.display() == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
+                })
+            })
+            .expect("unit");
+        let transcript =
+            planned_unit_transcript(&review_plan, unit, &NO_CONTRACT_RISK, None, &pack_plan);
+        let prompt = transcript
+            .iter()
+            .filter_map(|item| match item {
+                ConversationItem::User { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(prompt.contains("Contract investigation obligations"));
+        assert!(prompt.contains("requiredEvidence="));
+        assert!(prompt.contains("questions="));
+        assert!(prompt.contains("publishability="));
+        assert!(prompt.contains("What concrete value shape"));
     }
 
     #[test]
@@ -4079,7 +5868,7 @@ mod tests {
             files,
             mode,
             budget,
-            "Review this production-materialized pull request for actionable correctness bugs.",
+            "Review this pull request for actionable correctness bugs.",
         )
         .await
     }
@@ -4109,6 +5898,7 @@ mod tests {
             max_tool_calls: 16,
             max_prompt_tokens: 64_000,
             max_output_tokens: 8_000,
+            budget_source: crate::contracts::BudgetSource::PlannedDefault,
         }
     }
 
@@ -4135,6 +5925,7 @@ mod tests {
             validation_status: ValidationStatus::Validated,
             report_status: ReportStatus::Included,
             publishability: FindingPublishability::Publishable,
+            challenge_status: ChallengeStatus::NotRun,
             evidence: Vec::new(),
             file_refs: vec![EvidenceLocationV1::SinglePath {
                 path: path.to_string(),
@@ -4166,7 +5957,7 @@ mod tests {
             policy: Arc::new(ReviewerPolicy::new()),
             limits,
             review_revision_id: "head".to_string(),
-            events: RuntimeEventDispatcher::new(None, None),
+            events: RuntimeEventDispatcher::new(None),
             session_templates,
             active_sessions,
         });
@@ -4268,7 +6059,7 @@ mod tests {
             policy: Arc::new(ReviewerPolicy::new()),
             limits,
             review_revision_id: "head".to_string(),
-            events: RuntimeEventDispatcher::new(None, None),
+            events: RuntimeEventDispatcher::new(None),
             session_templates: Vec::new(),
             active_sessions,
         });
@@ -4306,6 +6097,7 @@ mod tests {
                 max_tool_calls: 8,
                 max_prompt_tokens: 64_000,
                 max_output_tokens: 8_000,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
             },
         }
     }
@@ -4339,44 +6131,6 @@ mod tests {
     }
 
     #[test]
-    fn quality_pass_mode_overrides_legacy_phrase_heuristic() {
-        let plain = test_scope("plain");
-        let mut magic = test_scope("magic");
-        magic.objective =
-            "Review this production-materialized pull request for actionable correctness bugs."
-                .to_string();
-
-        assert!(!should_run_review_quality_enhancements(
-            QualityPassMode::Auto,
-            std::slice::from_ref(&plain)
-        ));
-        assert!(should_run_review_quality_enhancements(
-            QualityPassMode::Auto,
-            std::slice::from_ref(&magic)
-        ));
-        assert!(should_run_review_quality_enhancements(
-            QualityPassMode::Enabled,
-            std::slice::from_ref(&plain)
-        ));
-        assert!(
-            should_run_review_quality_enhancements(QualityPassMode::Enabled, &[]),
-            "explicit enable does not depend on templates"
-        );
-        assert!(!should_run_review_quality_enhancements(
-            QualityPassMode::Disabled,
-            std::slice::from_ref(&magic)
-        ));
-        assert!(should_run_review_quality_enhancements_for_scope(
-            QualityPassMode::Enabled,
-            &plain
-        ));
-        assert!(!should_run_review_quality_enhancements_for_scope(
-            QualityPassMode::Disabled,
-            &magic
-        ));
-    }
-
-    #[test]
     fn unverdicted_assigned_files_get_explicit_needs_review() {
         let unit = PlannedReviewUnit {
             id: "unit-000".to_string(),
@@ -4393,6 +6147,8 @@ mod tests {
         let mut reviews = vec![FileReviewV1 {
             path: "src/auth.rs".to_string(),
             verdict: "clean".to_string(),
+            coverage: ReviewCoverage::Standard,
+            review_verdict: ReviewVerdict::Clean,
             summary: "reviewed".to_string(),
             related_paths: Vec::new(),
             evidence_artifact_ids: Vec::new(),
@@ -4425,16 +6181,28 @@ mod tests {
         )]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let contract_risk = build_contract_risk_plan(&review_plan, snapshot.diff.content.as_str());
+        let contract_risk =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
         let unit = &unit_plan.units[0];
         let unit_risk = contract_risk.unit_risk(unit);
-        let transcript =
-            planned_unit_transcript(&review_plan, unit, unit_risk, lens_focus(1, Role::Security));
+        let transcript = planned_unit_transcript(
+            &review_plan,
+            unit,
+            unit_risk,
+            lens_focus(1, Role::Security),
+            &ContractPackPlan::empty(),
+        );
         let ConversationItem::System { content } = &transcript[0] else {
             panic!("expected system item");
         };
         assert!(content.contains("Lens focus: security"));
-        let baseline = planned_unit_transcript(&review_plan, unit, unit_risk, None);
+        let baseline = planned_unit_transcript(
+            &review_plan,
+            unit,
+            unit_risk,
+            None,
+            &ContractPackPlan::empty(),
+        );
         let ConversationItem::System { content: baseline } = &baseline[0] else {
             panic!("expected system item");
         };
@@ -4545,7 +6313,8 @@ mod tests {
             "independent agreement must outrank a single discoverer: {}",
             finding.confidence
         );
-        assert!(finding.confidence <= AGREEMENT_CONFIDENCE_CEILING);
+        assert!(finding.confidence <= MAX_CONFIDENCE);
+        assert_eq!(finding.challenge_status, ChallengeStatus::Confirmed);
     }
 
     fn build_test_snapshot(files: Vec<(&'static str, &'static str)>) -> Arc<RepoSnapshot> {

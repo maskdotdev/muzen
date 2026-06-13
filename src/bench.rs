@@ -30,6 +30,7 @@ pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
                     max_tool_calls: args.max_tool_calls,
                     max_prompt_tokens: 32_000,
                     max_output_tokens: args.max_output_tokens as u64,
+                    budget_source: BudgetSource::CallerHardCap,
                 },
             }
         })

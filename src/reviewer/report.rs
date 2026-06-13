@@ -11,7 +11,7 @@ use crate::runtime::contracts::{
     ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 
-use crate::contracts::{FileReviewV1, FindingV1, ReviewOutcomeV1};
+use crate::contracts::{FileReviewV1, FindingV1};
 
 use crate::reviewer::adapters::metrics;
 use crate::reviewer::adapters::{capabilities, tool_adapters};
@@ -67,6 +67,7 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
             merge_provider_health(merged.provider_health, summary.provider_health);
         merged.snapshot_metrics.extend(summary.snapshot_metrics);
         merge_model_metrics(&mut merged.model_metrics, summary.model_metrics);
+        merged.quality_diagnostics.add(summary.quality_diagnostics);
         merged
             .completion_diagnostics
             .extend(summary.completion_diagnostics);
@@ -201,6 +202,7 @@ pub struct ReviewRunSummary {
     pub snapshot_count: usize,
     pub benchmark_valid: bool,
     pub benchmark_failure_count: usize,
+    pub quality_diagnostics: metrics::ReviewQualityDiagnostics,
 }
 
 impl ReviewRunSummary {
@@ -228,6 +230,7 @@ impl ReviewRunSummary {
             snapshot_count: metrics.snapshot_metrics.len(),
             benchmark_valid: metrics.benchmark_valid,
             benchmark_failure_count: metrics.benchmark_failures.len(),
+            quality_diagnostics: metrics.quality_diagnostics.clone(),
         }
     }
 }
@@ -426,9 +429,11 @@ pub struct FindingView {
     pub validation_status: String,
     pub evidence: Vec<EvidenceView>,
     pub location: Option<FindingLocationView>,
+    pub related_paths: Vec<String>,
     pub discovered_by: Vec<String>,
     pub validated_by: Vec<String>,
     pub challenged_by: Vec<String>,
+    pub challenge_status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -465,11 +470,35 @@ impl FindingView {
             validation_status: validation_status_name(finding.validation_status).to_string(),
             evidence,
             location: finding_location_view(finding),
+            related_paths: finding_related_paths(finding),
             discovered_by: finding.discovered_by.clone(),
             validated_by,
             challenged_by: finding.challenged_by.clone(),
+            challenge_status: challenge_status_name(finding.challenge_status).to_string(),
         }
     }
+}
+
+fn challenge_status_name(status: crate::contracts::ChallengeStatus) -> &'static str {
+    match status {
+        crate::contracts::ChallengeStatus::Confirmed => "confirmed",
+        crate::contracts::ChallengeStatus::Refuted => "refuted",
+        crate::contracts::ChallengeStatus::Insufficient => "insufficient",
+        crate::contracts::ChallengeStatus::NotRun => "not_run",
+        crate::contracts::ChallengeStatus::Incomplete => "incomplete",
+    }
+}
+
+fn finding_related_paths(finding: &FindingV1) -> Vec<String> {
+    finding
+        .file_refs
+        .iter()
+        .skip(1)
+        .map(|location| match location {
+            crate::contracts::EvidenceLocationV1::SinglePath { path } => path.clone(),
+            crate::contracts::EvidenceLocationV1::Rename { new_path, .. } => new_path.clone(),
+        })
+        .collect()
 }
 
 fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {
@@ -552,17 +581,4 @@ impl ArtifactView {
 #[derive(Debug, Clone)]
 pub struct RunHandle {
     pub run_id: String,
-}
-
-pub(crate) fn concurrent_review_outcome(
-    report: &ConcurrentRunReport,
-    findings: usize,
-) -> ReviewOutcomeV1 {
-    if report.completed_sessions < report.sessions {
-        ReviewOutcomeV1::FailedPartial
-    } else if findings > 0 {
-        ReviewOutcomeV1::CompletedWithFindings
-    } else {
-        ReviewOutcomeV1::CompletedNoFindings
-    }
 }

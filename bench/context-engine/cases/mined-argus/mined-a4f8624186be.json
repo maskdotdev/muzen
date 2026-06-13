@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-a4f8624186be",
+  "repoSource": {
+    "kind": "git",
+    "commit": "a4f8624186beebc57b14f4eb7a824212d3907f66",
+    "origin": "~/code/argus-app"
+  },
+  "changedFiles": [
+    "apps/web/src/features/observability/server/onboarding-ttfr-payload.ts",
+    "apps/web/src/features/onboarding/model/tracking.ts",
+    "apps/web/src/features/onboarding/model/types.ts",
+    "apps/web/src/features/onboarding/server/service.ts",
+    "apps/web/src/features/onboarding/server/track-onboarding.ts",
+    "apps/web/src/features/review/server/diff/review-diff.ts",
+    "apps/web/src/server/db/schema/onboarding.ts"
+  ],
+  "description": "Mined pair: base a4f8624186be (refactor(web): move onboarding tracking contracts into feature ownership) followed by ec0e220010dc (refactor(onboarding): rename completion state module).",
+  "minedFrom": {
+    "baseCommit": "a4f8624186beebc57b14f4eb7a824212d3907f66",
+    "followUpCommit": "ec0e220010dc1343d20d9aaf896cbd85baa544be"
+  },
+  "cases": [
+    {
+      "id": "mined-a4f8624186be-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "apps/web/src/app/(app)/analytics/page.tsx",
+        "apps/web/src/app/(app)/layout.tsx",
+        "apps/web/src/app/(app)/repos/[integrationId]/mrs/[mergeRequestIid]/page.tsx",
+        "apps/web/src/app/(onboarding)/onboarding/layout.tsx",
+        "apps/web/src/app/(settings)/layout.tsx"
+      ]
+    }
+  ]
+}

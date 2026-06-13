@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-ea15eccdb7d4",
+  "repoSource": {
+    "kind": "git",
+    "commit": "ea15eccdb7d4c2ccf100af613a0c7ee6a00fbdc3",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "sdk/typescript/packages/muzen-sdk/src/index.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.test.ts",
+    "sdk/typescript/packages/muzen-sdk/src/muzen.ts",
+    "sdk/typescript/packages/muzen-sdk/src/types.ts"
+  ],
+  "description": "Mined pair: base ea15eccdb7d4 (feat: add remote webhook request facade) followed by dbb980d034b9 (feat: add local webhook runner facade).",
+  "minedFrom": {
+    "baseCommit": "ea15eccdb7d4c2ccf100af613a0c7ee6a00fbdc3",
+    "followUpCommit": "dbb980d034b9d12fb82817f57541f9e2e1eea00b"
+  },
+  "cases": [
+    {
+      "id": "mined-ea15eccdb7d4-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/http.rs",
+        "src/runner.rs",
+        "src/runner/protocol.rs",
+        "src/runner/schema.rs",
+        "src/runner/session.rs",
+        "src/runner/types.rs"
+      ]
+    }
+  ]
+}

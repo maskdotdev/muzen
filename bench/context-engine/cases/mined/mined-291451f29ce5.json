@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "muzen.context-eval-case.v2",
+  "name": "mined-291451f29ce5",
+  "repoSource": {
+    "kind": "git",
+    "commit": "291451f29ce568fe009367dbc575ba0d7824abd0",
+    "origin": "self"
+  },
+  "changedFiles": [
+    "src/runner.rs"
+  ],
+  "description": "Mined pair: base 291451f29ce5 (test(runner): drop brittle schema and fixture equality tests) followed by bac0293da67d (refactor(runner): remove test-only model flag from protocol).",
+  "minedFrom": {
+    "baseCommit": "291451f29ce568fe009367dbc575ba0d7824abd0",
+    "followUpCommit": "bac0293da67dab958a84c519b8e9010ad9a918d4"
+  },
+  "cases": [
+    {
+      "id": "mined-291451f29ce5-pack",
+      "command": "pack",
+      "purpose": "general-review",
+      "maxTokens": 12000,
+      "expectedPaths": [
+        "src/review_session/options.rs",
+        "src/runner/execution.rs",
+        "src/runner/types.rs"
+      ]
+    }
+  ]
+}
