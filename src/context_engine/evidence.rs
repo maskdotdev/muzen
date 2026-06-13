@@ -118,6 +118,9 @@ pub struct ContextRankSignals {
     /// Directory proximity to the nearest changed file, in [0, 1].
     #[serde(default)]
     pub path_proximity: f32,
+    /// Rare path/summary token overlap with changed evidence, in [0, 1].
+    #[serde(default)]
+    pub lexical_change_score: f32,
     /// Embedding similarity to the nearest change anchor, in [0, 1]
     /// (R8). Zero in no-vector mode, for changed spans themselves, and
     /// for evidence outside the embedded window, so the deterministic
@@ -227,6 +230,24 @@ pub enum ContextOmissionReason {
     /// The full content did not fit the remaining pack budget, but its
     /// file's signatures-only skeleton did and was included instead.
     DowngradedToSkeleton,
+}
+
+impl ContextOmissionReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BudgetExhausted => "budget_exhausted",
+            Self::Duplicate => "duplicate",
+            Self::LowRelevance => "low_relevance",
+            Self::LowerTrust => "lower_trust",
+            Self::GeneratedFile => "generated_file",
+            Self::BinaryFile => "binary_file",
+            Self::SecretRedacted => "secret_redacted",
+            Self::OutsideScope => "outside_scope",
+            Self::SupersededBySummary => "superseded_by_summary",
+            Self::RequiresUngrantedCapability => "requires_ungranted_capability",
+            Self::DowngradedToSkeleton => "downgraded_to_skeleton",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

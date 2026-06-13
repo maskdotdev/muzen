@@ -54,7 +54,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::SearchText),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::SearchText,
@@ -74,7 +74,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::ReadSpan),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::ReadSpan,
@@ -121,7 +121,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::RelatedTests),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::RelatedTests,
@@ -141,7 +141,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::RelatedSymbols),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::RelatedSymbols,
@@ -159,7 +159,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::TicketRequirements),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::TicketRequirements,
@@ -177,7 +177,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::HistorySimilar),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::HistorySimilar,
@@ -195,7 +195,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         true,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::CrossRepoContracts),
         Arc::new(ContextToolHandler {
             engine: Arc::clone(&engine),
             kind: ContextQueryKind::CrossRepoContracts,
@@ -217,7 +217,7 @@ pub fn register_context_tools(
             "additionalProperties": false
         }),
         false,
-        context_tool_effects(),
+        context_tool_effects_for_kind(ContextQueryKind::SufficiencyCheck),
         Arc::new(ContextToolHandler {
             engine,
             kind: ContextQueryKind::SufficiencyCheck,
@@ -225,11 +225,31 @@ pub fn register_context_tools(
     )
 }
 
-pub(crate) fn context_tool_effects() -> ToolEffects {
+pub(crate) fn context_tool_effects_for_id(tool_id: &ToolId) -> ToolEffects {
+    let kind = match tool_id.as_str() {
+        CONTEXT_SEARCH_TEXT_TOOL_ID => ContextQueryKind::SearchText,
+        CONTEXT_READ_SPAN_TOOL_ID => ContextQueryKind::ReadSpan,
+        CONTEXT_EXPLAIN_PACK_TOOL_ID => ContextQueryKind::ExplainPack,
+        CONTEXT_RELATED_TESTS_TOOL_ID => ContextQueryKind::RelatedTests,
+        CONTEXT_RELATED_SYMBOLS_TOOL_ID => ContextQueryKind::RelatedSymbols,
+        CONTEXT_TICKET_REQUIREMENTS_TOOL_ID => ContextQueryKind::TicketRequirements,
+        CONTEXT_HISTORY_SIMILAR_TOOL_ID => ContextQueryKind::HistorySimilar,
+        CONTEXT_CROSS_REPO_CONTRACTS_TOOL_ID => ContextQueryKind::CrossRepoContracts,
+        CONTEXT_SUFFICIENCY_CHECK_TOOL_ID => ContextQueryKind::SufficiencyCheck,
+        _ => return ToolEffects::default(),
+    };
+    context_tool_effects_for_kind(kind)
+}
+
+fn context_tool_effects_for_kind(kind: ContextQueryKind) -> ToolEffects {
+    let (repo_read, artifact_read) = match kind {
+        ContextQueryKind::ExplainPack => (false, true),
+        _ => (true, true),
+    };
     ToolEffects {
-        repo_read: true,
-        artifact_read: true,
-        artifact_write: true,
+        repo_read,
+        artifact_read,
+        artifact_write: false,
         network_read: false,
         host_read: false,
         scratch_read: false,

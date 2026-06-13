@@ -962,7 +962,6 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("sessionId", "string"),
                 required("purpose", "ContextPackPurpose"),
                 required("maxTokens", "integer"),
-                defaulted("seedEvidence", "string[]", "[]"),
             ],
         ),
         object(

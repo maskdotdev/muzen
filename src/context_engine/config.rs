@@ -49,6 +49,11 @@ pub struct ContextEngineConfig {
     pub weight_co_change: f32,
     /// Ranking weight for directory proximity to changed files.
     pub weight_path_proximity: f32,
+    /// Ranking weight for rare lexical overlap with changed paths/summaries.
+    pub weight_lexical_change: f32,
+    /// Ranking weight for graph-connected tests that sit near, or share
+    /// rare terms with, the changed files.
+    pub weight_test_coverage: f32,
     /// Ranking weight for embedding similarity to the change (R8);
     /// applied to `ContextRankSignals::semantic_change_score`, which is
     /// zero in no-vector mode.
@@ -72,7 +77,7 @@ impl ContextEngineConfig {
             semantic: ContextSemanticConfig::default(),
             max_indexed_files: 20_000,
             max_indexed_bytes: 64 * 1024 * 1024,
-            max_evidence_items: 5_000,
+            max_evidence_items: 8_000,
             max_pack_tokens: 12_000,
             max_query_results: 120,
             chunk_max_tokens: 400,
@@ -81,13 +86,15 @@ impl ContextEngineConfig {
             bm25_b: 0.75,
             rrf_k: 60.0,
             graph_max_hops: 2,
-            graph_max_candidates_per_anchor: 16,
+            graph_max_candidates_per_anchor: 64,
             co_change_commit_limit: 500,
             derived_cache_max_entries: 100_000,
             weight_changed_span: 0.25,
             weight_graph_proximity: 0.20,
             weight_co_change: 0.15,
             weight_path_proximity: 0.05,
+            weight_lexical_change: 0.20,
+            weight_test_coverage: 0.30,
             weight_semantic_change: 0.10,
             include_repository_guidance: true,
             include_host_context: false,

@@ -35,6 +35,7 @@ use super::{
 
 pub const CONTEXT_ENGINE_VERSION: &str = "0.1.0";
 pub const CONTEXT_MANIFEST_SCHEMA_VERSION: &str = "muzen.context_manifest.v1";
+const DIFF_MANIFEST_TOKEN_BUDGET: usize = 512;
 
 #[derive(Debug, Clone)]
 pub struct ContextIndexRequest {
@@ -500,6 +501,7 @@ impl ContextIndex {
             &graph_expansion.candidates,
             &changed_paths,
         );
+        apply_lexical_change_signals(&mut evidence, &changed_paths);
         // A skeleton twin carries the same structural signals as the
         // full chunk it stands in for, so explanations stay truthful.
         for item in &evidence {
@@ -1119,6 +1121,138 @@ fn apply_rank_signals(
     }
 }
 
+/// Rare lexical overlap with the review's changed paths/summaries. This
+/// is deterministic no-vector affinity: it helps cross-layer files that
+/// share specific domain words with the change without making all nearby
+/// files equally important.
+fn apply_lexical_change_signals(evidence: &mut [ContextEvidence], changed: &BTreeSet<RepoPath>) {
+    const MAX_DOCUMENT_FREQUENCY_RATIO: f32 = 0.05;
+    const SATURATION_IDF_SUM: f32 = 4.0;
+
+    let document_terms = evidence
+        .iter()
+        .map(lexical_signal_terms)
+        .collect::<Vec<_>>();
+    let mut document_frequency: BTreeMap<&str, usize> = BTreeMap::new();
+    for terms in &document_terms {
+        for term in terms.keys() {
+            *document_frequency.entry(term.as_str()).or_default() += 1;
+        }
+    }
+
+    let mut changed_paths_seen = BTreeSet::new();
+    let mut changed_terms: BTreeMap<String, f32> = BTreeMap::new();
+    for item in evidence.iter() {
+        let Some(path) = item.path.as_ref() else {
+            continue;
+        };
+        if !changed.contains(path) || !changed_paths_seen.insert(path.clone()) {
+            continue;
+        }
+        let mut terms = BTreeMap::new();
+        add_lexical_signal_terms(&mut terms, &path.display(), 3.0);
+        for (term, weight) in terms {
+            *changed_terms.entry(term).or_default() += weight;
+        }
+    }
+    if changed_terms.is_empty() {
+        return;
+    }
+
+    let corpus_size = evidence.len().max(1) as f32;
+    let change_term_weights = changed_terms
+        .into_iter()
+        .filter_map(|(term, changed_weight)| {
+            let df = document_frequency.get(term.as_str()).copied().unwrap_or(0);
+            if df == 0 || (df as f32 / corpus_size) > MAX_DOCUMENT_FREQUENCY_RATIO {
+                return None;
+            }
+            let idf = ((corpus_size + 1.0) / (df as f32 + 1.0)).ln();
+            Some((term, idf * changed_weight.sqrt()))
+        })
+        .collect::<Vec<_>>();
+    if change_term_weights.is_empty() {
+        return;
+    }
+
+    for (item, terms) in evidence.iter_mut().zip(document_terms) {
+        if item.is_changed_span {
+            continue;
+        }
+        let mut overlap = 0.0f32;
+        for (term, weight) in &change_term_weights {
+            if let Some(candidate_weight) = terms.get(term) {
+                overlap += *weight * (candidate_weight / (candidate_weight + 3.0));
+            }
+        }
+        item.signals.lexical_change_score = (overlap / SATURATION_IDF_SUM).clamp(0.0, 1.0);
+    }
+}
+
+fn lexical_signal_terms(evidence: &ContextEvidence) -> BTreeMap<String, f32> {
+    let mut terms = BTreeMap::new();
+    if let Some(path) = &evidence.path {
+        add_lexical_signal_terms(&mut terms, &path.display(), 3.0);
+    }
+    if let Some(summary) = &evidence.summary {
+        add_lexical_signal_terms(&mut terms, summary, 2.0);
+    }
+    terms
+}
+
+fn add_lexical_signal_terms(out: &mut BTreeMap<String, f32>, text: &str, weight: f32) {
+    for token in super::lexical::code_tokens(text) {
+        if is_common_lexical_signal_token(&token) {
+            continue;
+        }
+        *out.entry(token).or_default() += weight;
+    }
+}
+
+fn is_common_lexical_signal_token(token: &str) -> bool {
+    token.len() < 3
+        || token.chars().all(|ch| ch.is_ascii_digit())
+        || matches!(
+            token,
+            "api"
+                | "app"
+                | "apps"
+                | "chunk"
+                | "client"
+                | "component"
+                | "components"
+                | "const"
+                | "feature"
+                | "features"
+                | "file"
+                | "files"
+                | "fn"
+                | "hook"
+                | "hooks"
+                | "index"
+                | "lib"
+                | "line"
+                | "lines"
+                | "model"
+                | "models"
+                | "package"
+                | "packages"
+                | "page"
+                | "route"
+                | "routes"
+                | "server"
+                | "span"
+                | "src"
+                | "test"
+                | "tests"
+                | "tsx"
+                | "type"
+                | "types"
+                | "utils"
+                | "web"
+        )
+}
+
 /// Directory proximity to the nearest changed file: shared directory
 /// prefix depth over the deeper of the two paths, in [0, 1].
 fn path_proximity(path: &RepoPath, changed: &BTreeSet<RepoPath>) -> f32 {
@@ -1294,6 +1428,9 @@ fn evidence_emission_order(
 }
 
 fn diff_evidence(snapshot: &RepoSnapshot) -> ContextEvidence {
+    let hunk_count = count_diff_hunks(&snapshot.diff.content);
+    let file_count = diff_hunk_ranges(&snapshot.diff.content).len();
+    let summary = format!("Review diff manifest: {hunk_count} hunks across {file_count} files");
     ContextEvidence {
         id: EvidenceId(stable_id(&[
             &snapshot.snapshot_id.0,
@@ -1309,12 +1446,13 @@ fn diff_evidence(snapshot: &RepoSnapshot) -> ContextEvidence {
         revision: None,
         range: None,
         content_hash: Some(snapshot.diff.content_hash.clone()),
-        summary: Some("Review diff manifest".to_string()),
+        summary: Some(summary),
         is_changed_span: true,
         representation: ContextEvidenceRepresentation::FullContent,
         skeleton_text: None,
         signals: ContextRankSignals::default(),
-        token_estimate: estimate_tokens(snapshot.diff.content.len()),
+        token_estimate: estimate_tokens(snapshot.diff.content.len())
+            .min(DIFF_MANIFEST_TOKEN_BUDGET),
         provenance: ContextProvenance {
             provider: "snapshot_diff".to_string(),
             query: None,
