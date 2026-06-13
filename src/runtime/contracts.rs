@@ -1405,6 +1405,7 @@ pub struct ModelMetricsSnapshot {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    pub cached_input_tokens: u64,
 }
 
 #[derive(Debug, Default, Copy, Clone, Serialize)]
@@ -1477,6 +1478,7 @@ pub struct ConcurrentRunReport {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    pub cached_input_tokens: u64,
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub counters: ConcurrentCounters,

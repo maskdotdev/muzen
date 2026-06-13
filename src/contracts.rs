@@ -661,6 +661,12 @@ pub struct TokenUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    /// Input tokens the provider served from its prompt cache (OpenAI
+    /// `prompt_tokens_details.cached_tokens`, Anthropic
+    /// `cache_read_input_tokens`). Subset of `input_tokens`; billed at a
+    /// discount, so this is the visibility needed to judge real prompt cost.
+    #[serde(default)]
+    pub cached_input_tokens: u64,
 }
 
 impl TokenUsage {
@@ -668,6 +674,7 @@ impl TokenUsage {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
         self.total_tokens += other.total_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
     }
 }
 

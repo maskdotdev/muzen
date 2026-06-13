@@ -1544,6 +1544,12 @@ struct ChatUsage {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
+    prompt_tokens_details: Option<ChatPromptTokensDetails>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct ChatPromptTokensDetails {
+    cached_tokens: Option<u64>,
 }
 
 impl ChatUsage {
@@ -1552,6 +1558,10 @@ impl ChatUsage {
             input_tokens: self.prompt_tokens.unwrap_or(0),
             output_tokens: self.completion_tokens.unwrap_or(0),
             total_tokens: self.total_tokens.unwrap_or(0),
+            cached_input_tokens: self
+                .prompt_tokens_details
+                .and_then(|details| details.cached_tokens)
+                .unwrap_or(0),
         }
     }
 }
@@ -1576,6 +1586,7 @@ impl ResponsesUsage {
             input_tokens: self.input_tokens.unwrap_or(0),
             output_tokens: self.output_tokens.unwrap_or(0),
             total_tokens: self.total_tokens.unwrap_or(0),
+            cached_input_tokens: 0,
         }
     }
 }
@@ -1686,6 +1697,7 @@ mod tests {
                     prompt_tokens: Some(3),
                     completion_tokens: Some(2),
                     total_tokens: Some(5),
+                    prompt_tokens_details: None,
                 }),
             },
             &registry,

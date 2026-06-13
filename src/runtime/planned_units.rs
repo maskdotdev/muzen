@@ -92,7 +92,8 @@ impl PlannedReviewRuntime {
         let mut joins = JoinSet::new();
         for (unit_index, unit) in unit_plan.units.iter().enumerate() {
             let high_risk = contract_risk.unit_risk(unit).high_risk;
-            let lens_templates = unit_lens_template_indices(&self.session_templates, high_risk);
+            let lens_templates =
+                unit_lens_template_indices(&self.session_templates, high_risk, unit.score_max);
             for (lens_index, template_index) in lens_templates.into_iter().enumerate() {
                 let runtime = Arc::clone(&self);
                 let review_plan = Arc::clone(&review_plan);
@@ -263,6 +264,7 @@ impl PlannedReviewRuntime {
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
             total_tokens: tokens.total_tokens,
+            cached_input_tokens: tokens.cached_input_tokens,
             artifacts,
             artifact_bytes,
             counters,
@@ -1632,14 +1634,27 @@ struct VerifiedSynthesisCandidates {
 /// hosts pass many personas.
 const MAX_UNIT_LENSES: usize = 3;
 
-/// Selects which session templates review one unit. Low-risk units (and runs
-/// with at most one template) keep today's single-session behavior; high-risk
-/// units fan out across distinct-role templates, capped at MAX_UNIT_LENSES.
-fn unit_lens_template_indices(templates: &[SessionScope], high_risk: bool) -> Vec<Option<usize>> {
+/// Units below this priority score keep a single lens even when contract risk
+/// is flagged. Broad classifiers (e.g. the repeated-callback-batch detector)
+/// can mark most of a pull request high-risk; lens fan-out should instead
+/// track stacked path sensitivity (security + api boundary and similar),
+/// which is what pushes a planner score to 80 or above.
+const LENS_FANOUT_MIN_SCORE: u8 = 80;
+
+/// Selects which session templates review one unit. Low-risk or low-score
+/// units (and runs with at most one template) keep today's single-session
+/// behavior; high-risk units whose planner score clears
+/// LENS_FANOUT_MIN_SCORE fan out across distinct-role templates, capped at
+/// MAX_UNIT_LENSES.
+fn unit_lens_template_indices(
+    templates: &[SessionScope],
+    high_risk: bool,
+    score_max: u8,
+) -> Vec<Option<usize>> {
     if templates.is_empty() {
         return vec![None];
     }
-    if templates.len() == 1 || !high_risk {
+    if templates.len() == 1 || !high_risk || score_max < LENS_FANOUT_MIN_SCORE {
         return vec![Some(0)];
     }
     let mut seen_roles: Vec<Role> = Vec::new();
@@ -3049,6 +3064,7 @@ pub(crate) fn record_usage(
     model_metrics.input_tokens += usage.input_tokens;
     model_metrics.output_tokens += usage.output_tokens;
     model_metrics.total_tokens += usage.total_tokens;
+    model_metrics.cached_input_tokens += usage.cached_input_tokens;
     if let Some(cost) = model.estimate_cost(&usage) {
         model_metrics.costed_calls += 1;
         model_metrics.estimated_input_cost_micro_usd += cost.input_cost_micro_usd;
@@ -3074,6 +3090,7 @@ pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &Mode
     target.input_tokens += report.input_tokens;
     target.output_tokens += report.output_tokens;
     target.total_tokens += report.total_tokens;
+    target.cached_input_tokens += report.cached_input_tokens;
 }
 
 fn unit_diagnostic(
@@ -3335,7 +3352,7 @@ mod tests {
                             call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
                             index: 1,
                             name: ToolId::from(ToolName::ReadHeadFile),
-                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                            raw_arguments: r#"{"path":"apps/api/token-callback.ts"}"#.to_string(),
                         });
                     }
                     TestModelMode::HighRiskCleanWithContractEvidence => {
@@ -3343,7 +3360,7 @@ mod tests {
                             call_id: ToolCallId(format!("{}-read-callback", scope.id.0)),
                             index: 1,
                             name: ToolId::from(ToolName::ReadHeadFile),
-                            raw_arguments: r#"{"path":"apps/api/callback.ts"}"#.to_string(),
+                            raw_arguments: r#"{"path":"apps/api/token-callback.ts"}"#.to_string(),
                         });
                         calls.push(ModelToolCall {
                             call_id: ToolCallId(format!("{}-search-callback", scope.id.0)),
@@ -3462,12 +3479,12 @@ mod tests {
                 }),
                 TestModelMode::HighRiskCleanWithoutContractEvidence => json!({
                     "summary": "high risk clean without contract evidence",
-                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "fileVerdicts": [{"path": "apps/api/token-callback.ts", "verdict": "clean"}],
                     "findings": []
                 }),
                 TestModelMode::HighRiskCleanWithContractEvidence => json!({
                     "summary": "high risk clean with contract evidence",
-                    "fileVerdicts": [{"path": "apps/api/callback.ts", "verdict": "clean"}],
+                    "fileVerdicts": [{"path": "apps/api/token-callback.ts", "verdict": "clean"}],
                     "findings": []
                 }),
                 TestModelMode::BootstrapClean
@@ -3485,6 +3502,7 @@ mod tests {
                     input_tokens: 10,
                     output_tokens: 12,
                     total_tokens: 22,
+                    cached_input_tokens: 0,
                 },
             })
         }
@@ -3753,7 +3771,7 @@ mod tests {
     async fn high_risk_clean_requires_contract_evidence() {
         let report = run_test_review(
             vec![(
-                "apps/api/callback.ts",
+                "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithoutContractEvidence,
@@ -3762,7 +3780,7 @@ mod tests {
 
         assert!(report.findings.is_empty());
         assert_eq!(report.file_reviews.len(), 1);
-        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].path, "apps/api/token-callback.ts");
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
         assert!(report.file_reviews[0]
             .summary
@@ -3773,7 +3791,7 @@ mod tests {
     async fn high_risk_clean_passes_with_seed_backed_search_evidence() {
         let report = run_test_review(
             vec![(
-                "apps/api/callback.ts",
+                "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithContractEvidence,
@@ -3782,7 +3800,7 @@ mod tests {
 
         assert!(report.findings.is_empty());
         assert_eq!(report.file_reviews.len(), 1);
-        assert_eq!(report.file_reviews[0].path, "apps/api/callback.ts");
+        assert_eq!(report.file_reviews[0].path, "apps/api/token-callback.ts");
         assert_eq!(report.file_reviews[0].verdict, "clean");
         assert!(report.metrics.tool_counts.search_text > 0);
     }
@@ -4239,9 +4257,13 @@ mod tests {
 
     #[test]
     fn unit_lens_template_indices_dedupe_roles_and_cap_fanout() {
-        assert_eq!(unit_lens_template_indices(&[], true), vec![None]);
+        let hot = LENS_FANOUT_MIN_SCORE;
+        assert_eq!(unit_lens_template_indices(&[], true, hot), vec![None]);
         let single = vec![lens_template("a", Role::Security)];
-        assert_eq!(unit_lens_template_indices(&single, true), vec![Some(0)]);
+        assert_eq!(
+            unit_lens_template_indices(&single, true, hot),
+            vec![Some(0)]
+        );
         let many = vec![
             lens_template("a", Role::Correctness),
             lens_template("b", Role::Security),
@@ -4249,9 +4271,14 @@ mod tests {
             lens_template("d", Role::Performance),
             lens_template("e", Role::Maintainability),
         ];
-        assert_eq!(unit_lens_template_indices(&many, false), vec![Some(0)]);
+        assert_eq!(unit_lens_template_indices(&many, false, hot), vec![Some(0)]);
         assert_eq!(
-            unit_lens_template_indices(&many, true),
+            unit_lens_template_indices(&many, true, hot - 1),
+            vec![Some(0)],
+            "high-risk units below the score gate keep a single lens"
+        );
+        assert_eq!(
+            unit_lens_template_indices(&many, true, hot),
             vec![Some(0), Some(1), Some(3)]
         );
     }
@@ -4285,7 +4312,7 @@ mod tests {
     async fn high_risk_unit_fans_out_one_session_per_distinct_lens_role() {
         let report = run_test_review_with_templates(
             vec![(
-                "apps/api/callback.ts",
+                "apps/api/token-callback.ts",
                 "export function callback() { return { credential_token: true }; }\n",
             )],
             TestModelMode::HighRiskCleanWithContractEvidence,
@@ -4350,7 +4377,7 @@ mod tests {
         let report = run_test_review_with_templates(
             vec![
                 (
-                    "apps/api/callback.ts",
+                    "apps/api/token-callback.ts",
                     "export function callback() { return { credential_token: true }; }\n",
                 ),
                 ("src/auth.rs", "pub const allow_empty_token: bool = true;\n"),
