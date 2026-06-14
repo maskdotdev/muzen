@@ -37,8 +37,8 @@ work, but the surface is still settling.
 - TypeScript and Python SDK previews over a shared runner protocol
 - Durable review sessions with events, results, artifacts, logs, cancellation,
   retries, leases, and worker claims
-- Durable libSQL-backed SQLite stores by default, with explicit Postgres and
-  in-memory store modes
+- Durable libSQL-backed SQLite stores by default, with an explicit in-memory
+  store mode
 - Workspace-scoped model and provider profiles with secret references (no raw
   credentials)
 - GitHub and GitLab webhook verification, source mapping, and queued scheduling
@@ -50,7 +50,6 @@ work, but the surface is still settling.
 
 **Still hardening:**
 
-- Postgres integration CI for environments with `MUZEN_POSTGRES_TEST_URL`
 - Live GitHub/GitLab provider smoke tests where tokens and network access are
   available
 - Migration from local inline execution to durable service-bound SDK execution
@@ -106,8 +105,8 @@ More examples:
 
 `muzen-service` exposes the full HTTP API from RFC 0001. It uses
 `sqlite://.muzen/muzen.db` for durable local storage by default. Override that
-with `--store-url` or `MUZEN_STORE_URL` to use `postgres://`, `postgresql://`,
-`sqlite://`, or explicit non-durable `memory://` storage.
+with `--store-url` or `MUZEN_STORE_URL` to use `sqlite://` or explicit
+non-durable `memory://` storage.
 Production deployments should read
 [`docs/production-operations.md`](docs/production-operations.md), especially
 the notes on external HTTP API authentication and preview schema resets.
@@ -215,7 +214,7 @@ TypeScript SDK       Python SDK
         |           |             |             |
         +-----------+-------------+-------------+
                                     |
-                      SQLite, Postgres, or memory stores
+                         SQLite or memory stores
 
 Remote clients use HTTP instead:
 

@@ -56,8 +56,8 @@ pressure, and commit-sized milestones.
 - [x] Rust core exposes workspace-owned model and provider profile records with
   secret-reference-only config snapshots.
 - [x] Rust core exposes review-session and workspace-profile stores behind one
-  Muzen store URL contract, with durable SQLite by default and explicit Postgres
-  and memory modes.
+  Muzen store URL contract, with durable SQLite by default and explicit memory
+  mode.
 - [x] SDK-first `@muzen/sdk` package exists.
 - [x] `createMuzen()` works end to end against `muzen-runner`.
 - [x] `ReviewSession` handle supports `subscribe`, `events`, `wait`,
@@ -250,8 +250,8 @@ Exit criteria:
   switch from inline preview execution to queued durable execution.
 - [x] Expose TypeScript `muzen.workers.runOnce()` and `muzen.workers.start()`
   over Rust-owned worker execution.
-- [x] Implement a Postgres-backed `ReviewSessionStore` with JSONB records and
-  transactional `FOR UPDATE SKIP LOCKED` worker claims.
+- [x] Implement a libSQL-backed `ReviewSessionStore` with durable records and
+  transactional worker claims.
 
 Exit criteria:
 
@@ -264,7 +264,7 @@ Exit criteria:
 - [x] Define workspace profile records.
 - [x] Implement model profile set/get/list.
 - [x] Implement provider profile set/get/list.
-- [x] Implement Postgres-backed persistent workspace profile storage.
+- [x] Implement libSQL-backed persistent workspace profile storage.
 - [x] Capture effective config snapshots when scheduling workspace reviews.
 - [x] Store only secret references and non-secret routing metadata in review
   session records.
@@ -405,12 +405,10 @@ Record every milestone with the commands that were run.
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
   paths should use durable queued scheduling.
-- The store boundary has in-memory, libSQL-backed SQLite, and Postgres
-  implementations. The SQLite store is the service default and persists session
-  records, events, results, artifacts, logs, leases, cancellations, retry state,
-  dedupe keys, and workspace profiles in a local database file. The Postgres
-  review-session store persists JSONB records and uses transactional
-  `FOR UPDATE SKIP LOCKED` worker claims.
+- The store boundary has in-memory and libSQL-backed SQLite implementations.
+  The SQLite store is the service default and persists session records, events,
+  results, artifacts, logs, leases, cancellations, retry state, dedupe keys, and
+  workspace profiles in a local database file.
 - Host scheduling configuration now defines lease defaults, retry defaults,
   fairness strategy, and global/workspace/user/model/provider concurrency
   limits. Durable stores enforce worker claiming transactionally.
@@ -447,17 +445,15 @@ Record every milestone with the commands that were run.
   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
   review, event, artifact, webhook, and workspace profile routes. The
   `muzen-service` binary binds that router through an Axum HTTP adapter and
-  selects durable SQLite, Postgres, or explicit memory stores through
+  selects durable SQLite or explicit memory stores through
   `--store-url` / `MUZEN_STORE_URL`.
 - Workspace-owned profile APIs exist in Rust core, the TypeScript remote SDK,
   and the Python remote SDK.
 - Production worker deployment can use durable service storage through
   `muzen-service`; local provider-source execution now reaches Rust provider
   materialization.
-- The current verification compiles and exercises SQLite, memory, and Postgres
-  store wiring through Rust tests and service builds. A live Postgres integration
-  run should be part of deployment CI where `MUZEN_POSTGRES_TEST_URL` is
-  available.
+- The current verification compiles and exercises SQLite and memory store wiring
+  through Rust tests and service builds.
 - The provider materialization verification uses deterministic local Git remote
   tests. A live GitHub/GitLab provider smoke run should be part of deployment CI
   where provider tokens and network access are available.

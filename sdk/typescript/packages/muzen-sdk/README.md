@@ -85,7 +85,7 @@ completed:
 - local worker execution is exposed through `muzen.workers.runOnce()` and
   `muzen.workers.start()`, backed by Rust `ReviewWorker` core;
 - `muzen-service` uses durable local SQLite by default and can be pointed at
-  explicit SQLite, Postgres, or non-durable memory stores with `MUZEN_STORE_URL`
+  explicit SQLite or non-durable memory stores with `MUZEN_STORE_URL`
   or `--store-url`;
 - provider-backed review sources are forwarded to Rust runner core, which
   materializes GitHub/GitLab pull/merge request refs into temporary Git
