@@ -11,7 +11,7 @@ use crate::contracts::Role;
 use crate::review_session::{
     HostConfiguration, ReviewSource, ReviewWorkerRun, WebhookReviewOptions,
 };
-use crate::runtime::contracts::ArtifactView;
+use crate::runtime::contracts::{ArtifactView, ModelResponseFormat};
 
 fn default_role() -> Role {
     Role::Generalist
@@ -193,6 +193,8 @@ pub struct RunSessionParams {
     pub cwd: Option<String>,
     #[serde(default)]
     pub model_profile_id: Option<String>,
+    #[serde(default)]
+    pub response_format: Option<ModelResponseFormat>,
     #[serde(default)]
     pub instructions: Vec<RunInstructionParams>,
     #[serde(default)]

@@ -1928,3 +1928,90 @@ fn public_bounded_event_sink_drops_after_capacity() {
     ));
     assert_eq!(oldest.dropped_count(), 1);
 }
+
+#[test]
+fn public_runtime_event_sink_records_resource_samples() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("README.md"), "needle\n").unwrap();
+    let snapshot = crate::reviewer::snapshots::SnapshotSpec::new(
+        temp.path().to_path_buf(),
+        crate::reviewer::snapshots::ChangeSpec::local(
+            "resource-change",
+            "head-resource",
+            vec![crate::reviewer::snapshots::ChangedFileSpec::modified(
+                "README.md",
+            )],
+        ),
+    )
+    .with_path_policy(crate::reviewer::snapshots::SnapshotPathPolicy::standard(
+        64 * 1024,
+        20,
+    ));
+    let spec = crate::reviewer::spec::RunSpec::single_snapshot(
+        "resource-run",
+        snapshot,
+        vec![crate::reviewer::spec::ReviewSessionSpec::review_read_only(
+            "resource-agent",
+            crate::contracts::Role::Generalist,
+            "Answer with evidence.",
+            public_budget(),
+        )],
+        crate::reviewer::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+    )
+    .with_mode(crate::reviewer::spec::RunMode::DirectSessions);
+    let events = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
+    let run = crate::reviewer::run::Run::builder(spec)
+        .review_model(Arc::new(DirectSessionEchoModel {
+            query: "needle".to_string(),
+        }))
+        .event_sink(events.clone())
+        .build()
+        .unwrap();
+    let tokio = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let report = tokio.block_on(run.execute());
+
+    assert_eq!(report.summary.status, "completed");
+    let records = events.records();
+    let trace_kinds = records
+        .iter()
+        .filter_map(|record| match &record.event {
+            crate::reviewer::runtime_events::RuntimeEvent::AgentTrace { trace_kind, .. } => {
+                Some(trace_kind.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        trace_kinds.contains(&"model_turn_prepared"),
+        "missing direct-session model turn trace: {trace_kinds:?}"
+    );
+    assert!(
+        trace_kinds.contains(&"model_turn_completed.tool_calls"),
+        "missing direct-session tool-call output trace: {trace_kinds:?}"
+    );
+    let resource_samples = records
+        .iter()
+        .filter_map(|record| match &record.event {
+            crate::reviewer::runtime_events::RuntimeEvent::AgentTrace {
+                trace_kind,
+                details,
+                ..
+            } if trace_kind == "resource_sample" => Some(details.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        resource_samples.len() >= 2,
+        "expected run/snapshot resource samples"
+    );
+    assert!(resource_samples
+        .iter()
+        .any(|sample| sample["phase"] == "run_finished"));
+    assert!(resource_samples
+        .iter()
+        .filter_map(|sample| sample["peakRssBytes"].as_u64())
+        .all(|bytes| bytes > 0));
+}

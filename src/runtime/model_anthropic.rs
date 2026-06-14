@@ -608,6 +608,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: Some("claude".to_string()),
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget: AgentBudget {
                 max_turns: 2,

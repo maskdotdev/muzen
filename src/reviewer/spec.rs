@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::contracts::{AgentBudget, Role};
 use crate::runtime::contracts::{
-    CapabilitySet, ProviderResourceId, ProviderResourceScope, RuntimeLimits, SessionId,
-    SessionInstruction, SessionScope, SnapshotId, ToolEffects, ToolGrant, ToolId, ToolProviderId,
+    CapabilitySet, ModelResponseFormat, ProviderResourceId, ProviderResourceScope, RuntimeLimits,
+    SessionId, SessionInstruction, SessionScope, SnapshotId, ToolEffects, ToolGrant, ToolId,
+    ToolProviderId,
 };
 
 use crate::reviewer::adapters::{capabilities, runtime};
@@ -92,6 +93,7 @@ pub struct ReviewSessionSpec {
     instructions: Vec<SessionInstruction>,
     snapshot_id: Option<SnapshotId>,
     model_profile_id: Option<String>,
+    response_format: Option<ModelResponseFormat>,
     capabilities: CapabilitySet,
     budget: AgentBudget,
 }
@@ -110,6 +112,7 @@ impl ReviewSessionSpec {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget,
         }
@@ -122,6 +125,11 @@ impl ReviewSessionSpec {
 
     pub fn with_model_profile_id(mut self, model_profile_id: impl Into<String>) -> Self {
         self.model_profile_id = Some(model_profile_id.into());
+        self
+    }
+
+    pub fn with_response_format(mut self, response_format: ModelResponseFormat) -> Self {
+        self.response_format = Some(response_format);
         self
     }
 
@@ -294,6 +302,7 @@ impl ReviewSessionSpec {
             instructions: self.instructions,
             snapshot_id: self.snapshot_id,
             model_profile_id: self.model_profile_id,
+            response_format: self.response_format,
             capabilities: self.capabilities,
             budget: self.budget,
         }
@@ -309,6 +318,7 @@ impl From<SessionScope> for ReviewSessionSpec {
             instructions: value.instructions,
             snapshot_id: value.snapshot_id,
             model_profile_id: value.model_profile_id,
+            response_format: value.response_format,
             capabilities: value.capabilities,
             budget: value.budget,
         }

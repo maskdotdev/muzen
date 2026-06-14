@@ -174,6 +174,7 @@ fn default_planned_review_lens_panel() -> Vec<RunSessionParams> {
         objective: objective.to_string(),
         cwd: None,
         model_profile_id: None,
+        response_format: None,
         instructions: Vec::new(),
         tool_grants: Vec::new(),
         budget: None,
@@ -205,6 +206,9 @@ fn run_session_spec(
     }
     if let Some(model_profile_id) = params.model_profile_id {
         spec = spec.with_model_profile_id(model_profile_id);
+    }
+    if let Some(response_format) = params.response_format {
+        spec = spec.with_response_format(response_format);
     }
     let mut instructions = global_instructions
         .iter()
@@ -489,6 +493,46 @@ mod tests {
         assert_eq!(
             default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(0)),
             1
+        );
+    }
+
+    #[test]
+    fn run_session_spec_preserves_response_format() {
+        let response_format = crate::runtime::contracts::ModelResponseFormat::json_schema(
+            "direct_findings",
+            serde_json::json!({
+                "type": "object",
+                "required": ["findings"],
+                "properties": {
+                    "findings": {"type": "array"}
+                }
+            }),
+        );
+        let spec = run_session_spec(
+            RunSessionParams {
+                id: "direct".to_string(),
+                role: Role::Generalist,
+                objective: "return findings".to_string(),
+                cwd: None,
+                model_profile_id: None,
+                response_format: Some(response_format),
+                instructions: Vec::new(),
+                tool_grants: Vec::new(),
+                budget: None,
+            },
+            &[],
+            &[],
+        )
+        .expect("session spec");
+
+        let scope = spec.into_session_scope();
+
+        assert_eq!(
+            scope
+                .response_format
+                .as_ref()
+                .map(|format| format.name.as_str()),
+            Some("direct_findings")
         );
     }
 }

@@ -482,6 +482,19 @@ fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
             session_id: session_id.0.clone(),
             turn: turn_id.0,
         },
+        RuntimeEvent::AgentTrace {
+            session_id,
+            turn_id,
+            trace_kind,
+            summary,
+            details,
+        } => ReviewEvent::AgentTrace {
+            session_id: session_id.0.clone(),
+            turn: turn_id.map(|turn| turn.0),
+            trace_kind: trace_kind.clone(),
+            summary: summary.clone(),
+            details: details.clone(),
+        },
         RuntimeEvent::ModelCompleted {
             session_id,
             turn_id,

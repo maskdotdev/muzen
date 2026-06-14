@@ -12,7 +12,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{TokenUsage, ToolCounts};
-use crate::runtime::contracts::*;
+use crate::runtime::contracts::{stable_id, *};
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
@@ -20,8 +20,9 @@ use crate::runtime::model_retry::complete_model_turn;
 use crate::runtime::planned_units::{add_model_metrics, elapsed_ms, record_usage};
 use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::tool_batch::ToolBatchRunner;
-use crate::runtime::tools::ToolEngine;
-use crate::runtime::transcript::enforce_prompt_budget;
+use crate::runtime::tools::{ToolEngine, ToolRegistry};
+use crate::runtime::transcript::{enforce_prompt_budget, estimate_prompt_tokens};
+use crate::util::peak_rss_bytes;
 
 pub(crate) struct AgentSessionRuntime {
     pub(crate) model_router: Arc<dyn ConcurrentModelRouter>,
@@ -190,7 +191,25 @@ impl AgentSessionRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
-            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            let evicted_tool_results =
+                enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            if evicted_tool_results > 0 {
+                self.events
+                    .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                        &scope,
+                        Some(turn_id),
+                        "transcript_compacted",
+                        format!(
+                            "evicted {evicted_tool_results} old tool result(s) before model turn"
+                        ),
+                        serde_json::json!({
+                            "evictedToolResults": evicted_tool_results,
+                            "transcriptItemsAfter": transcript.len(),
+                            "estimatedPromptTokensAfter": estimate_prompt_tokens(&transcript),
+                            "maxPromptTokens": scope.budget.max_prompt_tokens,
+                        }),
+                    ));
+            }
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
@@ -198,11 +217,66 @@ impl AgentSessionRuntime {
             let model_started = Instant::now();
             let final_turn =
                 turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
+            if final_turn && scope.response_format.is_some() {
+                transcript.push(ConversationItem::User {
+                    content: "Return the final structured answer now. Include every distinct supported bug found during exploration, especially separate changed predicates, date/boundary checks, and contract violations. Return findings: [] only if no supported bug remains after considering the gathered evidence.".to_string(),
+                });
+                self.events
+                    .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                        &scope,
+                        Some(turn_id),
+                        "structured_final_instruction_added",
+                        "added final structured-output instruction",
+                        serde_json::json!({
+                            "responseFormatName": scope
+                                .response_format
+                                .as_ref()
+                                .map(|format| format.name.as_str()),
+                            "transcriptItemsAfter": transcript.len(),
+                        }),
+                    ));
+            }
             let model_scope = if final_turn {
-                text_only_scope(&scope)
+                final_text_scope(&scope)
             } else {
-                scope.clone()
+                tool_turn_scope(&scope)
             };
+            let response_format = model_scope.response_format.as_ref();
+            self.events
+                .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                &scope,
+                Some(turn_id),
+                "model_turn_prepared",
+                format!(
+                        "prepared model turn with {} transcript item(s) and {} exposed tool(s)",
+                        transcript.len(),
+                        exposed_tool_names(
+                            self.policy.as_ref(),
+                            &self.tools.registry,
+                            &transcript,
+                            &model_scope.capabilities,
+                        )
+                        .len()
+                    ),
+                serde_json::json!({
+                    "finalTurn": final_turn,
+                    "callScopeHasTools": !model_scope.capabilities.tool_grants.is_empty(),
+                    "transcriptItems": transcript.len(),
+                    "estimatedPromptTokens": estimate_prompt_tokens(&transcript),
+                    "maxPromptTokens": scope.budget.max_prompt_tokens,
+                    "peakRssBytes": peak_rss_bytes(),
+                    "structuredOutputRequested": response_format.is_some(),
+                    "responseFormatName": response_format.map(|format| format.name.as_str()),
+                    "responseFormatStrict": response_format.map(|format| format.strict),
+                    "responseFormatSchemaDigest": response_format_schema_digest(response_format),
+                    "exposedTools": exposed_tool_names(
+                        self.policy.as_ref(),
+                        &self.tools.registry,
+                        &transcript,
+                        &model_scope.capabilities,
+                    ),
+                }),
+            ));
             let outcome = complete_model_turn(
                 &*model,
                 &self.policy,
@@ -228,6 +302,14 @@ impl AgentSessionRuntime {
                     break;
                 }
             };
+            self.events
+                .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                    &scope,
+                    Some(turn_id),
+                    model_turn_trace_kind(&turn),
+                    model_turn_trace_summary(&turn),
+                    model_turn_trace_details(&turn, outcome.attempts),
+                ));
             model_metrics.successes += 1;
             model_metrics.latency_ms += elapsed_ms(model_started);
             model_metrics.max_latency_ms =
@@ -240,6 +322,32 @@ impl AgentSessionRuntime {
                         self.policy
                             .plan_model_completed_runtime_event(&scope, turn_id, 0),
                     );
+                    if !final_turn && scope.response_format.is_some() {
+                        self.events
+                            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                                &scope,
+                                Some(turn_id),
+                                "early_text_deferred_for_structured_final",
+                                "deferred early text output so final turn can use response format",
+                                serde_json::json!({
+                                    "textBytes": content.len(),
+                                    "textDigest": stable_id(&[&content]),
+                                    "responseFormatName": scope
+                                        .response_format
+                                        .as_ref()
+                                        .map(|format| format.name.as_str()),
+                                }),
+                            ));
+                        transcript.push(ConversationItem::AssistantText {
+                            content: content.clone(),
+                        });
+                        transcript.push(ConversationItem::User {
+                            content:
+                                "Return the final answer using the required structured JSON schema."
+                                    .to_string(),
+                        });
+                        continue;
+                    }
                     transcript.push(ConversationItem::AssistantText {
                         content: content.clone(),
                     });
@@ -336,10 +444,21 @@ fn initial_transcript(scope: &SessionScope) -> Vec<ConversationItem> {
 }
 
 /// On the final turn the session must answer in text, so tools are withheld.
-fn text_only_scope(scope: &SessionScope) -> SessionScope {
+fn final_text_scope(scope: &SessionScope) -> SessionScope {
     let mut scope = scope.clone();
     scope.capabilities.tool_grants.clear();
     scope
+}
+
+/// During exploration, tools stay available and final-output schemas are withheld.
+fn tool_turn_scope(scope: &SessionScope) -> SessionScope {
+    let mut scope = scope.clone();
+    scope.response_format = None;
+    scope
+}
+
+fn response_format_schema_digest(response_format: Option<&ModelResponseFormat>) -> Option<String> {
+    response_format.map(|format| stable_id(&[&format.schema.to_string()]))
 }
 
 fn session_diagnostic(
@@ -359,5 +478,132 @@ fn session_diagnostic(
         saw_search: false,
         model_calls,
         tool_counts,
+    }
+}
+
+fn exposed_tool_names(
+    policy: &ReviewerPolicy,
+    registry: &ToolRegistry,
+    transcript: &[ConversationItem],
+    capabilities: &CapabilitySet,
+) -> Vec<serde_json::Value> {
+    policy
+        .tool_schemas_for_transcript(registry, transcript, capabilities)
+        .into_iter()
+        .filter_map(|schema| {
+            let function = schema.get("function")?;
+            let name = function.get("name")?.as_str()?;
+            Some(serde_json::json!({ "modelName": name }))
+        })
+        .collect()
+}
+
+fn model_turn_trace_kind(turn: &ModelTurn) -> &'static str {
+    match turn {
+        ModelTurn::Text { .. } => "model_turn_completed.text",
+        ModelTurn::ToolCalls { .. } => "model_turn_completed.tool_calls",
+    }
+}
+
+fn model_turn_trace_summary(turn: &ModelTurn) -> String {
+    match turn {
+        ModelTurn::Text { content, .. } => {
+            format!("model returned text output ({} bytes)", content.len())
+        }
+        ModelTurn::ToolCalls { calls, .. } => {
+            format!("model returned {} tool call(s)", calls.len())
+        }
+    }
+}
+
+fn model_turn_trace_details(turn: &ModelTurn, attempts: usize) -> serde_json::Value {
+    match turn {
+        ModelTurn::Text { content, usage } => serde_json::json!({
+            "attempts": attempts,
+            "outputKind": "text",
+            "textBytes": content.len(),
+            "textDigest": stable_id(&[content]),
+            "usage": usage,
+        }),
+        ModelTurn::ToolCalls { calls, usage } => serde_json::json!({
+            "attempts": attempts,
+            "outputKind": "tool_calls",
+            "toolCallCount": calls.len(),
+            "toolCalls": calls.iter().map(|call| serde_json::json!({
+                "callId": call.call_id.0,
+                "index": call.index,
+                "toolName": call.name.as_str(),
+                "argumentBytes": call.raw_arguments.len(),
+                "argumentHash": blake3::hash(call.raw_arguments.as_bytes()).to_hex().to_string(),
+                "argumentSummary": call.redacted_argument_summary(),
+            })).collect::<Vec<_>>(),
+            "usage": usage,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::{AgentBudget, Role};
+    use serde_json::json;
+
+    #[test]
+    fn final_text_scope_withholds_tools_but_preserves_response_format() {
+        let scope = SessionScope::review_read_only(
+            SessionId("direct".to_string()),
+            Role::Generalist,
+            "return findings",
+            AgentBudget::planned_baseline(),
+        )
+        .with_response_format(ModelResponseFormat::json_schema(
+            "direct_findings",
+            json!({
+                "type": "object",
+                "required": ["findings"],
+                "properties": {
+                    "findings": {"type": "array"}
+                }
+            }),
+        ));
+        assert!(!scope.capabilities.tool_grants.is_empty());
+
+        let final_scope = final_text_scope(&scope);
+
+        assert!(final_scope.capabilities.tool_grants.is_empty());
+        assert_eq!(
+            final_scope
+                .response_format
+                .as_ref()
+                .map(|format| format.name.as_str()),
+            Some("direct_findings")
+        );
+        assert!(!scope.capabilities.tool_grants.is_empty());
+    }
+
+    #[test]
+    fn tool_turn_scope_preserves_tools_but_withholds_response_format() {
+        let scope = SessionScope::review_read_only(
+            SessionId("direct".to_string()),
+            Role::Generalist,
+            "explore first",
+            AgentBudget::planned_baseline(),
+        )
+        .with_response_format(ModelResponseFormat::json_schema(
+            "direct_findings",
+            json!({
+                "type": "object",
+                "required": ["findings"],
+                "properties": {
+                    "findings": {"type": "array"}
+                }
+            }),
+        ));
+
+        let tool_scope = tool_turn_scope(&scope);
+
+        assert!(!tool_scope.capabilities.tool_grants.is_empty());
+        assert!(tool_scope.response_format.is_none());
+        assert!(scope.response_format.is_some());
     }
 }

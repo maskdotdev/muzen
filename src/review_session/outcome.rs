@@ -527,6 +527,7 @@ impl ReviewEventType {
             | InternalReviewEvent::ContextQueryCompleted { .. } => Self::RunnerEvent,
             InternalReviewEvent::SessionStarted { .. } => Self::AgentStarted,
             InternalReviewEvent::ModelStarted { .. } => Self::RunnerEvent,
+            InternalReviewEvent::AgentTrace { .. } => Self::RunnerEvent,
             InternalReviewEvent::ModelCompleted { .. } => Self::RunnerEvent,
             InternalReviewEvent::ModelFailed { .. } => Self::RunnerEvent,
             InternalReviewEvent::ToolBatchStarted { .. } => Self::ToolStarted,

@@ -826,8 +826,33 @@ pub struct SessionScope {
     pub instructions: Vec<SessionInstruction>,
     pub snapshot_id: Option<SnapshotId>,
     pub model_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ModelResponseFormat>,
     pub capabilities: CapabilitySet,
     pub budget: AgentBudget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelResponseFormat {
+    pub name: String,
+    pub schema: Value,
+    #[serde(default = "default_strict_response_format")]
+    pub strict: bool,
+}
+
+impl ModelResponseFormat {
+    pub fn json_schema(name: impl Into<String>, schema: Value) -> Self {
+        Self {
+            name: name.into(),
+            schema,
+            strict: true,
+        }
+    }
+}
+
+fn default_strict_response_format() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -851,6 +876,7 @@ impl SessionScope {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget,
         }
@@ -858,6 +884,11 @@ impl SessionScope {
 
     pub fn with_snapshot_id(mut self, snapshot_id: SnapshotId) -> Self {
         self.snapshot_id = Some(snapshot_id);
+        self
+    }
+
+    pub fn with_response_format(mut self, response_format: ModelResponseFormat) -> Self {
+        self.response_format = Some(response_format);
         self
     }
 }
@@ -891,6 +922,76 @@ pub struct ModelToolCall {
     pub index: usize,
     pub name: ToolId,
     pub raw_arguments: String,
+}
+
+impl ModelToolCall {
+    pub(crate) fn redacted_argument_summary(&self) -> Value {
+        redacted_tool_argument_summary(&self.name, &self.raw_arguments)
+    }
+}
+
+fn redacted_tool_argument_summary(tool_id: &ToolId, raw_arguments: &str) -> Value {
+    let Ok(arguments) = serde_json::from_str::<Value>(raw_arguments) else {
+        return serde_json::json!({ "parseable": false });
+    };
+    match tool_id.as_builtin() {
+        Some(ToolName::ListChangedFiles | ToolName::ReadDiff | ToolName::ListFiles) => {
+            serde_json::json!({ "parseable": true })
+        }
+        Some(
+            ToolName::ReadFile
+            | ToolName::ReadBaseFile
+            | ToolName::ReadHeadFile
+            | ToolName::FindRelatedFiles
+            | ToolName::FindTestsForFile
+            | ToolName::ListImports,
+        ) => serde_json::json!({
+            "parseable": true,
+            "path": arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .map(compact_trace_string),
+        }),
+        Some(ToolName::ReadFileRange) => serde_json::json!({
+            "parseable": true,
+            "path": arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .map(compact_trace_string),
+            "startLine": arguments.get("start_line").or_else(|| arguments.get("startLine")).cloned(),
+            "endLine": arguments.get("end_line").or_else(|| arguments.get("endLine")).cloned(),
+        }),
+        Some(ToolName::SearchText) => serde_json::json!({
+            "parseable": true,
+            "query": arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .map(compact_trace_string),
+        }),
+        None => {
+            let keys = arguments
+                .as_object()
+                .map(|object| object.keys().take(20).cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            serde_json::json!({
+                "parseable": true,
+                "keys": keys,
+            })
+        }
+    }
+}
+
+fn compact_trace_string(value: &str) -> String {
+    const MAX_CHARS: usize = 240;
+    let mut output = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if index >= MAX_CHARS {
+            output.push_str("...");
+            return output;
+        }
+        output.push(ch);
+    }
+    output
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1195,6 +1296,14 @@ pub enum RuntimeEvent {
         session_id: SessionId,
         turn_id: TurnId,
     },
+    AgentTrace {
+        session_id: SessionId,
+        turn_id: Option<TurnId>,
+        trace_kind: String,
+        summary: String,
+        #[serde(default, skip_serializing_if = "Value::is_null")]
+        details: Value,
+    },
     ModelCompleted {
         session_id: SessionId,
         turn_id: TurnId,
@@ -1311,6 +1420,11 @@ impl RuntimeEventContext {
                 session_id,
                 turn_id,
             }
+            | RuntimeEvent::AgentTrace {
+                session_id,
+                turn_id: Some(turn_id),
+                ..
+            }
             | RuntimeEvent::ModelCompleted {
                 session_id,
                 turn_id,
@@ -1328,6 +1442,14 @@ impl RuntimeEventContext {
             } => Self {
                 session_id: Some(session_id.clone()),
                 turn_id: Some(*turn_id),
+                ..Self::default()
+            },
+            RuntimeEvent::AgentTrace {
+                session_id,
+                turn_id: None,
+                ..
+            } => Self {
+                session_id: Some(session_id.clone()),
                 ..Self::default()
             },
             RuntimeEvent::ToolCallCompleted { call_id, .. }

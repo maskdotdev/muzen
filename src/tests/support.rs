@@ -730,6 +730,7 @@ pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> Se
         instructions: Vec::new(),
         snapshot_id: None,
         model_profile_id: Some("test-model".to_string()),
+        response_format: None,
         capabilities,
         budget: AgentBudget {
             max_turns: 4,

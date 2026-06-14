@@ -492,9 +492,18 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("objective", "string"),
                 optional("cwd", "string"),
                 optional("modelProfileId", "string"),
+                optional("responseFormat", "ModelResponseFormat"),
                 defaulted("instructions", "RunInstructionParams[]", "[]"),
                 defaulted("toolGrants", "string[]", "[]"),
                 optional("budget", "RunAgentBudgetParams"),
+            ],
+        ),
+        object(
+            "ModelResponseFormat",
+            vec![
+                required("name", "string"),
+                required("schema", "json"),
+                defaulted("strict", "boolean", "true"),
             ],
         ),
         enum_definition(

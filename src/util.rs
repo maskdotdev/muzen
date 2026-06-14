@@ -4,13 +4,35 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Context, Result};
 
 pub(crate) const SCHEMA_VERSION: &str = "heimdaal.review-run.v1";
-pub(crate) const DEFAULT_MODEL: &str = "gpt-4.1-nano";
+pub(crate) const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 
 pub(crate) fn timestamp_utc() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0));
     format!("{}.{:09}Z", now.as_secs(), now.subsec_nanos())
+}
+
+pub(crate) fn peak_rss_bytes() -> Option<u64> {
+    unsafe {
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) != 0 {
+            return None;
+        }
+        let raw = usage.assume_init().ru_maxrss;
+        if raw <= 0 {
+            return None;
+        }
+        let raw = u64::try_from(raw).ok()?;
+        #[cfg(target_os = "macos")]
+        {
+            Some(raw)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Some(raw.saturating_mul(1024))
+        }
+    }
 }
 
 pub(crate) fn redact_known_secrets(text: &str, secrets: &[&str]) -> String {

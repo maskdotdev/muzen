@@ -861,6 +861,7 @@ fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> S
         instructions: Vec::new(),
         snapshot_id: None,
         model_profile_id: Some(profile_id),
+        response_format: None,
         capabilities: CapabilitySet::review_read_only(),
         budget: AgentBudget {
             max_turns: 1,
@@ -941,6 +942,9 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
         body[token_param] = json!(self.profile.max_output_tokens);
         if !(self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with('o')) {
             body["temperature"] = json!(self.profile.temperature.unwrap_or(0.0));
+        }
+        if let Some(response_format) = &scope.response_format {
+            body["response_format"] = chat_json_schema_response_format(response_format);
         }
         body["stream"] = json!(true);
         body["stream_options"] = json!({ "include_usage": true });
@@ -1273,6 +1277,9 @@ fn responses_request_body(
             }
         }
     }
+    if input.is_empty() {
+        input.push(response_message("user", "Begin the task."));
+    }
 
     let mut body = json!({
         "model": profile.model.as_str(),
@@ -1300,7 +1307,32 @@ fn responses_request_body(
     if let Some(top_p) = profile.top_p {
         body["top_p"] = json!(top_p);
     }
+    if let Some(response_format) = &scope.response_format {
+        body["text"] = json!({
+            "format": responses_json_schema_text_format(response_format),
+        });
+    }
     Ok(body)
+}
+
+fn chat_json_schema_response_format(response_format: &ModelResponseFormat) -> Value {
+    json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": response_format.name.as_str(),
+            "strict": response_format.strict,
+            "schema": response_format.schema.clone(),
+        },
+    })
+}
+
+fn responses_json_schema_text_format(response_format: &ModelResponseFormat) -> Value {
+    json!({
+        "type": "json_schema",
+        "name": response_format.name.as_str(),
+        "strict": response_format.strict,
+        "schema": response_format.schema.clone(),
+    })
 }
 
 fn response_message(role: &str, content: &str) -> Value {
@@ -1773,7 +1805,8 @@ mod tests {
             .enable_all()
             .build()
             .expect("runtime");
-        let scope = openai_provider_canary_scope("stream".to_string(), 64);
+        let scope = openai_provider_canary_scope("stream".to_string(), 64)
+            .with_response_format(test_response_format());
         let turn = runtime
             .block_on(client.complete(
                 &scope,
@@ -1790,6 +1823,19 @@ mod tests {
         let request_json: Value = serde_json::from_slice(request_body).expect("request json");
         assert_eq!(request_json["stream"], true);
         assert_eq!(request_json["stream_options"]["include_usage"], true);
+        assert_eq!(request_json["response_format"]["type"], "json_schema");
+        assert_eq!(
+            request_json["response_format"]["json_schema"]["name"],
+            "test_result"
+        );
+        assert_eq!(
+            request_json["response_format"]["json_schema"]["strict"],
+            true
+        );
+        assert_eq!(
+            request_json["response_format"]["json_schema"]["schema"]["required"][0],
+            "summary"
+        );
 
         let ModelTurn::ToolCalls { calls, usage } = turn else {
             panic!("expected tool call turn");
@@ -1801,6 +1847,51 @@ mod tests {
         assert_eq!(usage.input_tokens, 9);
         assert_eq!(usage.output_tokens, 4);
         assert_eq!(usage.total_tokens, 13);
+    }
+
+    #[test]
+    fn responses_request_body_includes_structured_text_format() {
+        let registry = ToolRegistry::review_defaults().expect("registry");
+        let profile = profile_with_base_url("responses", None);
+        let scope = openai_provider_canary_scope("responses".to_string(), 64)
+            .with_response_format(test_response_format());
+        let body = responses_request_body(
+            &profile,
+            &ReviewerPolicy::new(),
+            &registry,
+            &scope,
+            &[ConversationItem::User {
+                content: "Return JSON.".to_string(),
+            }],
+        )
+        .expect("request body");
+
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["format"]["name"], "test_result");
+        assert_eq!(body["text"]["format"]["strict"], true);
+        assert_eq!(body["text"]["format"]["schema"]["required"][0], "summary");
+    }
+
+    #[test]
+    fn responses_request_body_adds_input_for_system_only_transcripts() {
+        let registry = ToolRegistry::review_defaults().expect("registry");
+        let profile = profile_with_base_url("responses", None);
+        let scope = openai_provider_canary_scope("responses".to_string(), 64);
+        let body = responses_request_body(
+            &profile,
+            &ReviewerPolicy::new(),
+            &registry,
+            &scope,
+            &[ConversationItem::System {
+                content: "Review the change.".to_string(),
+            }],
+        )
+        .expect("request body");
+
+        assert_eq!(body["instructions"], "Review the change.");
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+        assert_eq!(body["input"][0]["content"][0]["text"], "Begin the task.");
     }
 
     #[test]
@@ -1936,6 +2027,20 @@ mod tests {
             )
             .unwrap();
         (registry, internal_tool, model_alias)
+    }
+
+    fn test_response_format() -> ModelResponseFormat {
+        ModelResponseFormat::json_schema(
+            "test_result",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["summary"],
+                "properties": {
+                    "summary": { "type": "string" },
+                },
+            }),
+        )
     }
 
     fn assert_tool_call_turn(

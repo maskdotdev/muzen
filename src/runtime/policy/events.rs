@@ -41,6 +41,23 @@ impl ReviewerPolicy {
         })
     }
 
+    pub(crate) fn plan_agent_trace_event(
+        &self,
+        scope: &SessionScope,
+        turn_id: Option<TurnId>,
+        trace_kind: impl Into<String>,
+        summary: impl Into<String>,
+        details: Value,
+    ) -> PlannedRuntimeEvent {
+        planned_runtime_event(RuntimeEvent::AgentTrace {
+            session_id: scope.id.clone(),
+            turn_id,
+            trace_kind: trace_kind.into(),
+            summary: truncate_chars(&redact_known_secrets(&summary.into(), &[]), 300),
+            details,
+        })
+    }
+
     pub(crate) fn plan_model_completed_runtime_event(
         &self,
         scope: &SessionScope,
@@ -252,16 +269,19 @@ fn artifact_event_summary(result: &ToolResultEnvelope) -> String {
 }
 
 fn tool_call_completed_details(result: &ToolResultEnvelope) -> Option<Value> {
-    if result.ok {
-        return None;
-    }
     match result.tool_name.as_builtin() {
         Some(
-            ToolName::ReadFile
+            ToolName::ReadDiff
+            | ToolName::ListChangedFiles
+            | ToolName::ListFiles
+            | ToolName::ReadFile
             | ToolName::ReadFileRange
             | ToolName::ReadBaseFile
             | ToolName::ReadHeadFile,
-        ) => artifact_event_details(result),
+        )
+        | Some(ToolName::SearchText)
+        | Some(ToolName::FindRelatedFiles | ToolName::FindTestsForFile)
+        | Some(ToolName::ListImports) => artifact_event_details(result),
         _ => None,
     }
 }

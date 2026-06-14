@@ -377,6 +377,7 @@ impl ReviewAgentSession {
                 .model_profile_id
                 .clone()
                 .or_else(|| default_model.map(str::to_string)),
+            response_format: None,
             instructions: self
                 .instructions
                 .iter()

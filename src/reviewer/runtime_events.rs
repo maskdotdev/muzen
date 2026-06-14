@@ -258,3 +258,64 @@ fn write_event_records_jsonl(
         bytes,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::contracts::{AgentBudget, Role};
+    use crate::runtime::contracts::{SessionId, SessionScope};
+
+    #[test]
+    fn agent_trace_events_round_trip_through_runtime_jsonl() {
+        let sink = InMemoryEventSink::default();
+        let scope = SessionScope::review_read_only(
+            SessionId("trace-session".to_string()),
+            Role::Generalist,
+            "trace test",
+            AgentBudget {
+                max_turns: 1,
+                max_tool_calls: 1,
+                max_prompt_tokens: 1024,
+                max_output_tokens: 128,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
+            },
+        );
+        sink.emit(RuntimeEvent::AgentTrace {
+            session_id: scope.id.clone(),
+            turn_id: Some(TurnId(7)),
+            trace_kind: "model_turn_prepared".to_string(),
+            summary: "prepared model turn".to_string(),
+            details: json!({
+                "transcriptItems": 2,
+                "exposedTools": [{"modelName": "read"}],
+            }),
+        });
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("runtime-events.jsonl");
+        let manifest = sink.export_jsonl(&path).expect("export jsonl");
+        assert_eq!(manifest.record_count, 1);
+
+        let loaded = load_event_records_jsonl(&path).expect("load jsonl");
+        assert_eq!(loaded.record_count, 1);
+        let record = loaded.records.first().expect("record");
+        assert_eq!(record.context.session_id, Some(scope.id));
+        assert_eq!(record.context.turn_id, Some(TurnId(7)));
+        match &record.event {
+            RuntimeEvent::AgentTrace {
+                trace_kind,
+                summary,
+                details,
+                ..
+            } => {
+                assert_eq!(trace_kind, "model_turn_prepared");
+                assert_eq!(summary, "prepared model turn");
+                assert_eq!(details["transcriptItems"], 2);
+                assert_eq!(details["exposedTools"][0]["modelName"], "read");
+            }
+            event => panic!("expected agent trace, got {event:?}"),
+        }
+    }
+}

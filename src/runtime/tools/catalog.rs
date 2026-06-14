@@ -19,6 +19,20 @@ pub(crate) struct BuiltinToolSpec {
 }
 
 impl BuiltinToolSpec {
+    pub(crate) fn model_alias(
+        self,
+    ) -> crate::runtime::contracts::RuntimeResult<crate::runtime::contracts::ToolId> {
+        crate::runtime::contracts::ToolId::parse(match self.name {
+            ToolName::ListFiles => "glob",
+            ToolName::ReadFile => "read",
+            ToolName::ReadDiff => "diff",
+            ToolName::SearchText => "grep",
+            ToolName::FindTestsForFile => "tests",
+            ToolName::ListImports => "imports",
+            _ => self.name.as_str(),
+        })
+    }
+
     pub(crate) fn parameters(self) -> Value {
         match self.arg_shape {
             ToolArgShape::Empty => object_schema(json!({}), Vec::new()),
@@ -69,19 +83,19 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
         },
         ToolName::ListFiles => BuiltinToolSpec {
             name,
-            description: "List text/code files in the materialized repo.",
+            description: "List repo files. Use this like glob before reading when you need candidate paths or want to discover callers/tests by filename.",
             arg_shape: ToolArgShape::Empty,
             cacheable: true,
         },
         ToolName::ReadFile => BuiltinToolSpec {
             name,
-            description: "Read a text file by repo-relative path.",
+            description: "Read a text file by repo-relative path from the review snapshot. The whole repository is readable, not just changed files: follow threads into callers, callees, helpers, base classes, tests, and config — most real bugs are proven by reading the unchanged code a change interacts with. Use `read_range` instead once you know the lines.",
             arg_shape: ToolArgShape::Path,
             cacheable: true,
         },
         ToolName::ReadFileRange => BuiltinToolSpec {
             name,
-            description: "Read a focused line range from a text file by repo-relative path.",
+            description: "Read a focused line range from a text file by repo-relative path. Prefer this over `read` once a grep hit or earlier read tells you the relevant lines; it is far cheaper on large files and lets you page through long files with successive ranges.",
             arg_shape: ToolArgShape::FileRange,
             cacheable: true,
         },
@@ -100,7 +114,7 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
         },
         ToolName::SearchText => BuiltinToolSpec {
             name,
-            description: "Search repository text for literal terms separated by |.",
+            description: "Search repository text for literal terms separated by |. Use this like grep as your primary way to locate things across the repo: callers and consumers of a changed function, other implementations of the same shape, error handling, tests, and config keys. Grep first to find the lines, then `read_range` them — do this instead of reading whole files speculatively.",
             arg_shape: ToolArgShape::SearchQuery,
             cacheable: true,
         },
@@ -112,13 +126,13 @@ fn builtin_tool_spec(name: ToolName) -> BuiltinToolSpec {
         },
         ToolName::FindTestsForFile => BuiltinToolSpec {
             name,
-            description: "Find likely tests for a repo-relative path.",
+            description: "Find likely tests for a repo-relative path when behavior, boundary, return-shape, auth, or query-scope changes need test evidence.",
             arg_shape: ToolArgShape::Path,
             cacheable: true,
         },
         ToolName::ListImports => BuiltinToolSpec {
             name,
-            description: "List import-like lines from a repo-relative text file.",
+            description: "List import-like lines from a repo-relative text file to identify dependencies, consumers, helper contracts, and cross-file review targets.",
             arg_shape: ToolArgShape::Path,
             cacheable: true,
         },

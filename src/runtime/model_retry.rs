@@ -180,6 +180,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget: AgentBudget {
                 max_turns: 1,

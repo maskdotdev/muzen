@@ -130,7 +130,8 @@ mod tests {
     };
     use crate::runtime::contracts::{
         CacheInfo, CacheStatus, CapabilitySet, LimitInfo, RuntimeEvent, RuntimeEventContext,
-        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolId, ToolProviderId,
+        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolErrorCode, ToolId,
+        ToolProviderId,
     };
     use crate::runtime::repo::RepoSnapshot;
 
@@ -208,6 +209,73 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn processor_emits_host_visible_denied_tool_events() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("README.md"), "needle\n").expect("write readme");
+        let change = test_change_with_file("README.md");
+        let snapshot = RepoSnapshot::build(temp.path(), &PathPolicyV1::bench(64, 20), &change)
+            .expect("snapshot");
+        let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
+        let tools = ToolEngine::new(Arc::clone(&snapshot), limits).expect("tool engine");
+        let policy = ReviewerPolicy::new();
+        let runtime_sink = Arc::new(RecordingRuntimeSink::default());
+        let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
+        let dispatcher = RuntimeEventDispatcher::new(Some(sink));
+        let processor =
+            ToolResultEffectProcessor::new(&policy, &tools, &dispatcher, &change.head_revision_id);
+        let scope = test_scope("effects-denial-session");
+        let mut evidence = SessionEvidence::default();
+        let mut tool_counts = ToolCounts::default();
+        let mut transcript = Vec::new();
+
+        let denied = tools.error_result(
+            ToolCallId("denied-read".to_string()),
+            ToolId::from(ToolName::ReadFile),
+            ToolErrorCode::PathDenied,
+            "path is outside the review snapshot",
+            false,
+        );
+
+        let outcome = processor.apply_batch(
+            &scope,
+            TurnId(4),
+            vec![denied],
+            ToolResultBatchState {
+                evidence: &mut evidence,
+                tool_counts: &mut tool_counts,
+                transcript: &mut transcript,
+            },
+        );
+
+        assert!(!outcome.terminal_seen);
+        assert_eq!(transcript.len(), 1);
+        let records = runtime_sink.records.lock().expect("sink lock");
+        assert!(records.iter().any(|(context, event)| {
+            context.session_id.as_ref() == Some(&scope.id)
+                && context.turn_id == Some(TurnId(4))
+                && matches!(
+                    event,
+                    RuntimeEvent::ToolCallDenied {
+                        call_id,
+                        error_code: ToolErrorCode::PathDenied,
+                        ..
+                    } if call_id.0 == "denied-read"
+                )
+        }));
+        assert!(records.iter().any(|(_, event)| {
+            matches!(
+                event,
+                RuntimeEvent::ToolCallCompleted {
+                    call_id,
+                    ok: false,
+                    error_code: Some(ToolErrorCode::PathDenied),
+                    ..
+                } if call_id.0 == "denied-read"
+            )
+        }));
+    }
+
     fn successful_search_result(snapshot_id: &SnapshotId) -> ToolResultEnvelope {
         ToolResultEnvelope {
             ok: true,
@@ -239,6 +307,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: Some("test-model".to_string()),
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget: AgentBudget {
                 max_turns: 4,

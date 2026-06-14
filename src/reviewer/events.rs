@@ -118,6 +118,15 @@ pub enum ReviewEvent {
         session_id: String,
         turn: u32,
     },
+    AgentTrace {
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<u32>,
+        trace_kind: String,
+        summary: String,
+        #[serde(default, skip_serializing_if = "Value::is_null")]
+        details: Value,
+    },
     ModelCompleted {
         session_id: String,
         turn: u32,
@@ -291,6 +300,19 @@ impl ReviewEvent {
             } => Self::ModelStarted {
                 session_id: session_id.0.clone(),
                 turn: turn_id.0,
+            },
+            RuntimeEvent::AgentTrace {
+                session_id,
+                turn_id,
+                trace_kind,
+                summary,
+                details,
+            } => Self::AgentTrace {
+                session_id: session_id.0.clone(),
+                turn: turn_id.map(|turn| turn.0),
+                trace_kind: trace_kind.clone(),
+                summary: summary.clone(),
+                details: details.clone(),
             },
             RuntimeEvent::ModelCompleted {
                 session_id,

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::runtime::contracts::{
-    CapabilitySet, ConcurrentRunReport, FsScope, RuntimeLimits, SnapshotStoragePolicy, ToolGrant,
-    ToolId,
+    CapabilitySet, ConcurrentRunReport, FsScope, RuntimeEventSink, RuntimeLimits,
+    SnapshotStoragePolicy, ToolGrant, ToolId,
 };
 use crate::runtime::model::{EnvCredentialResolver, ModelLimiter, ProfileModelRouter};
 use crate::runtime::tools::ToolRegistry as RuntimeToolRegistry;
@@ -15,6 +15,13 @@ use crate::reviewer::run::*;
 use crate::reviewer::snapshots::*;
 use crate::reviewer::spec::*;
 pub(crate) fn run_review_job(job: ReviewRunJobV1) -> anyhow::Result<ConcurrentRunReport> {
+    run_review_job_with_event_sink(job, None)
+}
+
+pub(crate) fn run_review_job_with_event_sink(
+    job: ReviewRunJobV1,
+    event_sink: Option<Arc<dyn RuntimeEventSink>>,
+) -> anyhow::Result<ConcurrentRunReport> {
     validate_job(&job)?;
     let registry = Arc::new(
         RuntimeToolRegistry::review_defaults()
@@ -42,9 +49,13 @@ pub(crate) fn run_review_job(job: ReviewRunJobV1) -> anyhow::Result<ConcurrentRu
         Arc::new(EnvCredentialResolver),
     )
     .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let run = Run::builder(run_spec_from_job(&job, limits))
+    let mut builder = Run::builder(run_spec_from_job(&job, limits))
         .model_router(Arc::new(router))
-        .shared_tool_registry(registry)
+        .shared_tool_registry(registry);
+    if let Some(event_sink) = event_sink {
+        builder = builder.event_sink(event_sink);
+    }
+    let run = builder
         .build()
         .map_err(|error| anyhow::anyhow!("{error}"))?;
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
