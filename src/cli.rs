@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,7 +10,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::bench::bench_job;
 use crate::context_engine::{
     explain_selected_evidence, ContextEmbeddingProviderKind, ContextEngine, ContextEngineConfig,
     ContextGraphDebugExport, ContextIndex, ContextIndexRequest, ContextPackPurpose,
@@ -19,7 +17,6 @@ use crate::context_engine::{
     SnapshotContextEngine,
 };
 use crate::contracts::*;
-use crate::reviewer::agent_trace::build_agent_trace_report;
 use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
 use crate::reviewer::canaries::{
     export_canary_evidence_manifest, export_model_provider_canary_evidence,
@@ -29,9 +26,7 @@ use crate::reviewer::canaries::{
     run_remote_snapshot_object_store_canary, CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
     EnvCredentialResolver, ModelProviderCanaryEvidence, OpenAiProviderCanaryConfig,
 };
-use crate::reviewer::runtime_events::InMemoryEventSink;
 use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
-use crate::runtime::bench::{run_job_concurrent, run_job_concurrent_with_event_sink};
 use crate::runtime::repo::RepoSnapshot;
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 
@@ -60,12 +55,6 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
-    /// Run a ReviewRunJobV1 from JSON.
-    Run(RunArgs),
-    /// Convenience benchmark wrapper that builds a ReviewRunJobV1 for a repo.
-    Bench(BenchArgs),
-    /// Build the benchmark ReviewRunJobV1 JSON without executing it.
-    BenchJob(BenchArgs),
     /// Inspect Muzen Context Engine output for a local snapshot.
     Context(ContextArgs),
     /// Validate canary publication configuration without writing evidence.
@@ -82,49 +71,6 @@ pub(crate) enum Command {
     CanaryWorkflowProvenance(CanaryWorkflowProvenanceArgs),
     /// Validate a full scheduled canary evidence directory as a final proof bundle.
     CanaryProof(CanaryProofArgs),
-}
-
-#[derive(Parser, Debug, Clone)]
-pub(crate) struct RunArgs {
-    #[arg(long, default_value = "-")]
-    pub(crate) job: PathBuf,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub(crate) struct BenchArgs {
-    #[arg(long, default_value = ".")]
-    pub(crate) repo: PathBuf,
-
-    #[arg(long, default_value_t = 10)]
-    pub(crate) sessions: usize,
-
-    #[arg(long, default_value_t = 10)]
-    pub(crate) max_active: usize,
-
-    #[arg(long, default_value_t = 7)]
-    pub(crate) max_turns: usize,
-
-    #[arg(long, default_value_t = 14)]
-    pub(crate) max_tool_calls: usize,
-
-    #[arg(long, default_value_t = 1000)]
-    pub(crate) hold_ms: u64,
-
-    #[arg(long, default_value_t = 200)]
-    pub(crate) max_file_kb: usize,
-
-    #[arg(long, default_value_t = 120)]
-    pub(crate) max_search_matches: usize,
-
-    #[arg(long, default_value = DEFAULT_MODEL)]
-    pub(crate) model: String,
-
-    #[arg(long, default_value_t = 256)]
-    pub(crate) max_output_tokens: u32,
-
-    /// Directory for raw runtime-events.jsonl and grouped agent-trace.json.
-    #[arg(long)]
-    pub(crate) trace_output_dir: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -800,24 +746,6 @@ pub(crate) struct CanaryWorkflowProvenance {
     pub(crate) run_url: String,
 }
 
-pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
-    let mut input = String::new();
-    if args.job == Path::new("-") {
-        std::io::stdin().read_to_string(&mut input)?;
-    } else {
-        input = fs::read_to_string(&args.job)
-            .with_context(|| format!("failed to read job {}", args.job.display()))?;
-    }
-    let job: ReviewRunJobV1 =
-        serde_json::from_str(&input).context("invalid ReviewRunJobV1 JSON")?;
-    let report = run_job_concurrent(job)?;
-    Ok(if report.completed_sessions == report.sessions {
-        0
-    } else {
-        4
-    })
-}
-
 pub fn main_entry() {
     let code = match run_main() {
         Ok(code) => code,
@@ -832,44 +760,6 @@ pub fn main_entry() {
 pub(crate) fn run_main() -> Result<i32> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Run(args) => run_json(args),
-        Command::Bench(args) => {
-            let hold_ms = args.hold_ms;
-            let trace_output_dir = args.trace_output_dir.clone();
-            let job = bench_job(&args)?;
-            let trace_sink = trace_output_dir
-                .as_ref()
-                .map(|_| Arc::new(InMemoryEventSink::default()));
-            let report = if let Some(trace_sink) = trace_sink.as_ref() {
-                run_job_concurrent_with_event_sink(job, trace_sink.clone())?
-            } else {
-                run_job_concurrent(job)?
-            };
-            if let (Some(output_dir), Some(trace_sink)) = (trace_output_dir.as_ref(), trace_sink) {
-                write_bench_trace_outputs(output_dir, trace_sink.as_ref())?;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(hold_ms));
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if !report.benchmark_valid {
-                bail!(
-                    "concurrent benchmark gates failed: {:?}",
-                    report.benchmark_failures
-                );
-            }
-            if report.completed_sessions != report.sessions {
-                bail!(
-                    "only {}/{} sessions completed",
-                    report.completed_sessions,
-                    report.sessions
-                );
-            }
-            Ok(0)
-        }
-        Command::BenchJob(args) => {
-            let job = bench_job(&args)?;
-            println!("{}", serde_json::to_string_pretty(&job)?);
-            Ok(0)
-        }
         Command::Context(args) => run_context(args),
         Command::CanaryPreflight(args) => run_canary_preflight(args),
         Command::CanaryPublish(args) => run_canary_publish(args),
@@ -879,71 +769,6 @@ pub(crate) fn run_main() -> Result<i32> {
         Command::CanaryWorkflowProvenance(args) => run_canary_workflow_provenance(args),
         Command::CanaryProof(args) => run_canary_proof(args),
     }
-}
-
-fn write_bench_trace_outputs(output_dir: &Path, trace_sink: &InMemoryEventSink) -> Result<()> {
-    fs::create_dir_all(output_dir)
-        .with_context(|| format!("failed to create trace output dir {}", output_dir.display()))?;
-    let runtime_events_path = output_dir.join("runtime-events.jsonl");
-    let runtime_manifest = trace_sink
-        .export_jsonl(&runtime_events_path)
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let records = trace_sink.records();
-    let trace_report = build_agent_trace_report(&records);
-    let trace_report_path = output_dir.join("agent-trace.json");
-    fs::write(
-        &trace_report_path,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "schemaVersion": "muzen.agent-trace.v1",
-            "generatedAtUtc": timestamp_utc(),
-            "runtimeEvents": {
-                "path": runtime_events_path,
-                "recordCount": runtime_manifest.record_count,
-                "droppedCount": runtime_manifest.dropped_count,
-                "bytes": runtime_manifest.bytes,
-            },
-            "report": &trace_report,
-        }))?,
-    )
-    .with_context(|| format!("failed to write {}", trace_report_path.display()))?;
-    let coverage_path = output_dir.join("event-coverage.json");
-    fs::write(
-        &coverage_path,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "schemaVersion": "muzen.agent-trace-coverage.v1",
-            "generatedAtUtc": timestamp_utc(),
-            "runtimeEventCount": runtime_manifest.record_count,
-            "agentTraceEvents": trace_report.agent_trace_events,
-            "modelTurns": trace_report.model_turns,
-            "toolCallsRequested": trace_report.tool_calls_requested,
-            "toolCallsCompleted": trace_report.tool_calls_completed,
-            "toolCallsDenied": trace_report.tool_calls_denied,
-            "findingsRecorded": trace_report.findings_recorded,
-            "sessions": trace_report.sessions.len(),
-            "hasResourceSamples": records.iter().any(|record| matches!(
-                &record.event,
-                crate::reviewer::runtime_events::RuntimeEvent::AgentTrace { trace_kind, .. }
-                    if trace_kind == "resource_sample"
-            )),
-            "hasModelTurnPrepared": records.iter().any(|record| matches!(
-                &record.event,
-                crate::reviewer::runtime_events::RuntimeEvent::AgentTrace { trace_kind, .. }
-                    if trace_kind == "model_turn_prepared"
-            )),
-            "hasToolBatchPlanning": records.iter().any(|record| matches!(
-                &record.event,
-                crate::reviewer::runtime_events::RuntimeEvent::AgentTrace { trace_kind, .. }
-                    if trace_kind == "tool_batch_planned"
-            )),
-            "hasCandidateDecision": records.iter().any(|record| matches!(
-                &record.event,
-                crate::reviewer::runtime_events::RuntimeEvent::AgentTrace { trace_kind, .. }
-                    if trace_kind == "candidate_finding_decision"
-            )),
-        }))?,
-    )
-    .with_context(|| format!("failed to write {}", coverage_path.display()))?;
-    Ok(())
 }
 
 pub(crate) fn run_context(args: ContextArgs) -> Result<i32> {
@@ -3631,54 +3456,6 @@ fn write_canary_proof_report(path: &Path, report: &CanaryProofReport) -> Result<
 #[cfg(test)]
 mod context_cli_tests {
     use super::*;
-
-    #[test]
-    fn bench_trace_writer_exports_jsonl_report_and_coverage() {
-        let sink = InMemoryEventSink::default();
-        crate::reviewer::runtime_events::EventSink::emit(
-            &sink,
-            crate::reviewer::runtime_events::RuntimeEvent::AgentTrace {
-                session_id: crate::reviewer::adapters::ids::SessionId("run".to_string()),
-                turn_id: None,
-                trace_kind: "resource_sample".to_string(),
-                summary: "run_started peak_rss_bytes=1".to_string(),
-                details: serde_json::json!({
-                    "phase": "run_started",
-                    "peakRssBytes": 1,
-                }),
-            },
-        );
-        crate::reviewer::runtime_events::EventSink::emit(
-            &sink,
-            crate::reviewer::runtime_events::RuntimeEvent::AgentTrace {
-                session_id: crate::reviewer::adapters::ids::SessionId("session-a".to_string()),
-                turn_id: Some(crate::reviewer::runtime_events::TurnId(0)),
-                trace_kind: "model_turn_prepared".to_string(),
-                summary: "prepared model turn".to_string(),
-                details: serde_json::json!({
-                    "exposedTools": [{"modelName": "read"}],
-                }),
-            },
-        );
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        write_bench_trace_outputs(dir.path(), &sink).expect("write trace outputs");
-
-        assert!(dir.path().join("runtime-events.jsonl").exists());
-        let trace: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(dir.path().join("agent-trace.json")).expect("agent trace file"),
-        )
-        .expect("agent trace json");
-        assert_eq!(trace["schemaVersion"], "muzen.agent-trace.v1");
-        assert_eq!(trace["report"]["agentTraceEvents"], 2);
-        let coverage: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(dir.path().join("event-coverage.json")).expect("coverage file"),
-        )
-        .expect("coverage json");
-        assert_eq!(coverage["schemaVersion"], "muzen.agent-trace-coverage.v1");
-        assert_eq!(coverage["hasResourceSamples"], true);
-        assert_eq!(coverage["hasModelTurnPrepared"], true);
-    }
 
     #[test]
     fn eval_batch_empty_host_context_is_absent() {

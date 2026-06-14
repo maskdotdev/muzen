@@ -4,49 +4,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ReviewRunJobV1 {
-    pub(crate) schema_version: String,
-    pub(crate) run_id: String,
-    pub(crate) project_id: String,
-    pub(crate) attempt: u32,
-    pub(crate) idempotency_key: String,
-    pub(crate) deadline_utc: Option<String>,
-    pub(crate) repo: MaterializedRepoScopeV1,
-    pub(crate) change: ChangeScopeV1,
-    pub(crate) model_profiles: Vec<ModelProfileRefV1>,
-    pub(crate) default_model_profile_id: String,
-    pub(crate) personas: Vec<PersonaSpecV1>,
-    pub(crate) path_policy: PathPolicyV1,
-    pub(crate) scratch_policy: ScratchPolicyV1,
-    pub(crate) model_visibility: ModelVisibilityPolicyV1,
-    pub(crate) output_redaction: OutputRedactionPolicyV1,
-    pub(crate) budgets: RunBudgetsV1,
-    pub(crate) telemetry: TelemetryPolicyV1,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MaterializedRepoScopeV1 {
-    pub(crate) provider: RepoProvider,
-    pub(crate) repo_id: String,
-    pub(crate) repo_root: PathBuf,
-    pub(crate) worktree_root: PathBuf,
-    pub(crate) default_cwd: PathBuf,
-    pub(crate) materialization_id: String,
-    pub(crate) materialized_at_utc: String,
-    pub(crate) materialization_digest: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum RepoProvider {
-    Github,
-    Gitlab,
-    Local,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct ChangeScopeV1 {
     pub(crate) kind: ChangeKind,
     pub(crate) change_id: String,
@@ -157,18 +114,6 @@ pub(crate) enum ToolCallingMode {
     Auto,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersonaSpecV1 {
-    pub(crate) id: String,
-    pub(crate) role: Role,
-    pub(crate) objective: String,
-    pub(crate) cwd: Option<PathBuf>,
-    pub(crate) model_profile_id: Option<String>,
-    pub(crate) allowed_tools: ToolMask,
-    pub(crate) budget: AgentBudget,
-}
-
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -179,19 +124,6 @@ pub enum Role {
     Correctness,
     Architecture,
     Validator,
-}
-
-impl Role {
-    pub fn for_index(index: usize) -> Self {
-        match index % 6 {
-            0 => Self::Correctness,
-            1 => Self::Security,
-            2 => Self::Performance,
-            3 => Self::Maintainability,
-            4 => Self::Architecture,
-            _ => Self::Validator,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,53 +162,6 @@ impl PathPolicyV1 {
             max_directory_entries: 20_000,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ScratchPolicyV1 {
-    pub(crate) scratch_root: Option<PathBuf>,
-    pub(crate) output_root: Option<PathBuf>,
-    pub(crate) max_scratch_bytes: usize,
-    pub(crate) cleanup_on_finish: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ModelVisibilityPolicyV1 {
-    pub(crate) max_prompt_artifact_bytes: usize,
-    pub(crate) allow_full_file_content_in_prompts: bool,
-    pub(crate) deny_globs: Vec<String>,
-    pub(crate) redact_secret_like_content: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OutputRedactionPolicyV1 {
-    pub(crate) policy_id: String,
-    pub(crate) redact_repo_secrets: bool,
-    pub(crate) persist_full_file_contents: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TelemetryPolicyV1 {
-    pub(crate) emit_debug_events: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RunBudgetsV1 {
-    pub(crate) max_active_sessions: usize,
-    pub(crate) max_wall_time_ms: u64,
-    pub(crate) max_model_calls: usize,
-    pub(crate) max_tool_calls: usize,
-    pub(crate) max_prompt_tokens: u64,
-    pub(crate) max_output_tokens: u64,
-    pub(crate) max_artifact_bytes: usize,
-    pub(crate) max_scratch_bytes: usize,
-    pub(crate) rss_target_mb: Option<u64>,
-    pub(crate) rss_limit_mb: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -395,40 +280,6 @@ pub enum ChallengeStatus {
     #[default]
     NotRun,
     Incomplete,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ToolMask {
-    pub(crate) list_changed_files: bool,
-    pub(crate) read_diff: bool,
-    pub(crate) list_files: bool,
-    pub(crate) read_file: bool,
-    pub(crate) read_file_range: bool,
-    pub(crate) read_base_file: bool,
-    pub(crate) read_head_file: bool,
-    pub(crate) search_text: bool,
-    pub(crate) find_related_files: bool,
-    pub(crate) find_tests_for_file: bool,
-    pub(crate) list_imports: bool,
-}
-
-impl ToolMask {
-    pub(crate) fn review_read_only() -> Self {
-        Self {
-            list_changed_files: true,
-            read_diff: true,
-            list_files: true,
-            read_file: true,
-            read_file_range: true,
-            read_base_file: true,
-            read_head_file: true,
-            search_text: true,
-            find_related_files: true,
-            find_tests_for_file: true,
-            list_imports: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

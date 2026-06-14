@@ -3,21 +3,27 @@ use super::support::*;
 
 #[test]
 fn path_policy_blocks_parent_escape() {
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("README.md"), "hello").unwrap();
-    let repo = test_repo(temp.path());
-    let escaped = repo.normalize_tool_path(Path::new("../outside"));
-    assert!(escaped.is_err());
+    assert!(RepoPath::parse("../outside").is_err());
 }
 
 #[test]
 fn path_policy_blocks_dot_git() {
     let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("README.md"), "hello").unwrap();
     fs::create_dir(temp.path().join(".git")).unwrap();
     fs::write(temp.path().join(".git/config"), "secret").unwrap();
-    let repo = test_repo(temp.path());
-    let denied = repo.normalize_tool_path(Path::new(".git/config"));
-    assert!(denied.is_err());
+    let snapshot = RepoSnapshot::build(
+        temp.path(),
+        &PathPolicyV1::bench(64, 10),
+        &test_change_with_file("README.md"),
+    )
+    .unwrap();
+
+    assert!(!snapshot
+        .manifest
+        .files
+        .iter()
+        .any(|file| file.rel_path.display() == ".git/config"));
 }
 
 #[cfg(unix)]
@@ -27,13 +33,23 @@ fn path_policy_blocks_symlink_escape() {
 
     let temp = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("README.md"), "hello").unwrap();
     fs::write(outside.path().join("secret.txt"), "secret").unwrap();
     symlink(
         outside.path().join("secret.txt"),
         temp.path().join("link.txt"),
     )
     .unwrap();
-    let repo = test_repo(temp.path());
-    let files = repo.walk_files().unwrap();
-    assert!(!files.iter().any(|path| path == Path::new("link.txt")));
+    let snapshot = RepoSnapshot::build(
+        temp.path(),
+        &PathPolicyV1::bench(64, 10),
+        &test_change_with_file("README.md"),
+    )
+    .unwrap();
+
+    assert!(!snapshot
+        .manifest
+        .files
+        .iter()
+        .any(|file| file.rel_path.as_path() == Path::new("link.txt")));
 }

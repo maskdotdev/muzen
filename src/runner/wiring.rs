@@ -154,9 +154,9 @@ fn hosted_model_router(
 /// Default base URL for OpenAI-compatible profiles that do not configure
 /// their own. Profiles with an explicit baseUrl always use it (mixed
 /// endpoints per run are supported); when every configured OpenAI-compatible
-/// profile agrees on one URL it doubles as the default so legacy single-URL
-/// runs keep their old behavior. Anthropic profiles have their own default
-/// and never participate here.
+/// profile agrees on one URL it becomes the fallback default for unqualified
+/// OpenAI-compatible profiles. Anthropic profiles have their own default and
+/// never participate here.
 fn hosted_model_default_base_url(model: &RunModelParams) -> String {
     let mut configured: Option<&str> = None;
     let mut mixed = false;

@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::contracts::*;
-use crate::repo::RepoContext;
 use crate::runtime::contracts::{
     ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
     ProviderResourceId, RuntimeError, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId,
@@ -797,10 +796,6 @@ pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> Se
             budget_source: crate::contracts::BudgetSource::PlannedDefault,
         },
     }
-}
-
-pub fn test_repo(path: &Path) -> RepoContext {
-    RepoContext::new(path.to_path_buf(), PathPolicyV1::bench(64, 10)).unwrap()
 }
 
 pub fn test_change_with_file(path: &str) -> ChangeScopeV1 {

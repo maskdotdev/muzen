@@ -1878,7 +1878,7 @@ async fn cross_repo_contracts_return_granted_provider_resource() {
         .push(CrossRepoContractCandidate {
             resource_id: "github/acme/admin".to_string(),
             repository: "acme/admin".to_string(),
-            summary: "admin consumer requires legacy token field".to_string(),
+            summary: "admin consumer requires opaque token field".to_string(),
             original_url: None,
         });
     engine
