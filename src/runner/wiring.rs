@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::json;
 
-use crate::contracts::{ModelApiProtocol, ModelProfileRefV1, ProviderKind, ToolCallingMode};
+use crate::contracts::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
 use crate::reviewer::adapters::runtime;
 use crate::reviewer::run::RunBuilder;
 use crate::reviewer::tools::ReviewToolRegistry;
@@ -240,7 +240,6 @@ fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<M
             .map(ToString::to_string),
         max_input_tokens: params.max_input_tokens.unwrap_or(128_000),
         max_output_tokens: params.max_output_tokens.unwrap_or(8_000),
-        tool_calling_mode: ToolCallingMode::Auto,
         temperature: params.temperature,
         top_p: params.top_p,
     })

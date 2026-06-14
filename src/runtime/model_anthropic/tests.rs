@@ -52,7 +52,7 @@ fn aliased_registry() -> (ToolRegistry, ToolId, ToolId) {
     (registry, internal_tool, model_alias)
 }
 
-fn anthropic_profile(tool_calling_mode: ToolCallingMode) -> ModelProfileRefV1 {
+fn anthropic_profile() -> ModelProfileRefV1 {
     ModelProfileRefV1 {
         id: "claude".to_string(),
         provider_kind: ProviderKind::Anthropic,
@@ -63,7 +63,6 @@ fn anthropic_profile(tool_calling_mode: ToolCallingMode) -> ModelProfileRefV1 {
         base_url: None,
         max_input_tokens: 32_000,
         max_output_tokens: 1_024,
-        tool_calling_mode,
         temperature: None,
         top_p: None,
     }
@@ -141,7 +140,7 @@ fn request_body_maps_transcript_to_messages_api_shape() {
     ];
 
     let body = anthropic_request_body(
-        &anthropic_profile(ToolCallingMode::Auto),
+        &anthropic_profile(),
         &policy,
         &registry,
         &scope,
@@ -239,7 +238,7 @@ fn cache_breakpoint_moves_to_newest_tool_result_only() {
     ];
 
     let body = anthropic_request_body(
-        &anthropic_profile(ToolCallingMode::Auto),
+        &anthropic_profile(),
         &policy,
         &registry,
         &scope,
@@ -270,7 +269,7 @@ fn cache_breakpoint_moves_to_newest_tool_result_only() {
 }
 
 #[test]
-fn request_body_omits_tools_for_text_only_scope_and_maps_required_mode() {
+fn request_body_omits_tool_choice_without_tools_and_uses_auto_when_tools_available() {
     let (registry, _, _) = aliased_registry();
     let policy = ReviewerPolicy::new();
     let transcript = vec![ConversationItem::User {
@@ -280,7 +279,7 @@ fn request_body_omits_tools_for_text_only_scope_and_maps_required_mode() {
     let mut text_only = test_scope();
     text_only.capabilities.tool_grants.clear();
     let body = anthropic_request_body(
-        &anthropic_profile(ToolCallingMode::Required),
+        &anthropic_profile(),
         &policy,
         &registry,
         &text_only,
@@ -295,7 +294,7 @@ fn request_body_omits_tools_for_text_only_scope_and_maps_required_mode() {
     );
 
     let body = anthropic_request_body(
-        &anthropic_profile(ToolCallingMode::Required),
+        &anthropic_profile(),
         &policy,
         &registry,
         &test_scope(),
@@ -305,7 +304,7 @@ fn request_body_omits_tools_for_text_only_scope_and_maps_required_mode() {
     .expect("request body");
     assert_eq!(
         body["tool_choice"],
-        json!({ "type": "any", "disable_parallel_tool_use": true })
+        json!({ "type": "auto", "disable_parallel_tool_use": true })
     );
 }
 
@@ -408,7 +407,7 @@ fn live_loopback_streams_sse_events_into_a_tool_call_turn() {
 
     let (registry, internal_tool, _) = aliased_registry();
     let client = AnthropicMessagesClient::from_profile(
-        anthropic_profile(ToolCallingMode::Auto),
+        anthropic_profile(),
         format!("http://{address}/v1"),
         Arc::new(ModelLimiter::new(1)),
         Arc::new(registry),
@@ -466,7 +465,7 @@ fn live_loopback_cancels_mid_stream_without_waiting_for_the_server() {
 
     let (registry, _, _) = aliased_registry();
     let client = AnthropicMessagesClient::from_profile(
-        anthropic_profile(ToolCallingMode::Auto),
+        anthropic_profile(),
         format!("http://{address}/v1"),
         Arc::new(ModelLimiter::new(1)),
         Arc::new(registry),
@@ -541,7 +540,7 @@ fn live_loopback_round_trip_sends_required_headers_and_parses_tool_use() {
 
     let (registry, internal_tool, _) = aliased_registry();
     let client = AnthropicMessagesClient::from_profile(
-        anthropic_profile(ToolCallingMode::Auto),
+        anthropic_profile(),
         format!("http://{address}/v1"),
         Arc::new(ModelLimiter::new(1)),
         Arc::new(registry),

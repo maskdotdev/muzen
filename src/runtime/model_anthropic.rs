@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::contracts::{ModelProfileRefV1, TokenUsage, ToolCallingMode};
+use crate::contracts::{ModelProfileRefV1, TokenUsage};
 use crate::runtime::assembly::MessageAssemblyCache;
 use crate::runtime::contracts::*;
 use crate::runtime::model::{
@@ -372,14 +372,7 @@ fn anthropic_request_body(
     // final turn (capabilities cleared) omits both.
     if !tools.is_empty() {
         body["tools"] = json!(tools);
-        body["tool_choice"] = match profile.tool_calling_mode {
-            ToolCallingMode::Required => {
-                json!({ "type": "any", "disable_parallel_tool_use": true })
-            }
-            ToolCallingMode::Auto => {
-                json!({ "type": "auto", "disable_parallel_tool_use": true })
-            }
-        };
+        body["tool_choice"] = json!({ "type": "auto", "disable_parallel_tool_use": true });
     }
     if let Some(temperature) = profile.temperature {
         body["temperature"] = json!(temperature);

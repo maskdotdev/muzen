@@ -21,7 +21,6 @@ fn profile_with_base_url(id: &str, base_url: Option<&str>) -> ModelProfileRefV1 
         base_url: base_url.map(ToString::to_string),
         max_input_tokens: 32_000,
         max_output_tokens: 1_024,
-        tool_calling_mode: ToolCallingMode::Auto,
         temperature: None,
         top_p: None,
     }

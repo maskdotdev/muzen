@@ -80,7 +80,6 @@ pub(crate) struct ModelProfileRefV1 {
     pub(crate) base_url: Option<String>,
     pub(crate) max_input_tokens: u32,
     pub(crate) max_output_tokens: u32,
-    pub(crate) tool_calling_mode: ToolCallingMode,
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
 }
@@ -104,13 +103,6 @@ impl Default for ModelApiProtocol {
     fn default() -> Self {
         Self::Responses
     }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ToolCallingMode {
-    Required,
-    Auto,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

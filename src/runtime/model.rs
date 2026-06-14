@@ -13,7 +13,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
-    ToolCallingMode,
 };
 use crate::runtime::contracts::*;
 use crate::runtime::model_anthropic::{anthropic_default_base_url, AnthropicMessagesClient};
@@ -410,7 +409,6 @@ impl OpenAiProviderCanaryConfig {
             base_url: None,
             max_input_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS,
             max_output_tokens: self.max_output_tokens,
-            tool_calling_mode: ToolCallingMode::Auto,
             temperature: Some(0.0),
             top_p: None,
         }
@@ -1016,10 +1014,7 @@ fn responses_request_body(
             &scope.capabilities,
         )?,
         "parallel_tool_calls": false,
-        "tool_choice": match profile.tool_calling_mode {
-            ToolCallingMode::Required => "required",
-            ToolCallingMode::Auto => "auto",
-        },
+        "tool_choice": "auto",
         "max_output_tokens": profile.max_output_tokens,
     });
     if !instructions.is_empty() {
