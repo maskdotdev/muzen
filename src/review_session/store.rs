@@ -13,11 +13,9 @@ use super::{
 
 mod libsql;
 mod memory;
-mod postgres;
 
 pub use libsql::{LibsqlReviewSessionStore, LibsqlWorkspaceProfileStore};
 pub use memory::InMemoryReviewSessionStore;
-pub use postgres::PostgresReviewSessionStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -411,14 +409,6 @@ pub async fn stores_from_url(store_url: &str) -> Result<MuzenStoreBundle, Review
         return Ok(MuzenStoreBundle {
             session_store: std::sync::Arc::new(LibsqlReviewSessionStore::connect(&path).await?),
             profile_store: std::sync::Arc::new(LibsqlWorkspaceProfileStore::connect(&path).await?),
-        });
-    }
-    if store_url.starts_with("postgres://") || store_url.starts_with("postgresql://") {
-        return Ok(MuzenStoreBundle {
-            session_store: std::sync::Arc::new(PostgresReviewSessionStore::connect(store_url)?),
-            profile_store: std::sync::Arc::new(super::PostgresWorkspaceProfileStore::connect(
-                store_url,
-            )?),
         });
     }
     Err(ReviewSessionError::Store(format!(

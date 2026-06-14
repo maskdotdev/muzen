@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use muzen::context_engine::ContextHttpRouterOptions;
 use muzen::review_session::{
     stores_from_url, Muzen, ReviewHttpRouter, ReviewHttpRouterOptions, DEFAULT_MUZEN_STORE_URL,
     MUZEN_STORE_URL_ENV,
@@ -26,7 +27,7 @@ struct ServiceCli {
     #[arg(long, default_value = "GITLAB_WEBHOOK_TOKEN")]
     gitlab_webhook_token_env: String,
 
-    /// Store URL. Supported v1 schemes: sqlite://, postgres://, postgresql://, memory://.
+    /// Store URL. Supported schemes: sqlite:// and memory://.
     #[arg(long)]
     store_url: Option<String>,
 
@@ -60,12 +61,14 @@ async fn run() -> Result<()> {
     let router_options = ReviewHttpRouterOptions {
         github_webhook_secret: env::var(cli.github_webhook_secret_env).ok(),
         gitlab_webhook_secret: env::var(cli.gitlab_webhook_token_env).ok(),
-        context_learning_store_root: env::var(cli.context_learning_store_root_env)
-            .ok()
-            .map(PathBuf::from),
-        context_derived_cache_root: env::var(cli.context_derived_cache_root_env)
-            .ok()
-            .map(PathBuf::from),
+        context: ContextHttpRouterOptions {
+            learning_store_root: env::var(cli.context_learning_store_root_env)
+                .ok()
+                .map(PathBuf::from),
+            derived_cache_root: env::var(cli.context_derived_cache_root_env)
+                .ok()
+                .map(PathBuf::from),
+        },
     };
     let store_url = cli
         .store_url

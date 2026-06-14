@@ -36,8 +36,7 @@ pub use outcome::{
 };
 pub use profiles::{
     InMemoryWorkspaceProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
-    PostgresWorkspaceProfileStore, ProviderProfile, ProviderProfileInput, SourceProviderKind,
-    WorkspaceProfileStore,
+    ProviderProfile, ProviderProfileInput, SourceProviderKind, WorkspaceProfileStore,
 };
 pub use router::{
     ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
@@ -46,11 +45,11 @@ pub use session::{CreateReviewSessionInput, ReviewSession};
 pub use source::{ReviewSource, ReviewSourceLike};
 pub use store::{
     stores_from_url, InMemoryReviewSessionStore, LibsqlReviewSessionStore,
-    LibsqlWorkspaceProfileStore, MuzenStoreBundle, PostgresReviewSessionStore,
-    ReviewAttemptFailure, ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry,
-    ReviewLogRedactionPolicy, ReviewLogStream, ReviewRetryPolicy, ReviewSessionRecord,
-    ReviewSessionStore, ReviewWorkerClaim, ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits,
-    ReviewWorkerLease, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
+    LibsqlWorkspaceProfileStore, MuzenStoreBundle, ReviewAttemptFailure, ReviewCancellationRecord,
+    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
+    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
+    ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
+    DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
 };
 pub use webhooks::{
     github_webhook_signature, map_github_webhook_source, map_gitlab_webhook_source,

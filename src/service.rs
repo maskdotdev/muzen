@@ -125,7 +125,7 @@ mod tests {
                     "source": {
                         "type": "local",
                         "repo": ".",
-                        "changedFiles": ["Cargo.toml"]
+                        "changed_files": ["Cargo.toml"]
                     },
                     "options": {
                         "dedupe": "source"
