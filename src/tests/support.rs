@@ -254,7 +254,7 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
             total_tokens: request.transcript_item_count() as u64 + 1,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() == 0 {
+        if request.tool_result_count() == 0 && !review_request_is_final_turn(&request) {
             return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
                 usage,
                 calls: vec![
@@ -274,25 +274,47 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
                 ],
             });
         }
-        Ok(crate::reviewer::model::ReviewModelTurn::Text {
-            usage,
-            content: serde_json::json!({
+        let content = if request.session_id.contains('/') {
+            serde_json::json!({
+                "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                "summary": "public facade structured child packet complete",
+                "checkedPaths": [self.path],
+                "evidence": [],
+                "openQuestions": [],
+                "suggestedNextSearches": [],
+                "candidateFindings": []
+            })
+        } else {
+            serde_json::json!({
+                "verdict": "issues_found",
                 "summary": "public facade structured review complete",
-                "fileVerdicts": [{
-                    "path": self.path,
-                    "verdict": "issue_found",
-                    "summary": "public facade gathered diff, file, and search evidence",
-                    "relatedPaths": []
-                }],
-                "findings": [{
-                    "title": "public facade finding",
-                    "claim": format!("public facade gathered diff, file, and search evidence for {}", self.query),
+                "candidates": [{
+                    "id": "public-facade-finding",
+                    "title": "Changed marker no longer satisfies the lookup",
+                    "claim": format!("The changed marker omits the required {} lookup value, so callers searching for it fail.", self.query),
+                    "severity": "medium",
                     "path": self.path,
                     "startLine": 1,
-                    "endLine": 1
-                }]
+                    "endLine": 1,
+                    "behaviorBefore": format!("The reviewed file exposed the {} lookup value to callers.", self.query),
+                    "behaviorAfter": format!("The reviewed file omits the {} lookup value and callers fail to find it.", self.query),
+                    "evidenceArtifactIds": [],
+                    "relatedPaths": []
+                }],
+                "notes": [],
+                "completeness": {
+                    "reviewedChangedFiles": [self.path],
+                    "reviewedRiskEntries": [],
+                    "unreviewedRiskEntries": [],
+                    "unresolvedQuestions": [],
+                    "incompleteReasons": [],
+                    "ignoredChildCandidates": []
+                }
             })
-            .to_string(),
+        };
+        Ok(crate::reviewer::model::ReviewModelTurn::Text {
+            usage,
+            content: content.to_string(),
         })
     }
 }
@@ -318,7 +340,7 @@ impl crate::reviewer::model::ReviewModel for DirectSessionEchoModel {
             total_tokens: request.transcript_item_count() as u64 + 1,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() == 0 {
+        if request.tool_result_count() == 0 && !review_request_is_final_turn(&request) {
             return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
                 usage,
                 calls: vec![reviewer_call(
@@ -350,9 +372,35 @@ impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
             total_tokens: request.transcript_item_count() as u64 + 1,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() > 0 {
+        if request.tool_result_count() > 0 || review_request_is_final_turn(&request) {
+            let content = if request.session_id.contains('/') {
+                serde_json::json!({
+                    "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                    "summary": "custom tool child packet complete",
+                    "checkedPaths": [],
+                    "evidence": [],
+                    "openQuestions": [],
+                    "suggestedNextSearches": [],
+                    "candidateFindings": []
+                })
+            } else {
+                serde_json::json!({
+                    "verdict": "clean",
+                    "summary": "custom tool completed",
+                    "candidates": [],
+                    "notes": [],
+                    "completeness": {
+                        "reviewedChangedFiles": [],
+                        "reviewedRiskEntries": [],
+                        "unreviewedRiskEntries": [],
+                        "unresolvedQuestions": [],
+                        "incompleteReasons": [],
+                        "ignoredChildCandidates": []
+                    }
+                })
+            };
             return Ok(crate::reviewer::model::ReviewModelTurn::Text {
-                content: "custom tool completed".to_string(),
+                content: content.to_string(),
                 usage,
             });
         }
@@ -365,6 +413,15 @@ impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
             .with_call_id(request.tool_call_id("custom"))],
         })
     }
+}
+
+fn review_request_is_final_turn(request: &crate::reviewer::model::ReviewModelRequest) -> bool {
+    request.transcript.iter().any(|item| match item {
+        crate::reviewer::model::ReviewTranscriptItem::User { content } => {
+            content.starts_with("Return the final ")
+        }
+        _ => false,
+    })
 }
 
 #[async_trait]

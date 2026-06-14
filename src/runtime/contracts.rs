@@ -1176,6 +1176,16 @@ pub struct RuntimeLimits {
     pub file_content_cache_bytes: u64,
     pub search_result_cache_bytes: u64,
     pub search_threads: usize,
+    #[serde(default)]
+    pub max_child_sessions: Option<usize>,
+    #[serde(default)]
+    pub orchestrator_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub search_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub explore_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub validator_model_profile_id: Option<String>,
 }
 
 impl RuntimeLimits {
@@ -1204,6 +1214,11 @@ impl RuntimeLimits {
             file_content_cache_bytes: 32_000_000,
             search_result_cache_bytes: 16_000_000,
             search_threads: num_cpus::get().clamp(2, 8),
+            max_child_sessions: None,
+            orchestrator_model_profile_id: None,
+            search_model_profile_id: None,
+            explore_model_profile_id: None,
+            validator_model_profile_id: None,
         }
     }
 }

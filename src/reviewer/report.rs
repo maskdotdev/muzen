@@ -81,15 +81,15 @@ pub(crate) fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> Co
             .cmp(&right.snapshot_id.0)
             .then(left.sessions.cmp(&right.sessions))
     });
-    merged.benchmark_failures = planned_runtime_benchmark_failures(&merged);
+    merged.benchmark_failures = autonomous_runtime_benchmark_failures(&merged);
     merged.benchmark_valid = merged.benchmark_failures.is_empty();
     merged
 }
 
-fn planned_runtime_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
+fn autonomous_runtime_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
     let mut failures = Vec::new();
     if report.sessions > 0 && report.completed_sessions == 0 {
-        failures.push("no planned review units completed".to_string());
+        failures.push("no autonomous review sessions completed".to_string());
     }
     if report.sessions > 0 && report.model_calls == 0 {
         failures.push("no model calls recorded".to_string());

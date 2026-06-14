@@ -291,7 +291,6 @@ fn artifact_event_details(result: &ToolResultEnvelope) -> Option<Value> {
     let details = match result.tool_name.as_builtin() {
         Some(ToolName::ReadDiff) => json!({
             "contentHash": data.get("contentHash").cloned(),
-            "riskHints": compact_string_array(data.get("riskHints"), 20, 500),
         }),
         Some(ToolName::ListChangedFiles) => json!({
             "changedFiles": compact_string_array(data.get("changedFiles"), 120, 300),

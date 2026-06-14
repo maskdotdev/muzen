@@ -91,7 +91,7 @@ pub(crate) fn plan_run_start(
         if mode == RunMode::DirectSessions {
             anyhow::bail!("direct_sessions mode requires at least one session");
         }
-        default_planned_review_lens_panel()
+        default_review_orchestrator_session()
     } else {
         params.sessions
     };
@@ -107,7 +107,20 @@ pub(crate) fn plan_run_start(
         .into_iter()
         .map(|session| run_session_spec(session, &callback_tools, &params.instructions))
         .collect::<Result<Vec<_>>>()?;
-    let limits = ReviewRunLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
+    let mut runtime_limits = crate::runtime::contracts::RuntimeLimits::standard(
+        max_active_sessions,
+        max_file_bytes,
+        max_search_matches,
+    );
+    if let Some(limit_params) = params.limits.as_ref() {
+        runtime_limits.max_child_sessions = limit_params.max_child_sessions;
+        runtime_limits.orchestrator_model_profile_id =
+            limit_params.orchestrator_model_profile_id.clone();
+        runtime_limits.search_model_profile_id = limit_params.search_model_profile_id.clone();
+        runtime_limits.explore_model_profile_id = limit_params.explore_model_profile_id.clone();
+        runtime_limits.validator_model_profile_id = limit_params.validator_model_profile_id.clone();
+    }
+    let limits = ReviewRunLimits::from_runtime_limits(runtime_limits);
     Ok(RunnerPlan {
         run_id: run_id.clone(),
         metadata,
@@ -121,7 +134,7 @@ pub(crate) fn plan_run_start(
 fn parse_run_mode(mode: Option<&str>) -> Result<RunMode> {
     match mode.map(str::trim).filter(|value| !value.is_empty()) {
         None => Ok(RunMode::default()),
-        Some("planned_review") => Ok(RunMode::PlannedReview),
+        Some("review") => Ok(RunMode::Review),
         Some("direct_sessions") => Ok(RunMode::DirectSessions),
         Some(unknown) => anyhow::bail!("unsupported run mode {unknown}"),
     }
@@ -144,42 +157,18 @@ fn default_max_active_sessions(
     requested_session_count.max(1)
 }
 
-fn default_planned_review_lens_panel() -> Vec<RunSessionParams> {
-    [
-        (
-            "correctness",
-            Role::Correctness,
-            "Review changed behavior for correctness regressions and concrete runtime failures.",
-        ),
-        (
-            "security",
-            Role::Security,
-            "Review credentials, authorization, tenant boundaries, secrets, and destructive operations.",
-        ),
-        (
-            "architecture-contracts",
-            Role::Architecture,
-            "Review public APIs, return shapes, lifecycle boundaries, adapters, protocols, and state contracts.",
-        ),
-        (
-            "performance",
-            Role::Performance,
-            "Review query shape, repeated work, fan-out, large data paths, and resource use.",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, role, objective)| RunSessionParams {
-        id: id.to_string(),
-        role,
-        objective: objective.to_string(),
+fn default_review_orchestrator_session() -> Vec<RunSessionParams> {
+    vec![RunSessionParams {
+        id: "review-orchestrator".to_string(),
+        role: Role::Generalist,
+        objective: "Autonomously review the changed code.".to_string(),
         cwd: None,
         model_profile_id: None,
         response_format: None,
         instructions: Vec::new(),
         tool_grants: Vec::new(),
         budget: None,
-    })
-    .collect()
+    }]
 }
 
 fn run_session_spec(
@@ -457,14 +446,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_planned_review_uses_lens_panel() {
-        let sessions = default_planned_review_lens_panel();
+    fn default_review_uses_one_orchestrator() {
+        let sessions = default_review_orchestrator_session();
 
-        assert_eq!(sessions.len(), 4);
-        assert_eq!(sessions[0].id, "correctness");
-        assert_eq!(sessions[1].role, Role::Security);
-        assert_eq!(sessions[2].id, "architecture-contracts");
-        assert_eq!(sessions[3].role, Role::Performance);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "review-orchestrator");
+        assert_eq!(sessions[0].role, Role::Generalist);
+    }
+
+    #[test]
+    fn parses_explicit_review_mode() {
+        let mode = parse_run_mode(Some("review")).expect("mode should parse");
+
+        assert_eq!(mode, RunMode::Review);
+    }
+
+    #[test]
+    fn rejects_unknown_mode() {
+        let error = parse_run_mode(Some("swarm")).expect_err("mode should be rejected");
+
+        assert!(error.to_string().contains("swarm"));
     }
 
     #[test]

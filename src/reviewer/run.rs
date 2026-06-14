@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::context_engine::{
@@ -7,10 +6,8 @@ use crate::context_engine::{
     ContextPackRequest, ContextSufficiencyStatus, NoopContextEngine,
 };
 use crate::runtime::contracts::{
-    stable_id, ArtifactKey, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
-    ReviewQualityDiagnostics, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
-    RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId,
-    SnapshotMetricsSnapshot, ToolGrant,
+    stable_id, ArtifactKey, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
+    RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId, ToolGrant,
 };
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::model::ConcurrentModelRouter as RuntimeModelRouter;
@@ -19,11 +16,13 @@ use crate::runtime::tools::{
 };
 use crate::util::peak_rss_bytes;
 
-use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1, ToolCounts};
+use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1};
 use crate::contracts::{FindingPublishability, FindingV1, ReportStatus, ValidationStatus};
 use crate::runtime::agent_sessions::AgentSessionRuntime;
+use crate::runtime::autonomous_review::{
+    register_autonomous_delegate_tools, AutonomousDelegateHost, AutonomousReviewRuntime,
+};
 use crate::runtime::contracts::AgentSessionOutput;
-use crate::runtime::planned_units::{session_semaphore, PlannedReviewRuntime};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tools::ToolEngine;
@@ -120,6 +119,8 @@ impl RunBuilder {
         if context_config.mode != ContextEngineMode::Disabled {
             register_context_tools(&mut registry, Arc::clone(&context_engine))?;
         }
+        let autonomous_delegate_host = AutonomousDelegateHost::default();
+        register_autonomous_delegate_tools(&mut registry, autonomous_delegate_host.clone())?;
         let registry = Arc::new(registry);
         let limits = Arc::new(self.spec.limits.into_runtime_limits());
         let mut shards = Vec::new();
@@ -187,6 +188,7 @@ impl RunBuilder {
             reviewer_policy,
             context_engine,
             event_sink: self.event_sink,
+            autonomous_delegate_host,
         })
     }
 }
@@ -201,6 +203,7 @@ pub struct Run {
     reviewer_policy: Arc<ReviewerPolicy>,
     context_engine: Arc<dyn ContextEngine>,
     event_sink: Option<Arc<dyn RuntimeEventSink>>,
+    autonomous_delegate_host: AutonomousDelegateHost,
 }
 
 pub(crate) struct RunShard {
@@ -253,7 +256,9 @@ impl Run {
         // Shards run concurrently; the shared semaphore keeps the whole run
         // within max_active_sessions. Results are re-ordered by shard index
         // before aggregation so the report stays deterministic.
-        let active_sessions = session_semaphore(&self.limits);
+        let active_sessions = Arc::new(tokio::sync::Semaphore::new(
+            self.limits.max_active_sessions.max(1),
+        ));
         let mode = self.mode;
         let mut joins = tokio::task::JoinSet::new();
         for (index, shard) in self.shards.into_iter().enumerate() {
@@ -266,6 +271,7 @@ impl Run {
             let cancel = cancel.clone();
             let context_engine = Arc::clone(&self.context_engine);
             let aggregate_artifacts = Arc::clone(&aggregate_artifacts);
+            let autonomous_delegate_host = self.autonomous_delegate_host.clone();
             joins.spawn(async move {
                 let snapshot_id = shard.snapshot_handle.snapshot_id.clone();
                 let shard_event_sink = event_sink.map(|sink| {
@@ -395,20 +401,22 @@ impl Run {
                 let events = RuntimeEventDispatcher::new(shard_event_sink.clone());
                 let tools = Arc::clone(&shard.tools);
                 let outcome = match mode {
-                    RunMode::PlannedReview => {
-                        let runtime = Arc::new(PlannedReviewRuntime {
+                    RunMode::Review => {
+                        let runtime = Arc::new(AutonomousReviewRuntime {
                             snapshot: shard.snapshot,
                             model_router,
                             tools: shard.tools,
                             policy: reviewer_policy,
                             limits,
                             review_revision_id: shard.review_revision_id,
-                            session_templates: sessions,
                             events,
                             active_sessions,
+                            delegate_host: autonomous_delegate_host,
                         });
-                        let summary = Arc::clone(&runtime).run_with_cancel(cancel).await;
-                        let mut shard_findings = summary.findings;
+                        let report = Arc::clone(&runtime)
+                            .run_with_cancel(sessions, cancel.child_token())
+                            .await;
+                        let mut shard_findings = report.findings;
                         if context_enabled {
                             apply_context_evidence_policy(
                                 &mut shard_findings,
@@ -417,9 +425,9 @@ impl Run {
                         }
                         ShardOutcome {
                             index,
-                            metrics: summary.metrics,
+                            metrics: report.metrics,
                             findings: shard_findings,
-                            file_reviews: summary.file_reviews,
+                            file_reviews: report.file_reviews,
                             session_outputs: Vec::new(),
                             tools,
                         }
@@ -551,65 +559,6 @@ fn emit_resource_sample(
             "completedSessions": completed_sessions,
         }),
     });
-}
-
-fn context_failed_report(
-    run_id: String,
-    first_snapshot: SnapshotHandle,
-    snapshots: Vec<SnapshotHandle>,
-    artifacts: Arc<RuntimeArtifactStore>,
-    snapshot_readers: Vec<SnapshotReader>,
-    sessions: usize,
-    failure: String,
-) -> RunReport {
-    let (artifact_count, artifact_bytes) = artifacts.stats();
-    let metrics = ConcurrentRunReport {
-        runtime: "planned_units",
-        sessions,
-        completed_sessions: 0,
-        model_calls: 0,
-        tool_calls: 0,
-        tool_counts: ToolCounts::default(),
-        findings: 0,
-        publishable_findings: 0,
-        elapsed_ms: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
-        artifacts: artifact_count,
-        artifact_bytes,
-        counters: ConcurrentCounters::default(),
-        tool_metrics: BTreeMap::new(),
-        provider_health: Vec::new(),
-        snapshot_metrics: vec![SnapshotMetricsSnapshot {
-            snapshot_id: first_snapshot.snapshot_id.clone(),
-            sessions,
-            completed_sessions: 0,
-            model_calls: 0,
-            tool_calls: 0,
-            artifacts: artifact_count,
-            artifact_bytes,
-            elapsed_ms: 0,
-        }],
-        model_metrics: ModelMetricsSnapshot::default(),
-        completion_diagnostics: Vec::new(),
-        cached_input_tokens: 0,
-        quality_diagnostics: ReviewQualityDiagnostics::default(),
-        benchmark_valid: false,
-        benchmark_failures: vec![format!("context engine failed: {failure}")],
-    };
-    RunReport {
-        run_id,
-        snapshot: first_snapshot,
-        snapshots,
-        summary: ReviewRunSummary::from_metrics(&metrics),
-        metrics,
-        artifacts,
-        snapshot_readers,
-        findings: Vec::new(),
-        file_reviews: Vec::new(),
-        session_outputs: Vec::new(),
-    }
 }
 
 fn apply_context_evidence_policy(findings: &mut [FindingV1], strict: bool) {

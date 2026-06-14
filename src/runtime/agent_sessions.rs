@@ -1,8 +1,8 @@
 //! Direct session execution: runs user-supplied agent sessions through the
 //! generic loop (model turn -> tool batch -> model turn) with no review
 //! planning, evidence obligations, or findings synthesis. This is the swarm
-//! primitive; the planned review pipeline is one consumer-style alternative
-//! built on the same engine.
+//! primitive; the autonomous review runtime is one product consumer built on
+//! the same engine.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,8 +17,8 @@ use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::runtime::model::ConcurrentModelRouter;
 use crate::runtime::model_retry::complete_model_turn;
-use crate::runtime::planned_units::{add_model_metrics, elapsed_ms, record_usage};
 use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
+use crate::runtime::session_metrics::{add_model_metrics, elapsed_ms, record_usage};
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::{ToolEngine, ToolRegistry};
 use crate::runtime::transcript::{enforce_prompt_budget, estimate_prompt_tokens};

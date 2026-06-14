@@ -1,5 +1,6 @@
 pub(crate) mod agent_sessions;
 pub(crate) mod assembly;
+pub(crate) mod autonomous_review;
 pub(crate) mod bench;
 pub(crate) mod contracts;
 pub(crate) mod dispatch;
@@ -8,9 +9,9 @@ pub(crate) mod model;
 pub(crate) mod model_anthropic;
 pub(crate) mod model_retry;
 pub(crate) mod model_sse;
-pub(crate) mod planned_units;
 pub(crate) mod policy;
 pub(crate) mod repo;
+pub(crate) mod session_metrics;
 pub(crate) mod tool_batch;
 pub(crate) mod tools;
 pub(crate) mod transcript;

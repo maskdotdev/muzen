@@ -62,7 +62,7 @@ pub struct RunStartParams {
     pub tools: Vec<RunToolParams>,
     #[serde(default)]
     pub heartbeat: Option<RunHeartbeatConfigParams>,
-    /// "planned_review" (default) or "direct_sessions".
+    /// "review" (default) or "direct_sessions".
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -232,9 +232,19 @@ pub struct RunLimitParams {
     #[serde(default)]
     pub max_active_sessions: Option<usize>,
     #[serde(default)]
+    pub max_child_sessions: Option<usize>,
+    #[serde(default)]
     pub max_file_bytes: Option<usize>,
     #[serde(default)]
     pub max_search_matches: Option<usize>,
+    #[serde(default)]
+    pub orchestrator_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub search_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub explore_model_profile_id: Option<String>,
+    #[serde(default)]
+    pub validator_model_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -607,10 +617,6 @@ pub struct RunnerFileReview {
 pub struct RunnerRunSummary {
     pub sessions: usize,
     pub completed_sessions: usize,
-    #[serde(default)]
-    pub review_units: usize,
-    #[serde(default)]
-    pub completed_review_units: usize,
     pub model_calls: usize,
     pub tool_calls: usize,
     pub findings: usize,

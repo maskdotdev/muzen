@@ -21,11 +21,9 @@ pub struct RunSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunMode {
-    /// Plan review units from the snapshot diff and run the review pipeline
-    /// (evidence obligations, findings, synthesis). Sessions act as
-    /// templates for unit scopes.
+    /// Run the autonomous review orchestrator for the snapshot diff.
     #[default]
-    PlannedReview,
+    Review,
     /// Run each supplied session directly through the generic agent loop and
     /// return its final text output. No review planning or findings.
     DirectSessions,

@@ -711,7 +711,7 @@ mod tests {
             "jsonrpc": "2.0",
             "id": "runner-callback-3",
             "result": {
-                "content": "{\"summary\":\"callback test complete\",\"fileVerdicts\":[{\"path\":\"Cargo.toml\",\"verdict\":\"clean\",\"summary\":\"callback test completed with host context\",\"relatedPaths\":[]}],\"findings\":[]}",
+                "content": "{\"verdict\":\"clean\",\"summary\":\"callback test complete\",\"candidates\":[],\"notes\":[],\"completeness\":{\"reviewedChangedFiles\":[\"Cargo.toml\"],\"reviewedRiskEntries\":[],\"unreviewedRiskEntries\":[],\"unresolvedQuestions\":[],\"incompleteReasons\":[],\"ignoredChildCandidates\":[]}}",
                 "usage": {"inputTokens": 20, "outputTokens": 5, "totalTokens": 25}
             }
         });

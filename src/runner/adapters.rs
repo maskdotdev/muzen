@@ -67,19 +67,31 @@ impl ReviewModel for TestRunnerModel {
                 ],
             });
         }
+        let content = if request.session_id.contains('/') {
+            json!({
+                "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                "summary": "deterministic SDK smoke child packet completed",
+                "checkedPaths": [self.target_path],
+                "evidence": [],
+                "openQuestions": [],
+                "candidateFindings": []
+            })
+        } else {
+            json!({
+                "verdict": "clean",
+                "summary": "deterministic SDK smoke review completed",
+                "candidates": [],
+                "notes": [],
+                "completeness": {
+                    "status": "complete",
+                    "checkedChangedFiles": [self.target_path],
+                    "incompleteReasons": []
+                }
+            })
+        };
         Ok(ReviewModelTurn::Text {
             usage,
-            content: json!({
-                "summary": "deterministic SDK smoke review completed",
-                "fileVerdicts": [{
-                    "path": self.target_path,
-                    "verdict": "clean",
-                    "summary": "Smoke review gathered diff, file, and search evidence without finding an actionable issue.",
-                    "relatedPaths": []
-                }],
-                "findings": []
-            })
-            .to_string(),
+            content: content.to_string(),
         })
     }
 }

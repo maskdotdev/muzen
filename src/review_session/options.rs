@@ -409,8 +409,13 @@ impl ReviewLimits {
     pub(crate) fn into_runner_limits(self) -> RunLimitParams {
         RunLimitParams {
             max_active_sessions: self.max_active_sessions,
+            max_child_sessions: None,
             max_file_bytes: self.max_file_bytes,
             max_search_matches: self.max_search_matches,
+            orchestrator_model_profile_id: None,
+            search_model_profile_id: None,
+            explore_model_profile_id: None,
+            validator_model_profile_id: None,
         }
     }
 }

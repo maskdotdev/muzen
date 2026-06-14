@@ -4,7 +4,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::repo::is_textish;
-use crate::review_plan::ReviewPlan;
 use crate::runtime::contracts::{
     stable_id, ArtifactId, EvidenceId, RepoPath, RuntimeError, RuntimeResult, SessionInstruction,
     SnapshotCaptureStatus, SnapshotId,
@@ -42,7 +41,6 @@ const DIFF_MANIFEST_TOKEN_BUDGET: usize = 512;
 pub struct ContextIndexRequest {
     pub run_id: Option<String>,
     pub(crate) snapshot: Arc<RepoSnapshot>,
-    pub(crate) review_plan: Option<ReviewPlan>,
     pub instructions: Vec<SessionInstruction>,
     pub host_metadata: BTreeMap<String, serde_json::Value>,
     pub cross_repo_contracts: Vec<CrossRepoContractCandidate>,
@@ -61,7 +59,6 @@ impl ContextIndexRequest {
         Self {
             run_id: None,
             snapshot,
-            review_plan: None,
             instructions: Vec::new(),
             host_metadata: BTreeMap::new(),
             cross_repo_contracts: Vec::new(),
@@ -228,7 +225,6 @@ pub struct ContextIndex {
 impl ContextIndex {
     pub async fn build(request: ContextIndexRequest) -> RuntimeResult<Self> {
         let started = std::time::Instant::now();
-        let _review_plan = &request.review_plan;
         let snapshot = Arc::clone(&request.snapshot);
         let derived_cache = Arc::clone(&request.derived_cache);
         let mut derived_cache_hits = 0usize;

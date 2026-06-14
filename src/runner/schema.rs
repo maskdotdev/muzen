@@ -542,8 +542,13 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             "RunLimitParams",
             vec![
                 optional("maxActiveSessions", "integer"),
+                optional("maxChildSessions", "integer"),
                 optional("maxFileBytes", "integer"),
                 optional("maxSearchMatches", "integer"),
+                optional("orchestratorModelProfileId", "string"),
+                optional("searchModelProfileId", "string"),
+                optional("exploreModelProfileId", "string"),
+                optional("validatorModelProfileId", "string"),
             ],
         ),
         object("RunLookupParams", vec![required("runId", "string")]),
@@ -717,8 +722,6 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("sessions", "integer"),
                 required("completedSessions", "integer"),
-                defaulted("reviewUnits", "integer", "sessions"),
-                defaulted("completedReviewUnits", "integer", "completedSessions"),
                 required("modelCalls", "integer"),
                 required("toolCalls", "integer"),
                 required("findings", "integer"),

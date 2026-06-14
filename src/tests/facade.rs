@@ -225,7 +225,7 @@ fn public_reviewer_facade_runs_mock_review() {
         snapshot_text.content_hash,
         readme.content_hash.clone().unwrap()
     );
-    assert_eq!(report.summary.completed_sessions, 1);
+    assert_eq!(report.summary.completed_sessions, 2);
     assert_eq!(report.summary.findings, 1);
     let findings = report.findings();
     assert_eq!(findings.len(), 1);
@@ -793,7 +793,7 @@ fn public_reviewer_facade_runs_mock_review() {
         && record
             .session_id
             .as_deref()
-            .is_some_and(|session_id| session_id.starts_with("unit-"))
+            .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
         && record.turn.is_some()
         && record.tool_call_id.is_some()));
     let event_types = events.events();
@@ -804,12 +804,12 @@ fn public_reviewer_facade_runs_mock_review() {
     assert!(event_types.iter().any(|event| matches!(
         event,
         crate::reviewer::events::ReviewEvent::SessionStarted { session_id }
-            if session_id.starts_with("unit-")
+            if session_id.starts_with("review-orchestrator")
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
         crate::reviewer::events::ReviewEvent::ModelStarted { session_id, .. }
-            if session_id.starts_with("unit-")
+            if session_id.starts_with("review-orchestrator")
     )));
     assert!(event_types.iter().any(|event| matches!(
         event,
@@ -909,7 +909,7 @@ fn public_reviewer_facade_emits_tool_denial_events() {
             && record
                 .session_id
                 .as_deref()
-                .is_some_and(|session_id| session_id.starts_with("unit-"))
+                .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
             && record.turn.is_some()
             && record.tool_call_id.is_some()
     )));
@@ -969,17 +969,17 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     // The aborted call still counts: model_calls reports attempts made, not
     // turns completed.
     assert_eq!(report.summary.model_calls, 1);
-    assert_eq!(report.summary.tool_calls, 2);
+    assert_eq!(report.summary.tool_calls, 0);
     let event_records = events.records();
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
         crate::reviewer::events::ReviewEvent::ModelStarted { session_id, .. }
-            if session_id.starts_with("unit-")
+            if session_id.starts_with("review-orchestrator")
                 && record.run_id.as_deref() == Some("public-cancel-run")
                 && record
                     .session_id
                     .as_deref()
-                    .is_some_and(|session_id| session_id.starts_with("unit-"))
+                    .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
                 && record.turn.is_some()
     )));
     assert!(!event_records.iter().any(|record| matches!(
@@ -989,13 +989,13 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     assert!(event_records.iter().any(|record| matches!(
         &record.event,
         crate::reviewer::events::ReviewEvent::SessionFinished { session_id, status }
-            if session_id.starts_with("unit-")
-                && status == "partial"
+            if session_id.starts_with("review-orchestrator")
+                && (status == "cancelled" || status == "failed")
                 && record.run_id.as_deref() == Some("public-cancel-run")
                 && record
                     .session_id
                     .as_deref()
-                    .is_some_and(|session_id| session_id.starts_with("unit-"))
+                    .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
     )));
     assert!(matches!(
         event_records.last().map(|record| &record.event),
@@ -1080,8 +1080,8 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
     let report = tokio.block_on(run.execute());
 
     assert_eq!(report.snapshots.len(), 2);
-    assert_eq!(report.summary.sessions, 2);
-    assert_eq!(report.summary.completed_sessions, 2);
+    assert_eq!(report.summary.sessions, 4);
+    assert_eq!(report.summary.completed_sessions, 4);
     assert_eq!(report.summary.findings, 2);
     assert_eq!(report.summary.snapshot_count, 2);
     assert_eq!(report.metrics.snapshot_metrics.len(), 2);
@@ -1089,12 +1089,12 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
         .metrics
         .snapshot_metrics
         .iter()
-        .any(|metrics| metrics.snapshot_id == first_id && metrics.sessions == 1));
+        .any(|metrics| metrics.snapshot_id == first_id && metrics.sessions == 2));
     assert!(report
         .metrics
         .snapshot_metrics
         .iter()
-        .any(|metrics| metrics.snapshot_id == second_id && metrics.sessions == 1));
+        .any(|metrics| metrics.snapshot_id == second_id && metrics.sessions == 2));
     let artifact_text = report
         .artifacts
         .list()
@@ -1377,7 +1377,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
             && record
                 .session_id
                 .as_deref()
-                .is_some_and(|session_id| session_id.starts_with("unit-"))
+                .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
     )));
 }
 
@@ -1752,7 +1752,7 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
             && record
                 .session_id
                 .as_deref()
-                .is_some_and(|session_id| session_id.starts_with("unit-"))
+                .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
     )));
     let metric_key =
         crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);
@@ -1857,7 +1857,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
             && record
                 .session_id
                 .as_deref()
-                .is_some_and(|session_id| session_id.starts_with("unit-"))
+                .is_some_and(|session_id| session_id.starts_with("review-orchestrator"))
     )));
     let metric_key =
         crate::reviewer::adapters::tool_adapters::ToolMetricKey::new(&provider_id, &tool_id);

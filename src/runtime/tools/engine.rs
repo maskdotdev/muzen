@@ -10,7 +10,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::contracts::ToolName;
 use crate::runtime::contracts::*;
-use crate::runtime::policy::diff_risk_hint_items;
 use crate::runtime::repo::RepoSnapshot;
 
 use super::authorization::ToolAuthorizer;
@@ -576,7 +575,6 @@ impl ToolEngine {
             data: Some(json!({
                 "content": content,
                 "contentHash": content_hash,
-                "riskHints": diff_risk_hint_items(&raw_content),
                 "scopedPaths": scoped_paths,
                 "scoped": !assigned_changed_files.is_empty(),
             })),

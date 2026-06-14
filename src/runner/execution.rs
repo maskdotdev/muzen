@@ -428,8 +428,6 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
     RunnerRunSummary {
         sessions: summary.sessions,
         completed_sessions: summary.completed_sessions,
-        review_units: summary.sessions,
-        completed_review_units: summary.completed_sessions,
         model_calls: summary.model_calls,
         tool_calls: summary.tool_calls,
         findings: summary.findings,
