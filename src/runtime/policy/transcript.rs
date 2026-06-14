@@ -25,7 +25,7 @@ impl ReviewerPolicy {
         _transcript: &[ConversationItem],
         capabilities: &CapabilitySet,
     ) -> Vec<Value> {
-        schemas_for_tools(registry, capabilities, exploration_tools())
+        schemas_for_capabilities(registry, capabilities)
     }
 
     pub fn compact_tool_result(
@@ -66,31 +66,47 @@ impl ReviewerPolicy {
     }
 }
 
-fn schemas_for_tools(
-    registry: &ToolRegistry,
-    capabilities: &CapabilitySet,
-    tools: &[ToolName],
-) -> Vec<Value> {
-    tools
-        .iter()
-        .filter_map(|tool| {
-            let tool_id = ToolId::from(*tool);
-            if !capabilities.allow_tool(&tool_id) {
-                return None;
-            }
-            registry.definition(&tool_id)
-        })
-        .map(|definition| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": definition.model_alias.as_str(),
-                    "description": definition.description.clone(),
-                    "parameters": definition.parameters.clone()
-                }
-            })
-        })
-        .collect()
+// Tool exposure is capability-driven: every tool the session has been granted
+// (allow == true) and that the registry can describe is advertised to the model.
+// Builtin exploration tools are listed first in their canonical order so the
+// prompt surface stays stable; any other granted tool (context.* semantic
+// tools or host-registered custom tools) follows in
+// deterministic ToolId order. This is the single path that decides what the
+// model can call, so a granted tool that is not surfaced here is effectively
+// invisible regardless of its grant.
+fn schemas_for_capabilities(registry: &ToolRegistry, capabilities: &CapabilitySet) -> Vec<Value> {
+    let mut schemas = Vec::new();
+    let mut surfaced: std::collections::BTreeSet<ToolId> = std::collections::BTreeSet::new();
+    for tool in exploration_tools() {
+        let tool_id = ToolId::from(*tool);
+        if !capabilities.allow_tool(&tool_id) {
+            continue;
+        }
+        if let Some(definition) = registry.definition(&tool_id) {
+            schemas.push(tool_schema_value(definition));
+            surfaced.insert(tool_id);
+        }
+    }
+    for (tool_id, grant) in &capabilities.tool_grants {
+        if !grant.allow || surfaced.contains(tool_id) {
+            continue;
+        }
+        if let Some(definition) = registry.definition(tool_id) {
+            schemas.push(tool_schema_value(definition));
+        }
+    }
+    schemas
+}
+
+fn tool_schema_value(definition: &crate::runtime::tools::registry::ToolDefinition) -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": definition.model_alias.as_str(),
+            "description": definition.description.clone(),
+            "parameters": definition.parameters.clone()
+        }
+    })
 }
 
 const EXPLORATION_TOOLS: &[ToolName] = &[

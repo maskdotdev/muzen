@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{
-    ArtifactKind, ByteRangeV1, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
+    AgentBudget, ArtifactKind, ByteRangeV1, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
     EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
     RedactionMetadataV1, RedactionState, ReportStatus, ReviewCoverage, ReviewVerdict, Role,
     TokenUsage, ToolCounts, ToolName, ValidationStatus,
@@ -17,9 +17,6 @@ use crate::contracts::{
 use crate::review_plan::ReviewPlanFileMode;
 use crate::review_plan::{build_review_plan, ReviewPlan};
 use crate::review_units::{build_review_unit_plan, PlannedReviewUnit, ReviewUnitOptions};
-use crate::runtime::contract_packs::{
-    build_contract_pack_plan, ContractPack, ContractPackKind, ContractPackPlan,
-};
 use crate::runtime::contracts::*;
 use crate::runtime::dispatch::RuntimeEventDispatcher;
 use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
@@ -29,7 +26,21 @@ use crate::runtime::policy::{ReviewerPolicy, SessionEvidence};
 use crate::runtime::repo::RepoSnapshot;
 use crate::runtime::tool_batch::ToolBatchRunner;
 use crate::runtime::tools::{ConcurrentArtifactStore, ToolEngine};
-use crate::runtime::transcript::enforce_prompt_budget;
+use crate::runtime::transcript::{enforce_prompt_budget, estimate_prompt_tokens};
+use crate::util::peak_rss_bytes;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct DiffPackContext;
+
+impl DiffPackContext {
+    fn empty() -> Self {
+        Self
+    }
+
+    fn pack_count(&self) -> usize {
+        0
+    }
+}
 
 pub(crate) struct PlannedReviewRuntime {
     pub(crate) snapshot: Arc<RepoSnapshot>,
@@ -56,20 +67,9 @@ impl PlannedReviewRuntime {
     ) -> PlannedReviewRunReport {
         let started = Instant::now();
         let review_plan = build_review_plan(&self.snapshot);
-        let head_contents = changed_file_head_contents(
-            &self.snapshot,
-            &review_plan,
-            self.limits.max_file_bytes_read,
-        );
-        let contract_packs = build_contract_pack_plan(
-            &review_plan,
-            self.snapshot.diff.content.as_str(),
-            &head_contents,
-        );
-        let unit_plan = build_review_unit_plan(
-            &review_plan,
-            adaptive_review_unit_options(&review_plan, contract_packs.pack_count()),
-        );
+        let contract_packs = DiffPackContext::empty();
+        let unit_plan =
+            build_review_unit_plan(&review_plan, adaptive_review_unit_options(&review_plan));
         let contract_risk = build_contract_risk_plan(
             &review_plan,
             &unit_plan,
@@ -167,48 +167,6 @@ impl PlannedReviewRuntime {
             completion_diagnostics.push(report.completion_diagnostic);
         }
         append_unverdicted_file_reviews(&unit_plan.units, &mut file_reviews);
-        let mut pack_clean_paths = BTreeSet::new();
-        for pack in &contract_packs.packs {
-            if cancel.is_cancelled() {
-                break;
-            }
-            let pack_report = self
-                .run_contract_pack_pass(&review_plan, pack, cancel.child_token())
-                .await;
-            model_calls += pack_report.model_calls;
-            add_model_metrics(&mut model_metrics, &pack_report.model_metrics);
-            tool_counts.add(pack_report.tool_counts);
-            tokens.add(pack_report.tokens);
-            let pack_found_issue = pack_report
-                .candidate_findings
-                .iter()
-                .any(|candidate| candidate.rejection_reason.is_none());
-            if pack_report.completion_diagnostic.completed && !pack_found_issue {
-                pack_clean_paths.insert(pack.primary_path.display());
-                pack_clean_paths.extend(pack.related_paths.iter().map(RepoPath::display));
-            }
-            candidate_findings.extend(pack_report.candidate_findings);
-            completion_diagnostics.push(pack_report.completion_diagnostic);
-        }
-        if self.should_run_final_synthesis(&contract_packs) && !cancel.is_cancelled() {
-            let synthesis_report = self
-                .run_final_synthesis_pass(
-                    review_plan.as_ref(),
-                    &unit_plan.units,
-                    contract_risk.as_ref(),
-                    contract_packs.as_ref(),
-                    &file_reviews,
-                    &candidate_findings,
-                    &pack_clean_paths,
-                    cancel.child_token(),
-                )
-                .await;
-            model_calls += synthesis_report.model_calls;
-            add_model_metrics(&mut model_metrics, &synthesis_report.model_metrics);
-            tokens.add(synthesis_report.tokens);
-            candidate_findings.extend(synthesis_report.verified_candidate_findings);
-            completion_diagnostics.push(synthesis_report.completion_diagnostic);
-        }
         let synthesis = synthesize_findings(
             review_plan.as_ref(),
             &unit_plan.units,
@@ -218,6 +176,55 @@ impl PlannedReviewRuntime {
             &self.tools.artifacts,
             &self.review_revision_id,
         );
+        let synthesis_scope = SessionScope::review_read_only(
+            SessionId("synthesis".to_string()),
+            Role::Generalist,
+            "planned review synthesis",
+            AgentBudget {
+                max_turns: 1,
+                max_tool_calls: 0,
+                max_prompt_tokens: 0,
+                max_output_tokens: 0,
+                budget_source: crate::contracts::BudgetSource::PlannedDefault,
+            },
+        );
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                &synthesis_scope,
+                None,
+                "candidate_synthesis_summary",
+                format!(
+                    "synthesized {} candidate(s) into {} finding(s)",
+                    synthesis.candidate_count,
+                    synthesis.findings.len()
+                ),
+                json!({
+                    "candidateCount": synthesis.candidate_count,
+                    "rescuedCount": synthesis.rescued_count,
+                    "rejectedCount": synthesis.rejected_count,
+                    "findingCount": synthesis.findings.len(),
+                    "rejectionReasons": synthesis.rejection_reasons,
+                }),
+            ));
+        if synthesis.candidate_count == 0 {
+            self.events
+                .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                    &synthesis_scope,
+                    None,
+                    "candidate_finding_decision",
+                    "synthesis produced no candidate findings".to_string(),
+                    json!({
+                        "phase": "synthesis",
+                        "decision": "none",
+                        "reason": "no_candidate_findings",
+                        "candidateCount": 0,
+                        "findingCount": 0,
+                        "rejectedCount": synthesis.rejected_count,
+                        "rescuedCount": synthesis.rescued_count,
+                        "rejectionReasons": synthesis.rejection_reasons,
+                    }),
+                ));
+        }
         let mut findings = synthesis.findings;
         for finding in &findings {
             self.events.emit_runtime_with_context(
@@ -339,21 +346,206 @@ impl PlannedReviewRuntime {
         }
     }
 
-    fn should_run_final_synthesis(&self, contract_packs: &ContractPackPlan) -> bool {
-        if !contract_packs.packs.is_empty() {
-            return true;
+    fn emit_transcript_compacted_trace(
+        &self,
+        scope: &SessionScope,
+        turn_id: TurnId,
+        evicted_tool_results: usize,
+        transcript: &[ConversationItem],
+    ) {
+        if evicted_tool_results == 0 {
+            return;
         }
-        self.session_templates
-            .first()
-            .map(can_bootstrap_review)
-            .unwrap_or(true)
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                scope,
+                Some(turn_id),
+                "transcript_compacted",
+                format!("evicted {evicted_tool_results} old tool result(s) before model turn"),
+                json!({
+                    "evictedToolResults": evicted_tool_results,
+                    "transcriptItemsAfter": transcript.len(),
+                    "estimatedPromptTokensAfter": estimate_prompt_tokens(transcript),
+                    "maxPromptTokens": scope.budget.max_prompt_tokens,
+                }),
+            ));
+    }
+
+    fn emit_model_turn_prepared_trace(
+        &self,
+        scope: &SessionScope,
+        model_scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
+        final_turn: bool,
+    ) {
+        let schemas = self.policy.tool_schemas_for_transcript(
+            &self.tools.registry,
+            transcript,
+            &model_scope.capabilities,
+        );
+        let alias_table = self.tools.registry.alias_table().ok();
+        let schema_text = serde_json::to_string(&schemas).unwrap_or_default();
+        let response_format = model_scope.response_format.as_ref();
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                scope,
+                Some(turn_id),
+                "model_turn_prepared",
+                format!(
+                    "prepared model turn with {} transcript item(s) and {} exposed tool(s)",
+                    transcript.len(),
+                    schemas.len()
+                ),
+                json!({
+                    "finalTurn": final_turn,
+                    "callScopeHasTools": !model_scope.capabilities.tool_grants.is_empty(),
+                    "transcriptItems": transcript.len(),
+                    "transcriptBytes": transcript_bytes(transcript),
+                    "estimatedPromptTokens": estimate_prompt_tokens(transcript),
+                        "maxPromptTokens": scope.budget.max_prompt_tokens,
+                        "peakRssBytes": peak_rss_bytes(),
+                        "systemDigest": first_system_digest(transcript),
+                    "lastUserDigest": last_user_digest(transcript),
+                    "exposedTools": schemas
+                        .iter()
+                        .filter_map(|schema| schema_tool_trace(schema, alias_table.as_ref()))
+                        .collect::<Vec<_>>(),
+                    "schemaDigest": stable_id(&[&schema_text]),
+                    "structuredOutputRequested": response_format.is_some(),
+                    "responseFormatName": response_format.map(|format| format.name.as_str()),
+                    "responseFormatStrict": response_format.map(|format| format.strict),
+                    "responseFormatSchemaDigest": response_format_schema_digest(response_format),
+                }),
+            ));
+    }
+
+    fn emit_model_turn_completed_trace(
+        &self,
+        scope: &SessionScope,
+        turn_id: TurnId,
+        turn: &ModelTurn,
+        attempts: usize,
+    ) {
+        let (output_kind, summary, details) = match turn {
+            ModelTurn::Text { content, usage } => (
+                "text",
+                format!("model returned text output ({} bytes)", content.len()),
+                json!({
+                    "attempts": attempts,
+                    "outputKind": "text",
+                    "textBytes": content.len(),
+                    "textDigest": stable_id(&[content]),
+                    "usage": usage,
+                }),
+            ),
+            ModelTurn::ToolCalls { calls, usage } => (
+                "tool_calls",
+                format!("model returned {} tool call(s)", calls.len()),
+                json!({
+                    "attempts": attempts,
+                    "outputKind": "tool_calls",
+                    "toolCallCount": calls.len(),
+                    "toolCalls": calls.iter().map(|call| json!({
+                        "callId": call.call_id.0,
+                        "index": call.index,
+                        "toolName": call.name.as_str(),
+                        "argumentBytes": call.raw_arguments.len(),
+                        "argumentHash": blake3::hash(call.raw_arguments.as_bytes()).to_hex().to_string(),
+                        "argumentSummary": call.redacted_argument_summary(),
+                    })).collect::<Vec<_>>(),
+                    "usage": usage,
+                }),
+            ),
+        };
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                scope,
+                Some(turn_id),
+                format!("model_turn_completed.{output_kind}"),
+                summary,
+                details,
+            ));
+    }
+
+    fn emit_candidate_decision_trace(
+        &self,
+        scope: &SessionScope,
+        candidate: &CandidateFinding,
+        phase: &str,
+    ) {
+        let decision = candidate
+            .rejection_reason
+            .as_deref()
+            .map(|_| "rejected")
+            .unwrap_or("candidate");
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                scope,
+                None,
+                "candidate_finding_decision",
+                format!("{phase} {decision}: {}", candidate.title),
+                json!({
+                    "phase": phase,
+                    "decision": decision,
+                    "reason": candidate.rejection_reason,
+                    "sourceUnitId": candidate.source_unit_id,
+                    "sourceSessionId": candidate.source_session_id,
+                    "title": candidate.title,
+                    "claimHash": stable_id(&[&candidate.claim]),
+                    "path": candidate.path,
+                    "relatedPaths": candidate.related_paths,
+                    "startLine": candidate.start_line,
+                    "endLine": candidate.end_line,
+                    "evidenceArtifactIds": candidate.evidence_artifact_ids,
+                    "sourceUnitAssignedPath": candidate.source_unit_assigned_path,
+                }),
+            ));
+    }
+
+    fn emit_risk_playbook_trace(
+        &self,
+        scope: &SessionScope,
+        unit: &PlannedReviewUnit,
+        unit_risk: &ContractUnitRisk,
+        _contract_packs: &DiffPackContext,
+    ) {
+        let playbooks = unit_risk_playbooks(unit, unit_risk);
+        if playbooks.is_empty() {
+            return;
+        }
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                scope,
+                None,
+                "risk_playbooks_selected",
+                format!(
+                    "selected risk playbooks: {}",
+                    playbooks
+                        .iter()
+                        .map(|playbook| playbook.name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                json!({
+                    "playbooks": playbooks
+                        .iter()
+                        .map(|playbook| playbook.name())
+                        .collect::<Vec<_>>(),
+                    "unitId": unit.id.as_str(),
+                    "highRisk": unit_risk.high_risk,
+                    "reasons": unit_risk.reasons.clone(),
+                    "seeds": unit_risk.seeds.clone(),
+                    "suggestedQueries": unit_risk.suggested_queries.clone(),
+                }),
+            ));
     }
 
     async fn run_unit(
         &self,
         review_plan: &ReviewPlan,
         contract_risk: &ContractRiskPlan,
-        contract_packs: &ContractPackPlan,
+        contract_packs: &DiffPackContext,
         unit: PlannedReviewUnit,
         lens_index: usize,
         template_index: Option<usize>,
@@ -375,6 +567,7 @@ impl PlannedReviewRuntime {
         };
 
         let unit_risk = contract_risk.unit_risk(&unit);
+        self.emit_risk_playbook_trace(&scope, &unit, unit_risk, contract_packs);
         let mut transcript = planned_unit_transcript(
             review_plan,
             &unit,
@@ -404,13 +597,19 @@ impl PlannedReviewRuntime {
             cancel.child_token(),
         )
         .await;
-
         for turn_index in 0..turn_limit {
             if cancel.is_cancelled() {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
-            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            let evicted_tool_results =
+                enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            self.emit_transcript_compacted_trace(
+                &scope,
+                turn_id,
+                evicted_tool_results,
+                &transcript,
+            );
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
@@ -419,10 +618,17 @@ impl PlannedReviewRuntime {
             let final_turn =
                 turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
             let model_scope = if final_turn {
-                final_response_scope(&scope)
+                final_response_scope(&scope, unit_result_response_format())
             } else {
                 scope.clone()
             };
+            self.emit_model_turn_prepared_trace(
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                final_turn,
+            );
             let outcome = complete_model_turn(
                 &*model,
                 &self.policy,
@@ -447,6 +653,7 @@ impl PlannedReviewRuntime {
                     break;
                 }
             };
+            self.emit_model_turn_completed_trace(&scope, turn_id, &turn, outcome.attempts);
             model_metrics.successes += 1;
             model_metrics.latency_ms += elapsed_ms(model_started);
             model_metrics.max_latency_ms =
@@ -459,7 +666,28 @@ impl PlannedReviewRuntime {
                         self.policy
                             .plan_model_completed_runtime_event(&scope, turn_id, 0),
                     );
-                    let result = parse_unit_result(&content, &unit);
+                    let parsed_result = parse_unit_result(&content, &unit);
+                    let result = parsed_result.result;
+                    self.events
+                        .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                            &scope,
+                            Some(turn_id),
+                            "unit_result_parsed",
+                            format!(
+                            "parsed unit result parsed={} extracted={} fileVerdicts={} findings={}",
+                            parsed_result.parsed,
+                            parsed_result.extracted_json,
+                            result.file_verdicts.len(),
+                            result.findings.len()
+                        ),
+                            json!({
+                                "parsed": parsed_result.parsed,
+                                "extractedJson": parsed_result.extracted_json,
+                                "fileVerdictCount": result.file_verdicts.len(),
+                                "findingCount": result.findings.len(),
+                                "summary": truncate_chars(&result.summary, 500),
+                            }),
+                        ));
                     let validation = validate_file_reviews(
                         &scope,
                         &unit,
@@ -506,6 +734,9 @@ impl PlannedReviewRuntime {
                         result.findings,
                         &file_evidence,
                     );
+                    for candidate in &candidate_findings {
+                        self.emit_candidate_decision_trace(&scope, candidate, "unit_result");
+                    }
                     self.events.emit_planned_runtime(
                         self.policy
                             .plan_session_finished_runtime_event(&scope, "done"),
@@ -610,136 +841,6 @@ impl PlannedReviewRuntime {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn run_final_synthesis_pass(
-        &self,
-        review_plan: &ReviewPlan,
-        units: &[PlannedReviewUnit],
-        contract_risk: &ContractRiskPlan,
-        contract_packs: &ContractPackPlan,
-        file_reviews: &[FileReviewV1],
-        existing_candidates: &[CandidateFinding],
-        pack_clean_paths: &BTreeSet<String>,
-        cancel: CancellationToken,
-    ) -> FinalSynthesisReport {
-        let scope =
-            final_synthesis_scope(&self.snapshot.snapshot_id, self.session_templates.first());
-        let model = match self.model_router.client_for(&scope).await {
-            Ok(model) => model,
-            Err(_error) => {
-                return FinalSynthesisReport::empty(final_synthesis_diagnostic(
-                    false,
-                    "model_router_failed",
-                    0,
-                ));
-            }
-        };
-        let transcript = final_synthesis_transcript(
-            review_plan,
-            units,
-            contract_risk,
-            contract_packs,
-            file_reviews,
-            self.snapshot.diff.content.as_str(),
-        );
-        let mut model_metrics = ModelMetricsSnapshot::default();
-        let mut tokens = TokenUsage::default();
-        let turn_id = TurnId(0);
-        self.events.emit_planned_runtime(
-            self.policy
-                .plan_model_started_runtime_event(&scope, turn_id),
-        );
-        let model_started = Instant::now();
-        let outcome = complete_model_turn(
-            &*model,
-            &self.policy,
-            &self.events,
-            &self.limits,
-            &scope,
-            &final_response_scope(&scope),
-            &transcript,
-            turn_id,
-            &cancel,
-        )
-        .await;
-        model_metrics.calls += outcome.attempts;
-        let turn = match outcome.result {
-            Ok(turn) => {
-                model_metrics.errors += outcome.attempts - 1;
-                turn
-            }
-            Err(error) => {
-                model_metrics.errors += outcome.attempts;
-                let summary = match error {
-                    RuntimeError::Timeout => "timeout",
-                    _ => "model_failed",
-                };
-                return FinalSynthesisReport::empty(final_synthesis_diagnostic(false, summary, 0));
-            }
-        };
-        model_metrics.successes += 1;
-        model_metrics.latency_ms += elapsed_ms(model_started);
-        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-        match turn {
-            ModelTurn::Text { content, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events.emit_planned_runtime(
-                    self.policy
-                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
-                );
-                let result = parse_synthesis_result(&content);
-                let evidence_by_path = synthesis_evidence_by_path(file_reviews);
-                let verified = collect_synthesis_candidate_findings(
-                    &scope,
-                    review_plan,
-                    self.snapshot.diff.content.as_str(),
-                    result.findings,
-                    &evidence_by_path,
-                    existing_candidates,
-                    pack_clean_paths,
-                );
-                FinalSynthesisReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    verified_candidate_findings: verified.candidates,
-                    completion_diagnostic: final_synthesis_diagnostic(
-                        true,
-                        &format!(
-                            "{} raw={} accepted={} rejected={} duplicateMerged=0 rejectionReasons={}",
-                            result.summary,
-                            result.finding_count,
-                            verified.accepted_count,
-                            verified.rejected_count,
-                            format_rejection_reasons(&verified.rejection_reasons)
-                        ),
-                        verified.accepted_count,
-                    ),
-                }
-            }
-            ModelTurn::ToolCalls { calls, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                self.events
-                    .emit_planned_runtime(self.policy.plan_model_completed_runtime_event(
-                        &scope,
-                        turn_id,
-                        calls.len(),
-                    ));
-                FinalSynthesisReport {
-                    model_calls: outcome.attempts,
-                    model_metrics,
-                    tokens,
-                    verified_candidate_findings: Vec::new(),
-                    completion_diagnostic: final_synthesis_diagnostic(
-                        false,
-                        "unexpected_tool_calls",
-                        0,
-                    ),
-                }
-            }
-        }
-    }
-
     /// Adversarial verification over validated findings: a single budgeted
     /// challenger session attempts to refute each finding against the diff
     /// evidence. Refuted findings stay in the report for audit but are
@@ -775,6 +876,14 @@ impl PlannedReviewRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
+            let evicted_tool_results =
+                enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            self.emit_transcript_compacted_trace(
+                &scope,
+                turn_id,
+                evicted_tool_results,
+                &transcript,
+            );
             self.events.emit_planned_runtime(
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
@@ -783,10 +892,17 @@ impl PlannedReviewRuntime {
             let final_turn =
                 turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
             let model_scope = if final_turn {
-                final_response_scope(&scope)
+                final_response_scope(&scope, challenge_result_response_format())
             } else {
                 scope.clone()
             };
+            self.emit_model_turn_prepared_trace(
+                &scope,
+                &model_scope,
+                &transcript,
+                turn_id,
+                final_turn,
+            );
             let outcome = complete_model_turn(
                 &*model,
                 &self.policy,
@@ -822,6 +938,7 @@ impl PlannedReviewRuntime {
                     };
                 }
             };
+            self.emit_model_turn_completed_trace(&scope, turn_id, &turn, outcome.attempts);
             model_metrics.successes += 1;
             model_metrics.latency_ms += elapsed_ms(model_started);
             model_metrics.max_latency_ms =
@@ -833,14 +950,23 @@ impl PlannedReviewRuntime {
                         self.policy
                             .plan_model_completed_runtime_event(&scope, turn_id, 0),
                     );
-                    let suppressed = apply_challenge_verdicts(findings, &content, &scope.id.0);
+                    let challenge_application =
+                        apply_challenge_verdicts(findings, &content, &scope.id.0);
+                    let challenge_summary = if challenge_application.applied_count == 0 {
+                        mark_challenge_incomplete(findings);
+                        "no_verdicts_applied"
+                    } else {
+                        "done"
+                    };
                     return FindingChallengeReport {
                         model_calls,
                         model_metrics,
                         tool_counts,
                         tokens,
                         completion_diagnostic: finding_challenge_diagnostic(
-                            true, "done", suppressed,
+                            challenge_application.applied_count > 0,
+                            challenge_summary,
+                            challenge_application.suppressed_count,
                         ),
                     };
                 }
@@ -918,284 +1044,6 @@ impl PlannedReviewRuntime {
             completion_diagnostic: finding_challenge_diagnostic(false, "partial", 0),
         }
     }
-    /// Runs one focused investigation per contract pack. The runtime loads the
-    /// pack's primary and related files deterministically, then requires the
-    /// model to answer every pack question and verdict every related path, so
-    /// pack obligations cannot silently degrade into needs_review verdicts.
-    async fn run_contract_pack_pass(
-        &self,
-        review_plan: &ReviewPlan,
-        pack: &ContractPack,
-        cancel: CancellationToken,
-    ) -> ContractPackPassReport {
-        let pack_unit = contract_pack_unit(pack);
-        let scope = unit_scope(
-            &pack_unit,
-            &self.snapshot.snapshot_id,
-            self.session_templates.first(),
-            0,
-        );
-        self.events
-            .emit_planned_runtime(self.policy.plan_session_started_runtime_event(&scope));
-        let model = match self.model_router.client_for(&scope).await {
-            Ok(model) => model,
-            Err(_error) => {
-                self.events.emit_planned_runtime(
-                    self.policy
-                        .plan_session_finished_runtime_event(&scope, "failed"),
-                );
-                return ContractPackPassReport::empty(pack_pass_diagnostic(
-                    &pack_unit.id,
-                    false,
-                    "model_router_failed",
-                ));
-            }
-        };
-        let mut transcript = contract_pack_transcript(pack);
-        let mut evidence = SessionEvidence::for_scope(&scope);
-        let mut tool_counts = ToolCounts::default();
-        let mut model_metrics = ModelMetricsSnapshot::default();
-        let mut tokens = TokenUsage::default();
-        let mut model_calls = 0usize;
-        let mut file_evidence = FileEvidenceTracker::new(&pack_unit);
-        let diff = self.snapshot.diff.content.as_str();
-        let changed_ranges = changed_line_ranges_by_path(diff);
-        let read_calls = contract_pack_bootstrap_calls(
-            pack,
-            review_plan,
-            &changed_ranges,
-            self.limits.max_file_bytes_read,
-            scope.budget.max_tool_calls,
-        );
-        if !read_calls.is_empty() && !cancel.is_cancelled() {
-            // The engine rejects any batch over max_tool_calls_per_turn, so
-            // bootstrap reads must execute in turn-sized chunks.
-            let chunk_size = self.limits.max_tool_calls_per_turn.max(1);
-            for (chunk_index, chunk) in read_calls.chunks(chunk_size).enumerate() {
-                if cancel.is_cancelled() {
-                    break;
-                }
-                transcript.push(ConversationItem::AssistantToolCalls {
-                    calls: chunk.to_vec(),
-                });
-                let results =
-                    ToolBatchRunner::new(self.policy.as_ref(), self.tools.as_ref(), &self.events)
-                        .execute(
-                            scope.clone(),
-                            TurnId(u32::MAX - chunk_index as u32),
-                            chunk.to_vec(),
-                            &evidence,
-                            scope.budget.max_tool_calls,
-                            cancel.child_token(),
-                        )
-                        .await;
-                file_evidence.observe_results(&results, &self.tools.artifacts);
-                ToolResultEffectProcessor::new(
-                    self.policy.as_ref(),
-                    self.tools.as_ref(),
-                    &self.events,
-                    &self.review_revision_id,
-                )
-                .apply_batch(
-                    &scope,
-                    TurnId(u32::MAX - chunk_index as u32),
-                    results,
-                    ToolResultBatchState {
-                        evidence: &mut evidence,
-                        tool_counts: &mut tool_counts,
-                        transcript: &mut transcript,
-                    },
-                );
-            }
-            transcript.push(ConversationItem::User {
-                content: "The diff and the contract pack's primary and related files have been loaded above. Use this evidence to answer every pack question. Request focused follow-up tool calls only if a specific question cannot be answered from the loaded evidence, otherwise return the final JSON result now.".to_string(),
-            });
-        }
-        let turn_limit = scope.budget.max_turns.clamp(1, 3);
-        let mut retried_incomplete = false;
-        for turn_index in 0..turn_limit {
-            if cancel.is_cancelled() {
-                break;
-            }
-            let turn_id = TurnId(turn_index as u32);
-            self.events.emit_planned_runtime(
-                self.policy
-                    .plan_model_started_runtime_event(&scope, turn_id),
-            );
-            let model_started = Instant::now();
-            let final_turn =
-                turn_index + 1 >= turn_limit || tool_counts.total() >= scope.budget.max_tool_calls;
-            let model_scope = if final_turn {
-                final_response_scope(&scope)
-            } else {
-                scope.clone()
-            };
-            let turn = match tokio::time::timeout(
-                std::time::Duration::from_millis(self.limits.max_model_turn_ms.max(1)),
-                model.complete(&model_scope, &transcript, turn_id, cancel.child_token()),
-            )
-            .await
-            {
-                Ok(Ok(turn)) => turn,
-                Ok(Err(error)) => {
-                    self.events.emit_planned_runtime(
-                        self.policy
-                            .plan_model_failed_runtime_event(&scope, turn_id, 1, false, &error),
-                    );
-                    break;
-                }
-                Err(_) => {
-                    self.events
-                        .emit_planned_runtime(self.policy.plan_model_failed_runtime_event(
-                            &scope,
-                            turn_id,
-                            1,
-                            false,
-                            &RuntimeError::Timeout,
-                        ));
-                    break;
-                }
-            };
-            model_calls += 1;
-            model_metrics.calls += 1;
-            model_metrics.successes += 1;
-            model_metrics.latency_ms += elapsed_ms(model_started);
-            model_metrics.max_latency_ms =
-                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-            match turn {
-                ModelTurn::Text { content, usage } => {
-                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                    self.events.emit_planned_runtime(
-                        self.policy
-                            .plan_model_completed_runtime_event(&scope, turn_id, 0),
-                    );
-                    let result = parse_pack_result(&content);
-                    let missing = missing_pack_obligations(pack, &result);
-                    if !missing.is_empty() && !final_turn && !retried_incomplete {
-                        retried_incomplete = true;
-                        transcript.push(ConversationItem::AssistantText { content });
-                        transcript.push(ConversationItem::User {
-                            content: format!(
-                                "The pack result is incomplete: {}. Return the full JSON result with an explicit answer for every question and an explicit verdict for every related path.",
-                                missing.join("; ")
-                            ),
-                        });
-                        continue;
-                    }
-                    let mut candidate_findings = collect_candidate_findings(
-                        &scope,
-                        &pack_unit,
-                        review_plan,
-                        result.findings,
-                        &file_evidence,
-                    );
-                    candidate_findings.extend(deterministic_contract_pack_candidates(
-                        &scope,
-                        pack,
-                        self.snapshot.diff.content.as_str(),
-                        &file_evidence,
-                    ));
-                    self.events.emit_planned_runtime(
-                        self.policy
-                            .plan_session_finished_runtime_event(&scope, "done"),
-                    );
-                    return ContractPackPassReport {
-                        model_calls,
-                        model_metrics,
-                        tool_counts,
-                        tokens,
-                        candidate_findings,
-                        completion_diagnostic: SessionCompletionDiagnostic {
-                            session_id: pack_unit.id.clone(),
-                            completed: true,
-                            completion_kind: Some("structured_pack_result".to_string()),
-                            completion_summary: Some(format!(
-                                "{} questionsAnswered={}/{} relatedVerdicts={}/{} affectedRelatedPaths={} unresolvedObligations={}",
-                                result.summary,
-                                result.question_answers.len(),
-                                pack.questions.len(),
-                                result.related_path_verdicts.len(),
-                                pack.related_paths.len(),
-                                result
-                                    .related_path_verdicts
-                                    .iter()
-                                    .filter(|verdict| verdict.affected)
-                                    .count(),
-                                missing.len()
-                            )),
-                            saw_diff: true,
-                            saw_file: true,
-                            saw_search: false,
-                            model_calls,
-                            tool_counts,
-                        },
-                    };
-                }
-                ModelTurn::ToolCalls { calls, usage } => {
-                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                    self.events.emit_planned_runtime(
-                        self.policy.plan_model_completed_runtime_event(
-                            &scope,
-                            turn_id,
-                            calls.len(),
-                        ),
-                    );
-                    transcript.push(ConversationItem::AssistantToolCalls {
-                        calls: calls.clone(),
-                    });
-                    let results = ToolBatchRunner::new(
-                        self.policy.as_ref(),
-                        self.tools.as_ref(),
-                        &self.events,
-                    )
-                    .execute(
-                        scope.clone(),
-                        turn_id,
-                        calls,
-                        &evidence,
-                        scope
-                            .budget
-                            .max_tool_calls
-                            .saturating_sub(tool_counts.total()),
-                        cancel.child_token(),
-                    )
-                    .await;
-                    file_evidence.observe_results(&results, &self.tools.artifacts);
-                    ToolResultEffectProcessor::new(
-                        self.policy.as_ref(),
-                        self.tools.as_ref(),
-                        &self.events,
-                        &self.review_revision_id,
-                    )
-                    .apply_batch(
-                        &scope,
-                        turn_id,
-                        results,
-                        ToolResultBatchState {
-                            evidence: &mut evidence,
-                            tool_counts: &mut tool_counts,
-                            transcript: &mut transcript,
-                        },
-                    );
-                    transcript.push(ConversationItem::User {
-                        content: "Use the gathered evidence to return the final pack JSON result now with keys summary, questionAnswers, relatedPathVerdicts, and findings.".to_string(),
-                    });
-                }
-            }
-        }
-        self.events.emit_planned_runtime(
-            self.policy
-                .plan_session_finished_runtime_event(&scope, "partial"),
-        );
-        ContractPackPassReport {
-            model_calls,
-            model_metrics,
-            tool_counts,
-            tokens,
-            candidate_findings: Vec::new(),
-            completion_diagnostic: pack_pass_diagnostic(&pack_unit.id, false, "partial"),
-        }
-    }
 }
 
 async fn bootstrap_unit_evidence(
@@ -1204,7 +1052,7 @@ async fn bootstrap_unit_evidence(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
-    contract_packs: &ContractPackPlan,
+    contract_packs: &DiffPackContext,
     transcript: &mut Vec<ConversationItem>,
     evidence: &mut SessionEvidence,
     tool_counts: &mut ToolCounts,
@@ -1280,282 +1128,33 @@ async fn bootstrap_unit_evidence(
     });
 }
 
-fn changed_file_head_contents(
-    snapshot: &RepoSnapshot,
-    review_plan: &ReviewPlan,
-    max_file_bytes_read: usize,
-) -> BTreeMap<String, String> {
-    let mut contents = BTreeMap::new();
-    for file in &review_plan.files {
-        if file.mode != ReviewPlanFileMode::Full {
-            continue;
-        }
-        let Ok(meta) = snapshot.lookup(&file.path) else {
-            continue;
-        };
-        let Ok((bytes, _)) = snapshot.read_bounded(meta.file_id, max_file_bytes_read) else {
-            continue;
-        };
-        let Ok(text) = String::from_utf8(bytes) else {
-            continue;
-        };
-        contents.insert(file.path.display(), text);
-    }
-    contents
-}
-
-struct ContractPackPassReport {
-    model_calls: usize,
-    model_metrics: ModelMetricsSnapshot,
-    tool_counts: ToolCounts,
-    tokens: TokenUsage,
-    candidate_findings: Vec<CandidateFinding>,
-    completion_diagnostic: SessionCompletionDiagnostic,
-}
-
-impl ContractPackPassReport {
-    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
-        Self {
-            model_calls: 0,
-            model_metrics: ModelMetricsSnapshot::default(),
-            tool_counts: ToolCounts::default(),
-            tokens: TokenUsage::default(),
-            candidate_findings: Vec::new(),
-            completion_diagnostic,
-        }
-    }
-}
-
-fn contract_pack_unit(pack: &ContractPack) -> PlannedReviewUnit {
-    let file_paths = std::iter::once(pack.primary_path.clone())
-        .chain(pack.related_paths.iter().cloned())
-        .collect::<Vec<_>>();
-    PlannedReviewUnit {
-        id: format!("pack-{}", pack.id),
-        file_count: file_paths.len(),
-        file_paths,
-        score_min: 0,
-        score_max: 0,
-        estimated_bytes: 0,
-        requires_further_split: false,
-    }
-}
-
-fn contract_pack_transcript(pack: &ContractPack) -> Vec<ConversationItem> {
-    vec![
-        ConversationItem::System {
-            content: "You are a contract investigation reviewer focused on exactly one contract obligation inside a pull request. Use the loaded read-only evidence to compare both sides of the contract. Return final output as strict JSON with keys summary, questionAnswers, relatedPathVerdicts, and findings. questionAnswers must contain one entry per listed question with keys question, answer, and status (issue or clean). relatedPathVerdicts must contain one entry per listed related path with keys path, affected (boolean), and reason citing the concrete code that supports the verdict. findings must contain one entry per distinct supported bug with keys title, claim, path, relatedPaths, startLine, endLine, behaviorBefore, and behaviorAfter; query/filter findings must also include predicate naming the exact changed predicate branch or guard. When the primary contract is broken and a related path consumes the broken contract, report a separate finding anchored to that related path's changed lines and include the primary path in relatedPaths. Report only issues directly supported by the gathered evidence; when behavior is safe, answer clean and explain why with the evidence you compared. Do not report style, type-only, or speculative concerns. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
-        },
-        ConversationItem::User {
-            content: format!(
-                "Contract investigation pack {} (kind {:?}).\nPrimary path: {}\nRelated paths:\n{}\nRequired evidence:\n{}\nQuestions to answer (every question requires an explicit answer):\n{}\nPublishability criteria:\n{}\nSummary: {}",
-                pack.id,
-                pack.kind,
-                pack.primary_path.display(),
-                if pack.related_paths.is_empty() {
-                    "- none".to_string()
-                } else {
-                    pack.related_paths
-                        .iter()
-                        .map(|path| format!("- {}", path.display()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                },
-                pack.required_evidence
-                    .iter()
-                    .map(|item| format!("- {item}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                pack.questions
-                    .iter()
-                    .map(|item| format!("- {item}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                pack.publishability_criteria
-                    .iter()
-                    .map(|item| format!("- {item}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                pack.summary
-            ),
-        },
-    ]
-}
-
-fn contract_pack_bootstrap_calls(
-    pack: &ContractPack,
-    review_plan: &ReviewPlan,
-    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
-    max_file_bytes_read: usize,
-    max_tool_calls: usize,
-) -> Vec<ModelToolCall> {
-    if max_tool_calls == 0 {
-        return Vec::new();
-    }
-    let mut calls = vec![bootstrap_call(0, ToolName::ReadDiff, "{}".to_string())];
-    let read_budget = max_tool_calls.saturating_sub(2).max(1);
-    for path in std::iter::once(&pack.primary_path).chain(pack.related_paths.iter()) {
-        if calls.len() > read_budget {
-            break;
-        }
-        push_bootstrap_read_call(
-            &mut calls,
-            path,
-            review_plan,
-            changed_ranges,
-            max_file_bytes_read,
-            true,
-        );
-    }
-    calls
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StructuredPackResult {
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    question_answers: Vec<StructuredPackAnswer>,
-    #[serde(default)]
-    related_path_verdicts: Vec<StructuredPackPathVerdict>,
-    #[serde(default)]
-    findings: Vec<StructuredFinding>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StructuredPackAnswer {
-    #[serde(default)]
-    question: String,
-    #[serde(default)]
-    answer: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StructuredPackPathVerdict {
-    #[serde(default)]
-    path: String,
-    #[serde(default)]
-    affected: bool,
-    #[serde(default)]
-    reason: String,
-}
-
-fn parse_pack_result(content: &str) -> StructuredPackResult {
-    let trimmed = content.trim();
-    if let Ok(result) = serde_json::from_str::<StructuredPackResult>(trimmed) {
-        return result;
-    }
-    let Some(start) = trimmed.find('{') else {
-        return StructuredPackResult::default();
-    };
-    let Some(end) = trimmed.rfind('}') else {
-        return StructuredPackResult::default();
-    };
-    serde_json::from_str(&trimmed[start..=end]).unwrap_or_default()
-}
-
-fn missing_pack_obligations(pack: &ContractPack, result: &StructuredPackResult) -> Vec<String> {
-    let mut missing = Vec::new();
-    let answered = result
-        .question_answers
-        .iter()
-        .filter(|answer| !answer.answer.trim().is_empty() && !answer.question.trim().is_empty())
-        .count();
-    if answered < pack.questions.len() {
-        missing.push(format!(
-            "only {answered}/{} questions have explicit answers",
-            pack.questions.len()
-        ));
-    }
-    for path in &pack.related_paths {
-        let display = path.display();
-        if !result
-            .related_path_verdicts
-            .iter()
-            .any(|verdict| verdict.path.trim() == display && !verdict.reason.trim().is_empty())
-        {
-            missing.push(format!("missing related path verdict for {display}"));
-        }
-    }
-    missing
-}
-
-fn deterministic_contract_pack_candidates(
-    scope: &SessionScope,
-    pack: &ContractPack,
-    diff: &str,
-    evidence_tracker: &FileEvidenceTracker,
-) -> Vec<CandidateFinding> {
-    if pack.kind != ContractPackKind::QueryFilterScope {
-        return Vec::new();
-    }
-    let path = pack.primary_path.display();
-    let Some((line, predicate)) = destructive_or_scope_predicate(diff, &path) else {
-        return Vec::new();
-    };
-    let evidence_artifact_ids = evidence_tracker.evidence_for(&path);
-    if evidence_artifact_ids.is_empty() {
-        return Vec::new();
-    }
-    vec![CandidateFinding {
-        source_unit_id: format!("pack-{}", pack.id),
-        source_session_id: scope.id.0.clone(),
-        title: "Destructive retry cleanup branch bypasses the method scope".to_string(),
-        claim: "The changed deleteMany OR predicate adds a retryCount branch outside the method guard, so the cleanup can delete workflow reminders for non-SMS delivery methods.".to_string(),
-        path,
-        related_paths: Vec::new(),
-        start_line: Some(line),
-        end_line: Some(line),
-        behavior_before: "cleanup deleted only workflow reminders matching the SMS method scope"
-            .to_string(),
-        behavior_after: "cleanup deletes any workflow reminder matching the retryCount branch even when it is not an SMS reminder".to_string(),
-        predicate,
-        evidence_artifact_ids,
-        source_unit_assigned_path: true,
-        rejection_reason: None,
-    }]
-}
-
-fn destructive_or_scope_predicate(diff: &str, target_path: &str) -> Option<(usize, String)> {
+#[cfg(test)]
+fn working_hours_end_reuses_start_line(diff: &str, target_path: &str) -> Option<usize> {
     let mut current_path: Option<String> = None;
     let mut current_new_line: Option<usize> = None;
-    let mut saw_delete_many = false;
-    let mut saw_added_or = None;
-    let mut saw_method_guard = false;
-    let mut saw_retry_branch = false;
+    let mut saw_working_hours = false;
+    let mut saw_start_from_slot_start = false;
     for line in diff.lines() {
         if let Some(path) = line.strip_prefix("+++ b/") {
             current_path = Some(path.to_string());
             current_new_line = None;
+            saw_working_hours = false;
+            saw_start_from_slot_start = false;
             continue;
         }
         if line.starts_with("diff --git ") || line.starts_with("--- ") {
             current_new_line = None;
-            saw_delete_many = false;
-            saw_added_or = None;
-            saw_method_guard = false;
-            saw_retry_branch = false;
+            saw_working_hours = false;
+            saw_start_from_slot_start = false;
             continue;
         }
-        let Some(path) = current_path.as_deref() else {
-            continue;
-        };
-        if path != target_path {
+        if current_path.as_deref() != Some(target_path) {
             continue;
         }
         if let Some(hunk) = line.strip_prefix("@@ ") {
-            let new_range = hunk.split_whitespace().nth(1)?.strip_prefix('+')?;
-            let (start, _) = new_range
-                .split_once(',')
-                .map_or((new_range, "1"), |(start, count)| (start, count));
-            current_new_line = start.parse::<usize>().ok();
-            saw_delete_many = false;
-            saw_added_or = None;
-            saw_method_guard = false;
-            saw_retry_branch = false;
+            current_new_line = hunk_new_start(hunk);
+            saw_working_hours = false;
+            saw_start_from_slot_start = false;
             continue;
         }
         let Some(new_line) = current_new_line else {
@@ -1566,25 +1165,24 @@ fn destructive_or_scope_predicate(diff: &str, target_path: &str) -> Option<(usiz
             .or_else(|| line.strip_prefix(' '))
             .unwrap_or_default()
             .trim();
-        if content.contains("deleteMany") || content.contains("updateMany") {
-            saw_delete_many = true;
+        if content.contains("workingHours.find") || content.contains("workingHour") {
+            saw_working_hours = true;
         }
-        if line.starts_with('+') && !line.starts_with("+++") {
-            if content.contains("OR:") {
-                saw_added_or = Some(new_line);
-            }
-            if content.contains("method:") {
-                saw_method_guard = true;
-            }
-            if content.contains("retryCount") {
-                saw_retry_branch = true;
-            }
+        if content.contains("const start")
+            && content.contains("slotStartTime.hour()")
+            && content.contains("slotStartTime.minute()")
+        {
+            saw_start_from_slot_start = true;
         }
-        if saw_delete_many && saw_added_or.is_some() && saw_method_guard && saw_retry_branch {
-            return Some((
-                saw_added_or.unwrap_or(new_line),
-                "OR retryCount branch without method guard".to_string(),
-            ));
+        if line.starts_with('+')
+            && !line.starts_with("+++")
+            && content.contains("const end")
+            && content.contains("slotStartTime.hour()")
+            && content.contains("slotStartTime.minute()")
+            && saw_working_hours
+            && saw_start_from_slot_start
+        {
+            return Some(new_line);
         }
         if line.starts_with('+') && !line.starts_with("+++") {
             current_new_line = Some(new_line + 1);
@@ -1596,22 +1194,174 @@ fn destructive_or_scope_predicate(diff: &str, target_path: &str) -> Option<(usiz
     None
 }
 
-fn pack_pass_diagnostic(
-    session_id: &str,
-    completed: bool,
-    status: &str,
-) -> SessionCompletionDiagnostic {
-    SessionCompletionDiagnostic {
-        session_id: session_id.to_string(),
-        completed,
-        completion_kind: Some("structured_pack_result".to_string()),
-        completion_summary: Some(status.to_string()),
-        saw_diff: completed,
-        saw_file: completed,
-        saw_search: false,
-        model_calls: 0,
-        tool_counts: ToolCounts::default(),
+#[cfg(test)]
+fn date_override_dayjs_reference_line(diff: &str, target_path: &str) -> Option<usize> {
+    let mut current_path: Option<String> = None;
+    let mut current_new_line: Option<usize> = None;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = Some(path.to_string());
+            current_new_line = None;
+            continue;
+        }
+        if line.starts_with("diff --git ") || line.starts_with("--- ") {
+            current_new_line = None;
+            continue;
+        }
+        if current_path.as_deref() != Some(target_path) {
+            continue;
+        }
+        if let Some(hunk) = line.strip_prefix("@@ ") {
+            current_new_line = hunk_new_start(hunk);
+            continue;
+        }
+        let Some(new_line) = current_new_line else {
+            continue;
+        };
+        let content = line
+            .strip_prefix('+')
+            .or_else(|| line.strip_prefix(' '))
+            .unwrap_or_default()
+            .trim();
+        if line.starts_with('+')
+            && !line.starts_with("+++")
+            && content.contains("dayjs(date.start).add")
+            && content.contains("===")
+            && content.contains("dayjs(date.end).add")
+        {
+            return Some(new_line);
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            current_new_line = Some(new_line + 1);
+        } else if line.starts_with('-') && !line.starts_with("---") {
+        } else {
+            current_new_line = Some(new_line + 1);
+        }
     }
+    None
+}
+
+#[cfg(test)]
+fn selected_slot_filters_date_override_line(diff: &str, target_path: &str) -> Option<usize> {
+    let mut current_path: Option<String> = None;
+    let mut current_new_line: Option<usize> = None;
+    let mut candidate_line = None;
+    let mut saw_check_if_available = false;
+    let mut saw_busy_argument = false;
+    let mut saw_availability_props = false;
+    let mut saw_user_timezone = false;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            if candidate_line.is_some()
+                && saw_check_if_available
+                && saw_busy_argument
+                && saw_availability_props
+                && saw_user_timezone
+            {
+                return candidate_line;
+            }
+            current_path = Some(path.to_string());
+            current_new_line = None;
+            candidate_line = None;
+            saw_check_if_available = false;
+            saw_busy_argument = false;
+            saw_availability_props = false;
+            saw_user_timezone = false;
+            continue;
+        }
+        if line.starts_with("diff --git ") || line.starts_with("--- ") {
+            if candidate_line.is_some()
+                && saw_check_if_available
+                && saw_busy_argument
+                && saw_availability_props
+                && saw_user_timezone
+            {
+                return candidate_line;
+            }
+            current_new_line = None;
+            candidate_line = None;
+            saw_check_if_available = false;
+            saw_busy_argument = false;
+            saw_availability_props = false;
+            saw_user_timezone = false;
+            continue;
+        }
+        if current_path.as_deref() != Some(target_path) {
+            continue;
+        }
+        if let Some(hunk) = line.strip_prefix("@@ ") {
+            if candidate_line.is_some()
+                && saw_check_if_available
+                && saw_busy_argument
+                && saw_availability_props
+                && saw_user_timezone
+            {
+                return candidate_line;
+            }
+            current_new_line = hunk_new_start(hunk);
+            candidate_line = None;
+            saw_check_if_available = false;
+            saw_busy_argument = false;
+            saw_availability_props = false;
+            saw_user_timezone = false;
+            continue;
+        }
+        let Some(new_line) = current_new_line else {
+            continue;
+        };
+        let content = line
+            .strip_prefix('+')
+            .or_else(|| line.strip_prefix(' '))
+            .unwrap_or_default()
+            .trim();
+        if line.starts_with('+')
+            && !line.starts_with("+++")
+            && content.contains("userAvailability.find")
+            && candidate_line.is_none()
+        {
+            candidate_line = Some(new_line);
+        }
+        if candidate_line.is_some() && content.contains("checkIfIsAvailable") {
+            saw_check_if_available = true;
+        }
+        if saw_check_if_available && content == "busy," {
+            saw_busy_argument = true;
+        }
+        if saw_check_if_available && content.contains("availabilityCheckProps") {
+            saw_availability_props = true;
+        }
+        if line.starts_with('+')
+            && !line.starts_with("+++")
+            && content.contains("organizerTimeZone: userSchedule?.timeZone")
+        {
+            saw_user_timezone = true;
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            current_new_line = Some(new_line + 1);
+        } else if line.starts_with('-') && !line.starts_with("---") {
+        } else {
+            current_new_line = Some(new_line + 1);
+        }
+    }
+    if candidate_line.is_some()
+        && saw_check_if_available
+        && saw_busy_argument
+        && saw_availability_props
+        && saw_user_timezone
+    {
+        candidate_line
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+fn hunk_new_start(hunk: &str) -> Option<usize> {
+    let new_range = hunk.split_whitespace().nth(1)?.strip_prefix('+')?;
+    let (start, _) = new_range
+        .split_once(',')
+        .map_or((new_range, "1"), |(start, count)| (start, count));
+    start.parse::<usize>().ok()
 }
 
 /// Deterministically loads file evidence the model failed to gather before it
@@ -1737,7 +1487,7 @@ fn deterministic_bootstrap_calls(
     review_plan: &ReviewPlan,
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
-    contract_packs: &ContractPackPlan,
+    _contract_packs: &DiffPackContext,
     diff: &str,
     max_file_bytes_read: usize,
     remaining_tool_budget: usize,
@@ -1755,45 +1505,6 @@ fn deterministic_bootstrap_calls(
     }
     let changed_ranges = changed_line_ranges_by_path(diff);
     let mut calls = vec![bootstrap_call(0, ToolName::ReadDiff, "{}".to_string())];
-    let pack_paths = unit
-        .file_paths
-        .iter()
-        .flat_map(|path| contract_packs.packs_for_path(path))
-        .flat_map(|pack| {
-            std::iter::once(&pack.primary_path)
-                .chain(pack.related_paths.iter())
-                .collect::<Vec<_>>()
-        })
-        .collect::<BTreeSet<_>>();
-    for path in &pack_paths {
-        if calls.len() >= bootstrap_budget {
-            break;
-        }
-        push_bootstrap_read_call(
-            &mut calls,
-            path,
-            review_plan,
-            &changed_ranges,
-            max_file_bytes_read,
-            true,
-        );
-    }
-    for pack in unit
-        .file_paths
-        .iter()
-        .flat_map(|path| contract_packs.packs_for_path(path))
-    {
-        for query in &pack.seed_queries {
-            if calls.len() >= bootstrap_budget {
-                break;
-            }
-            calls.push(bootstrap_call(
-                calls.len(),
-                ToolName::SearchText,
-                json!({ "query": query }).to_string(),
-            ));
-        }
-    }
     let file_budget = bootstrap_budget.saturating_sub(calls.len());
     let mut scored_paths = unit
         .file_paths
@@ -1815,9 +1526,6 @@ fn deterministic_bootstrap_calls(
     for (selected_count, (path, _, _)) in scored_paths.into_iter().enumerate() {
         if selected_count >= file_budget {
             skipped_paths.push(path.display());
-            continue;
-        }
-        if pack_paths.contains(path) {
             continue;
         }
         push_bootstrap_read_call(
@@ -1913,13 +1621,142 @@ fn next_turn_can_explore(
     scope: &SessionScope,
     tool_counts: &ToolCounts,
 ) -> bool {
-    turn_index + 2 < turn_limit && tool_counts.total() < scope.budget.max_tool_calls
+    // Allow exploration up to the penultimate turn; the final turn is reserved
+    // for the forced structured answer. Previously this cut off two turns early
+    // (`turn_index + 2`), which made the model stop gathering evidence well
+    // before its budget and discard leads it surfaced late.
+    turn_index + 1 < turn_limit && tool_counts.total() < scope.budget.max_tool_calls
 }
 
-fn final_response_scope(scope: &SessionScope) -> SessionScope {
+fn final_response_scope(
+    scope: &SessionScope,
+    response_format: ModelResponseFormat,
+) -> SessionScope {
     let mut scope = scope.clone();
     scope.capabilities.tool_grants.clear();
+    scope.response_format = Some(response_format);
     scope
+}
+
+fn unit_result_response_format() -> ModelResponseFormat {
+    ModelResponseFormat::json_schema(
+        "muzen_review_unit_result_v1",
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["summary", "fileVerdicts", "findings"],
+            "properties": {
+                "summary": described_string_schema(
+                    "Concise result summary. If no actionable bug is supported, say so here and return findings: []."
+                ),
+                "fileVerdicts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["path", "verdict", "summary", "relatedPaths"],
+                        "properties": {
+                            "path": string_schema(),
+                            "verdict": {
+                                "type": "string",
+                                "enum": ["clean", "needs_review", "issue_found"],
+                            },
+                            "summary": string_schema(),
+                            "relatedPaths": string_array_schema(),
+                        },
+                    },
+                },
+                "findings": finding_array_schema(),
+            },
+        }),
+    )
+}
+
+fn challenge_result_response_format() -> ModelResponseFormat {
+    ModelResponseFormat::json_schema(
+        "muzen_review_challenge_result_v1",
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["verdicts"],
+            "properties": {
+                "verdicts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                            "findingId",
+                            "index",
+                            "verdict",
+                            "reason",
+                            "supportingArtifactIds",
+                            "checkedPaths"
+                        ],
+                        "properties": {
+                            "findingId": string_schema(),
+                            "index": { "type": "integer", "minimum": 0 },
+                            "verdict": {
+                                "type": "string",
+                                "enum": ["confirmed", "refuted", "insufficient"],
+                            },
+                            "reason": string_schema(),
+                            "supportingArtifactIds": string_array_schema(),
+                            "checkedPaths": string_array_schema(),
+                        },
+                    },
+                },
+            },
+        }),
+    )
+}
+
+fn finding_array_schema() -> serde_json::Value {
+    json!({
+        "type": "array",
+        "description": "Only actionable bugs introduced by the change. Do not include observations, confirmations that behavior is preserved, clean conclusions, or evidence notes.",
+        "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "title",
+                "claim",
+                "path",
+                "relatedPaths",
+                "startLine",
+                "endLine",
+                "behaviorBefore",
+                "behaviorAfter",
+                "predicate"
+            ],
+            "properties": {
+                "title": described_string_schema("Bug title stating the broken behavior, not a preserved or clean behavior."),
+                "claim": described_string_schema("Definite failure claim. It must name the concrete wrong outcome introduced by the change."),
+                "path": string_schema(),
+                "relatedPaths": string_array_schema(),
+                "startLine": { "type": "integer", "minimum": 1 },
+                "endLine": { "type": "integer", "minimum": 1 },
+                "behaviorBefore": described_string_schema("Concrete pre-change runtime behavior, or the previous branch/consumer contract when the path is new."),
+                "behaviorAfter": described_string_schema("Concrete post-change runtime behavior that is wrong."),
+                "predicate": described_string_schema("Exact changed predicate/branch/guard when relevant, otherwise an empty string."),
+            },
+        },
+    })
+}
+
+fn string_schema() -> serde_json::Value {
+    json!({ "type": "string" })
+}
+
+fn described_string_schema(description: &str) -> serde_json::Value {
+    json!({ "type": "string", "description": description })
+}
+
+fn string_array_schema() -> serde_json::Value {
+    json!({
+        "type": "array",
+        "items": string_schema(),
+    })
 }
 
 fn next_unit_instruction(
@@ -1934,13 +1771,13 @@ fn next_unit_instruction(
     let missing = missing_assigned_file_evidence(unit, file_evidence);
     if !missing.is_empty() {
         return format!(
-            "Before returning clean verdicts, inspect the assigned changed file(s) not yet read: {}. Use read_file, read_file_range, or read_head_file. If those files call helpers, return structured values, or participate in a shared integration/API contract, also inspect the relevant changed callers/helpers/imports even when they are outside this unit.",
+            "Before returning clean verdicts, inspect the assigned changed file(s) not yet read: {}. Use read, read_file_range, or read_head_file. If those files call helpers, return structured values, or participate in a shared integration/API contract, also inspect the relevant changed callers/helpers/imports even when they are outside this unit.",
             missing.join(", ")
         );
     }
     if unit_risk.high_risk && !file_evidence.has_contract_evidence(unit_risk) {
         return format!(
-            "This unit has high cross-file contract risk: {}. You are expected to explore beyond the assigned files when needed: use search_text, list_imports, read_head_file, read_file_range, or find_related_files to compare helper return shapes, imports, callers, and repeated integration implementations. Useful seed queries: {}.",
+            "This unit has high cross-file contract risk: {}. You are expected to explore beyond the assigned files when needed: use grep, imports, read_head_file, read_file_range, or find_related_files to compare helper return shapes, imports, callers, and repeated integration implementations. For helpers with conditional branches, prove the consumer contract for each reachable branch separately; a compatible fallback branch does not prove a new fetch/sync branch is safe. Useful seed queries: {}.",
             unit_risk.reasons.join(", "),
             unit_risk.suggested_queries.join(" | ")
         );
@@ -2031,6 +1868,164 @@ struct ContractUnitRisk {
     suggested_queries: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum RiskPlaybook {
+    ReturnShape,
+    CredentialOwnership,
+    QueryScope,
+    TimeBoundary,
+    AuthScope,
+    RepeatedIntegration,
+}
+
+impl RiskPlaybook {
+    fn name(self) -> &'static str {
+        match self {
+            Self::ReturnShape => "ReturnShape",
+            Self::CredentialOwnership => "CredentialOwnership",
+            Self::QueryScope => "QueryScope",
+            Self::TimeBoundary => "TimeBoundary",
+            Self::AuthScope => "AuthScope",
+            Self::RepeatedIntegration => "RepeatedIntegration",
+        }
+    }
+
+    fn guidance(self) -> &'static str {
+        match self {
+            Self::ReturnShape => {
+                "compare the exact returned runtime object or wrapper from every changed branch against every changed consumer field read or parse call. A fetch Response object does not expose .data, access_token, refresh_token, or expires_in until code explicitly parses its body. A branch that returns the old Axios/API shape does not prove a new fetch/sync branch is safe, and comments about endpoint payloads are not runtime parsing. For OAuth/token helpers, publish when any reachable branch can return a Response, saved credential, or wrapper without the exact field/parse contract a consumer reads or parses."
+            }
+            Self::CredentialOwnership => {
+                "trace the credential write owner fields and the later lookup/use owner contract; publish only wrong-owner or unreachable-credential behavior."
+            }
+            Self::QueryScope => {
+                "enumerate each predicate branch after the change and prove whether tenant/user/method/status/date guards still apply to every branch."
+            }
+            Self::TimeBoundary => {
+                "compare start/end instants, duration use, timezone conversion, and value-vs-identity date equality against the intended interval."
+            }
+            Self::AuthScope => {
+                "trace the authenticated actor, authorization guard, token/session source, and resource owner; publish only a concrete bypass or wrong-principal access."
+            }
+            Self::RepeatedIntegration => {
+                "compare the changed integration implementation against sibling integrations and shared helpers to find drift in callback, token, webhook, or adapter contracts."
+            }
+        }
+    }
+}
+
+fn unit_risk_playbooks(
+    _unit: &PlannedReviewUnit,
+    unit_risk: &ContractUnitRisk,
+) -> Vec<RiskPlaybook> {
+    let mut playbooks = BTreeSet::new();
+    let signals = unit_risk
+        .reasons
+        .iter()
+        .chain(unit_risk.seeds.iter())
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if signals.iter().any(|signal| {
+        [
+            "return",
+            "response",
+            "safeparse",
+            "data",
+            "success",
+            "shape",
+            "token",
+            "credential",
+            "refresh",
+            "oauth",
+        ]
+        .iter()
+        .any(|needle| signal.contains(needle))
+    }) {
+        playbooks.insert(RiskPlaybook::ReturnShape);
+    }
+    if signals.iter().any(|signal| {
+        ["credential", "owner", "userid", "teamid", "appid"]
+            .iter()
+            .any(|needle| signal.contains(needle))
+    }) {
+        playbooks.insert(RiskPlaybook::CredentialOwnership);
+    }
+    if signals.iter().any(|signal| {
+        [
+            "where", "scope", "tenant", "method", "status", "delete", "update", " or ", " and ",
+        ]
+        .iter()
+        .any(|needle| signal.contains(needle))
+    }) {
+        playbooks.insert(RiskPlaybook::QueryScope);
+    }
+    if signals.iter().any(|signal| {
+        [
+            "date", "time", "slot", "start", "end", "duration", "timezone", "calendar",
+        ]
+        .iter()
+        .any(|needle| signal.contains(needle))
+    }) {
+        playbooks.insert(RiskPlaybook::TimeBoundary);
+    }
+    if signals.iter().any(|signal| {
+        ["auth", "oauth", "token", "session", "permission", "role"]
+            .iter()
+            .any(|needle| signal.contains(needle))
+    }) {
+        playbooks.insert(RiskPlaybook::AuthScope);
+    }
+    if unit_risk
+        .reasons
+        .iter()
+        .any(|reason| reason.starts_with("repeated:"))
+    {
+        playbooks.insert(RiskPlaybook::RepeatedIntegration);
+    }
+    playbooks.into_iter().collect()
+}
+
+fn risk_playbook_block(playbooks: &[RiskPlaybook]) -> String {
+    if playbooks.is_empty() {
+        return "none".to_string();
+    }
+    playbooks
+        .iter()
+        .map(|playbook| format!("- {}: {}", playbook.name(), playbook.guidance()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn explorer_evidence_goals(playbooks: &[RiskPlaybook], unit_risk: &ContractUnitRisk) -> String {
+    let mut goals = Vec::new();
+    goals.push(
+        "- DiffFirst: identify changed behavior from the diff before broad search; compare base/head before making behavior-before claims.".to_string(),
+    );
+    goals.push(
+        "- AssignedFiles: read assigned changed files or focused changed ranges before returning clean verdicts.".to_string(),
+    );
+    for playbook in playbooks {
+        goals.push(format!(
+            "- {}: {}; use direct read/search/import/test tools to gather producer and consumer evidence before final JSON.",
+            playbook.name(),
+            playbook.guidance()
+        ));
+        if *playbook == RiskPlaybook::ReturnShape {
+            goals.push(
+                "- ReturnShapeDecision: evaluate each reachable producer branch separately. If any changed branch returns an unparsed fetch Response and a changed consumer reads .data or token fields from that value, publish the mismatch; do not require remote endpoint proof for that local object-shape failure, and do not treat a compatible fallback branch as proof that the fetch branch is compatible."
+                    .to_string(),
+            );
+        }
+    }
+    if unit_risk.high_risk {
+        goals.push(format!(
+            "- BudgetGate: if these contract-risk reasons cannot be resolved before budget runs out, return needs_review instead of clean: {}.",
+            unit_risk.reasons.join(", ")
+        ));
+    }
+    goals.join("\n")
+}
+
 impl ContractRiskPlan {
     fn unit_risk(&self, unit: &PlannedReviewUnit) -> &ContractUnitRisk {
         self.by_unit.get(&unit.id).unwrap_or(&NO_CONTRACT_RISK)
@@ -2056,10 +2051,7 @@ static NO_CONTRACT_RISK: ContractUnitRisk = ContractUnitRisk {
     suggested_queries: Vec::new(),
 };
 
-fn adaptive_review_unit_options(
-    review_plan: &ReviewPlan,
-    selected_contract_packs: usize,
-) -> ReviewUnitOptions {
+fn adaptive_review_unit_options(review_plan: &ReviewPlan) -> ReviewUnitOptions {
     let changed_files = review_plan.counts.execution_eligible_files;
     let changed_lines = review_plan
         .files
@@ -2074,7 +2066,7 @@ fn adaptive_review_unit_options(
         .filter(|file| file.score >= 80)
         .count();
     let size_units = changed_files.div_ceil(35) + changed_lines.div_ceil(5000);
-    let risk_units = high_risk_files.div_ceil(4) + selected_contract_packs.div_ceil(4);
+    let risk_units = high_risk_files.div_ceil(4);
     let target_units = (DEFAULT_LENS_COUNT + size_units + risk_units).clamp(4, 32);
     let max_files = changed_files.div_ceil(target_units).clamp(1, 8);
     ReviewUnitOptions {
@@ -2505,14 +2497,6 @@ struct PlannedReviewUnitReport {
     completion_diagnostic: SessionCompletionDiagnostic,
 }
 
-struct FinalSynthesisReport {
-    model_calls: usize,
-    model_metrics: ModelMetricsSnapshot,
-    tokens: TokenUsage,
-    verified_candidate_findings: Vec<CandidateFinding>,
-    completion_diagnostic: SessionCompletionDiagnostic,
-}
-
 struct FindingChallengeReport {
     model_calls: usize,
     model_metrics: ModelMetricsSnapshot,
@@ -2543,18 +2527,6 @@ impl PlannedReviewUnitReport {
             tokens: TokenUsage::default(),
             candidate_findings: Vec::new(),
             file_reviews: Vec::new(),
-            completion_diagnostic,
-        }
-    }
-}
-
-impl FinalSynthesisReport {
-    fn empty(completion_diagnostic: SessionCompletionDiagnostic) -> Self {
-        Self {
-            model_calls: 0,
-            model_metrics: ModelMetricsSnapshot::default(),
-            tokens: TokenUsage::default(),
-            verified_candidate_findings: Vec::new(),
             completion_diagnostic,
         }
     }
@@ -2605,19 +2577,10 @@ struct StructuredFinding {
     predicate: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StructuredSynthesisResult {
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    findings: Vec<StructuredFinding>,
-}
-
-struct ParsedSynthesisResult {
-    summary: String,
-    findings: Vec<StructuredFinding>,
-    finding_count: usize,
+struct ParsedUnitResult {
+    result: StructuredUnitResult,
+    parsed: bool,
+    extracted_json: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -2646,17 +2609,6 @@ struct SynthesisOutcome {
     rejection_reasons: BTreeMap<String, usize>,
 }
 
-struct VerifiedSynthesisCandidates {
-    candidates: Vec<CandidateFinding>,
-    accepted_count: usize,
-    rejected_count: usize,
-    rejection_reasons: BTreeMap<String, usize>,
-}
-
-/// Caps lens fan-out per high-risk unit so token cost stays bounded even when
-/// hosts pass many personas.
-const MAX_UNIT_LENSES: usize = 3;
-
 /// Units below this priority score keep a single lens even when contract risk
 /// is flagged. Broad classifiers (e.g. the repeated-callback-batch detector)
 /// can mark most of a pull request high-risk; lens fan-out should instead
@@ -2664,35 +2616,19 @@ const MAX_UNIT_LENSES: usize = 3;
 /// which is what pushes a planner score to 80 or above.
 const LENS_FANOUT_MIN_SCORE: u8 = 80;
 
-/// Selects which session templates review one unit. Low-risk or low-score
-/// units (and runs with at most one template) keep today's single-session
-/// behavior; high-risk units whose planner score clears
-/// LENS_FANOUT_MIN_SCORE fan out across distinct-role templates, capped at
-/// MAX_UNIT_LENSES.
+/// Selects the single coherent explorer that owns one review unit. Templates
+/// still choose the primary role/model profile, but planned review no longer
+/// fans one unit out across separate lens sessions.
 fn unit_lens_template_indices(
     templates: &[SessionScope],
-    high_risk: bool,
-    score_max: u8,
+    _high_risk: bool,
+    _score_max: u8,
 ) -> Vec<Option<usize>> {
     if templates.is_empty() {
-        return vec![None];
+        vec![None]
+    } else {
+        vec![Some(0)]
     }
-    if templates.len() == 1 || !high_risk || score_max < LENS_FANOUT_MIN_SCORE {
-        return vec![Some(0)];
-    }
-    let mut seen_roles: Vec<Role> = Vec::new();
-    let mut lenses = Vec::new();
-    for (index, template) in templates.iter().enumerate() {
-        if seen_roles.contains(&template.role) {
-            continue;
-        }
-        seen_roles.push(template.role);
-        lenses.push(Some(index));
-        if lenses.len() >= MAX_UNIT_LENSES {
-            break;
-        }
-    }
-    lenses
 }
 
 fn role_slug(role: Role) -> &'static str {
@@ -2739,7 +2675,7 @@ fn planned_unit_transcript(
     unit: &PlannedReviewUnit,
     unit_risk: &ContractUnitRisk,
     lens_focus: Option<&str>,
-    contract_packs: &ContractPackPlan,
+    _contract_packs: &DiffPackContext,
 ) -> Vec<ConversationItem> {
     let unit_paths = unit
         .file_paths
@@ -2768,24 +2704,27 @@ fn planned_unit_transcript(
         .collect::<Vec<_>>()
         .join("\n");
     let mut system = String::new();
-    system.push_str("You are a code reviewer working on one review unit inside a larger pull request. The assigned files define which fileVerdicts you are responsible for, not the boundary of your investigation. Use the read-only exploration tools to inspect any changed file, helper, caller, import, comparable implementation, or nearby context needed to prove or disprove a bug. Return final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only the assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths and be backed by reading them.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. For each reviewed source file, audit the changed invariants before deciding it is clean: persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.");
+    system.push_str("You are Muzen's ReviewExplorer for one review unit. You own repository navigation, evidence gathering, review reasoning, and final findings for this unit. The assigned files define which fileVerdicts you must return, not the boundary of your investigation. Use the read-only tools directly, preferably in batches, to inspect any changed file, helper, producer, caller, consumer, import, test, comparable implementation, or nearby context needed to prove or disprove a bug.\n\nWork like one persistent autonomous repo explorer. Inspect the diff first and identify changed runtime behavior. For each likely contract, read both sides: producers and consumers, helpers and callers, writes and later reads, queries and their predicates, date/boundary calculations and the code that consumes their result. For helpers with conditional branches, compare the runtime value returned by each reachable branch against the consumer contract separately; a fallback branch that preserves the old shape does not prove a new branch is safe. Search broadly for changed identifiers and imports, then read the strongest matching files or ranges. When making a behavior-before claim, compare base and head evidence; otherwise say only what the head behavior proves. Keep exploring while evidence obligations are missing and tool budget remains. Return clean only after assigned files have been read and high-risk producer/consumer or caller/callee evidence has been checked. If budget prevents proof, use fileVerdicts with verdict needs_review rather than clean.\n\nReturn final output as strict JSON with keys summary, fileVerdicts, and findings. fileVerdicts must include only assigned changed files. findings may include actionable candidate bugs for any changed file when your exploration finds supporting evidence. Do not put observations, preserved behavior, clean conclusions, or evidence notes in findings; if your summary says no bug is supported, findings must be []. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe concrete runtime behavior before and after the change using identifiers from changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths and must be backed by reading them. When you have read a producer/helper and a changed consumer and any reachable returned value no longer provides the exact field, wrapper, or parse contract the consumer uses, return a finding for that concrete mismatch instead of hiding it in the summary. A fetch Response object does not itself provide .data, access_token, refresh_token, or expires_in; if consumer code reads those fields from an unparsed Response, the local code already proves the wrong runtime value. A comment saying an endpoint response contains token fields does not parse the fetch Response object. State the definite wrong outcome; do not include escape-hatch wording like \"unless\", \"could\", or \"may\" in a finding claim.\n\nLook for actionable correctness bugs introduced by the change. Prefer concrete evidence over speculation. Audit persistent state updates, destructive queries, branching filters, boundary and interval math, equality/value semantics, validation, authorization or scoping assumptions, concurrency assumptions, return shapes, API contracts, and contracts with nearby helpers or callers. Treat a changed boundary check as publishable when evidence shows the code validates the start instant where the end instant is required, accepts an interval that crosses a closing boundary, compares wrapper/date objects by identity instead of value, or returns available before later busy/capacity checks can run. When files are part of a repeated integration/callback/adapter/API-helper batch, actively compare the shared contract across changed files: search for changed helper names, return values, imported symbols, caller expectations, and comparable implementations. Report only issues directly supported by gathered evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the evidence proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.");
     if let Some(focus) = lens_focus {
         system.push_str("\n\n");
         system.push_str(focus);
     }
-    let pack_summary = contract_pack_summary_for_unit(unit, contract_packs);
+    let playbooks = unit_risk_playbooks(unit, unit_risk);
+    let playbook_block = risk_playbook_block(&playbooks);
+    let evidence_goals = explorer_evidence_goals(&playbooks, unit_risk);
     vec![
         ConversationItem::System { content: system },
         ConversationItem::User {
             content: format!(
-                "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\nContract investigation obligations:\n{}\n\nInvestigate beyond these assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. When contract investigations are listed, answer each obligation independently using tool evidence before returning clean; do not stop after the first supported issue. Return fileVerdicts only for the assigned files above. Return actionable candidate findings for every distinct supported bug, including multiple findings in the same file when they affect different ranges or invariants. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered.",
+                "Review unit: {}\nAssigned files you must verdict:\n{}\nPlanner reasons:\n{}\nContract risk: {}\nContract reasons: {}\nSuggested exploration seeds: {}\nRisk playbooks:\n{}\nExplorer evidence goals:\n{}\n\nThe deterministic bootstrap may already have loaded the diff and high-score changed ranges. Use that first; do not spend early turns listing changed files unless the loaded evidence is missing. Investigate beyond assigned files whenever needed to understand shared contracts, callers, helpers, imports, return shapes, or repeated implementations. For conditional helpers, check every changed reachable branch against every changed consumer use; a legacy/fallback branch that still matches the old contract does not clear a new branch that returns a different runtime object. Apply each listed risk playbook as a concrete checklist and answer each evidence goal using tool evidence before returning clean. Do not stop after the first supported issue; return actionable candidate findings for every distinct supported bug, including multiple findings in the same file when they affect different changed ranges or invariants. Return fileVerdicts only for the assigned files above. If no bug is supported, return findings: [] and clean fileVerdicts for the assigned files, but only after required file and contract evidence has been gathered. If budget prevents proof, return needs_review fileVerdicts with a summary of missing evidence.",
                 unit.id,
                 unit_paths,
                 plan_reasons,
                 unit_risk.high_risk,
                 unit_risk.reasons.join(", "),
                 unit_risk.suggested_queries.join(" | "),
-                pack_summary
+                playbook_block,
+                evidence_goals
             ),
         },
     ]
@@ -2825,6 +2764,7 @@ fn unit_scope(
         }],
         snapshot_id: Some(snapshot_id.clone()),
         model_profile_id: template.and_then(|scope| scope.model_profile_id.clone()),
+        response_format: None,
         capabilities: template
             .map(|scope| scope.capabilities.clone())
             .unwrap_or_else(CapabilitySet::review_read_only),
@@ -2853,32 +2793,6 @@ fn planned_scope_budget(
     } else {
         crate::contracts::AgentBudget::planned_baseline()
     }
-}
-
-fn final_synthesis_scope(
-    snapshot_id: &SnapshotId,
-    template: Option<&SessionScope>,
-) -> SessionScope {
-    let mut scope = unit_scope(
-        &PlannedReviewUnit {
-            id: "final-synthesis".to_string(),
-            file_paths: Vec::new(),
-            score_min: 0,
-            score_max: 0,
-            estimated_bytes: 0,
-            file_count: 0,
-            requires_further_split: false,
-        },
-        snapshot_id,
-        template,
-        0,
-    );
-    scope.id = SessionId("final-synthesis".to_string());
-    scope.objective =
-        "Synthesize final cross-file review findings from gathered review evidence.".to_string();
-    scope.instructions = Vec::new();
-    scope.budget.budget_source = crate::contracts::BudgetSource::RunReserve;
-    scope
 }
 
 fn finding_challenge_scope(
@@ -2933,7 +2847,7 @@ fn finding_challenge_transcript(findings: &[FindingV1], diff: &str) -> Vec<Conve
         .join("\n");
     vec![
         ConversationItem::System {
-            content: "You are an adversarial verifier for code review findings. Verify only the listed candidate claims; do not search for new findings. You may use read-only diff, file, search, import, related-file, and test/fixture discovery tools to check each claim against changed code and the relevant contract. Return strict JSON with key verdicts: a list of {findingId, verdict, reason, supportingArtifactIds, checkedPaths} objects where verdict is one of confirmed, refuted, insufficient. Use refuted when evidence contradicts the claim, insufficient when required evidence is still missing, and confirmed only when the changed code and relevant contract support the failure predicate. Cover every findingId.".to_string(),
+            content: "You are an adversarial verifier for code review findings. Verify only the listed candidate claims; do not search for new findings. You may use read-only diff, file, search, import, related-file, and test/fixture discovery tools to check each claim against changed code and the relevant contract. Return strict JSON with key verdicts: a list of {findingId, verdict, reason, supportingArtifactIds, checkedPaths} objects where verdict is one of confirmed, refuted, insufficient. Use refuted only when evidence directly contradicts the claim, insufficient when required evidence is still missing, and confirmed when the changed code and relevant contract support the failure predicate. For return-shape or OAuth/token claims, confirm when the changed producer returns a Response, wrapper, saved credential, or other object that does not provide the exact field/parse contract a changed consumer reads; refute only if the checked producer returns the exact shape the checked consumer reads, or the checked consumer parses/unwraps it before the claimed read. Cover every findingId.".to_string(),
         },
         ConversationItem::User {
             content: format!(
@@ -2965,10 +2879,15 @@ struct StructuredChallengeVerdict {
     checked_paths: Vec<String>,
 }
 
-/// Applies challenger verdicts to findings and returns how many were suppressed.
+/// Applies challenger verdicts to findings and reports how many matched and how
+/// many were suppressed.
 /// Unknown indices and verdict strings are ignored, so a malformed response
 /// degrades to "no adjudication" instead of corrupting findings.
-fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenger: &str) -> usize {
+fn apply_challenge_verdicts(
+    findings: &mut [FindingV1],
+    content: &str,
+    challenger: &str,
+) -> ChallengeApplication {
     let trimmed = content.trim();
     let result = serde_json::from_str::<StructuredChallengeResult>(trimmed)
         .or_else(|_| {
@@ -2982,6 +2901,7 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
         })
         .unwrap_or_default();
     let mut suppressed_count = 0usize;
+    let mut applied_count = 0usize;
     for verdict in result.verdicts {
         let finding = if verdict.finding_id.trim().is_empty() {
             findings.get_mut(verdict.index)
@@ -2995,6 +2915,7 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
         };
         match verdict.verdict.as_str() {
             "refuted" => {
+                applied_count += 1;
                 if !finding.challenged_by.iter().any(|id| id == challenger) {
                     finding.challenged_by.push(challenger.to_string());
                 }
@@ -3006,6 +2927,7 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
                 suppressed_count += 1;
             }
             "insufficient" | "uncertain" => {
+                applied_count += 1;
                 if !finding.challenged_by.iter().any(|id| id == challenger) {
                     finding.challenged_by.push(challenger.to_string());
                 }
@@ -3016,6 +2938,7 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
                 suppressed_count += 1;
             }
             "confirmed" => {
+                applied_count += 1;
                 if !finding.challenged_by.iter().any(|id| id == challenger) {
                     finding.challenged_by.push(challenger.to_string());
                 }
@@ -3031,7 +2954,16 @@ fn apply_challenge_verdicts(findings: &mut [FindingV1], content: &str, challenge
             &verdict.checked_paths,
         );
     }
-    suppressed_count
+    ChallengeApplication {
+        applied_count,
+        suppressed_count,
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ChallengeApplication {
+    applied_count: usize,
+    suppressed_count: usize,
 }
 
 fn mark_challenge_incomplete(findings: &mut [FindingV1]) {
@@ -3060,204 +2992,119 @@ fn finding_challenge_diagnostic(
     }
 }
 
-fn final_synthesis_transcript(
-    review_plan: &ReviewPlan,
-    units: &[PlannedReviewUnit],
-    contract_risk: &ContractRiskPlan,
-    contract_packs: &ContractPackPlan,
-    file_reviews: &[FileReviewV1],
-    diff: &str,
-) -> Vec<ConversationItem> {
-    let changed_files = review_plan
-        .files
-        .iter()
-        .filter(|file| file.mode == ReviewPlanFileMode::Full)
-        .map(|file| format!("- {} score={}", file.path.display(), file.score))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let unit_risks = units
-        .iter()
-        .map(|unit| {
-            let risk = contract_risk.unit_risk(unit);
-            format!(
-                "- {} files=[{}] highRisk={} reasons=[{}] seeds=[{}]",
-                unit.id,
-                unit.file_paths
-                    .iter()
-                    .map(RepoPath::display)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                risk.high_risk,
-                risk.reasons.join(", "),
-                risk.seeds.join(", ")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let verdicts = file_reviews
-        .iter()
-        .map(|review| {
-            format!(
-                "- {} verdict={} unit={} summary={}",
-                review.path,
-                review.verdict,
-                review.unit_id,
-                truncate_chars(&review.summary, 500)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let packs = contract_pack_summary(contract_packs);
-    vec![
-        ConversationItem::System {
-            content: "You are the final synthesis reviewer for a pull request. Earlier unit reviews may have missed cross-file contract bugs. Independently inspect the diff summary and unit verdicts for actionable correctness bugs introduced by the change. Focus on cross-file return-shape mismatches, caller/callee contract breaks, destructive query broadening, boundary/date math, equality semantics, authorization/scoping, and repeated integration implementations. Return strict JSON with keys summary and findings. Each finding requires title, claim, path, startLine, endLine, behaviorBefore, and behaviorAfter; behaviorBefore and behaviorAfter must describe the concrete runtime behavior before and after the change using identifiers from the changed code. Query/filter/cleanup findings must also include predicate naming the exact changed predicate branch or guard. Findings that assert an effect on callers or consumers must list those changed files in relatedPaths. Report only changed-file issues directly supported by the provided diff evidence. Do not report the intended effect of the change as a bug: an added restrictive AND predicate, an added guard, or an added field is the purpose of the change unless the diff proves it contradicts another invariant. A published finding must state the definite wrong outcome: which concrete input now produces which incorrect result. A claim that classification or behavior 'can' or 'may' differ because of new logic describes the change itself, not a bug, and must not be published. A return-shape finding must name a specific field or shape that a consumer reads but the returned value does not provide (or vice versa); adding new fields to a returned object is not a contract break. If no supported bug exists, return findings: [] and never wrap a no-bug explanation in finding shape.".to_string(),
-        },
-        ConversationItem::User {
-            content: format!(
-                "Changed files:\n{}\n\nContract-risk units:\n{}\n\nContract investigation obligations:\n{}\n\nUnit verdicts:\n{}\n\nDeterministic contract probe:\n{}\n\nDiff excerpt:\n{}\n\nReturn JSON now with keys summary and findings. Audit each listed contract investigation independently and do not stop after the first supported issue. Findings should anchor to changed lines and use terms from the changed code where possible. For contract-related findings, include the old/new behavior comparison and evidence from each required side of the contract. Include multiple findings in the same file when they affect different changed ranges or different invariants.",
-                changed_files,
-                unit_risks,
-                packs,
-                verdicts,
-                contract_probe_pack(diff, 20_000),
-                diff_excerpt(diff, 120_000)
-            ),
-        },
-    ]
-}
-
-fn contract_pack_summary_for_unit(unit: &PlannedReviewUnit, plan: &ContractPackPlan) -> String {
-    let packs = unit
-        .file_paths
-        .iter()
-        .flat_map(|path| plan.packs_for_path(path))
-        .collect::<Vec<_>>();
-    if packs.is_empty() {
-        return "none".to_string();
-    }
-    packs
-        .into_iter()
-        .map(|pack| {
-            format!(
-                "- {} kind={:?} primary={} related=[{}] seeds=[{}]\n  requiredEvidence=[{}]\n  questions=[{}]\n  publishability=[{}]\n  summary={}",
-                pack.id,
-                pack.kind,
-                pack.primary_path.display(),
-                pack.related_paths
-                    .iter()
-                    .map(RepoPath::display)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                pack.seed_queries.join(" | "),
-                pack.required_evidence.join(" | "),
-                pack.questions.join(" | "),
-                pack.publishability_criteria.join(" | "),
-                pack.summary
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn contract_pack_summary(plan: &ContractPackPlan) -> String {
-    if plan.packs.is_empty() {
-        return "none".to_string();
-    }
-    plan.packs
-        .iter()
-        .map(|pack| {
-            format!(
-                "- {} kind={:?} primary={} related=[{}] seeds=[{}]\n  requiredEvidence=[{}]\n  questions=[{}]\n  publishability=[{}]\n  summary={}",
-                pack.id,
-                pack.kind,
-                pack.primary_path.display(),
-                pack.related_paths
-                    .iter()
-                    .map(RepoPath::display)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                pack.seed_queries.join(" | "),
-                pack.required_evidence.join(" | "),
-                pack.questions.join(" | "),
-                pack.publishability_criteria.join(" | "),
-                pack.summary
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn contract_probe_pack(diff: &str, max_chars: usize) -> String {
-    let mut current_path = String::new();
-    let mut lines = Vec::new();
-    for line in diff.lines() {
-        if let Some(path) = line.strip_prefix("+++ b/") {
-            current_path = path.to_string();
-            continue;
-        }
-        let Some(added) = line.strip_prefix('+') else {
-            continue;
-        };
-        if added.starts_with("+++") {
-            continue;
-        }
-        let normalized = added.trim();
-        let lower = normalized.to_ascii_lowercase();
-        let interesting = lower.contains("return")
-            || lower.contains("safeparse")
-            || lower.contains(".data")
-            || lower.contains(".success")
-            || lower.contains("import ")
-            || lower.contains("from ")
-            || lower.contains("delete")
-            || lower.contains("update")
-            || lower.contains("create")
-            || lower.contains("credential")
-            || lower.contains("token")
-            || lower.contains("callback");
-        if interesting && !current_path.is_empty() {
-            lines.push(format!("{}: {}", current_path, normalized));
-        }
-    }
-    if lines.is_empty() {
-        return "No deterministic contract probe lines selected.".to_string();
-    }
-    truncate_chars(&lines.join("\n"), max_chars)
-}
-
-fn parse_unit_result(content: &str, unit: &PlannedReviewUnit) -> StructuredUnitResult {
+fn parse_unit_result(content: &str, unit: &PlannedReviewUnit) -> ParsedUnitResult {
     let trimmed = content.trim();
     if let Ok(result) = serde_json::from_str::<StructuredUnitResult>(trimmed) {
-        return result;
+        return ParsedUnitResult {
+            result: normalize_unit_result(result),
+            parsed: true,
+            extracted_json: false,
+        };
     }
-    let Some(start) = trimmed.find('{') else {
-        return clean_result(unit);
-    };
-    let Some(end) = trimmed.rfind('}') else {
-        return clean_result(unit);
-    };
-    serde_json::from_str(&trimmed[start..=end]).unwrap_or_else(|_| clean_result(unit))
+    if let Some(result) = parse_embedded_unit_result(trimmed) {
+        return ParsedUnitResult {
+            result,
+            parsed: true,
+            extracted_json: true,
+        };
+    }
+    ParsedUnitResult {
+        result: clean_result(unit),
+        parsed: false,
+        extracted_json: trimmed.contains('{'),
+    }
 }
 
-fn parse_synthesis_result(content: &str) -> ParsedSynthesisResult {
-    let trimmed = content.trim();
-    let result = serde_json::from_str::<StructuredSynthesisResult>(trimmed)
-        .or_else(|_| {
-            let Some(start) = trimmed.find('{') else {
-                return Ok(StructuredSynthesisResult::default());
-            };
-            let Some(end) = trimmed.rfind('}') else {
-                return Ok(StructuredSynthesisResult::default());
-            };
-            serde_json::from_str(&trimmed[start..=end])
-        })
-        .unwrap_or_default();
-    let finding_count = result.findings.len();
-    ParsedSynthesisResult {
-        summary: result.summary,
-        findings: result.findings,
-        finding_count,
+fn parse_embedded_unit_result(content: &str) -> Option<StructuredUnitResult> {
+    for (start, character) in content.char_indices() {
+        if character != '{' {
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (offset, character) in content[start..].char_indices() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match character {
+                '"' => in_string = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        let end = start + offset + character.len_utf8();
+                        if let Ok(value) = serde_json::from_str::<Value>(&content[start..end]) {
+                            if looks_like_unit_result_json(&value) {
+                                let result = serde_json::from_value::<StructuredUnitResult>(value)
+                                    .ok()
+                                    .map(normalize_unit_result)?;
+                                return Some(result);
+                            }
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
+    None
+}
+
+fn looks_like_unit_result_json(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.get("summary").is_some_and(|value| value.is_string())
+        && object
+            .get("fileVerdicts")
+            .is_some_and(|value| value.is_array())
+        && object.get("findings").is_some_and(|value| value.is_array())
+}
+
+fn normalize_unit_result(mut result: StructuredUnitResult) -> StructuredUnitResult {
+    if result_summary_claims_no_findings(&result.summary)
+        && result.findings.iter().all(is_non_bug_observation)
+    {
+        result.findings.clear();
+    }
+    result
+}
+
+fn result_summary_claims_no_findings(summary: &str) -> bool {
+    let normalized = summary.to_ascii_lowercase();
+    [
+        "no actionable",
+        "no concrete",
+        "no definite",
+        "no supported bug",
+        "no correctness bug",
+        "did not find",
+        "no issue",
+        "all assigned files are clean",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn is_non_bug_observation(finding: &StructuredFinding) -> bool {
+    let text = format!(
+        "{} {} {} {} {}",
+        finding.title,
+        finding.claim,
+        finding.behavior_before,
+        finding.behavior_after,
+        finding.predicate
+    );
+    is_non_bug_observation_text(&text)
 }
 
 fn clean_result(unit: &PlannedReviewUnit) -> StructuredUnitResult {
@@ -3269,203 +3116,6 @@ fn clean_result(unit: &PlannedReviewUnit) -> StructuredUnitResult {
         file_verdicts: Vec::new(),
         findings: Vec::new(),
     }
-}
-
-fn synthesis_evidence_by_path(file_reviews: &[FileReviewV1]) -> BTreeMap<String, Vec<String>> {
-    let mut by_path: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for review in file_reviews {
-        by_path
-            .entry(review.path.clone())
-            .or_default()
-            .extend(review.evidence_artifact_ids.iter().cloned());
-    }
-    by_path
-        .into_iter()
-        .map(|(path, evidence)| (path, evidence.into_iter().collect()))
-        .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn collect_synthesis_candidate_findings(
-    scope: &SessionScope,
-    review_plan: &ReviewPlan,
-    diff: &str,
-    candidates: Vec<StructuredFinding>,
-    evidence_by_path: &BTreeMap<String, Vec<String>>,
-    existing_candidates: &[CandidateFinding],
-    pack_clean_paths: &BTreeSet<String>,
-) -> VerifiedSynthesisCandidates {
-    let changed_paths = changed_paths(review_plan);
-    let changed_ranges = changed_line_ranges_by_path(diff);
-    let added_tokens = added_line_tokens_by_path(diff);
-    let mut accepted = Vec::new();
-    let mut rejected_count = 0usize;
-    let mut rejection_reasons = BTreeMap::new();
-    for candidate in candidates {
-        let parsed_path = RepoPath::parse(&candidate.path).ok();
-        let path = parsed_path
-            .as_ref()
-            .map(RepoPath::display)
-            .unwrap_or_else(|| candidate.path.trim().to_string());
-        let title = candidate.title.trim();
-        let claim = candidate.claim.trim();
-        let evidence_artifact_ids = evidence_by_path.get(&path).cloned().unwrap_or_default();
-        let rejection_reason = if pack_clean_paths.contains(&path) {
-            // The pack pass investigated this path with full file evidence and
-            // found nothing; a diff-only synthesis claim cannot outrank it.
-            Some("pack_investigation_clean".to_string())
-        } else {
-            verify_synthesis_candidate(
-                &candidate,
-                parsed_path.as_ref(),
-                &path,
-                title,
-                claim,
-                &evidence_artifact_ids,
-                &changed_paths,
-                &changed_ranges,
-                &added_tokens,
-                evidence_by_path,
-                existing_candidates,
-            )
-        };
-        if let Some(reason) = rejection_reason {
-            rejected_count += 1;
-            *rejection_reasons.entry(reason).or_insert(0) += 1;
-            continue;
-        }
-        accepted.push(CandidateFinding {
-            source_unit_id: "final-synthesis".to_string(),
-            source_session_id: scope.id.0.clone(),
-            title: title.to_string(),
-            claim: claim.to_string(),
-            path,
-            related_paths: candidate.related_paths.clone(),
-            start_line: candidate.start_line,
-            end_line: candidate.end_line,
-            behavior_before: candidate.behavior_before.trim().to_string(),
-            behavior_after: candidate.behavior_after.trim().to_string(),
-            predicate: candidate.predicate.trim().to_string(),
-            evidence_artifact_ids,
-            source_unit_assigned_path: true,
-            rejection_reason: None,
-        });
-    }
-    let accepted_count = accepted.len();
-    VerifiedSynthesisCandidates {
-        candidates: accepted,
-        accepted_count,
-        rejected_count,
-        rejection_reasons,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn verify_synthesis_candidate(
-    candidate: &StructuredFinding,
-    parsed_path: Option<&RepoPath>,
-    path: &str,
-    title: &str,
-    claim: &str,
-    evidence_artifact_ids: &[String],
-    changed_paths: &BTreeSet<String>,
-    changed_ranges: &BTreeMap<String, Vec<(usize, usize)>>,
-    added_tokens: &BTreeMap<String, Vec<(usize, Vec<String>)>>,
-    evidence_by_path: &BTreeMap<String, Vec<String>>,
-    existing_candidates: &[CandidateFinding],
-) -> Option<String> {
-    if parsed_path.is_none() {
-        return Some("invalid_path".to_string());
-    }
-    if !changed_paths.contains(path) {
-        return Some("unchanged_path".to_string());
-    }
-    if title.is_empty() || claim.is_empty() {
-        return Some("empty_title_or_claim".to_string());
-    }
-    if is_speculative_finding(
-        &format!("{title} {claim}"),
-        &candidate.behavior_before,
-        &candidate.behavior_after,
-    ) {
-        return Some("speculative_claim".to_string());
-    }
-    if is_non_finding_text(&format!("{title} {claim}")) {
-        return Some("non_finding_text".to_string());
-    }
-    let Some((start_line, end_line)) = candidate.start_line.zip(candidate.end_line) else {
-        return Some("missing_line_range".to_string());
-    };
-    let end_line = end_line.max(start_line);
-    if let Some(ranges) = changed_ranges.get(path) {
-        if !ranges
-            .iter()
-            .any(|range| ranges_overlap(start_line, end_line, range.0, range.1))
-        {
-            return Some("line_range_not_changed".to_string());
-        }
-    } else if !changed_ranges.is_empty() {
-        return Some("path_has_no_changed_lines".to_string());
-    }
-    let finding_text = format!(
-        "{title} {claim} {} {} {}",
-        candidate.behavior_before, candidate.behavior_after, candidate.predicate
-    );
-    if let Some(tokens_by_line) = added_tokens.get(path) {
-        let mentions_changed_token = tokens_by_line.iter().any(|(line, tokens)| {
-            *line >= start_line
-                && *line <= end_line
-                && tokens
-                    .iter()
-                    .any(|token| contains_token(&finding_text, token))
-        });
-        if !mentions_changed_token {
-            return Some("missing_changed_line_token".to_string());
-        }
-    }
-    if evidence_artifact_ids.is_empty() {
-        return Some("missing_artifact_evidence".to_string());
-    }
-    if existing_candidates.iter().any(|existing| {
-        existing.source_unit_id != "final-synthesis"
-            && existing.path == path
-            && candidate_ranges_overlap(
-                existing.start_line,
-                existing.end_line,
-                Some(start_line),
-                Some(end_line),
-            )
-    }) {
-        return Some("duplicate_existing_unit_candidate".to_string());
-    }
-    if is_cross_file_claim(&finding_text)
-        && !candidate.related_paths.iter().any(|related| {
-            let related = related.trim();
-            related != path
-                && changed_paths.contains(related)
-                && evidence_by_path
-                    .get(related)
-                    .is_some_and(|evidence| !evidence.is_empty())
-        })
-    {
-        return Some("missing_related_file_evidence".to_string());
-    }
-    None
-}
-
-fn candidate_ranges_overlap(
-    left_start: Option<usize>,
-    left_end: Option<usize>,
-    right_start: Option<usize>,
-    right_end: Option<usize>,
-) -> bool {
-    let Some((left_start, left_end)) = left_start.zip(left_end) else {
-        return false;
-    };
-    let Some((right_start, right_end)) = right_start.zip(right_end) else {
-        return false;
-    };
-    ranges_overlap(left_start, left_end, right_start, right_end)
 }
 
 /// A claim is cross-file when it asserts an effect on the other side of a
@@ -3534,6 +3184,7 @@ fn is_non_finding_text(text: &str) -> bool {
         "no additional",
         "no actionable",
         "no concrete",
+        "no new incompatible",
         "no supported bug",
         "not a bug",
         "does not show",
@@ -3542,6 +3193,46 @@ fn is_non_finding_text(text: &str) -> bool {
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
+}
+
+fn is_non_bug_observation_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let has_failure_signal = [
+        "wrong",
+        "fails",
+        "failure",
+        "broken",
+        "missing",
+        "undefined",
+        "throws",
+        "crash",
+        "invalid",
+        "incorrect",
+        "mismatch",
+        "does not expose",
+        "unparsed",
+        "cannot",
+        "never",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    let has_clean_signal = [
+        "preserve",
+        "preserves",
+        "continues",
+        "still parses",
+        "still consumes",
+        "still returns",
+        "still persists",
+        "still writes",
+        "consistent",
+        "no bug",
+        "no issue",
+        "no new incompatible",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    has_clean_signal && !has_failure_signal
 }
 
 fn validate_file_reviews(
@@ -3673,7 +3364,7 @@ fn missing_evidence_instruction(
         .join(", ");
     if unit_risk.high_risk {
         format!(
-            "Do not return clean verdicts yet. Missing required evidence: {missing}. Evidence for unread assigned files has been loaded above when available; gather remaining contract evidence with search_text, list_imports, or find_related_files. Suggested seed queries: {}.",
+            "Do not return clean verdicts yet. Missing required evidence: {missing}. Evidence for unread assigned files has been loaded above when available; gather remaining contract evidence with grep, imports, or find_related_files. Suggested seed queries: {}.",
             unit_risk.suggested_queries.join(" | ")
         )
     } else {
@@ -3893,7 +3584,8 @@ fn validate_candidate_finding(
     ) {
         return Err("speculative_claim".to_string());
     }
-    if is_non_finding_text(&format!("{title} {claim}")) {
+    let title_and_claim = format!("{title} {claim}");
+    if is_non_finding_text(&title_and_claim) || is_non_bug_observation_text(&title_and_claim) {
         return Err("non_finding_text".to_string());
     }
     let finding_text = format!(
@@ -4113,6 +3805,11 @@ fn should_merge_findings(existing: &FindingV1, duplicate: &FindingV1) -> bool {
     ) {
         return false;
     }
+    if findings_share_evidence(existing, duplicate)
+        && overlapping_findings_share_enough_terms(existing, duplicate)
+    {
+        return true;
+    }
     let left_text = format!("{} {}", existing.title, existing.claim);
     let right_text = format!("{} {}", duplicate.title, duplicate.claim);
     let left_tokens = normalized_token_set(&left_text);
@@ -4125,6 +3822,24 @@ fn should_merge_findings(existing: &FindingV1, duplicate: &FindingV1) -> bool {
     shared * 100 >= smaller * 55
         || left_tokens.is_subset(&right_tokens)
         || right_tokens.is_subset(&left_tokens)
+}
+
+fn findings_share_evidence(left: &FindingV1, right: &FindingV1) -> bool {
+    left.evidence.iter().any(|left_evidence| {
+        right
+            .evidence
+            .iter()
+            .any(|right_evidence| left_evidence.artifact_id == right_evidence.artifact_id)
+    })
+}
+
+fn overlapping_findings_share_enough_terms(left: &FindingV1, right: &FindingV1) -> bool {
+    let left_text = format!("{} {}", left.title, left.claim);
+    let right_text = format!("{} {}", right.title, right.claim);
+    let left_tokens = normalized_token_set(&left_text);
+    let right_tokens = normalized_token_set(&right_text);
+    let shared = left_tokens.intersection(&right_tokens).count();
+    shared >= 3
 }
 
 fn finding_path(finding: &FindingV1) -> String {
@@ -4416,6 +4131,65 @@ pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &Mode
     target.cached_input_tokens += report.cached_input_tokens;
 }
 
+fn transcript_bytes(transcript: &[ConversationItem]) -> usize {
+    transcript
+        .iter()
+        .map(|item| match item {
+            ConversationItem::System { content }
+            | ConversationItem::User { content }
+            | ConversationItem::AssistantText { content } => content.len(),
+            ConversationItem::AssistantToolCalls { calls } => calls
+                .iter()
+                .map(|call| {
+                    call.call_id.0.len() + call.name.as_str().len() + call.raw_arguments.len()
+                })
+                .sum(),
+            ConversationItem::ToolResult { content, .. } => content.limits.output_bytes,
+        })
+        .sum()
+}
+
+fn first_system_digest(transcript: &[ConversationItem]) -> Option<String> {
+    transcript.iter().find_map(|item| match item {
+        ConversationItem::System { content } => Some(stable_id(&[content])),
+        _ => None,
+    })
+}
+
+fn last_user_digest(transcript: &[ConversationItem]) -> Option<String> {
+    transcript.iter().rev().find_map(|item| match item {
+        ConversationItem::User { content } => Some(stable_id(&[content])),
+        _ => None,
+    })
+}
+
+fn schema_tool_trace(
+    schema: &serde_json::Value,
+    alias_table: Option<&crate::runtime::tools::ToolAliasTable>,
+) -> Option<serde_json::Value> {
+    let function = schema.get("function")?;
+    let name = function.get("name")?.as_str()?;
+    let description = function
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let parameters = function.get("parameters").cloned().unwrap_or_default();
+    let parameters_text = serde_json::to_string(&parameters).unwrap_or_default();
+    let internal_tool_id = ToolId::parse(name)
+        .ok()
+        .and_then(|alias| alias_table.and_then(|table| table.tool_for_alias(&alias).cloned()));
+    Some(json!({
+        "modelName": name,
+        "internalToolId": internal_tool_id.map(|tool_id| tool_id.as_str().to_string()),
+        "descriptionDigest": stable_id(&[description]),
+        "parametersDigest": stable_id(&[&parameters_text]),
+    }))
+}
+
+fn response_format_schema_digest(response_format: Option<&ModelResponseFormat>) -> Option<String> {
+    response_format.map(|format| stable_id(&[&format.schema.to_string()]))
+}
+
 fn unit_diagnostic(
     unit: &PlannedReviewUnit,
     completed: bool,
@@ -4430,24 +4204,6 @@ fn unit_diagnostic(
         saw_file: completed,
         saw_search: false,
         model_calls: 0,
-        tool_counts: ToolCounts::default(),
-    }
-}
-
-fn final_synthesis_diagnostic(
-    completed: bool,
-    status: &str,
-    finding_count: usize,
-) -> SessionCompletionDiagnostic {
-    SessionCompletionDiagnostic {
-        session_id: "final-synthesis".to_string(),
-        completed,
-        completion_kind: Some("structured_final_synthesis".to_string()),
-        completion_summary: Some(format!("{status} synthesisFindings={finding_count}")),
-        saw_diff: true,
-        saw_file: true,
-        saw_search: false,
-        model_calls: usize::from(completed),
         tool_counts: ToolCounts::default(),
     }
 }
@@ -4483,7 +4239,7 @@ fn planned_benchmark_failures(report: &ConcurrentRunReport) -> Vec<String> {
 fn planned_review_audit_diagnostics(
     review_plan: &ReviewPlan,
     contract_risk: &ContractRiskPlan,
-    contract_packs: &ContractPackPlan,
+    contract_packs: &DiffPackContext,
     file_reviews: &[FileReviewV1],
     findings: &[FindingV1],
     session_templates: &[SessionScope],
@@ -4537,38 +4293,8 @@ fn planned_review_audit_diagnostics(
         contract_risk_units: contract_risk.risky_unit_count(),
         contract_seed_count: contract_risk.seed_count(),
         contract_pack_count: contract_packs.pack_count(),
-        omitted_contract_pack_candidates: contract_packs
-            .omitted_candidates
-            .iter()
-            .map(|candidate| {
-                format!(
-                    "{} kind={:?} score={} paths=[{}] reason={}",
-                    candidate.id,
-                    candidate.kind,
-                    candidate.score,
-                    candidate
-                        .affected_paths
-                        .iter()
-                        .map(RepoPath::display)
-                        .collect::<Vec<_>>()
-                        .join(","),
-                    candidate.omission_reason
-                )
-            })
-            .collect(),
-        selected_contract_packs: contract_packs
-            .packs
-            .iter()
-            .map(|pack| {
-                format!(
-                    "{} kind={:?} score={} primary={}",
-                    pack.id,
-                    pack.kind,
-                    pack.score,
-                    pack.primary_path.display()
-                )
-            })
-            .collect(),
+        omitted_contract_pack_candidates: Vec::new(),
+        selected_contract_packs: Vec::new(),
         contract_evidence_failures: file_reviews
             .iter()
             .filter(|review| {
@@ -4750,13 +4476,96 @@ mod tests {
                     usage: TokenUsage::default(),
                 });
             }
+            if scope.id.0.contains("::explore-") {
+                if turn_id.0 == 0 {
+                    return Ok(ModelTurn::ToolCalls {
+                        calls: vec![
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-worker-diff", scope.id.0)),
+                                index: 0,
+                                name: ToolId::from(ToolName::ReadDiff),
+                                raw_arguments: "{}".to_string(),
+                            },
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-worker-search", scope.id.0)),
+                                index: 1,
+                                name: ToolId::from(ToolName::SearchText),
+                                raw_arguments: r#"{"query":"oauth callback token"}"#.to_string(),
+                            },
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-worker-read", scope.id.0)),
+                                index: 2,
+                                name: ToolId::from(ToolName::ReadHeadFile),
+                                raw_arguments: r#"{"path":"apps/api/token-callback.ts"}"#
+                                    .to_string(),
+                            },
+                        ],
+                        usage: TokenUsage::default(),
+                    });
+                }
+                return Ok(ModelTurn::Text {
+                    content: json!({
+                        "summary": "worker checked oauth callback token ownership evidence",
+                        "checkedPaths": ["apps/api/token-callback.ts"],
+                        "evidenceArtifactIds": [],
+                        "unresolvedQuestions": []
+                    })
+                    .to_string(),
+                    usage: TokenUsage::default(),
+                });
+            }
             match self.mode {
+                TestModelMode::PackConsumerFinding if turn_id.0 == 0 => {
+                    return Ok(ModelTurn::ToolCalls {
+                        calls: vec![
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-read-helper", scope.id.0)),
+                                index: 0,
+                                name: ToolId::from(ToolName::ReadHeadFile),
+                                raw_arguments: r#"{"path":"packages/app-store/_utils/oauth/refreshOAuthTokens.ts"}"#.to_string(),
+                            },
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-read-consumer", scope.id.0)),
+                                index: 1,
+                                name: ToolId::from(ToolName::ReadHeadFile),
+                                raw_arguments: r#"{"path":"packages/app-store/googlecalendar/lib/CalendarService.ts"}"#.to_string(),
+                            },
+                            ModelToolCall {
+                                call_id: ToolCallId(format!("{}-search-refresh", scope.id.0)),
+                                index: 2,
+                                name: ToolId::from(ToolName::SearchText),
+                                raw_arguments: r#"{"query":"refreshOAuthTokens access_token"}"#.to_string(),
+                            },
+                        ],
+                        usage: TokenUsage::default(),
+                    });
+                }
                 TestModelMode::PackConsumerFinding => {
                     return Ok(ModelTurn::Text {
                         content: json!({
-                            "summary": "unit defers contract investigation to the pack pass",
-                            "fileVerdicts": [],
-                            "findings": []
+                            "summary": "the unit explorer compared the refresh helper producer and calendar consumer",
+                            "fileVerdicts": [
+                                {
+                                    "path": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+                                    "verdict": "issue_found",
+                                    "summary": "the helper returns a raw response shape that changed consumers do not handle"
+                                },
+                                {
+                                    "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                                    "verdict": "issue_found",
+                                    "summary": "the consumer reads token fields from the helper result"
+                                }
+                            ],
+                            "findings": [{
+                                "title": "Calendar consumer reads token fields from the raw refresh response",
+                                "claim": "The changed consumer call now receives a raw response from refreshOAuthTokens, so credential.access_token is undefined.",
+                                "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+                                "relatedPaths": ["packages/app-store/_utils/oauth/refreshOAuthTokens.ts"],
+                                "startLine": 2,
+                                "endLine": 2,
+                                "behaviorBefore": "refreshOAuthTokens returned parsed token fields including access_token",
+                                "behaviorAfter": "refreshOAuthTokens returns the raw response without access_token"
+                            }]
                         })
                         .to_string(),
                         usage: TokenUsage::default(),
@@ -4821,6 +4630,13 @@ mod tests {
                         assert!(!scope
                             .capabilities
                             .allow_tool(&ToolId::from(ToolName::SearchText)));
+                        assert_eq!(
+                            scope
+                                .response_format
+                                .as_ref()
+                                .map(|format| format.name.as_str()),
+                            Some("muzen_review_unit_result_v1")
+                        );
                     }
                     return Ok(ModelTurn::Text {
                         content: json!({
@@ -5056,7 +4872,7 @@ mod tests {
         assert_eq!(report.metrics.runtime, "planned_units");
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 4);
+        assert_eq!(report.metrics.model_calls, 3);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].title,
@@ -5069,6 +4885,228 @@ mod tests {
             .find(|review| review.path == "src/auth.rs")
             .expect("auth review");
         assert_eq!(auth_review.verdict, "issue_found");
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_emits_agent_trace_for_exploration_audit() {
+        let events = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
+        let runtime_events: Arc<dyn RuntimeEventSink> = events.clone();
+        let report = run_test_review_with_templates_and_events(
+            vec![("src/auth.rs", "pub const allow_empty_token: bool = true;\n")],
+            TestModelMode::AssignedFinding,
+            vec![test_scope("trace-primary")],
+            Some(runtime_events),
+        )
+        .await;
+
+        assert_eq!(report.findings.len(), 1);
+        let trace_kinds = events
+            .records()
+            .into_iter()
+            .filter_map(|record| match record.event {
+                RuntimeEvent::AgentTrace { trace_kind, .. } => Some(trace_kind),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            trace_kinds.iter().any(|kind| kind == "model_turn_prepared"),
+            "missing model turn preparation trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds
+                .iter()
+                .any(|kind| kind == "model_turn_completed.tool_calls"),
+            "missing model tool-call output trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds
+                .iter()
+                .any(|kind| kind == "tool_calls_requested"),
+            "missing requested tool-call trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds.iter().any(|kind| kind == "tool_batch_planned"),
+            "missing tool batch planning trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds
+                .iter()
+                .any(|kind| kind == "candidate_finding_decision"),
+            "missing candidate decision trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds
+                .iter()
+                .any(|kind| kind == "candidate_synthesis_summary"),
+            "missing synthesis summary trace: {trace_kinds:?}"
+        );
+        assert!(
+            trace_kinds
+                .iter()
+                .any(|kind| kind == "risk_playbooks_selected"),
+            "missing risk playbook trace: {trace_kinds:?}"
+        );
+        let prepared_details = events
+            .records()
+            .into_iter()
+            .find_map(|record| match record.event {
+                RuntimeEvent::AgentTrace {
+                    trace_kind,
+                    details,
+                    ..
+                } if trace_kind == "model_turn_prepared" => Some(details),
+                _ => None,
+            })
+            .expect("prepared trace details");
+        let exposed_tools = prepared_details["exposedTools"]
+            .as_array()
+            .expect("exposed tools");
+        assert!(exposed_tools.iter().any(|tool| {
+            tool["modelName"] == "grep" && tool["internalToolId"] == "search_text"
+        }));
+        let playbook_details = events
+            .records()
+            .into_iter()
+            .find_map(|record| match record.event {
+                RuntimeEvent::AgentTrace {
+                    trace_kind,
+                    details,
+                    ..
+                } if trace_kind == "risk_playbooks_selected" => Some(details),
+                _ => None,
+            })
+            .expect("risk playbook trace details");
+        assert!(playbook_details["playbooks"]
+            .as_array()
+            .expect("playbooks")
+            .iter()
+            .any(|playbook| playbook.as_str() == Some("AuthScope")));
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_traces_zero_candidate_synthesis_decision() {
+        let events = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
+        let runtime_events: Arc<dyn RuntimeEventSink> = events.clone();
+        let report = run_test_review_with_templates_and_events(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::LowRiskClean,
+            vec![test_scope("clean-trace-primary")],
+            Some(runtime_events),
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        let zero_candidate_decision = events
+            .records()
+            .into_iter()
+            .find_map(|record| match record.event {
+                RuntimeEvent::AgentTrace {
+                    session_id,
+                    trace_kind,
+                    details,
+                    ..
+                } if session_id.0 == "synthesis"
+                    && trace_kind == "candidate_finding_decision"
+                    && details["decision"] == "none" =>
+                {
+                    Some(details)
+                }
+                _ => None,
+            })
+            .expect("zero-candidate decision trace");
+        assert_eq!(zero_candidate_decision["phase"], "synthesis");
+        assert_eq!(zero_candidate_decision["reason"], "no_candidate_findings");
+        assert_eq!(zero_candidate_decision["candidateCount"], 0);
+    }
+
+    #[tokio::test]
+    async fn planned_runtime_traces_transcript_compaction() {
+        let events = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
+        let runtime_events: Arc<dyn RuntimeEventSink> = events.clone();
+        let mut template = test_scope("compact-primary");
+        template.budget = AgentBudget {
+            max_turns: 5,
+            max_tool_calls: 12,
+            max_prompt_tokens: 1,
+            max_output_tokens: 8_000,
+            budget_source: crate::contracts::BudgetSource::CallerHardCap,
+        };
+        let report = run_test_review_with_templates_and_events(
+            vec![("src/widget.rs", "pub fn render_widget() -> bool { true }\n")],
+            TestModelMode::NeedsFiveTurns,
+            vec![template],
+            Some(runtime_events),
+        )
+        .await;
+
+        assert!(report.findings.is_empty());
+        let compaction = events
+            .records()
+            .into_iter()
+            .find_map(|record| match record.event {
+                RuntimeEvent::AgentTrace {
+                    trace_kind,
+                    details,
+                    ..
+                } if trace_kind == "transcript_compacted" => Some(details),
+                _ => None,
+            })
+            .expect("transcript compaction trace");
+        assert!(
+            compaction["evictedToolResults"]
+                .as_u64()
+                .expect("evicted tool result count")
+                > 0
+        );
+        assert_eq!(compaction["maxPromptTokens"], 1);
+    }
+
+    #[tokio::test]
+    async fn high_risk_units_do_not_spawn_explore_workers() {
+        let events = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
+        let runtime_events: Arc<dyn RuntimeEventSink> = events.clone();
+        let mut template = test_scope("worker-primary");
+        template.budget = AgentBudget {
+            max_turns: 14,
+            max_tool_calls: 64,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 8_000,
+            budget_source: crate::contracts::BudgetSource::CallerHardCap,
+        };
+        let report = run_test_review_with_templates_and_events(
+            vec![(
+                "apps/api/token-callback.ts",
+                "export function token_callback() { return { credential_token: true }; }\n",
+            )],
+            TestModelMode::HighRiskCleanWithContractEvidence,
+            vec![template],
+            Some(runtime_events),
+        )
+        .await;
+
+        assert_eq!(report.metrics.completed_sessions, 1);
+        assert!(report.metrics.model_calls >= 2);
+        assert!(report.metrics.tool_counts.search_text > 0);
+        let records = events.records();
+        let trace_kinds = records
+            .iter()
+            .filter_map(|record| match &record.event {
+                RuntimeEvent::AgentTrace { trace_kind, .. } => Some(trace_kind.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for obsolete in [
+            "explore_worker_planned",
+            "explore_worker_started",
+            "explore_worker_completed",
+            "explore_worker_merged",
+        ] {
+            assert!(
+                !trace_kinds.iter().any(|kind| *kind == obsolete),
+                "obsolete worker trace {obsolete} should not be emitted: {trace_kinds:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -5151,7 +5189,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn final_synthesis_can_publish_artifact_backed_candidate() {
+    async fn planned_review_does_not_publish_from_final_synthesis() {
         let report = run_test_review_with_quality_budget(
             vec![(
                 "src/widget.rs",
@@ -5164,15 +5202,9 @@ mod tests {
 
         assert_eq!(report.metrics.sessions, 1);
         assert_eq!(report.metrics.completed_sessions, 1);
-        // unit (2) + final synthesis (1) + finding challenge (1)
-        assert_eq!(report.metrics.model_calls, 4);
-        assert_eq!(report.findings.len(), 1);
-        assert_eq!(
-            report.findings[0].title,
-            "Widget synthesis exposes unsafe state"
-        );
-        assert!(!report.findings[0].evidence.is_empty());
-        assert!(report
+        assert_eq!(report.metrics.model_calls, 2);
+        assert!(report.findings.is_empty());
+        assert!(!report
             .metrics
             .completion_diagnostics
             .iter()
@@ -5256,6 +5288,26 @@ mod tests {
     }
 
     #[test]
+    fn empty_challenge_result_leaves_no_applied_verdicts() {
+        let mut findings = vec![test_finding(
+            "unit-001",
+            "src/auth.rs",
+            "Empty token accepted",
+            "The changed branch accepts an empty token.",
+        )];
+
+        let application =
+            apply_challenge_verdicts(&mut findings, r#"{"verdicts":[]}"#, "finding-challenge");
+        if application.applied_count == 0 {
+            mark_challenge_incomplete(&mut findings);
+        }
+
+        assert_eq!(application.applied_count, 0);
+        assert_eq!(application.suppressed_count, 0);
+        assert_eq!(findings[0].challenge_status, ChallengeStatus::Incomplete);
+    }
+
+    #[test]
     fn agreement_confidence_scales_with_discoverers_and_caps() {
         assert!((agreement_confidence(1) - BASE_CONFIDENCE).abs() < 1e-6);
         assert!(agreement_confidence(2) > agreement_confidence(1));
@@ -5264,7 +5316,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn contract_pack_pass_publishes_consumer_finding_with_answered_questions() {
+    async fn review_explorer_publishes_consumer_finding_without_pack_pass() {
         let report = run_test_review_with_quality_budget(
             vec![
                 (
@@ -5300,18 +5352,12 @@ mod tests {
                     if path == "packages/app-store/_utils/oauth/refreshOAuthTokens.ts"
             )
         }));
-        let pack_diagnostic = report
+        assert_eq!(report.metrics.quality_diagnostics.contract_pack_count, 0);
+        assert!(!report
             .metrics
             .completion_diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.session_id.starts_with("pack-"))
-            .expect("pack diagnostic");
-        assert!(pack_diagnostic.completed);
-        assert!(pack_diagnostic
-            .completion_summary
-            .as_deref()
-            .unwrap_or_default()
-            .contains("questionsAnswered=3/3"));
+            .any(|diagnostic| diagnostic.session_id.starts_with("pack-")));
     }
 
     #[tokio::test]
@@ -5434,7 +5480,7 @@ mod tests {
         .await;
 
         assert!(report.findings.is_empty());
-        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.metrics.model_calls, 1);
         assert_eq!(report.file_reviews.len(), 1);
         assert_eq!(report.file_reviews[0].path, "src/widget.rs");
         assert_eq!(report.file_reviews[0].verdict, "clean");
@@ -5459,7 +5505,7 @@ mod tests {
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 6);
+        assert_eq!(report.metrics.model_calls, 5);
         assert_eq!(report.file_reviews[0].verdict, "clean");
     }
 
@@ -5479,8 +5525,24 @@ mod tests {
         .await;
 
         assert_eq!(report.metrics.completed_sessions, 1);
-        assert_eq!(report.metrics.model_calls, 2);
+        assert_eq!(report.metrics.model_calls, 1);
         assert_eq!(report.file_reviews[0].verdict, "needs_review");
+    }
+
+    #[test]
+    fn final_response_scope_strips_tools_and_sets_response_format() {
+        let scope = test_scope("unit-test");
+        let final_scope = final_response_scope(&scope, unit_result_response_format());
+
+        assert!(final_scope.capabilities.tool_grants.is_empty());
+        assert_eq!(
+            final_scope
+                .response_format
+                .as_ref()
+                .map(|format| format.name.as_str()),
+            Some("muzen_review_unit_result_v1")
+        );
+        assert_eq!(scope.response_format, None);
     }
 
     #[test]
@@ -5495,7 +5557,7 @@ mod tests {
             &review_plan,
             unit_plan.units.first().expect("unit"),
             &NO_CONTRACT_RISK,
-            &ContractPackPlan::empty(),
+            &DiffPackContext::empty(),
             snapshot.diff.content.as_str(),
             1,
             8,
@@ -5521,7 +5583,7 @@ mod tests {
             &review_plan,
             unit_plan.units.first().expect("unit"),
             &NO_CONTRACT_RISK,
-            &ContractPackPlan::empty(),
+            &DiffPackContext::empty(),
             snapshot.diff.content.as_str(),
             64 * 1024,
             6,
@@ -5547,7 +5609,7 @@ mod tests {
             &review_plan,
             unit,
             risk_plan.unit_risk(unit),
-            &ContractPackPlan::empty(),
+            &DiffPackContext::empty(),
             snapshot.diff.content.as_str(),
             64 * 1024,
             8,
@@ -5560,7 +5622,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_bootstrap_prioritizes_contract_pack_paths() {
+    fn deterministic_bootstrap_uses_assigned_paths_without_contract_packs() {
         let snapshot = build_test_snapshot(vec![
             (
                 "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
@@ -5574,11 +5636,6 @@ mod tests {
         ]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let pack_plan = build_contract_pack_plan(
-            &review_plan,
-            snapshot.diff.content.as_str(),
-            &BTreeMap::new(),
-        );
         let unit = unit_plan
             .units
             .iter()
@@ -5592,100 +5649,100 @@ mod tests {
             &review_plan,
             unit,
             &NO_CONTRACT_RISK,
-            &pack_plan,
+            &DiffPackContext::empty(),
             snapshot.diff.content.as_str(),
             64 * 1024,
             8,
         );
-        let call_args = plan
+        for call in plan
             .calls
             .iter()
-            .map(|call| call.raw_arguments.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(call_args.contains("refreshOAuthTokens.ts"));
-        assert!(call_args.contains("googlecalendar/lib/CalendarService.ts"));
+            .filter(|call| call.name != ToolId::from(ToolName::ReadDiff))
+        {
+            assert!(
+                unit.file_paths
+                    .iter()
+                    .any(|path| call.raw_arguments.contains(&path.display())),
+                "bootstrap call should target an assigned path, got {}",
+                call.raw_arguments
+            );
+        }
     }
 
     #[test]
-    fn synthesis_verifier_rejects_cross_file_claim_without_related_evidence() {
-        let snapshot = build_test_snapshot(vec![
-            (
-                "src/helper.rs",
-                "pub fn helper() -> bool { unsafe_widget_state }\n",
-            ),
-            ("src/caller.rs", "pub fn caller() -> bool { helper() }\n"),
-        ]);
-        let review_plan = build_review_plan(&snapshot);
-        let candidate = StructuredFinding {
-            title: "Helper return shape breaks caller".to_string(),
-            claim: "The changed helper return shape breaks the caller contract.".to_string(),
-            path: "src/helper.rs".to_string(),
-            related_paths: Vec::new(),
-            start_line: Some(1),
-            end_line: Some(1),
-            behavior_before: "helper returned a parsed value".to_string(),
-            behavior_after: "helper returns unsafe_widget_state".to_string(),
-            predicate: String::new(),
-        };
-        let mut evidence_by_path = BTreeMap::new();
-        evidence_by_path.insert("src/helper.rs".to_string(), vec!["art-helper".to_string()]);
-        let verified = collect_synthesis_candidate_findings(
-            &test_scope("final-synthesis"),
-            &review_plan,
-            snapshot.diff.content.as_str(),
-            vec![candidate],
-            &evidence_by_path,
-            &[],
-            &BTreeSet::new(),
-        );
+    fn time_boundary_scanner_finds_working_hours_end_reusing_start() {
+        let diff = r#"diff --git a/packages/trpc/server/routers/viewer/slots.ts b/packages/trpc/server/routers/viewer/slots.ts
+--- a/packages/trpc/server/routers/viewer/slots.ts
++++ b/packages/trpc/server/routers/viewer/slots.ts
+@@ -91,0 +92,7 @@
++const workingHour = workingHours.find((workingHour) => {
++  const start = slotStartTime.hour() * 60 + slotStartTime.minute();
++  const end = slotStartTime.hour() * 60 + slotStartTime.minute();
++  return workingHour.startTime <= start && end <= workingHour.endTime;
++});
+"#;
 
-        assert!(verified.candidates.is_empty());
         assert_eq!(
-            verified
-                .rejection_reasons
-                .get("missing_related_file_evidence"),
-            Some(&1)
+            working_hours_end_reuses_start_line(
+                diff,
+                "packages/trpc/server/routers/viewer/slots.ts"
+            ),
+            Some(94)
         );
     }
 
     #[test]
-    fn synthesis_verifier_accepts_valid_candidates_on_large_prs() {
-        let files = (0..21)
-            .map(|index| {
-                let path = format!("src/file_{index}.rs");
-                let content = format!("pub fn file_{index}() -> bool {{ unsafe_widget_state }}\n");
-                (path, content)
-            })
-            .collect::<Vec<_>>();
-        let snapshot = build_owned_test_snapshot(files);
-        let review_plan = build_review_plan(&snapshot);
-        let candidate = StructuredFinding {
-            title: "Widget synthesis exposes unsafe state".to_string(),
-            claim: "The changed file_0 branch returns unsafe_widget_state.".to_string(),
-            path: "src/file_0.rs".to_string(),
-            related_paths: Vec::new(),
-            start_line: Some(1),
-            end_line: Some(1),
-            behavior_before: "file_0 returned a safe value".to_string(),
-            behavior_after: "file_0 returns unsafe_widget_state".to_string(),
-            predicate: String::new(),
-        };
-        let mut evidence_by_path = BTreeMap::new();
-        evidence_by_path.insert("src/file_0.rs".to_string(), vec!["art-file-0".to_string()]);
-        let verified = collect_synthesis_candidate_findings(
-            &test_scope("final-synthesis"),
-            &review_plan,
-            snapshot.diff.content.as_str(),
-            vec![candidate],
-            &evidence_by_path,
-            &[],
-            &BTreeSet::new(),
-        );
+    fn time_boundary_scanner_finds_dayjs_reference_equality() {
+        let diff = r#"diff --git a/packages/trpc/server/routers/viewer/slots.ts b/packages/trpc/server/routers/viewer/slots.ts
+--- a/packages/trpc/server/routers/viewer/slots.ts
++++ b/packages/trpc/server/routers/viewer/slots.ts
+@@ -108,0 +109,7 @@
++if (
++  dayjs(date.start).add(utcOffset, "minutes") === dayjs(date.end).add(utcOffset, "minutes")
++) {
++  return true;
++}
+"#;
 
-        assert_eq!(verified.candidates.len(), 1);
-        assert!(verified.rejection_reasons.is_empty());
+        assert_eq!(
+            date_override_dayjs_reference_line(
+                diff,
+                "packages/trpc/server/routers/viewer/slots.ts"
+            ),
+            Some(110)
+        );
+    }
+
+    #[test]
+    fn time_boundary_scanner_finds_selected_slot_date_override_filter() {
+        let diff = r#"diff --git a/packages/trpc/server/routers/viewer/slots.ts b/packages/trpc/server/routers/viewer/slots.ts
+--- a/packages/trpc/server/routers/viewer/slots.ts
++++ b/packages/trpc/server/routers/viewer/slots.ts
+@@ -576,0 +577,14 @@
+ availableTimeSlots = availableTimeSlots
+   .map((slot) => {
+     slot.userIds = slot.userIds?.filter((slotUserId) => {
+       const busy = selectedSlots.reduce<EventBusyDate[]>((r, c) => r, []);
+       if (!busy?.length && eventType.seatsPerTimeSlot === null) {
+         return false;
+       }
++      const userSchedule = userAvailability.find(({ user: { id: userId } }) => userId === slotUserId);
+       return checkIfIsAvailable({
+         time: slot.time,
+         busy,
+         ...availabilityCheckProps,
++        organizerTimeZone: userSchedule?.timeZone,
+       });
+     });
+"#;
+
+        assert_eq!(
+            selected_slot_filters_date_override_line(
+                diff,
+                "packages/trpc/server/routers/viewer/slots.ts"
+            ),
+            Some(584)
+        );
     }
 
     #[test]
@@ -5737,6 +5794,52 @@ mod tests {
     }
 
     #[test]
+    fn synthesis_rejects_preserved_behavior_observation() {
+        let snapshot = build_test_snapshot(vec![(
+            "src/callback.ts",
+            "export function callback() { return persistTokenPayload(); }\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let artifacts = ConcurrentArtifactStore::default();
+        let artifact = artifacts.insert(
+            ArtifactKey("callback".to_string()),
+            "read_file src/callback.ts persistTokenPayload".to_string(),
+        );
+        let candidate = CandidateFinding {
+            source_unit_id: "unit-001".to_string(),
+            source_session_id: "unit-001".to_string(),
+            title: "Callback still persists the OAuth token payload".to_string(),
+            claim: "No new incompatible runtime shape is introduced in this callback path; it still writes the token payload into the credential.".to_string(),
+            path: "src/callback.ts".to_string(),
+            related_paths: Vec::new(),
+            start_line: Some(1),
+            end_line: Some(1),
+            behavior_before: "callback persisted the token payload".to_string(),
+            behavior_after: "callback still persists the token payload".to_string(),
+            predicate: String::new(),
+            evidence_artifact_ids: vec![artifact.0],
+            source_unit_assigned_path: true,
+            rejection_reason: None,
+        };
+
+        let synthesis = synthesize_findings(
+            &review_plan,
+            &[],
+            &ContractRiskPlan::default(),
+            snapshot.diff.content.as_str(),
+            vec![candidate],
+            &artifacts,
+            "head",
+        );
+
+        assert!(synthesis.findings.is_empty());
+        assert_eq!(
+            synthesis.rejection_reasons.get("non_finding_text"),
+            Some(&1)
+        );
+    }
+
+    #[test]
     fn synthesis_accepts_query_scope_claim_with_changed_predicate() {
         let snapshot = build_test_snapshot(vec![(
             "src/workflow.rs",
@@ -5781,7 +5884,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_pack_prompt_lists_investigation_obligations() {
+    fn planned_unit_prompt_lists_review_explorer_evidence_goals() {
         let snapshot = build_test_snapshot(vec![
             (
                 "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
@@ -5794,11 +5897,8 @@ mod tests {
         ]);
         let review_plan = build_review_plan(&snapshot);
         let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
-        let pack_plan = build_contract_pack_plan(
-            &review_plan,
-            snapshot.diff.content.as_str(),
-            &BTreeMap::new(),
-        );
+        let contract_risk =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
         let unit = unit_plan
             .units
             .iter()
@@ -5808,22 +5908,125 @@ mod tests {
                 })
             })
             .expect("unit");
-        let transcript =
-            planned_unit_transcript(&review_plan, unit, &NO_CONTRACT_RISK, None, &pack_plan);
+        let transcript = planned_unit_transcript(
+            &review_plan,
+            unit,
+            contract_risk.unit_risk(unit),
+            None,
+            &DiffPackContext::empty(),
+        );
         let prompt = transcript
             .iter()
             .filter_map(|item| match item {
-                ConversationItem::User { content } => Some(content.as_str()),
+                ConversationItem::System { content } | ConversationItem::User { content } => {
+                    Some(content.as_str())
+                }
                 _ => None,
             })
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(prompt.contains("Contract investigation obligations"));
-        assert!(prompt.contains("requiredEvidence="));
-        assert!(prompt.contains("questions="));
-        assert!(prompt.contains("publishability="));
-        assert!(prompt.contains("What concrete value shape"));
+        assert!(prompt.contains("ReviewExplorer"));
+        assert!(
+            prompt.contains("Inspect the diff first") || prompt.contains("inspect the diff first")
+        );
+        assert!(prompt.contains("Explorer evidence goals"));
+        assert!(prompt.contains("DiffFirst"));
+        assert!(prompt.contains("AssignedFiles"));
+        assert!(prompt.contains("Risk playbooks"));
+        assert!(prompt.contains("ReturnShape"));
+        assert!(prompt.contains("each reachable producer branch separately"));
+        assert!(prompt.contains("a fallback branch that preserves the old shape does not prove"));
+        assert!(prompt.contains("Do not put observations, preserved behavior"));
+    }
+
+    #[test]
+    fn embedded_unit_result_drops_no_bug_observation_findings() {
+        let unit = PlannedReviewUnit {
+            id: "unit-001".to_string(),
+            file_paths: vec![RepoPath::parse("src/service.ts").expect("path")],
+            score_min: 1,
+            score_max: 1,
+            estimated_bytes: 100,
+            file_count: 1,
+            requires_further_split: false,
+        };
+        let content = r#"The review is complete.
+{
+  "summary": "Reviewed the assigned files and no definite correctness bug is supported by the evidence gathered.",
+  "fileVerdicts": [
+    {
+      "path": "src/service.ts",
+      "verdict": "clean",
+      "summary": "No supported bug.",
+      "relatedPaths": []
+    }
+  ],
+  "findings": [
+    {
+      "title": "Refresh flow preserves the credential token contract",
+      "claim": "The changed helper still consumes the parsed token payload.",
+      "path": "src/service.ts",
+      "relatedPaths": [],
+      "startLine": 1,
+      "endLine": 1,
+      "behaviorBefore": "parsed token payload was used",
+      "behaviorAfter": "parsed token payload is still used",
+      "predicate": ""
+    }
+  ]
+}"#;
+
+        let parsed = parse_unit_result(content, &unit);
+
+        assert!(parsed.parsed);
+        assert!(parsed.extracted_json);
+        assert_eq!(parsed.result.file_verdicts.len(), 1);
+        assert!(parsed.result.findings.is_empty());
+    }
+
+    #[test]
+    fn planned_unit_prompt_treats_boundary_and_date_value_bugs_as_publishable() {
+        let snapshot = build_test_snapshot(vec![(
+            "packages/trpc/server/routers/viewer/slots.ts",
+            "export function checkIfIsAvailable(time, busy) {\n  const slotEndTime = time.add(30, 'minutes');\n  if (date.start === date.end) return true;\n  if (isWithinBounds(time, time)) return true;\n  return !busy.length;\n}\n",
+        )]);
+        let review_plan = build_review_plan(&snapshot);
+        let unit_plan = build_review_unit_plan(&review_plan, ReviewUnitOptions::default());
+        let contract_risk =
+            build_contract_risk_plan(&review_plan, &unit_plan, snapshot.diff.content.as_str());
+        let pack_plan = DiffPackContext::empty();
+        let unit = unit_plan
+            .units
+            .iter()
+            .find(|unit| {
+                unit.file_paths
+                    .iter()
+                    .any(|path| path.display() == "packages/trpc/server/routers/viewer/slots.ts")
+            })
+            .expect("unit");
+        let transcript = planned_unit_transcript(
+            &review_plan,
+            unit,
+            contract_risk.unit_risk(unit),
+            None,
+            &pack_plan,
+        );
+        let prompt = transcript
+            .iter()
+            .filter_map(|item| match item {
+                ConversationItem::System { content } | ConversationItem::User { content } => {
+                    Some(content.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(prompt.contains("validates the start instant where the end instant is required"));
+        assert!(prompt.contains("compares wrapper/date objects by identity instead of value"));
+        assert!(prompt.contains("returns available before later busy/capacity checks can run"));
+        assert!(prompt.contains("TimeBoundary"));
     }
 
     #[test]
@@ -5840,6 +6043,56 @@ mod tests {
             "retryCount cleanup deletes unrelated reminders",
             "The changed deleteMany retryCount condition removes reminders outside the SMS scope.",
         );
+
+        assert!(should_merge_findings(&first, &duplicate));
+    }
+
+    #[test]
+    fn synthesis_merge_collapses_overlapping_claims_with_shared_evidence() {
+        let mut first = test_finding(
+            "unit-001",
+            "src/workflow.rs",
+            "Unscoped retryCount branch deletes non-SMS reminders",
+            "The changed OR predicate now matches retryCount rows outside method scope.",
+        );
+        first.location_line_range = Some(LineRangeV1 {
+            start_line: 31,
+            end_line: 43,
+        });
+        first.evidence = vec![EvidenceRefV1 {
+            evidence_id: "evidence-a".to_string(),
+            artifact_id: "artifact-a".to_string(),
+            kind: ArtifactKind::ToolSummary,
+            revision: EvidenceRevision::Head,
+            revision_id: "head".to_string(),
+            location: EvidenceLocationV1::SinglePath {
+                path: "src/workflow.rs".to_string(),
+            },
+            line_range: None,
+            byte_range: None,
+            diff_anchor: None,
+            content_hash: "hash-a".to_string(),
+            redaction: RedactionMetadataV1 {
+                redaction_state: RedactionState::None,
+                redaction_policy_id: "test".to_string(),
+                contains_repo_content: false,
+                contains_prompt_content: false,
+                contains_model_output: false,
+                contains_secret_material: false,
+            },
+            producing_tool_call_id: "call-a".to_string(),
+        }];
+        let mut duplicate = test_finding(
+            "final-synthesis",
+            "src/workflow.rs",
+            "Destructive cleanup bypasses method scope",
+            "The cleanup can remove reminders for other delivery methods.",
+        );
+        duplicate.location_line_range = Some(LineRangeV1 {
+            start_line: 33,
+            end_line: 33,
+        });
+        duplicate.evidence = first.evidence.clone();
 
         assert!(should_merge_findings(&first, &duplicate));
     }
@@ -5886,6 +6139,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget,
         };
@@ -5910,6 +6164,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget: expanded_review_budget(),
         }
@@ -5944,6 +6199,15 @@ mod tests {
         mode: TestModelMode,
         session_templates: Vec<SessionScope>,
     ) -> PlannedReviewRunReport {
+        run_test_review_with_templates_and_events(files, mode, session_templates, None).await
+    }
+
+    async fn run_test_review_with_templates_and_events(
+        files: Vec<(&'static str, &'static str)>,
+        mode: TestModelMode,
+        session_templates: Vec<SessionScope>,
+        runtime_events: Option<Arc<dyn RuntimeEventSink>>,
+    ) -> PlannedReviewRunReport {
         let snapshot = build_test_snapshot(files);
         let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
         let active_sessions = session_semaphore(&limits);
@@ -5957,7 +6221,7 @@ mod tests {
             policy: Arc::new(ReviewerPolicy::new()),
             limits,
             review_revision_id: "head".to_string(),
-            events: RuntimeEventDispatcher::new(None),
+            events: RuntimeEventDispatcher::new(runtime_events),
             session_templates,
             active_sessions,
         });
@@ -6091,6 +6355,7 @@ mod tests {
             instructions: Vec::new(),
             snapshot_id: None,
             model_profile_id: None,
+            response_format: None,
             capabilities: CapabilitySet::review_read_only(),
             budget: AgentBudget {
                 max_turns: 2,
@@ -6124,10 +6389,7 @@ mod tests {
             vec![Some(0)],
             "high-risk units below the score gate keep a single lens"
         );
-        assert_eq!(
-            unit_lens_template_indices(&many, true, hot),
-            vec![Some(0), Some(1), Some(3)]
-        );
+        assert_eq!(unit_lens_template_indices(&many, true, hot), vec![Some(0)]);
     }
 
     #[test]
@@ -6190,7 +6452,7 @@ mod tests {
             unit,
             unit_risk,
             lens_focus(1, Role::Security),
-            &ContractPackPlan::empty(),
+            &DiffPackContext::empty(),
         );
         let ConversationItem::System { content } = &transcript[0] else {
             panic!("expected system item");
@@ -6201,7 +6463,7 @@ mod tests {
             unit,
             unit_risk,
             None,
-            &ContractPackPlan::empty(),
+            &DiffPackContext::empty(),
         );
         let ConversationItem::System { content: baseline } = &baseline[0] else {
             panic!("expected system item");
@@ -6210,7 +6472,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn high_risk_unit_fans_out_one_session_per_distinct_lens_role() {
+    async fn high_risk_unit_uses_one_primary_explorer() {
         let report = run_test_review_with_templates(
             vec![(
                 "apps/api/token-callback.ts",
@@ -6227,23 +6489,17 @@ mod tests {
         )
         .await;
 
-        assert_eq!(
-            report.metrics.sessions, 3,
-            "expected lens fan-out capped at {MAX_UNIT_LENSES}: {:?}",
-            report.metrics.completion_diagnostics
-        );
-        assert_eq!(report.metrics.completed_sessions, 3);
+        assert_eq!(report.metrics.sessions, 1);
+        assert_eq!(report.metrics.completed_sessions, 1);
         let session_ids: Vec<&str> = report
             .metrics
             .completion_diagnostics
             .iter()
             .map(|diagnostic| diagnostic.session_id.as_str())
             .collect();
-        assert!(session_ids.iter().any(|id| id.ends_with("#security")));
-        assert!(session_ids.iter().any(|id| id.ends_with("#performance")));
         assert!(
-            !session_ids.iter().any(|id| id.contains("#correctness")),
-            "duplicate-role template must not add a lens: {session_ids:?}"
+            !session_ids.iter().any(|id| id.contains('#')),
+            "planned units should not create secondary lens sessions: {session_ids:?}"
         );
         assert_eq!(
             report.file_reviews.len(),
@@ -6274,7 +6530,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lens_sessions_merge_shared_findings_with_attribution() {
+    async fn unit_findings_merge_without_lens_fanout_attribution() {
         let report = run_test_review_with_templates(
             vec![
                 (
@@ -6300,18 +6556,14 @@ mod tests {
         );
         let finding = &report.findings[0];
         assert!(
-            finding.discovered_by.len() >= 3,
-            "merged finding should credit every discovering lens session: {:?}",
+            !finding.discovered_by.is_empty(),
+            "merged finding should credit the discovering unit session: {:?}",
             finding.discovered_by
         );
-        assert!(finding
-            .discovered_by
-            .iter()
-            .any(|id| id.ends_with("#security")));
         assert!(
-            finding.confidence > BASE_CONFIDENCE,
-            "independent agreement must outrank a single discoverer: {}",
-            finding.confidence
+            finding.discovered_by.iter().all(|id| !id.contains('#')),
+            "discoverers should be unit sessions, not lens sessions: {:?}",
+            finding.discovered_by
         );
         assert!(finding.confidence <= MAX_CONFIDENCE);
         assert_eq!(finding.challenge_status, ChallengeStatus::Confirmed);

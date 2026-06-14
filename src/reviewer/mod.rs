@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod agent_trace;
 pub mod artifacts;
 pub mod canaries;
 pub mod events;

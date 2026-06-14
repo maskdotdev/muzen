@@ -17,6 +17,7 @@ use crate::runtime::model::ConcurrentModelRouter as RuntimeModelRouter;
 use crate::runtime::tools::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
 };
+use crate::util::peak_rss_bytes;
 
 use crate::contracts::{ChangeScopeV1, FileReviewV1, PathPolicyV1, ToolCounts};
 use crate::contracts::{FindingPublishability, FindingV1, ReportStatus, ValidationStatus};
@@ -241,6 +242,7 @@ impl Run {
             sink.emit(RuntimeEvent::JobStarted {
                 snapshot_id: first_snapshot.snapshot_id.clone(),
             });
+            emit_resource_sample(sink.as_ref(), "run_started", None, None, None);
         }
         let aggregate_artifacts = Arc::new(RuntimeArtifactStore::default());
         let snapshot_readers = self
@@ -277,6 +279,7 @@ impl Run {
                     sink.emit(RuntimeEvent::SnapshotStarted {
                         snapshot_id: snapshot_id.clone(),
                     });
+                    emit_resource_sample(sink.as_ref(), "snapshot_started", None, None, None);
                 }
                 let context_config = context_engine.config();
                 let context_enabled = context_config.mode != ContextEngineMode::Disabled;
@@ -448,6 +451,13 @@ impl Run {
                         sessions: outcome.metrics.sessions,
                         completed_sessions: outcome.metrics.completed_sessions,
                     });
+                    emit_resource_sample(
+                        sink.as_ref(),
+                        "snapshot_finished",
+                        None,
+                        Some(outcome.metrics.sessions),
+                        Some(outcome.metrics.completed_sessions),
+                    );
                 }
                 outcome
             });
@@ -487,6 +497,13 @@ impl Run {
         metrics.artifacts = artifact_count;
         metrics.artifact_bytes = artifact_bytes;
         if let Some(sink) = &run_event_sink {
+            emit_resource_sample(
+                sink.as_ref(),
+                "run_finished",
+                None,
+                Some(metrics.sessions),
+                Some(metrics.completed_sessions),
+            );
             sink.emit(RuntimeEvent::JobFinished {
                 status: if metrics.completed_sessions == metrics.sessions {
                     "completed".to_string()
@@ -508,6 +525,32 @@ impl Run {
             file_reviews,
         }
     }
+}
+
+fn emit_resource_sample(
+    sink: &dyn RuntimeEventSink,
+    phase: &str,
+    session_id: Option<crate::runtime::contracts::SessionId>,
+    sessions: Option<usize>,
+    completed_sessions: Option<usize>,
+) {
+    let Some(peak_rss_bytes) = peak_rss_bytes() else {
+        return;
+    };
+    let session_id =
+        session_id.unwrap_or_else(|| crate::runtime::contracts::SessionId("run".to_string()));
+    sink.emit(RuntimeEvent::AgentTrace {
+        session_id,
+        turn_id: None,
+        trace_kind: "resource_sample".to_string(),
+        summary: format!("{phase} peak_rss_bytes={peak_rss_bytes}"),
+        details: serde_json::json!({
+            "phase": phase,
+            "peakRssBytes": peak_rss_bytes,
+            "sessions": sessions,
+            "completedSessions": completed_sessions,
+        }),
+    });
 }
 
 fn context_failed_report(
