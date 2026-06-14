@@ -416,10 +416,6 @@ fn cli_canary_publish_writes_status_for_failed_manifest_gate() {
     assert!(status
         .validation_failures
         .iter()
-        .any(|failure| failure.contains("missing chat_completions canary report")));
-    assert!(status
-        .validation_failures
-        .iter()
         .any(|failure| failure.contains("missing responses canary report")));
     assert!(status
         .evidence

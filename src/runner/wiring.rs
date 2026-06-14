@@ -203,7 +203,6 @@ fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<M
     };
     let api_protocol = match params.api_protocol.as_deref().unwrap_or(default_protocol) {
         "responses" => ModelApiProtocol::Responses,
-        "chat_completions" => ModelApiProtocol::ChatCompletions,
         "messages" => ModelApiProtocol::Messages,
         unknown => {
             return Err(RuntimeError::InvalidInput(format!(

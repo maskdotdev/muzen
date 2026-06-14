@@ -15,10 +15,8 @@ use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
     ToolCallingMode,
 };
-use crate::runtime::assembly::MessageAssemblyCache;
 use crate::runtime::contracts::*;
 use crate::runtime::model_anthropic::{anthropic_default_base_url, AnthropicMessagesClient};
-use crate::runtime::model_sse::{next_streaming_data, SseStream, STREAM_REQUEST_TIMEOUT};
 use crate::runtime::policy::ReviewerPolicy;
 use crate::runtime::tools::ToolRegistry;
 use crate::util::{redact_known_secrets, resolve_credential_ref, timestamp_utc};
@@ -308,45 +306,6 @@ impl ModelLimiter {
     }
 }
 
-#[derive(Debug)]
-pub struct OpenAiChatCompletionsClient {
-    http: reqwest::Client,
-    profile: ModelProfileRefV1,
-    api_key: String,
-    base_url: String,
-    limiter: Arc<ModelLimiter>,
-    tool_registry: Arc<ToolRegistry>,
-    reviewer_policy: Arc<ReviewerPolicy>,
-    assembly: MessageAssemblyCache,
-}
-
-impl OpenAiChatCompletionsClient {
-    pub(crate) fn from_profile(
-        profile: ModelProfileRefV1,
-        base_url: String,
-        limiter: Arc<ModelLimiter>,
-        tool_registry: Arc<ToolRegistry>,
-        reviewer_policy: Arc<ReviewerPolicy>,
-        credential_resolver: Arc<dyn CredentialResolver>,
-    ) -> RuntimeResult<Self> {
-        let api_key = credential_resolver.resolve_credential(&profile.credential_ref)?;
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(90))
-            .build()
-            .map_err(|_| RuntimeError::Invariant("failed to build async HTTP client"))?;
-        Ok(Self {
-            http,
-            profile,
-            api_key,
-            base_url: base_url.trim_end_matches('/').to_string(),
-            limiter,
-            tool_registry,
-            reviewer_policy,
-            assembly: MessageAssemblyCache::new(),
-        })
-    }
-}
-
 /// Each profile may route to its own endpoint; profiles without one share the
 /// run-level default.
 fn profile_base_url(profile: &ModelProfileRefV1, default_base_url: &str) -> String {
@@ -368,16 +327,6 @@ fn openai_client_from_profile(
     credential_resolver: Arc<dyn CredentialResolver>,
 ) -> RuntimeResult<Arc<dyn ConcurrentModelClient>> {
     match profile.api_protocol {
-        ModelApiProtocol::ChatCompletions => {
-            Ok(Arc::new(OpenAiChatCompletionsClient::from_profile(
-                profile,
-                base_url,
-                limiter,
-                tool_registry,
-                reviewer_policy,
-                credential_resolver,
-            )?))
-        }
         ModelApiProtocol::Responses => Ok(Arc::new(OpenAiResponsesClient::from_profile(
             profile,
             base_url,
@@ -726,10 +675,7 @@ fn provider_canary_evidence_temp_path(path: &Path) -> RuntimeResult<PathBuf> {
 }
 
 pub fn openai_provider_canary_protocols() -> &'static [ModelApiProtocol] {
-    const PROTOCOLS: &[ModelApiProtocol] = &[
-        ModelApiProtocol::ChatCompletions,
-        ModelApiProtocol::Responses,
-    ];
+    const PROTOCOLS: &[ModelApiProtocol] = &[ModelApiProtocol::Responses];
     PROTOCOLS
 }
 
@@ -882,177 +828,9 @@ fn model_turn_has_payload(turn: &ModelTurn) -> bool {
 
 fn openai_provider_canary_protocol_slug(protocol: ModelApiProtocol) -> &'static str {
     match protocol {
-        ModelApiProtocol::ChatCompletions => "chat_completions",
         ModelApiProtocol::Responses => "responses",
         ModelApiProtocol::Messages => "messages",
     }
-}
-
-#[async_trait]
-impl ConcurrentModelClient for OpenAiChatCompletionsClient {
-    async fn complete(
-        &self,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        _turn_id: TurnId,
-        cancel: CancellationToken,
-    ) -> RuntimeResult<ModelTurn> {
-        if cancel.is_cancelled() {
-            return Err(RuntimeError::Cancelled);
-        }
-        let _permit = self
-            .limiter
-            .acquire_for_model(
-                "openai_compatible",
-                &self.profile.id,
-                &self.profile.credential_ref,
-                &scope.id,
-            )
-            .await?;
-        let token_param =
-            if self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with('o') {
-                "max_completion_tokens"
-            } else {
-                "max_tokens"
-            };
-        let mut body = json!({
-            "model": self.profile.model,
-            "messages": self.assembly.assemble(
-                &scope.id.0,
-                &scope.capabilities,
-                transcript,
-                |item| {
-                    chat_message_for_item(&self.reviewer_policy, &self.tool_registry, scope, item)
-                        .map(Some)
-                },
-            )?,
-            "tools": openai_tools_for_protocol(
-                ModelApiProtocol::ChatCompletions,
-                &self.reviewer_policy,
-                &self.tool_registry,
-                transcript,
-                &scope.capabilities
-            )?,
-            "parallel_tool_calls": false,
-            "tool_choice": match self.profile.tool_calling_mode {
-                ToolCallingMode::Required => "required",
-                ToolCallingMode::Auto => "auto",
-            }
-        });
-        body[token_param] = json!(self.profile.max_output_tokens);
-        if !(self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with('o')) {
-            body["temperature"] = json!(self.profile.temperature.unwrap_or(0.0));
-        }
-        if let Some(response_format) = &scope.response_format {
-            body["response_format"] = chat_json_schema_response_format(response_format);
-        }
-        body["stream"] = json!(true);
-        body["stream_options"] = json!({ "include_usage": true });
-        let response = self
-            .http
-            .post(format!("{}/chat/completions", self.base_url))
-            .timeout(STREAM_REQUEST_TIMEOUT)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|_| RuntimeError::Provider {
-                status: None,
-                retryable: true,
-            })?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(provider_http_error(status, response).await);
-        }
-        let decoded = chat_completion_from_stream(response, &cancel).await?;
-        parse_chat_response(decoded, &self.tool_registry)
-    }
-}
-
-/// Accumulates chat-completion stream deltas into the non-streaming response
-/// shape. Providers that ignored `stream: true` and answered with one plain
-/// JSON body are detected (no SSE events seen) and parsed directly.
-async fn chat_completion_from_stream(
-    response: reqwest::Response,
-    cancel: &CancellationToken,
-) -> RuntimeResult<ChatCompletionResponse> {
-    let mut sse = SseStream::new(response);
-    let mut content: Option<String> = None;
-    let mut tool_calls: std::collections::BTreeMap<u64, ChatToolCall> =
-        std::collections::BTreeMap::new();
-    let mut usage: Option<ChatUsage> = None;
-    loop {
-        let Some(data) = next_streaming_data(&mut sse, cancel).await? else {
-            break;
-        };
-        if data.trim() == "[DONE]" {
-            break;
-        }
-        let chunk: Value = serde_json::from_str(&data).map_err(|_| RuntimeError::Provider {
-            status: None,
-            retryable: false,
-        })?;
-        if let Some(chunk_usage) = chunk.get("usage").filter(|value| value.is_object()) {
-            if let Ok(parsed) = serde_json::from_value::<ChatUsage>(chunk_usage.clone()) {
-                usage = Some(parsed);
-            }
-        }
-        let Some(delta) = chunk
-            .get("choices")
-            .and_then(Value::as_array)
-            .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("delta"))
-        else {
-            continue;
-        };
-        if let Some(text) = delta.get("content").and_then(Value::as_str) {
-            content.get_or_insert_with(String::new).push_str(text);
-        }
-        let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) else {
-            continue;
-        };
-        for call in calls {
-            let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
-            let entry = tool_calls.entry(index).or_insert_with(|| ChatToolCall {
-                id: String::new(),
-                call_type: "function".to_string(),
-                function: ChatToolFunction {
-                    name: String::new(),
-                    arguments: String::new(),
-                },
-            });
-            if let Some(id) = call.get("id").and_then(Value::as_str) {
-                entry.id.push_str(id);
-            }
-            if let Some(call_type) = call.get("type").and_then(Value::as_str) {
-                entry.call_type = call_type.to_string();
-            }
-            if let Some(function) = call.get("function") {
-                if let Some(name) = function.get("name").and_then(Value::as_str) {
-                    entry.function.name.push_str(name);
-                }
-                if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
-                    entry.function.arguments.push_str(arguments);
-                }
-            }
-        }
-    }
-    if !sse.yielded_events() {
-        return serde_json::from_slice(&sse.into_raw_body()).map_err(|_| RuntimeError::Provider {
-            status: None,
-            retryable: false,
-        });
-    }
-    let calls: Vec<ChatToolCall> = tool_calls.into_values().collect();
-    Ok(ChatCompletionResponse {
-        choices: vec![ChatChoice {
-            message: ChatMessage {
-                content,
-                tool_calls: if calls.is_empty() { None } else { Some(calls) },
-            },
-        }],
-        usage,
-    })
 }
 
 #[derive(Debug)]
@@ -1183,59 +961,6 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     }
 }
 
-fn chat_message_for_item(
-    reviewer_policy: &ReviewerPolicy,
-    tool_registry: &ToolRegistry,
-    scope: &SessionScope,
-    item: &ConversationItem,
-) -> RuntimeResult<Value> {
-    Ok(match item {
-        ConversationItem::System { content } => json!({ "role": "system", "content": content }),
-        ConversationItem::User { content } => json!({ "role": "user", "content": content }),
-        ConversationItem::AssistantText { content } => {
-            json!({ "role": "assistant", "content": content })
-        }
-        ConversationItem::AssistantToolCalls { calls } => json!({
-            "role": "assistant",
-            "tool_calls": calls.iter().map(|call| {
-                let name = model_alias_for_tool(tool_registry, &call.name)?;
-                Ok(json!({
-                    "id": call.call_id.0,
-                    "type": "function",
-                    "function": {
-                        "name": name.as_str(),
-                        "arguments": call.raw_arguments,
-                    }
-                }))
-            }).collect::<RuntimeResult<Vec<_>>>()?
-        }),
-        ConversationItem::ToolResult {
-            call_id, content, ..
-        } => {
-            let compact = reviewer_policy.compact_tool_result(content, &scope.capabilities);
-            json!({
-                "role": "tool",
-                "tool_call_id": call_id.0,
-                "content": serde_json::to_string(&compact)
-                    .map_err(|_| RuntimeError::Invariant("tool result serialization failed"))?,
-            })
-        }
-    })
-}
-
-#[cfg(test)]
-fn chat_messages(
-    reviewer_policy: &ReviewerPolicy,
-    tool_registry: &ToolRegistry,
-    scope: &SessionScope,
-    transcript: &[ConversationItem],
-) -> RuntimeResult<Vec<Value>> {
-    transcript
-        .iter()
-        .map(|item| chat_message_for_item(reviewer_policy, tool_registry, scope, item))
-        .collect()
-}
-
 fn responses_request_body(
     profile: &ModelProfileRefV1,
     reviewer_policy: &ReviewerPolicy,
@@ -1284,8 +1009,7 @@ fn responses_request_body(
     let mut body = json!({
         "model": profile.model.as_str(),
         "input": input,
-        "tools": openai_tools_for_protocol(
-            ModelApiProtocol::Responses,
+        "tools": openai_response_tools(
             reviewer_policy,
             tool_registry,
             transcript,
@@ -1315,17 +1039,6 @@ fn responses_request_body(
     Ok(body)
 }
 
-fn chat_json_schema_response_format(response_format: &ModelResponseFormat) -> Value {
-    json!({
-        "type": "json_schema",
-        "json_schema": {
-            "name": response_format.name.as_str(),
-            "strict": response_format.strict,
-            "schema": response_format.schema.clone(),
-        },
-    })
-}
-
 fn responses_json_schema_text_format(response_format: &ModelResponseFormat) -> Value {
     json!({
         "type": "json_schema",
@@ -1351,8 +1064,7 @@ fn response_message(role: &str, content: &str) -> Value {
     })
 }
 
-fn openai_tools_for_protocol(
-    protocol: ModelApiProtocol,
+fn openai_response_tools(
     reviewer_policy: &ReviewerPolicy,
     tool_registry: &ToolRegistry,
     transcript: &[ConversationItem],
@@ -1360,16 +1072,10 @@ fn openai_tools_for_protocol(
 ) -> RuntimeResult<Vec<Value>> {
     let tools =
         reviewer_policy.tool_schemas_for_transcript(tool_registry, transcript, capabilities);
-    match protocol {
-        ModelApiProtocol::ChatCompletions => Ok(tools),
-        ModelApiProtocol::Responses => tools
-            .into_iter()
-            .map(response_tool_from_chat_tool)
-            .collect::<RuntimeResult<Vec<_>>>(),
-        ModelApiProtocol::Messages => Err(RuntimeError::Invariant(
-            "the messages protocol does not use OpenAI tool schemas",
-        )),
-    }
+    tools
+        .into_iter()
+        .map(response_tool_from_chat_tool)
+        .collect::<RuntimeResult<Vec<_>>>()
 }
 
 fn response_tool_from_chat_tool(tool: Value) -> RuntimeResult<Value> {
@@ -1412,56 +1118,6 @@ pub(crate) fn model_alias_for_tool(
         .alias_for(tool_id)
         .cloned()
         .ok_or(RuntimeError::Invariant("missing model alias for tool"))
-}
-
-fn parse_chat_response(
-    response: ChatCompletionResponse,
-    tool_registry: &ToolRegistry,
-) -> RuntimeResult<ModelTurn> {
-    let usage = response.usage.unwrap_or_default().into_token_usage();
-    let message = response
-        .choices
-        .into_iter()
-        .next()
-        .ok_or(RuntimeError::Provider {
-            status: None,
-            retryable: false,
-        })?
-        .message;
-    let mut seen = HashSet::new();
-    let calls = message
-        .tool_calls
-        .unwrap_or_default()
-        .into_iter()
-        .enumerate()
-        .filter(|(_, call)| call.call_type == "function")
-        .map(|(index, call)| {
-            if !seen.insert(call.id.clone()) {
-                return Err(RuntimeError::Provider {
-                    status: None,
-                    retryable: false,
-                });
-            }
-            let alias = ToolId::parse(&call.function.name)?;
-            let Some(name) = tool_registry.tool_id_for_model_alias(&alias) else {
-                return Err(RuntimeError::InvalidInput("unknown tool name".to_string()));
-            };
-            Ok(ModelToolCall {
-                call_id: ToolCallId(call.id),
-                index,
-                name,
-                raw_arguments: call.function.arguments,
-            })
-        })
-        .collect::<RuntimeResult<Vec<_>>>()?;
-    if !calls.is_empty() {
-        Ok(ModelTurn::ToolCalls { calls, usage })
-    } else {
-        Ok(ModelTurn::Text {
-            content: message.content.unwrap_or_default(),
-            usage,
-        })
-    }
 }
 
 fn parse_responses_response(
@@ -1537,64 +1193,6 @@ fn parse_responses_response(
             content: response.output_text.unwrap_or(text),
             usage,
         })
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatCompletionResponse {
-    choices: Vec<ChatChoice>,
-    usage: Option<ChatUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatMessage {
-    content: Option<String>,
-    tool_calls: Option<Vec<ChatToolCall>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatToolCall {
-    id: String,
-    #[serde(rename = "type")]
-    call_type: String,
-    function: ChatToolFunction,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatToolFunction {
-    name: String,
-    arguments: String,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct ChatUsage {
-    prompt_tokens: Option<u64>,
-    completion_tokens: Option<u64>,
-    total_tokens: Option<u64>,
-    prompt_tokens_details: Option<ChatPromptTokensDetails>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct ChatPromptTokensDetails {
-    cached_tokens: Option<u64>,
-}
-
-impl ChatUsage {
-    fn into_token_usage(self) -> TokenUsage {
-        TokenUsage {
-            input_tokens: self.prompt_tokens.unwrap_or(0),
-            output_tokens: self.completion_tokens.unwrap_or(0),
-            total_tokens: self.total_tokens.unwrap_or(0),
-            cached_input_tokens: self
-                .prompt_tokens_details
-                .and_then(|details| details.cached_tokens)
-                .unwrap_or(0),
-        }
     }
 }
 

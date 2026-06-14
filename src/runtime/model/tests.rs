@@ -14,7 +14,7 @@ fn profile_with_base_url(id: &str, base_url: Option<&str>) -> ModelProfileRefV1 
     ModelProfileRefV1 {
         id: id.to_string(),
         provider_kind: ProviderKind::OpenaiCompatible,
-        api_protocol: ModelApiProtocol::ChatCompletions,
+        api_protocol: ModelApiProtocol::Responses,
         provider_profile_id: "openai".to_string(),
         credential_ref: "env:TEST_KEY".to_string(),
         model: "test-model".to_string(),
@@ -81,35 +81,8 @@ fn insufficient_quota_provider_error_is_not_retryable() {
 }
 
 #[test]
-fn openai_protocols_parse_tool_calls_through_same_alias_table() {
+fn responses_parse_tool_calls_through_model_alias_table() {
     let (registry, internal_tool, model_alias) = aliased_registry();
-    let chat_turn = parse_chat_response(
-        ChatCompletionResponse {
-            choices: vec![ChatChoice {
-                message: ChatMessage {
-                    content: None,
-                    tool_calls: Some(vec![ChatToolCall {
-                        id: "call_chat".to_string(),
-                        call_type: "function".to_string(),
-                        function: ChatToolFunction {
-                            name: model_alias.as_str().to_string(),
-                            arguments: r#"{"value":"ok"}"#.to_string(),
-                        },
-                    }]),
-                },
-            }],
-            usage: Some(ChatUsage {
-                prompt_tokens: Some(3),
-                completion_tokens: Some(2),
-                total_tokens: Some(5),
-                prompt_tokens_details: None,
-            }),
-        },
-        &registry,
-    )
-    .expect("chat turn");
-    assert_tool_call_turn(chat_turn, &internal_tool, "call_chat", 3, 2, 5);
-
     let responses_turn = parse_responses_response(
         ResponsesResponse {
             output: vec![json!({
@@ -130,96 +103,6 @@ fn openai_protocols_parse_tool_calls_through_same_alias_table() {
     )
     .expect("responses turn");
     assert_tool_call_turn(responses_turn, &internal_tool, "call_responses", 7, 4, 11);
-}
-
-#[test]
-fn chat_completions_loopback_assembles_streamed_tool_call_deltas() {
-    use std::io::Write;
-
-    use crate::tests::support::{read_http_request, split_http_body};
-
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
-    let address = listener.local_addr().expect("address");
-    let (_registry, _, model_alias) = aliased_registry();
-    let chunks = [
-        json!({"choices":[{"delta":{"role":"assistant","content":null}}]}),
-        json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_stream","type":"function","function":{"name":model_alias.as_str(),"arguments":"{\"value\":"}}]}}]}),
-        json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ok\"}"}}]}}]}),
-        json!({"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":4,"total_tokens":13}}),
-    ];
-    let body = chunks
-        .iter()
-        .map(|chunk| format!("data: {chunk}\n\n"))
-        .collect::<String>()
-        + "data: [DONE]\n\n";
-    let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
-        let request = read_http_request(&mut stream);
-        let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-        stream.write_all(response.as_bytes()).expect("response");
-        request
-    });
-
-    let (registry, internal_tool, _) = aliased_registry();
-    let client = OpenAiChatCompletionsClient::from_profile(
-        profile_with_base_url("stream", Some(&format!("http://{address}/v1"))),
-        format!("http://{address}/v1"),
-        Arc::new(ModelLimiter::new(1)),
-        Arc::new(registry),
-        Arc::new(ReviewerPolicy::new()),
-        Arc::new(StaticCredentialResolver),
-    )
-    .expect("client");
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let scope = openai_provider_canary_scope("stream".to_string(), 64)
-        .with_response_format(test_response_format());
-    let turn = runtime
-        .block_on(client.complete(
-            &scope,
-            &[ConversationItem::User {
-                content: "Hello".to_string(),
-            }],
-            TurnId(0),
-            CancellationToken::new(),
-        ))
-        .expect("completion");
-
-    let request = server.join().expect("server thread");
-    let (_, request_body) = split_http_body(&request);
-    let request_json: Value = serde_json::from_slice(request_body).expect("request json");
-    assert_eq!(request_json["stream"], true);
-    assert_eq!(request_json["stream_options"]["include_usage"], true);
-    assert_eq!(request_json["response_format"]["type"], "json_schema");
-    assert_eq!(
-        request_json["response_format"]["json_schema"]["name"],
-        "test_result"
-    );
-    assert_eq!(
-        request_json["response_format"]["json_schema"]["strict"],
-        true
-    );
-    assert_eq!(
-        request_json["response_format"]["json_schema"]["schema"]["required"][0],
-        "summary"
-    );
-
-    let ModelTurn::ToolCalls { calls, usage } = turn else {
-        panic!("expected tool call turn");
-    };
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].name, internal_tool);
-    assert_eq!(calls[0].call_id.0, "call_stream");
-    assert_eq!(calls[0].raw_arguments, r#"{"value":"ok"}"#);
-    assert_eq!(usage.input_tokens, 9);
-    assert_eq!(usage.output_tokens, 4);
-    assert_eq!(usage.total_tokens, 13);
 }
 
 #[test]

@@ -95,7 +95,6 @@ pub(crate) enum ProviderKind {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelApiProtocol {
-    ChatCompletions,
     Responses,
     /// The Anthropic Messages API (`POST /v1/messages`).
     Messages,
@@ -103,7 +102,7 @@ pub enum ModelApiProtocol {
 
 impl Default for ModelApiProtocol {
     fn default() -> Self {
-        Self::ChatCompletions
+        Self::Responses
     }
 }
 
