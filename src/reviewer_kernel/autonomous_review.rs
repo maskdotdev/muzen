@@ -10,26 +10,23 @@ use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::reviewer_kernel::agent_loop::{AgentLoopConfig, AgentLoopReport, AgentLoopRuntime};
 use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
-use crate::reviewer_kernel::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
-use crate::reviewer_kernel::model_retry::complete_model_turn;
-use crate::reviewer_kernel::policy::{ReviewerPolicy, SessionEvidence};
+use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{
     AgentBudget, ArtifactKind, BudgetSource, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
     EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
     RedactionMetadataV1, RedactionState, ReportStatus, ReviewCoverage, ReviewVerdict, Role,
     TokenUsage, ToolCounts, ValidationStatus,
 };
-use crate::reviewer_kernel::session_metrics::{add_model_metrics, elapsed_ms, record_usage};
-use crate::reviewer_kernel::system::peak_rss_bytes;
-use crate::reviewer_kernel::tool_batch::ToolBatchRunner;
+use crate::reviewer_kernel::session_metrics::add_model_metrics;
+use crate::reviewer_kernel::session_metrics::elapsed_ms;
 use crate::reviewer_kernel::tool_engine::registry::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
 };
 use crate::reviewer_kernel::tool_engine::ToolEngine;
-use crate::reviewer_kernel::transcript::{enforce_prompt_budget, estimate_prompt_tokens};
 use crate::workspace::RepoSnapshot;
 
 const ORCHESTRATOR_SESSION_ID: &str = "review-orchestrator";
@@ -133,7 +130,7 @@ pub(crate) struct AutonomousDelegateState {
     active_sessions: Arc<Semaphore>,
     child_sequence: AtomicUsize,
     max_child_sessions: usize,
-    child_reports: Mutex<Vec<SessionRunReport>>,
+    child_reports: Mutex<Vec<AgentLoopReport>>,
 }
 
 impl AutonomousDelegateState {
@@ -177,12 +174,23 @@ impl AutonomousDelegateState {
         )))
     }
 
-    fn record_child_report(&self, report: SessionRunReport) {
+    fn record_child_report(&self, report: AgentLoopReport) {
         self.child_reports.lock().push(report);
     }
 
-    fn child_reports(&self) -> Vec<SessionRunReport> {
+    fn child_reports(&self) -> Vec<AgentLoopReport> {
         self.child_reports.lock().clone()
+    }
+
+    fn agent_loop_runtime(&self) -> AgentLoopRuntime {
+        AgentLoopRuntime {
+            model_router: Arc::clone(&self.model_router),
+            tools: Arc::clone(&self.tools),
+            policy: Arc::clone(&self.policy),
+            limits: Arc::clone(&self.limits),
+            review_revision_id: self.review_revision_id.clone(),
+            events: self.events.clone(),
+        }
     }
 }
 
@@ -201,8 +209,8 @@ impl AutonomousReviewRuntime {
         let template = sessions.into_iter().next();
         let scope = self.orchestrator_scope(template);
         let report = run_session_loop(
+            Arc::clone(&state),
             SessionRunConfig {
-                state: Arc::clone(&state),
                 scope,
                 kind: SessionKind::Orchestrator,
                 task_packet: None,
@@ -569,8 +577,8 @@ async fn run_child_delegate(
         },
     };
     let report = run_session_loop(
+        Arc::clone(&state),
         SessionRunConfig {
-            state: Arc::clone(&state),
             scope,
             kind: SessionKind::Child(kind),
             task_packet: Some(task_packet),
@@ -616,7 +624,6 @@ async fn run_child_delegate(
 
 #[derive(Clone)]
 struct SessionRunConfig {
-    state: Arc<AutonomousDelegateState>,
     scope: SessionScope,
     kind: SessionKind,
     task_packet: Option<String>,
@@ -630,382 +637,36 @@ enum SessionKind {
     Child(DelegateTaskKind),
 }
 
-#[derive(Debug, Clone)]
-struct SessionRunReport {
-    session_id: String,
-    completed: bool,
-    status: String,
-    output: Option<String>,
-    model_calls: usize,
-    model_metrics: ModelMetricsSnapshot,
-    tool_counts: ToolCounts,
-    tokens: TokenUsage,
-    diagnostic: SessionCompletionDiagnostic,
-}
-
-async fn run_session_loop(config: SessionRunConfig, cancel: CancellationToken) -> SessionRunReport {
-    let state = Arc::clone(&config.state);
-    let scope = config.scope;
+async fn run_session_loop(
+    state: Arc<AutonomousDelegateState>,
+    config: SessionRunConfig,
+    cancel: CancellationToken,
+) -> AgentLoopReport {
+    let kind = config.kind;
+    let turn_guard = session_turn_guard(kind, &config.scope.budget);
     state
-        .events
-        .emit_planned_runtime(state.policy.plan_session_started_runtime_event(&scope));
-    let model = match state.model_router.client_for(&scope).await {
-        Ok(model) => model,
-        Err(_) => {
-            state.events.emit_planned_runtime(
-                state
-                    .policy
-                    .plan_session_finished_runtime_event(&scope, "failed"),
-            );
-            return terminal_report(&scope, "failed");
-        }
-    };
-
-    let mut transcript = initial_transcript(&scope);
-    if let Some(task_packet) = config.task_packet {
-        transcript.push(ConversationItem::User {
-            content: task_packet,
-        });
-    }
-    let mut evidence = SessionEvidence::for_scope(&scope);
-    let mut tool_counts = ToolCounts::default();
-    let mut model_metrics = ModelMetricsSnapshot::default();
-    let mut tokens = TokenUsage::default();
-    let mut model_calls = 0usize;
-    let mut tool_calls_used = 0usize;
-    let mut status = "partial".to_string();
-    let mut output = None;
-    let turn_guard = session_turn_guard(config.kind, &scope.budget);
-    let mut next_turn_index = 0usize;
-
-    for turn_index in 0..turn_guard {
-        next_turn_index = turn_index + 1;
-        if cancel.is_cancelled() {
-            status = "cancelled".to_string();
-            break;
-        }
-        let turn_id = TurnId(turn_index as u32);
-        let evicted_tool_results =
-            enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
-        if evicted_tool_results > 0 {
-            state
-                .events
-                .emit_planned_runtime(state.policy.plan_agent_trace_event(
-                    &scope,
-                    Some(turn_id),
-                    "transcript_compacted",
-                    format!("evicted {evicted_tool_results} old tool result(s)"),
-                    json!({
-                        "evictedToolResults": evicted_tool_results,
-                        "transcriptItemsAfter": transcript.len(),
-                        "estimatedPromptTokensAfter": estimate_prompt_tokens(&transcript),
-                        "maxPromptTokens": scope.budget.max_prompt_tokens,
-                    }),
-                ));
-        }
-        let final_turn = should_force_final_turn(
-            config.kind,
-            turn_index,
-            turn_guard,
-            tool_calls_used,
-            &scope.budget,
-        );
-        let mut call_scope = scope.clone();
-        if final_turn {
-            call_scope.capabilities.tool_grants.clear();
-            call_scope.response_format = Some(config.response_format.clone());
-            transcript.push(ConversationItem::User {
-                content: config.final_instruction.clone(),
-            });
-        } else {
-            call_scope.response_format = None;
-        }
-        state.events.emit_planned_runtime(
-            state
-                .policy
-                .plan_model_started_runtime_event(&scope, turn_id),
-        );
-        state
-            .events
-            .emit_planned_runtime(state.policy.plan_agent_trace_event(
-                &scope,
-                Some(turn_id),
-                "model_turn_prepared",
-                format!(
-                "prepared model turn with {} transcript item(s) and {} exposed tool(s)",
-                transcript.len(),
-                state
-                    .policy
-                    .tool_schemas_for_transcript(
-                        &state.tools.registry,
-                        &transcript,
-                        &call_scope.capabilities
-                    )
-                    .len()
-            ),
-                json!({
-                    "sessionKind": session_kind_name(config.kind),
-                    "finalTurn": final_turn,
-                    "turnGuard": turn_guard,
-                    "maxTurns": scope.budget.max_turns,
-                    "maxToolCalls": scope.budget.max_tool_calls,
-                    "toolCallsUsed": tool_calls_used,
-                    "builtinToolCallsUsed": tool_counts.total(),
-                    "transcriptItems": transcript.len(),
-                    "estimatedPromptTokens": estimate_prompt_tokens(&transcript),
-                    "maxPromptTokens": scope.budget.max_prompt_tokens,
-                    "peakRssBytes": peak_rss_bytes(),
+        .agent_loop_runtime()
+        .run_session_loop(
+            AgentLoopConfig {
+                scope: config.scope,
+                task_packet: config.task_packet,
+                trace_kind: session_kind_name(kind),
+                completion_kind: "autonomous_review_session",
+                response_format: config.response_format,
+                final_instruction: config.final_instruction,
+                turn_guard,
+                should_force_final_turn: Box::new(move |turn_index, tool_calls_used, budget| {
+                    should_force_final_turn(kind, turn_index, turn_guard, tool_calls_used, budget)
                 }),
-            ));
-        let model_started = Instant::now();
-        let outcome = complete_model_turn(
-            &*model,
-            &state.policy,
-            &state.events,
-            &state.limits,
-            &scope,
-            &call_scope,
-            &transcript,
-            turn_id,
-            &cancel,
+                output_valid: Box::new(move |output| session_output_valid(kind, output)),
+                schema_repair_instruction: Box::new(move |attempt, max_attempts| {
+                    schema_repair_instruction(kind, attempt, max_attempts)
+                }),
+                schema_repair_attempts: DEFAULT_SCHEMA_REPAIR_ATTEMPTS,
+            },
+            cancel,
         )
-        .await;
-        model_calls += outcome.attempts;
-        model_metrics.calls += outcome.attempts;
-        let turn = match outcome.result {
-            Ok(turn) => {
-                model_metrics.errors += outcome.attempts - 1;
-                turn
-            }
-            Err(_) => {
-                model_metrics.errors += outcome.attempts;
-                status = "failed".to_string();
-                break;
-            }
-        };
-        model_metrics.successes += 1;
-        model_metrics.latency_ms += elapsed_ms(model_started);
-        model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-        match turn {
-            ModelTurn::Text { content, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                state.events.emit_planned_runtime(
-                    state
-                        .policy
-                        .plan_model_completed_runtime_event(&scope, turn_id, 0),
-                );
-                transcript.push(ConversationItem::AssistantText {
-                    content: content.clone(),
-                });
-                output = Some(content);
-                status = "done".to_string();
-                break;
-            }
-            ModelTurn::ToolCalls { calls, usage } => {
-                record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                state
-                    .events
-                    .emit_planned_runtime(state.policy.plan_model_completed_runtime_event(
-                        &scope,
-                        turn_id,
-                        calls.len(),
-                    ));
-                if calls.is_empty() {
-                    status = "done".to_string();
-                    break;
-                }
-                transcript.push(ConversationItem::AssistantToolCalls {
-                    calls: calls.clone(),
-                });
-                let results = ToolBatchRunner::new(
-                    state.policy.as_ref(),
-                    state.tools.as_ref(),
-                    &state.events,
-                )
-                .execute(
-                    scope.clone(),
-                    turn_id,
-                    calls,
-                    &evidence,
-                    scope.budget.max_tool_calls.saturating_sub(tool_calls_used),
-                    cancel.child_token(),
-                )
-                .await;
-                tool_calls_used = tool_calls_used
-                    .saturating_add(budgeted_tool_result_count(&results))
-                    .min(scope.budget.max_tool_calls);
-                ToolResultEffectProcessor::new(
-                    state.policy.as_ref(),
-                    state.tools.as_ref(),
-                    &state.events,
-                    &state.review_revision_id,
-                )
-                .apply_batch(
-                    &scope,
-                    turn_id,
-                    results,
-                    ToolResultBatchState {
-                        evidence: &mut evidence,
-                        tool_counts: &mut tool_counts,
-                        transcript: &mut transcript,
-                    },
-                );
-            }
-        }
-    }
-    if status == "done" && !session_output_valid(config.kind, output.as_deref()) {
-        for repair_index in 0..DEFAULT_SCHEMA_REPAIR_ATTEMPTS {
-            if cancel.is_cancelled() {
-                status = "cancelled".to_string();
-                break;
-            }
-            let turn_id = TurnId((next_turn_index + repair_index) as u32);
-            let mut repair_scope = scope.clone();
-            repair_scope.capabilities.tool_grants.clear();
-            repair_scope.response_format = Some(config.response_format.clone());
-            transcript.push(ConversationItem::User {
-                content: schema_repair_instruction(
-                    config.kind,
-                    repair_index + 1,
-                    DEFAULT_SCHEMA_REPAIR_ATTEMPTS,
-                ),
-            });
-            state
-                .events
-                .emit_planned_runtime(state.policy.plan_agent_trace_event(
-                    &scope,
-                    Some(turn_id),
-                    "schema_repair",
-                    format!("schema repair attempt {}", repair_index + 1),
-                    json!({
-                        "sessionKind": session_kind_name(config.kind),
-                        "attempt": repair_index + 1,
-                        "maxAttempts": DEFAULT_SCHEMA_REPAIR_ATTEMPTS,
-                        "transcriptItems": transcript.len(),
-                        "estimatedPromptTokens": estimate_prompt_tokens(&transcript),
-                    }),
-                ));
-            let model_started = Instant::now();
-            let outcome = complete_model_turn(
-                &*model,
-                &state.policy,
-                &state.events,
-                &state.limits,
-                &scope,
-                &repair_scope,
-                &transcript,
-                turn_id,
-                &cancel,
-            )
-            .await;
-            model_calls += outcome.attempts;
-            model_metrics.calls += outcome.attempts;
-            let turn = match outcome.result {
-                Ok(turn) => {
-                    model_metrics.errors += outcome.attempts - 1;
-                    turn
-                }
-                Err(_) => {
-                    model_metrics.errors += outcome.attempts;
-                    status = "incomplete".to_string();
-                    break;
-                }
-            };
-            model_metrics.successes += 1;
-            model_metrics.latency_ms += elapsed_ms(model_started);
-            model_metrics.max_latency_ms =
-                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
-            match turn {
-                ModelTurn::Text { content, usage } => {
-                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                    transcript.push(ConversationItem::AssistantText {
-                        content: content.clone(),
-                    });
-                    output = Some(content);
-                    status = if session_output_valid(config.kind, output.as_deref()) {
-                        "done".to_string()
-                    } else {
-                        "incomplete".to_string()
-                    };
-                    if status == "done" {
-                        break;
-                    }
-                }
-                ModelTurn::ToolCalls { usage, .. } => {
-                    record_usage(&mut tokens, &mut model_metrics, &*model, usage);
-                    status = "incomplete".to_string();
-                    break;
-                }
-            }
-        }
-    }
-    if status == "done" && !session_output_valid(config.kind, output.as_deref()) {
-        status = "incomplete".to_string();
-    }
-    let completed = status == "done";
-    state.events.emit_planned_runtime(
-        state
-            .policy
-            .plan_session_finished_runtime_event(&scope, &status),
-    );
-    SessionRunReport {
-        diagnostic: session_diagnostic(&scope, completed, &status, model_calls, tool_counts),
-        session_id: scope.id.0,
-        completed,
-        status,
-        output,
-        model_calls,
-        model_metrics,
-        tool_counts,
-        tokens,
-    }
-}
-
-fn initial_transcript(scope: &SessionScope) -> Vec<ConversationItem> {
-    let mut items = vec![ConversationItem::System {
-        content: scope.objective.clone(),
-    }];
-    for instruction in &scope.instructions {
-        items.push(ConversationItem::User {
-            content: instruction.text.clone(),
-        });
-    }
-    items
-}
-
-fn terminal_report(scope: &SessionScope, status: &str) -> SessionRunReport {
-    SessionRunReport {
-        session_id: scope.id.0.clone(),
-        completed: false,
-        status: status.to_string(),
-        output: None,
-        model_calls: 0,
-        model_metrics: ModelMetricsSnapshot::default(),
-        tool_counts: ToolCounts::default(),
-        tokens: TokenUsage::default(),
-        diagnostic: session_diagnostic(scope, false, status, 0, ToolCounts::default()),
-    }
-}
-
-fn session_diagnostic(
-    scope: &SessionScope,
-    completed: bool,
-    status: &str,
-    model_calls: usize,
-    tool_counts: ToolCounts,
-) -> SessionCompletionDiagnostic {
-    SessionCompletionDiagnostic {
-        session_id: scope.id.0.clone(),
-        completed,
-        completion_kind: Some("autonomous_review_session".to_string()),
-        completion_summary: Some(status.to_string()),
-        saw_diff: tool_counts.read_diff > 0,
-        saw_file: tool_counts.read_file + tool_counts.read_file_range + tool_counts.read_head_file
-            > 0,
-        saw_search: tool_counts.search_text + tool_counts.list_files > 0,
-        model_calls,
-        tool_counts,
-    }
+        .await
 }
 
 fn session_kind_name(kind: SessionKind) -> &'static str {
@@ -1053,18 +714,6 @@ fn should_force_final_turn(
             turn_index >= finalization_start
         }
     }
-}
-
-fn budgeted_tool_result_count(results: &[ToolResultEnvelope]) -> usize {
-    results
-        .iter()
-        .filter(|result| {
-            !matches!(
-                result.error.as_ref().map(|error| error.code),
-                Some(ToolErrorCode::BudgetExceeded)
-            )
-        })
-        .count()
 }
 
 fn neutral_starter_context(snapshot: &RepoSnapshot, instructions: &[SessionInstruction]) -> String {
@@ -1302,7 +951,7 @@ fn build_run_metrics(
     started: Instant,
     tools: &ToolEngine,
     snapshot_id: &SnapshotId,
-    reports: &[SessionRunReport],
+    reports: &[AgentLoopReport],
     findings: usize,
     candidate_count: usize,
     rejection_reasons: BTreeMap<String, usize>,

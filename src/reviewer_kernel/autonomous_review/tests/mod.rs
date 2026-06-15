@@ -1,3 +1,5 @@
+use crate::reviewer_kernel::agent_loop::budgeted_tool_result_count;
+
 use super::*;
 
 #[test]
