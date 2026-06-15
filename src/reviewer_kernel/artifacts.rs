@@ -7,12 +7,13 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::reviewer_kernel::kernel_types::{ArtifactId, ArtifactView, RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{
+    ArtifactId, ArtifactView, CapabilitySet, RuntimeError, RuntimeResult,
+};
 use crate::reviewer_kernel::tool_engine::ConcurrentArtifactStore as RuntimeArtifactStore;
 
 use crate::reviewer_kernel::kernel_types::stable_id;
 
-use crate::reviewer_kernel::adapters::capabilities;
 use crate::reviewer_kernel::snapshots::*;
 #[async_trait]
 pub trait ArtifactReader: Send + Sync {
@@ -225,7 +226,7 @@ impl ArtifactExportPolicy {
         ))
     }
 
-    pub fn redacted(capabilities: &capabilities::CapabilitySet) -> RuntimeResult<Self> {
+    pub fn redacted(capabilities: &CapabilitySet) -> RuntimeResult<Self> {
         if capabilities.artifact_access.read_redacted || capabilities.artifact_access.read_raw {
             Ok(Self::redacted_with_artifacts(
                 capabilities.artifact_access.allowed_artifact_ids.clone(),
@@ -237,7 +238,7 @@ impl ArtifactExportPolicy {
         }
     }
 
-    pub fn raw(capabilities: &capabilities::CapabilitySet) -> RuntimeResult<Self> {
+    pub fn raw(capabilities: &CapabilitySet) -> RuntimeResult<Self> {
         if capabilities.artifact_access.read_raw {
             Ok(Self {
                 include_raw: true,

@@ -12,7 +12,7 @@ use crate::reviewer_kernel::model::{
 };
 use crate::reviewer_kernel::review_contract::{Role, TokenUsage};
 
-use crate::reviewer_kernel::adapters::Cancellation;
+use tokio_util::sync::CancellationToken as Cancellation;
 #[async_trait]
 pub trait ReviewModel: Send + Sync {
     async fn complete_review(

@@ -27,14 +27,13 @@ pub struct PublicFacadeModel {
 }
 
 #[derive(Debug)]
-pub struct PublicCustomToolModel(pub crate::reviewer_kernel::adapters::ids::ToolId);
+pub struct PublicCustomToolModel(pub crate::reviewer_kernel::kernel_types::ToolId);
 
 #[derive(Debug)]
 pub struct PublicJsonRpcReviewTool {
-    pub provider_id: crate::reviewer_kernel::adapters::tool_adapters::ToolProviderId,
+    pub provider_id: crate::reviewer_kernel::kernel_types::ToolProviderId,
     pub tool_id: String,
-    pub expected_provider_resources:
-        Vec<crate::reviewer_kernel::adapters::tool_adapters::ProviderResourceId>,
+    pub expected_provider_resources: Vec<crate::reviewer_kernel::kernel_types::ProviderResourceId>,
     pub calls: Arc<AtomicUsize>,
 }
 
@@ -158,8 +157,8 @@ impl crate::reviewer_kernel::review_model::ReviewModel for CancellingModel {
     async fn complete_review(
         &self,
         _request: crate::reviewer_kernel::review_model::ReviewModelRequest,
-        cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
         crate::reviewer_kernel::review_model::ReviewModelTurn,
     > {
         self.calls.fetch_add(1, Ordering::SeqCst);
@@ -244,8 +243,8 @@ impl crate::reviewer_kernel::review_model::ReviewModel for PublicFacadeModel {
     async fn complete_review(
         &self,
         request: crate::reviewer_kernel::review_model::ReviewModelRequest,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
         crate::reviewer_kernel::review_model::ReviewModelTurn,
     > {
         let usage = TokenUsage {
@@ -328,8 +327,8 @@ impl crate::reviewer_kernel::review_model::ReviewModel for PublicCustomToolModel
     async fn complete_review(
         &self,
         request: crate::reviewer_kernel::review_model::ReviewModelRequest,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
         crate::reviewer_kernel::review_model::ReviewModelTurn,
     > {
         let usage = TokenUsage {
@@ -397,32 +396,28 @@ fn review_request_is_final_turn(
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolTransport
-    for PublicJsonRpcReviewTool
-{
+impl crate::reviewer_kernel::tool_engine::JsonRpcToolTransport for PublicJsonRpcReviewTool {
     async fn call(
         &self,
-        request: crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolRequest,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
-        crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolResponse,
+        request: crate::reviewer_kernel::tool_engine::JsonRpcToolRequest,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
+        crate::reviewer_kernel::tool_engine::JsonRpcToolResponse,
     > {
         assert_eq!(request.provider_id, self.provider_id);
         assert_eq!(request.tool_id.as_str(), self.tool_id);
         assert_eq!(request.provider_resources, self.expected_provider_resources);
         assert_eq!(request.arguments["value"], "ok");
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(
-            crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolResponse {
-                data: Some(serde_json::json!({
-                    "provider": request.provider_id.as_str(),
-                    "tool": request.tool_id.as_str(),
-                    "value": request.arguments["value"]
-                })),
-                artifact: None,
-                limits: crate::reviewer_kernel::adapters::metrics::LimitInfo::default(),
-            },
-        )
+        Ok(crate::reviewer_kernel::tool_engine::JsonRpcToolResponse {
+            data: Some(serde_json::json!({
+                "provider": request.provider_id.as_str(),
+                "tool": request.tool_id.as_str(),
+                "value": request.arguments["value"]
+            })),
+            artifact: None,
+            limits: crate::reviewer_kernel::kernel_types::LimitInfo::default(),
+        })
     }
 }
 
@@ -446,8 +441,8 @@ impl crate::reviewer_kernel::review_tools::ReviewToolHandler for EchoCustomTool 
         &self,
         context: crate::reviewer_kernel::review_tools::ReviewToolContext,
         args: serde_json::Value,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
         crate::reviewer_kernel::review_tools::ReviewToolOutput,
     > {
         Ok(crate::reviewer_kernel::review_tools::ReviewToolOutput {
@@ -476,8 +471,8 @@ impl crate::reviewer_kernel::review_tools::ReviewToolHandler for ResourceScopedR
         &self,
         context: crate::reviewer_kernel::review_tools::ReviewToolContext,
         _args: serde_json::Value,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
-    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
         crate::reviewer_kernel::review_tools::ReviewToolOutput,
     > {
         assert_eq!(context.provider_resources, self.expected_provider_resources);

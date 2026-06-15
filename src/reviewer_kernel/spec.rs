@@ -7,7 +7,6 @@ use crate::reviewer_kernel::kernel_types::{
 };
 use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
 
-use crate::reviewer_kernel::adapters::{capabilities, runtime};
 use crate::reviewer_kernel::snapshots::*;
 pub struct RunSpec {
     pub run_id: String,
@@ -45,11 +44,11 @@ impl ReviewRunLimits {
         }
     }
 
-    pub fn from_runtime_limits(limits: runtime::RuntimeLimits) -> Self {
+    pub fn from_runtime_limits(limits: RuntimeLimits) -> Self {
         Self { limits }
     }
 
-    pub fn as_runtime_limits(&self) -> &runtime::RuntimeLimits {
+    pub fn as_runtime_limits(&self) -> &RuntimeLimits {
         &self.limits
     }
 
@@ -120,7 +119,7 @@ impl ReviewSessionSpec {
         self
     }
 
-    pub fn with_capabilities(mut self, capabilities: capabilities::CapabilitySet) -> Self {
+    pub fn with_capabilities(mut self, capabilities: CapabilitySet) -> Self {
         self.capabilities = capabilities;
         self
     }

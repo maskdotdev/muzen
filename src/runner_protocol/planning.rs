@@ -5,9 +5,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::review_sources::ReviewSource;
-use crate::reviewer_kernel::adapters::{capabilities, ids::ToolId};
 use crate::reviewer_kernel::kernel_types::{
-    FsScope, ProviderResourceId, RepoPath, SessionInstruction, ToolEffects,
+    CapabilitySet, FsScope, ProviderResourceId, RepoPath, SessionInstruction, ToolEffects, ToolId,
 };
 use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
 use crate::reviewer_kernel::snapshots::{
@@ -176,7 +175,7 @@ fn run_session_spec(
     let mut spec =
         ReviewSessionSpec::review_read_only(params.id, params.role, params.objective, budget);
     if let Some(cwd) = params.cwd {
-        let capabilities = capabilities::CapabilitySet::review_read_only()
+        let capabilities = CapabilitySet::review_read_only()
             .with_fs_scope(FsScope::subtree(RepoPath::parse(&cwd)?));
         spec = spec.with_capabilities(capabilities);
     }

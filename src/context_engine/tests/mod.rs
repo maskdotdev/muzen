@@ -1996,7 +1996,7 @@ impl ReviewModel for CleanModel {
     async fn complete_review(
         &self,
         _request: ReviewModelRequest,
-        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+        _cancel: tokio_util::sync::CancellationToken,
     ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<ReviewModelTurn> {
         Ok(ReviewModelTurn::Text {
             usage: TokenUsage {

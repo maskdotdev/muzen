@@ -11,8 +11,8 @@ use crate::reviewer_kernel::tool_engine::{
     JsonRpcToolRegistration, JsonRpcToolTransport, ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::reviewer_kernel::adapters::Cancellation;
 use crate::reviewer_kernel::spec::*;
+use tokio_util::sync::CancellationToken as Cancellation;
 pub struct ReviewToolRegistry {
     inner: RuntimeToolRegistry,
 }

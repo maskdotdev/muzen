@@ -4,20 +4,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::reviewer_kernel::kernel_types::{
-    ArtifactId, ArtifactView, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
-    RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, RuntimeResult, SnapshotId,
-    ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
-    ToolProviderHealthState,
+    ArtifactId, ArtifactView, CapabilitySet, ConcurrentCounters, ConcurrentRunReport,
+    ModelMetricsSnapshot, ReviewQualityDiagnostics, RuntimeError, RuntimeEvent,
+    RuntimeEventContext, RuntimeEventSink, RuntimeResult, SnapshotId, ToolCallId, ToolMetricKey,
+    ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::ToolCounts;
 
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
 
-use crate::reviewer_kernel::adapters::metrics;
-use crate::reviewer_kernel::adapters::{capabilities, tool_adapters};
 use crate::reviewer_kernel::artifacts::*;
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::snapshots::*;
+use crate::reviewer_kernel::tool_engine::ConcurrentArtifactStore as ArtifactStore;
 pub(crate) struct ReviewEventSinkAdapter {
     inner: Arc<dyn ReviewEventSink>,
     next_seq: AtomicU64,
@@ -202,7 +201,7 @@ pub struct ReviewRunSummary {
     pub snapshot_count: usize,
     pub benchmark_valid: bool,
     pub benchmark_failure_count: usize,
-    pub quality_diagnostics: metrics::ReviewQualityDiagnostics,
+    pub quality_diagnostics: ReviewQualityDiagnostics,
 }
 
 impl ReviewRunSummary {
@@ -241,8 +240,8 @@ pub struct RunReport {
     pub snapshot: SnapshotHandle,
     pub snapshots: Vec<SnapshotHandle>,
     pub summary: ReviewRunSummary,
-    pub metrics: metrics::ConcurrentRunReport,
-    pub artifacts: Arc<tool_adapters::ArtifactStore>,
+    pub metrics: ConcurrentRunReport,
+    pub artifacts: Arc<ArtifactStore>,
     pub(crate) snapshot_readers: Vec<SnapshotReader>,
     pub(crate) findings: Vec<FindingV1>,
     pub(crate) file_reviews: Vec<FileReviewV1>,
@@ -331,7 +330,7 @@ impl RunReport {
 
     pub fn raw_artifacts(
         &self,
-        capabilities: &capabilities::CapabilitySet,
+        capabilities: &CapabilitySet,
     ) -> RuntimeResult<ReviewArtifacts<'_>> {
         Ok(ReviewArtifacts::new(
             self,

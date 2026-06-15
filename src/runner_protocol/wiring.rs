@@ -3,9 +3,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::json;
 
-use crate::reviewer_kernel::adapters::runtime;
 use crate::reviewer_kernel::kernel::RunBuilder;
-use crate::reviewer_kernel::kernel_types::RuntimeError;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 use crate::reviewer_kernel::model::{
     CredentialResolver, EnvCredentialResolver, ModelLimiter, ProfileModelRouter,
 };
@@ -125,12 +124,12 @@ fn hosted_model_router(
     tool_registry: Arc<RuntimeToolRegistry>,
     reviewer_policy: Arc<ReviewerPolicy>,
     transport: Option<Arc<dyn RunnerCallbackTransport>>,
-) -> runtime::RuntimeResult<ProfileModelRouter> {
+) -> RuntimeResult<ProfileModelRouter> {
     let profiles = model
         .model_profiles
         .iter()
         .map(model_profile_ref)
-        .collect::<runtime::RuntimeResult<Vec<_>>>()?;
+        .collect::<RuntimeResult<Vec<_>>>()?;
     let default_profile_id = model
         .default_model_profile_id
         .clone()
@@ -187,7 +186,7 @@ fn hosted_model_default_base_url(model: &RunModelParams) -> String {
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
 }
 
-fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<ModelProfileRefV1> {
+fn model_profile_ref(params: &RunModelProfileParams) -> RuntimeResult<ModelProfileRefV1> {
     let provider_kind = match params.provider.as_str() {
         "openai_compatible" => ProviderKind::OpenaiCompatible,
         "anthropic" => ProviderKind::Anthropic,
@@ -248,7 +247,7 @@ fn model_profile_ref(params: &RunModelProfileParams) -> runtime::RuntimeResult<M
 fn credential_ref(
     provider_kind: ProviderKind,
     credential: Option<&RunModelCredentialParams>,
-) -> runtime::RuntimeResult<String> {
+) -> RuntimeResult<String> {
     let Some(credential) = credential else {
         return Ok(match provider_kind {
             ProviderKind::OpenaiCompatible => "env:OPENAI_API_KEY".to_string(),
@@ -288,7 +287,7 @@ impl RunnerCredentialResolver {
 }
 
 impl CredentialResolver for RunnerCredentialResolver {
-    fn resolve_credential(&self, credential_ref: &str) -> runtime::RuntimeResult<String> {
+    fn resolve_credential(&self, credential_ref: &str) -> RuntimeResult<String> {
         let Some(secret_ref) = credential_ref.strip_prefix("secret:") else {
             return self.env.resolve_credential(credential_ref);
         };

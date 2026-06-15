@@ -50,7 +50,7 @@ fn public_snapshot_storage_policy_reports_memory_envelope_skips() {
             .unwrap()
             .read_text_path("README.md", 64 * 1024),
         Err(
-            crate::reviewer_kernel::adapters::runtime::RuntimeError::LimitExceeded {
+            crate::reviewer_kernel::kernel_types::RuntimeError::LimitExceeded {
                 kind: "snapshot_capture_bytes"
             }
         )
@@ -200,7 +200,7 @@ fn public_snapshot_content_addressed_store_lifecycle_validates_and_cleans_up() {
     assert_eq!(stale.stale_files[0].store_path.as_ref(), Some(&store_path));
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::SnapshotStale { path }) if path == "README.md"
     ));
     fs::write(&store_path, "lifecycle needle\n").unwrap();
     assert!(reader.validate_storage().unwrap().valid);
@@ -227,7 +227,7 @@ fn public_snapshot_content_addressed_store_lifecycle_validates_and_cleans_up() {
     assert_eq!(after_cleanup.missing_files[0].path.display(), "README.md");
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoUnavailable(_))
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoUnavailable(_))
     ));
 }
 
@@ -310,7 +310,7 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
     assert_eq!(stale.stale_files[0].store_uri.as_ref(), Some(store_uri));
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::SnapshotStale { path }) if path == "README.md"
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::SnapshotStale { path }) if path == "README.md"
     ));
 
     remote_client.write(store_uri.clone(), b"remote lifecycle needle\n".to_vec());
@@ -318,11 +318,11 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
 
     let forged_uri = store_uri.replace(remote_base, "s3://forged-snapshots");
     assert!(matches!(
-        crate::reviewer_kernel::adapters::storage::SnapshotObjectStore::read_snapshot_object(
+        crate::reviewer_kernel::kernel_types::SnapshotObjectStore::read_snapshot_object(
             remote_store.as_ref(),
             &forged_uri
         ),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoAccessDenied)
     ));
     assert!(
         crate::reviewer_kernel::snapshots::RemoteSnapshotObjectStore::new(
@@ -355,6 +355,6 @@ fn public_snapshot_remote_object_store_serves_and_validates_captured_evidence() 
     );
     assert!(matches!(
         reader.read_text_path("README.md", 64 * 1024),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoUnavailable(_))
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoUnavailable(_))
     ));
 }

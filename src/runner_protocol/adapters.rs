@@ -5,9 +5,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::reviewer_kernel::adapters::{runtime, Cancellation};
 use crate::reviewer_kernel::events::{ReviewEvent, ReviewEventRecord};
-use crate::reviewer_kernel::kernel_types::RuntimeError;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 use crate::reviewer_kernel::review_contract::Role;
 use crate::reviewer_kernel::review_contract::TokenUsage;
 use crate::reviewer_kernel::review_model::{
@@ -20,6 +19,7 @@ use crate::reviewer_kernel::runtime_events::{
     EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
 };
 use crate::reviewer_kernel::system::timestamp_utc;
+use tokio_util::sync::CancellationToken as Cancellation;
 
 use super::transport::RunnerCallbackTransport;
 use super::RUNNER_PROTOCOL_VERSION;
@@ -47,7 +47,7 @@ impl ReviewModel for TestRunnerModel {
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> RuntimeResult<ReviewModelTurn> {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64 * 64,
             output_tokens: 32,
@@ -113,7 +113,7 @@ impl ReviewModel for CallbackReviewModel {
         &self,
         request: ReviewModelRequest,
         _cancel: Cancellation,
-    ) -> runtime::RuntimeResult<ReviewModelTurn> {
+    ) -> RuntimeResult<ReviewModelTurn> {
         let params = RunnerModelCompleteParams::from_request(&self.run_id, request);
         let value = self
             .transport
@@ -163,7 +163,7 @@ impl ReviewToolHandler for CallbackReviewTool {
         context: ReviewToolContext,
         arguments: Value,
         _cancel: Cancellation,
-    ) -> runtime::RuntimeResult<ReviewToolOutput> {
+    ) -> RuntimeResult<ReviewToolOutput> {
         let params = RunnerToolExecuteParams {
             protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
             run_id: self.run_id.clone(),

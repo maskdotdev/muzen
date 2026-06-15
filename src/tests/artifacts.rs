@@ -125,11 +125,11 @@ fn public_artifact_bundle_lifecycle_rejects_unsafe_relative_paths() {
 
     assert!(matches!(
         bundle.validate_storage(),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoAccessDenied)
     ));
     assert!(matches!(
         bundle.cleanup_storage(),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoAccessDenied)
     ));
 
     let forged_manifest = crate::reviewer_kernel::artifacts::ArtifactBundleManifest::new(
@@ -141,10 +141,10 @@ fn public_artifact_bundle_lifecycle_rejects_unsafe_relative_paths() {
     .with_manifest_path(temp.path().join("outside-manifest.json"));
     assert!(matches!(
         forged_manifest.validate_storage(),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoAccessDenied)
     ));
     assert!(matches!(
         forged_manifest.cleanup_storage(),
-        Err(crate::reviewer_kernel::adapters::runtime::RuntimeError::RepoAccessDenied)
+        Err(crate::reviewer_kernel::kernel_types::RuntimeError::RepoAccessDenied)
     ));
 }
