@@ -12,15 +12,16 @@ use crate::context_engine::{
     ContextPackPurpose, ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits,
     ContextQueryResult, CrossRepoContractCandidate, SnapshotContextEngine,
 };
-use crate::contracts::{
+use crate::remote_http::{
+    ReviewHttpRequest, ReviewHttpResponse, ReviewHttpRouteError, HTTP_STATUS_OK,
+};
+use crate::review_sources::ReviewSource;
+use crate::reviewer_kernel::kernel_types::{EvidenceId, RuntimeError, SnapshotStoragePolicy};
+use crate::reviewer_kernel::review_contract::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
     RenameDetection, SnapshotMode,
 };
-use crate::review_session::{
-    ReviewHttpRequest, ReviewHttpResponse, ReviewHttpRouteError, ReviewSource, HTTP_STATUS_OK,
-};
-use crate::runtime::contracts::{EvidenceId, RuntimeError, SnapshotStoragePolicy};
-use crate::runtime::repo::RepoSnapshot;
+use crate::workspace::RepoSnapshot;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ContextHttpRouterOptions {
@@ -55,15 +56,15 @@ impl ContextHttpRouter {
         &self,
         route: ContextHttpRoute,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         match route {
-            ContextHttpRoute::Index => self.handle_index(request, workspace_id),
-            ContextHttpRoute::Pack => self.handle_pack(request, workspace_id),
-            ContextHttpRoute::Query => self.handle_query(request, workspace_id),
-            ContextHttpRoute::Feedback => self.handle_feedback(request, workspace_id),
+            ContextHttpRoute::Index => self.handle_index(request, project_id),
+            ContextHttpRoute::Pack => self.handle_pack(request, project_id),
+            ContextHttpRoute::Query => self.handle_query(request, project_id),
+            ContextHttpRoute::Feedback => self.handle_feedback(request, project_id),
             ContextHttpRoute::LearningApproval => {
-                self.handle_learning_approval(request, workspace_id)
+                self.handle_learning_approval(request, project_id)
             }
         }
     }
@@ -71,22 +72,22 @@ impl ContextHttpRouter {
     fn handle_index(
         &self,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let body: ContextIndexBody = json_body(request)?;
-        let (_engine, _snapshot, manifest) = self.index_request(workspace_id, body)?;
+        let (_engine, _snapshot, manifest) = self.index_request(project_id, body)?;
         response_json(HTTP_STATUS_OK, &ContextIndexResponse { manifest })
     }
 
     fn handle_pack(
         &self,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let body: ContextPackBody = json_body(request)?;
-        let (engine, snapshot, _manifest) = self.index_request(workspace_id, body.index)?;
+        let (engine, snapshot, _manifest) = self.index_request(project_id, body.index)?;
         let pack_engine = engine.clone();
         let pack = block_on_context(async move {
             pack_engine
@@ -110,11 +111,11 @@ impl ContextHttpRouter {
     fn handle_query(
         &self,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let body: ContextQueryBody = json_body(request)?;
-        let (engine, snapshot, _manifest) = self.index_request(workspace_id, body.index)?;
+        let (engine, snapshot, _manifest) = self.index_request(project_id, body.index)?;
         let query_engine = engine.clone();
         let result = block_on_context(async move {
             query_engine
@@ -142,11 +143,11 @@ impl ContextHttpRouter {
     fn handle_feedback(
         &self,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let body: ContextFeedbackBody = json_body(request)?;
-        let (engine, snapshot, _manifest) = self.index_request(workspace_id, body.index)?;
+        let (engine, snapshot, _manifest) = self.index_request(project_id, body.index)?;
         let feedback_engine = engine.clone();
         let receipt = block_on_context(async move {
             feedback_engine
@@ -168,11 +169,11 @@ impl ContextHttpRouter {
     fn handle_learning_approval(
         &self,
         request: &ReviewHttpRequest,
-        workspace_id: &str,
+        project_id: &str,
     ) -> Result<ReviewHttpResponse, ReviewHttpRouteError> {
         require_method(request, "POST")?;
         let body: ContextLearningApprovalBody = json_body(request)?;
-        let engine = self.engine_for_snapshot(workspace_id, &body.snapshot_id)?;
+        let engine = self.engine_for_snapshot(project_id, &body.snapshot_id)?;
         let receipt = block_on_context(async move {
             engine
                 .approve_learning(body.approval, CancellationToken::new())
@@ -183,7 +184,7 @@ impl ContextHttpRouter {
 
     fn index_request(
         &self,
-        workspace_id: &str,
+        project_id: &str,
         body: ContextIndexBody,
     ) -> Result<
         (
@@ -195,7 +196,7 @@ impl ContextHttpRouter {
     > {
         let config = body.config.unwrap_or_else(ContextEngineConfig::snapshot_v0);
         let snapshot = build_snapshot_from_source(body.source, body.changed_files)?;
-        let engine = self.engine_for_workspace(workspace_id, config)?;
+        let engine = self.engine_for_workspace(project_id, config)?;
         let index_engine = engine.clone();
         let index_snapshot = Arc::clone(&snapshot);
         let mut request = ContextIndexRequest::for_snapshot(index_snapshot, engine.config_ref());
@@ -215,7 +216,7 @@ impl ContextHttpRouter {
             .lock()
             .expect("context engine store poisoned")
             .insert(
-                context_engine_key(workspace_id, &snapshot.snapshot_id.0),
+                context_engine_key(project_id, &snapshot.snapshot_id.0),
                 engine.clone(),
             );
         Ok((engine, snapshot, index.manifest_artifact.clone()))
@@ -223,13 +224,13 @@ impl ContextHttpRouter {
 
     fn engine_for_workspace(
         &self,
-        workspace_id: &str,
+        project_id: &str,
         config: ContextEngineConfig,
     ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
         let mut engine = if let Some(root) = &self.options.learning_store_root {
             SnapshotContextEngine::with_learning_store_file(
                 config,
-                workspace_store_path(root, workspace_id, "context-learnings.json"),
+                workspace_store_path(root, project_id, "context-learnings.json"),
             )
             .map_err(context_runtime_error)?
         } else {
@@ -238,7 +239,7 @@ impl ContextHttpRouter {
         if let Some(root) = &self.options.derived_cache_root {
             engine = engine.with_derived_cache_file(workspace_store_path(
                 root,
-                workspace_id,
+                project_id,
                 "context-derived-cache.json",
             ));
         }
@@ -247,13 +248,13 @@ impl ContextHttpRouter {
 
     fn engine_for_snapshot(
         &self,
-        workspace_id: &str,
+        project_id: &str,
         snapshot_id: &str,
     ) -> Result<SnapshotContextEngine, ReviewHttpRouteError> {
         self.engines
             .lock()
             .expect("context engine store poisoned")
-            .get(&context_engine_key(workspace_id, snapshot_id))
+            .get(&context_engine_key(project_id, snapshot_id))
             .cloned()
             .ok_or_else(|| {
                 ReviewHttpRouteError::BadRequest(format!(
@@ -480,12 +481,12 @@ fn context_runtime_error(error: RuntimeError) -> ReviewHttpRouteError {
     ReviewHttpRouteError::BadRequest(error.to_string())
 }
 
-fn context_engine_key(workspace_id: &str, snapshot_id: &str) -> String {
-    format!("{workspace_id}:{snapshot_id}")
+fn context_engine_key(project_id: &str, snapshot_id: &str) -> String {
+    format!("{project_id}:{snapshot_id}")
 }
 
-fn workspace_store_path(root: &std::path::Path, workspace_id: &str, file_name: &str) -> PathBuf {
-    let safe_workspace = workspace_id
+fn workspace_store_path(root: &std::path::Path, project_id: &str, file_name: &str) -> PathBuf {
+    let safe_workspace = project_id
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {

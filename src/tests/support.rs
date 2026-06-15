@@ -4,15 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::contracts::*;
-use crate::runtime::contracts::{
+use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
     ProviderResourceId, RuntimeError, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId,
     ToolProviderId, TurnId,
 };
-use crate::runtime::model::ConcurrentModelClient;
-use crate::runtime::tools::ToolEngine;
-use crate::runtime::tools::{
+use crate::reviewer_kernel::model::ConcurrentModelClient;
+use crate::reviewer_kernel::review_contract::*;
+use crate::reviewer_kernel::tool_engine::ToolEngine;
+use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, JsonRpcToolRequest,
     JsonRpcToolResponse, JsonRpcToolTransport,
 };
@@ -28,14 +28,14 @@ pub struct PublicFacadeModel {
 }
 
 #[derive(Debug)]
-pub struct PublicCustomToolModel(pub crate::reviewer::adapters::ids::ToolId);
+pub struct PublicCustomToolModel(pub crate::reviewer_kernel::adapters::ids::ToolId);
 
 #[derive(Debug)]
 pub struct PublicJsonRpcReviewTool {
-    pub provider_id: crate::reviewer::adapters::tool_adapters::ToolProviderId,
+    pub provider_id: crate::reviewer_kernel::adapters::tool_adapters::ToolProviderId,
     pub tool_id: String,
     pub expected_provider_resources:
-        Vec<crate::reviewer::adapters::tool_adapters::ProviderResourceId>,
+        Vec<crate::reviewer_kernel::adapters::tool_adapters::ProviderResourceId>,
     pub calls: Arc<AtomicUsize>,
 }
 
@@ -155,13 +155,14 @@ pub struct CancelAfterToolResultModel {
 }
 
 #[async_trait]
-impl crate::reviewer::model::ReviewModel for CancellingModel {
+impl crate::reviewer_kernel::review_model::ReviewModel for CancellingModel {
     async fn complete_review(
         &self,
-        _request: crate::reviewer::model::ReviewModelRequest,
-        cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
-    {
+        _request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_model::ReviewModelTurn,
+    > {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.parent_cancel.cancel();
         cancel.cancelled().await;
@@ -240,13 +241,14 @@ impl ConcurrentModelClient for CancelAfterToolResultModel {
 }
 
 #[async_trait]
-impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
+impl crate::reviewer_kernel::review_model::ReviewModel for PublicFacadeModel {
     async fn complete_review(
         &self,
-        request: crate::reviewer::model::ReviewModelRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
-    {
+        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_model::ReviewModelTurn,
+    > {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
@@ -254,24 +256,26 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
             cached_input_tokens: 0,
         };
         if request.tool_result_count() == 0 && !review_request_is_final_turn(&request) {
-            return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
-                usage,
-                calls: vec![
-                    reviewer_call(&request, "diff", "read_diff", serde_json::json!({})),
-                    reviewer_call(
-                        &request,
-                        "file",
-                        "read_file",
-                        serde_json::json!({ "path": self.path }),
-                    ),
-                    reviewer_call(
-                        &request,
-                        "search",
-                        "search_text",
-                        serde_json::json!({ "query": self.query }),
-                    ),
-                ],
-            });
+            return Ok(
+                crate::reviewer_kernel::review_model::ReviewModelTurn::ToolCalls {
+                    usage,
+                    calls: vec![
+                        reviewer_call(&request, "diff", "read_diff", serde_json::json!({})),
+                        reviewer_call(
+                            &request,
+                            "file",
+                            "read_file",
+                            serde_json::json!({ "path": self.path }),
+                        ),
+                        reviewer_call(
+                            &request,
+                            "search",
+                            "search_text",
+                            serde_json::json!({ "query": self.query }),
+                        ),
+                    ],
+                },
+            );
         }
         let content = if request.session_id.contains('/') {
             serde_json::json!({
@@ -311,10 +315,12 @@ impl crate::reviewer::model::ReviewModel for PublicFacadeModel {
                 }
             })
         };
-        Ok(crate::reviewer::model::ReviewModelTurn::Text {
-            usage,
-            content: content.to_string(),
-        })
+        Ok(
+            crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
+                usage,
+                content: content.to_string(),
+            },
+        )
     }
 }
 
@@ -326,13 +332,14 @@ pub struct DirectSessionEchoModel {
 }
 
 #[async_trait]
-impl crate::reviewer::model::ReviewModel for DirectSessionEchoModel {
+impl crate::reviewer_kernel::review_model::ReviewModel for DirectSessionEchoModel {
     async fn complete_review(
         &self,
-        request: crate::reviewer::model::ReviewModelRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
-    {
+        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_model::ReviewModelTurn,
+    > {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
@@ -340,31 +347,36 @@ impl crate::reviewer::model::ReviewModel for DirectSessionEchoModel {
             cached_input_tokens: 0,
         };
         if request.tool_result_count() == 0 && !review_request_is_final_turn(&request) {
-            return Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
-                usage,
-                calls: vec![reviewer_call(
-                    &request,
-                    "search",
-                    "search_text",
-                    serde_json::json!({ "query": self.query }),
-                )],
-            });
+            return Ok(
+                crate::reviewer_kernel::review_model::ReviewModelTurn::ToolCalls {
+                    usage,
+                    calls: vec![reviewer_call(
+                        &request,
+                        "search",
+                        "search_text",
+                        serde_json::json!({ "query": self.query }),
+                    )],
+                },
+            );
         }
-        Ok(crate::reviewer::model::ReviewModelTurn::Text {
-            usage,
-            content: format!("answer:{}", request.session_id),
-        })
+        Ok(
+            crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
+                usage,
+                content: format!("answer:{}", request.session_id),
+            },
+        )
     }
 }
 
 #[async_trait]
-impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
+impl crate::reviewer_kernel::review_model::ReviewModel for PublicCustomToolModel {
     async fn complete_review(
         &self,
-        request: crate::reviewer::model::ReviewModelRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
-    {
+        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_model::ReviewModelTurn,
+    > {
         let usage = TokenUsage {
             input_tokens: request.transcript_item_count() as u64,
             output_tokens: 1,
@@ -398,25 +410,31 @@ impl crate::reviewer::model::ReviewModel for PublicCustomToolModel {
                     }
                 })
             };
-            return Ok(crate::reviewer::model::ReviewModelTurn::Text {
-                content: content.to_string(),
-                usage,
-            });
+            return Ok(
+                crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
+                    content: content.to_string(),
+                    usage,
+                },
+            );
         }
-        Ok(crate::reviewer::model::ReviewModelTurn::ToolCalls {
-            usage,
-            calls: vec![crate::reviewer::model::ReviewToolCall::new(
-                self.0.as_str(),
-                serde_json::json!({ "value": "ok" }),
-            )
-            .with_call_id(request.tool_call_id("custom"))],
-        })
+        Ok(
+            crate::reviewer_kernel::review_model::ReviewModelTurn::ToolCalls {
+                usage,
+                calls: vec![crate::reviewer_kernel::review_model::ReviewToolCall::new(
+                    self.0.as_str(),
+                    serde_json::json!({ "value": "ok" }),
+                )
+                .with_call_id(request.tool_call_id("custom"))],
+            },
+        )
     }
 }
 
-fn review_request_is_final_turn(request: &crate::reviewer::model::ReviewModelRequest) -> bool {
+fn review_request_is_final_turn(
+    request: &crate::reviewer_kernel::review_model::ReviewModelRequest,
+) -> bool {
     request.transcript.iter().any(|item| match item {
-        crate::reviewer::model::ReviewTranscriptItem::User { content } => {
+        crate::reviewer_kernel::review_model::ReviewTranscriptItem::User { content } => {
             content.starts_with("Return the final ")
         }
         _ => false,
@@ -424,13 +442,15 @@ fn review_request_is_final_turn(request: &crate::reviewer::model::ReviewModelReq
 }
 
 #[async_trait]
-impl crate::reviewer::adapters::tool_adapters::JsonRpcToolTransport for PublicJsonRpcReviewTool {
+impl crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolTransport
+    for PublicJsonRpcReviewTool
+{
     async fn call(
         &self,
-        request: crate::reviewer::adapters::tool_adapters::JsonRpcToolRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<
-        crate::reviewer::adapters::tool_adapters::JsonRpcToolResponse,
+        request: crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolRequest,
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolResponse,
     > {
         assert_eq!(request.provider_id, self.provider_id);
         assert_eq!(request.tool_id.as_str(), self.tool_id);
@@ -438,14 +458,14 @@ impl crate::reviewer::adapters::tool_adapters::JsonRpcToolTransport for PublicJs
         assert_eq!(request.arguments["value"], "ok");
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(
-            crate::reviewer::adapters::tool_adapters::JsonRpcToolResponse {
+            crate::reviewer_kernel::adapters::tool_adapters::JsonRpcToolResponse {
                 data: Some(serde_json::json!({
                     "provider": request.provider_id.as_str(),
                     "tool": request.tool_id.as_str(),
                     "value": request.arguments["value"]
                 })),
                 artifact: None,
-                limits: crate::reviewer::adapters::metrics::LimitInfo::default(),
+                limits: crate::reviewer_kernel::adapters::metrics::LimitInfo::default(),
             },
         )
     }
@@ -466,22 +486,23 @@ impl Write for SharedWriter {
 }
 
 #[async_trait]
-impl crate::reviewer::tools::ReviewToolHandler for EchoCustomTool {
+impl crate::reviewer_kernel::review_tools::ReviewToolHandler for EchoCustomTool {
     async fn execute_review_tool(
         &self,
-        context: crate::reviewer::tools::ReviewToolContext,
+        context: crate::reviewer_kernel::review_tools::ReviewToolContext,
         args: serde_json::Value,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::tools::ReviewToolOutput>
-    {
-        Ok(crate::reviewer::tools::ReviewToolOutput {
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_tools::ReviewToolOutput,
+    > {
+        Ok(crate::reviewer_kernel::review_tools::ReviewToolOutput {
             data: Some(serde_json::json!({
                 "tool": context.tool_id,
                 "session": context.session_id,
                 "value": args["value"],
                 "secret": "AKIA1234567890ABCDEF"
             })),
-            artifact: Some(crate::reviewer::tools::ReviewToolArtifact {
+            artifact: Some(crate::reviewer_kernel::review_tools::ReviewToolArtifact {
                 key: "host_custom_check".to_string(),
                 content: "artifact AKIA1234567890ABCDEF".to_string(),
             }),
@@ -495,17 +516,18 @@ pub struct ResourceScopedReviewTool {
 }
 
 #[async_trait]
-impl crate::reviewer::tools::ReviewToolHandler for ResourceScopedReviewTool {
+impl crate::reviewer_kernel::review_tools::ReviewToolHandler for ResourceScopedReviewTool {
     async fn execute_review_tool(
         &self,
-        context: crate::reviewer::tools::ReviewToolContext,
+        context: crate::reviewer_kernel::review_tools::ReviewToolContext,
         _args: serde_json::Value,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::tools::ReviewToolOutput>
-    {
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_tools::ReviewToolOutput,
+    > {
         assert_eq!(context.provider_resources, self.expected_provider_resources);
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(crate::reviewer::tools::ReviewToolOutput {
+        Ok(crate::reviewer_kernel::review_tools::ReviewToolOutput {
             data: Some(serde_json::json!({
                 "resources": context
                     .provider_resources
@@ -525,7 +547,7 @@ impl CustomToolHandler for EchoCustomTool {
         context: CustomToolContext,
         args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         Ok(CustomToolOutput {
             data: Some(serde_json::json!({
                 "tool": context.tool_id.as_str(),
@@ -554,7 +576,7 @@ impl CustomToolHandler for CancelAfterSuccessCustomTool {
         context: CustomToolContext,
         _args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.parent_cancel.cancel();
         Ok(CustomToolOutput {
@@ -577,7 +599,7 @@ impl CustomToolHandler for SlowCustomTool {
         _context: CustomToolContext,
         _args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         Ok(CustomToolOutput::default())
     }
@@ -696,7 +718,7 @@ impl CustomToolHandler for CountingSlowCustomTool {
         _context: CustomToolContext,
         _args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_seen.fetch_max(active, Ordering::SeqCst);
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
@@ -714,28 +736,28 @@ impl CustomToolHandler for PanicCustomTool {
         _context: CustomToolContext,
         _args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         panic!("intentional custom tool panic")
     }
 }
 
 pub fn reviewer_call(
-    request: &crate::reviewer::model::ReviewModelRequest,
+    request: &crate::reviewer_kernel::review_model::ReviewModelRequest,
     suffix: &str,
     tool_id: &str,
     arguments: serde_json::Value,
-) -> crate::reviewer::model::ReviewToolCall {
-    crate::reviewer::model::ReviewToolCall::new(tool_id, arguments)
+) -> crate::reviewer_kernel::review_model::ReviewToolCall {
+    crate::reviewer_kernel::review_model::ReviewToolCall::new(tool_id, arguments)
         .with_call_id(request.tool_call_id(suffix))
 }
 
-pub fn public_budget() -> crate::contracts::AgentBudget {
-    crate::contracts::AgentBudget {
+pub fn public_budget() -> crate::reviewer_kernel::review_contract::AgentBudget {
+    crate::reviewer_kernel::review_contract::AgentBudget {
         max_turns: 4,
         max_tool_calls: 8,
         max_prompt_tokens: 32_000,
         max_output_tokens: 512,
-        budget_source: crate::contracts::BudgetSource::PlannedDefault,
+        budget_source: crate::reviewer_kernel::review_contract::BudgetSource::PlannedDefault,
     }
 }
 
@@ -793,7 +815,7 @@ pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> Se
             max_tool_calls: 8,
             max_prompt_tokens: 32_000,
             max_output_tokens: 512,
-            budget_source: crate::contracts::BudgetSource::PlannedDefault,
+            budget_source: crate::reviewer_kernel::review_contract::BudgetSource::PlannedDefault,
         },
     }
 }
@@ -824,34 +846,35 @@ pub fn test_change_with_file(path: &str) -> ChangeScopeV1 {
     }
 }
 pub fn passing_model_provider_canary_evidence(
-) -> crate::reviewer::canaries::ModelProviderCanaryEvidence {
-    passing_model_provider_canary_evidence_at(&crate::util::timestamp_utc())
+) -> crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence {
+    passing_model_provider_canary_evidence_at(&crate::reviewer_kernel::system::timestamp_utc())
 }
 
-pub fn current_passing_canary_manifest() -> crate::reviewer::canaries::CanaryEvidenceManifest {
-    let now = crate::util::timestamp_utc();
+pub fn current_passing_canary_manifest() -> crate::reviewer_kernel::canaries::CanaryEvidenceManifest
+{
+    let now = crate::reviewer_kernel::system::timestamp_utc();
     passing_canary_manifest_at(&now)
 }
 
 pub fn passing_canary_manifest_at(
     generated_at_utc: &str,
-) -> crate::reviewer::canaries::CanaryEvidenceManifest {
+) -> crate::reviewer_kernel::canaries::CanaryEvidenceManifest {
     let model_provider = passing_model_provider_canary_evidence_at(generated_at_utc);
     let snapshot_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let artifact_client =
-        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let mut snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let mut snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
-    let mut artifact = crate::reviewer::canaries::run_remote_artifact_object_store_canary(
+    let mut artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
         "s3://muzen-test-artifacts/canary",
         artifact_client.as_ref(),
     );
     snapshot.generated_at_utc = generated_at_utc.to_string();
     artifact.generated_at_utc = generated_at_utc.to_string();
-    crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
+    crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
         generated_at_utc,
         Some(model_provider),
         vec![snapshot, artifact],
@@ -860,20 +883,20 @@ pub fn passing_canary_manifest_at(
 
 pub fn passing_model_provider_canary_evidence_at(
     generated_at_utc: &str,
-) -> crate::reviewer::canaries::ModelProviderCanaryEvidence {
-    let reports = crate::reviewer::canaries::openai_provider_canary_protocols()
+) -> crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence {
+    let reports = crate::reviewer_kernel::canaries::openai_provider_canary_protocols()
         .iter()
         .map(
-            |protocol| crate::reviewer::canaries::ModelProviderCanaryReport {
+            |protocol| crate::reviewer_kernel::canaries::ModelProviderCanaryReport {
                 protocol: *protocol,
                 base_url: "https://example.invalid/v1".to_string(),
                 model: "canary-model".to_string(),
                 credential_ref: "env:OPENAI_API_KEY".to_string(),
-                status: crate::reviewer::canaries::ModelProviderCanaryStatus::Passed,
+                status: crate::reviewer_kernel::canaries::ModelProviderCanaryStatus::Passed,
             },
         )
         .collect::<Vec<_>>();
-    crate::reviewer::canaries::ModelProviderCanaryEvidence::with_generated_at(
+    crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence::with_generated_at(
         generated_at_utc,
         reports,
     )
@@ -920,44 +943,47 @@ pub fn write_passing_live_canary_proof_bundle(evidence_dir: &Path) {
     write_test_json(&evidence_dir.join("preflight.json"), &preflight);
 
     let provider = passing_model_provider_canary_evidence();
-    crate::reviewer::canaries::export_model_provider_canary_evidence(
+    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
         evidence_dir.join("model-provider.json"),
         &provider,
     )
     .unwrap();
 
-    let snapshot_client = crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default();
-    let artifact_client = crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default();
-    let snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+    let snapshot_client =
+        crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default();
+    let artifact_client =
+        crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default();
+    let snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         &args.snapshot_base_uri,
         &snapshot_client,
     );
-    let artifact = crate::reviewer::canaries::run_remote_artifact_object_store_canary(
+    let artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
         &args.artifact_base_uri,
         &artifact_client,
     );
-    crate::reviewer::canaries::export_remote_object_store_canary_evidence(
+    crate::reviewer_kernel::canaries::export_remote_object_store_canary_evidence(
         evidence_dir.join("remote-snapshot-object-store.json"),
         &snapshot,
     )
     .unwrap();
-    crate::reviewer::canaries::export_remote_object_store_canary_evidence(
+    crate::reviewer_kernel::canaries::export_remote_object_store_canary_evidence(
         evidence_dir.join("remote-artifact-object-store.json"),
         &artifact,
     )
     .unwrap();
 
-    let manifest = crate::reviewer::canaries::CanaryEvidenceManifest::from_evidence(
+    let manifest = crate::reviewer_kernel::canaries::CanaryEvidenceManifest::from_evidence(
         Some(provider),
         vec![snapshot, artifact],
     );
-    crate::reviewer::canaries::export_canary_evidence_manifest(
+    crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
         evidence_dir.join("manifest.json"),
         &manifest,
     )
     .unwrap();
-    let status = manifest
-        .status_report(&crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::current(86_400));
+    let status = manifest.status_report(
+        &crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::current(86_400),
+    );
     assert!(status.ok);
     write_test_json(&evidence_dir.join("status.json"), &status);
     let publication = crate::cli::canary_publication_report(&args, &status);
@@ -1036,13 +1062,14 @@ impl ChaosDirectSessionModel {
 }
 
 #[async_trait]
-impl crate::reviewer::model::ReviewModel for ChaosDirectSessionModel {
+impl crate::reviewer_kernel::review_model::ReviewModel for ChaosDirectSessionModel {
     async fn complete_review(
         &self,
-        request: crate::reviewer::model::ReviewModelRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::reviewer::adapters::runtime::RuntimeResult<crate::reviewer::model::ReviewModelTurn>
-    {
+        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::adapters::runtime::RuntimeResult<
+        crate::reviewer_kernel::review_model::ReviewModelTurn,
+    > {
         let attempt = {
             let mut attempts = self.attempts.lock().expect("chaos attempts poisoned");
             let attempt = attempts.entry(request.session_id.clone()).or_insert(0);
@@ -1053,14 +1080,16 @@ impl crate::reviewer::model::ReviewModel for ChaosDirectSessionModel {
         if attempt <= Self::failures_before_success(session_index) {
             return Err(Self::chaos_error(session_index));
         }
-        Ok(crate::reviewer::model::ReviewModelTurn::Text {
-            usage: TokenUsage {
-                input_tokens: 2,
-                output_tokens: 1,
-                total_tokens: 3,
-                cached_input_tokens: 0,
+        Ok(
+            crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
+                usage: TokenUsage {
+                    input_tokens: 2,
+                    output_tokens: 1,
+                    total_tokens: 3,
+                    cached_input_tokens: 0,
+                },
+                content: format!("answer:{}", request.session_id),
             },
-            content: format!("answer:{}", request.session_id),
-        })
+        )
     }
 }

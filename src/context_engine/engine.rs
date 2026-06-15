@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::contracts::{stable_id, RuntimeError, RuntimeResult, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{stable_id, RuntimeError, RuntimeResult, SnapshotId};
 
 use super::unix_timestamp_string;
 use super::ContextLearningStore;
@@ -744,7 +744,7 @@ const OMITTED_GRAPH_PATH_LIMIT: usize = 8;
 
 fn graph_paths_for_omitted_candidate(
     relationships: &[ContextRelationship],
-    evidence_paths_by_id: &BTreeMap<&str, &crate::runtime::contracts::RepoPath>,
+    evidence_paths_by_id: &BTreeMap<&str, &crate::reviewer_kernel::kernel_types::RepoPath>,
     candidate: &OmittedContextCandidate,
 ) -> (Vec<ContextCandidateGraphPath>, usize) {
     let all_paths = relationships
@@ -769,7 +769,7 @@ fn graph_paths_for_omitted_candidate(
 
 fn relationship_matches_omitted_candidate(
     relationship: &ContextRelationship,
-    evidence_paths_by_id: &BTreeMap<&str, &crate::runtime::contracts::RepoPath>,
+    evidence_paths_by_id: &BTreeMap<&str, &crate::reviewer_kernel::kernel_types::RepoPath>,
     candidate: &OmittedContextCandidate,
 ) -> bool {
     if relationship.from == candidate.evidence_id || relationship.to == candidate.evidence_id {
@@ -794,7 +794,7 @@ mod pack_selection_tests {
         ContextEvidenceSource, ContextProvenance, ContextRankSignals, ContextScope,
         ContextSensitivity, ContextTrust,
     };
-    use crate::runtime::contracts::{EvidenceId, RepoPath};
+    use crate::reviewer_kernel::kernel_types::{EvidenceId, RepoPath};
 
     fn evidence(id: &str, kind: ContextEvidenceKind, path: &str) -> ContextEvidence {
         ContextEvidence {
@@ -1491,16 +1491,17 @@ impl ContextEngine for SnapshotContextEngine {
             })
             .cloned()
             .collect();
-        let evidence_paths_by_id: BTreeMap<&str, &crate::runtime::contracts::RepoPath> = index
-            .evidence
-            .iter()
-            .filter_map(|evidence| {
-                evidence
-                    .path
-                    .as_ref()
-                    .map(|path| (evidence.id.0.as_str(), path))
-            })
-            .collect();
+        let evidence_paths_by_id: BTreeMap<&str, &crate::reviewer_kernel::kernel_types::RepoPath> =
+            index
+                .evidence
+                .iter()
+                .filter_map(|evidence| {
+                    evidence
+                        .path
+                        .as_ref()
+                        .map(|path| (evidence.id.0.as_str(), path))
+                })
+                .collect();
         for omitted in &mut omitted_candidates {
             let (graph_paths, truncated) = graph_paths_for_omitted_candidate(
                 &index.relationships,
@@ -1615,7 +1616,7 @@ impl ContextEngine for SnapshotContextEngine {
                 // Tests connected through the Context Graph's `Tests`
                 // edges rank above path-stem matches.
                 let graph_test_paths: std::collections::BTreeSet<_> =
-                    crate::runtime::contracts::RepoPath::parse(&path)
+                    crate::reviewer_kernel::kernel_types::RepoPath::parse(&path)
                         .map(|query_path| {
                             index
                                 .graph
@@ -1847,7 +1848,7 @@ impl ContextEngine for SnapshotContextEngine {
                     .or_else(|_| usize_arg(&request.arguments, "start_line"))?;
                 let end_line = usize_arg(&request.arguments, "endLine")
                     .or_else(|_| usize_arg(&request.arguments, "end_line"))?;
-                let repo_path = crate::runtime::contracts::RepoPath::parse(&path)?;
+                let repo_path = crate::reviewer_kernel::kernel_types::RepoPath::parse(&path)?;
                 let content = index.file_contents.get(&repo_path).ok_or_else(|| {
                     RuntimeError::InvalidInput("context read_span path not indexed".to_string())
                 })?;

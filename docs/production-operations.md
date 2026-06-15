@@ -49,7 +49,7 @@ GITLAB_WEBHOOK_TOKEN=...
 ```
 
 These webhook secrets validate GitHub/GitLab webhook requests. They do not
-authenticate normal `/v1/reviews`, `/v1/workspaces`, result, event, artifact, or
+authenticate normal `/v1/reviews`, `/v1/projects`, result, event, artifact, or
 profile API calls.
 
 ## Runtime Behavior
@@ -75,7 +75,7 @@ policy.
 Back up the configured durable store before deploying a new preview build. For
 `sqlite://` stores, stop the service or take a consistent filesystem snapshot of
 the database path. The store contains review state, event history, logs,
-artifacts, retry state, leases, workspace model profiles, and workspace provider
+artifacts, retry state, leases, project model profiles, and project provider
 profiles.
 
 Muzen does not currently provide automatic retention or compaction for review

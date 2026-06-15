@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::repo::is_textish;
-use crate::runtime::contracts::{
+use crate::reviewer_kernel::kernel_types::{
     stable_id, ArtifactId, EvidenceId, RepoPath, RuntimeError, RuntimeResult, SessionInstruction,
     SnapshotCaptureStatus, SnapshotId,
 };
-use crate::runtime::repo::{FileMeta, RepoSnapshot};
+use crate::workspace::is_textish;
+use crate::workspace::{FileMeta, RepoSnapshot};
 
 use super::chunking::{
     body_elision_map, chunk_file, diff_hunk_ranges, estimate_tokens, range_overlaps, skeleton_view,

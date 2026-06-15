@@ -1,14 +1,13 @@
+pub mod canary;
 pub mod cli;
-pub mod context_engine;
-pub mod review_session;
-pub mod reviewer;
-pub mod runner;
-pub mod service;
+pub mod remote_http;
+pub mod review_sessions;
+pub mod review_sources;
+pub mod reviewer_kernel;
+pub mod runner_protocol;
 
-pub(crate) mod contracts;
-pub(crate) mod repo;
-pub(crate) mod runtime;
-pub(crate) mod util;
+pub mod context_engine;
+pub(crate) mod workspace;
 
 #[cfg(test)]
 mod tests;

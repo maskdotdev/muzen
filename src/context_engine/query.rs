@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::runtime::contracts::{EvidenceId, SessionId, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{EvidenceId, SessionId, SnapshotId};
 
 use super::{ContextEvidence, ContextPackPurpose, ContextSufficiency};
 

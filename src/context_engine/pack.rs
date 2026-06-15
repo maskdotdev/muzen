@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::contracts::Role;
-use crate::runtime::contracts::{SessionId, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{SessionId, SnapshotId};
+use crate::reviewer_kernel::review_contract::Role;
 
 use super::{
     ContextEngineConfig, ContextEvidence, ContextEvidenceKind, ContextEvidenceSource,
@@ -118,7 +118,7 @@ pub struct ContextPack {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectedContextCandidate {
-    pub evidence_id: crate::runtime::contracts::EvidenceId,
+    pub evidence_id: crate::reviewer_kernel::kernel_types::EvidenceId,
     pub score: f32,
     pub rank_index: usize,
 }
@@ -447,7 +447,7 @@ mod tests {
         ContextEvidenceSource, ContextProvenance, ContextRankSignals, ContextScope,
         ContextSensitivity, ContextTrust,
     };
-    use crate::runtime::contracts::RepoPath;
+    use crate::reviewer_kernel::kernel_types::RepoPath;
 
     fn evidence(id: &str, signals: ContextRankSignals, is_changed_span: bool) -> ContextEvidence {
         evidence_with_kind(id, ContextEvidenceKind::FileSpan, signals, is_changed_span)
@@ -460,7 +460,7 @@ mod tests {
         is_changed_span: bool,
     ) -> ContextEvidence {
         ContextEvidence {
-            id: crate::runtime::contracts::EvidenceId(id.to_string()),
+            id: crate::reviewer_kernel::kernel_types::EvidenceId(id.to_string()),
             kind,
             source: ContextEvidenceSource::Snapshot,
             trust: ContextTrust::Kernel,

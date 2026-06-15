@@ -16,9 +16,8 @@ use crate::context_engine::{
     ContextPackRequest, ContextQuery, ContextQueryKind, ContextQueryLimits, ContextSemanticMode,
     SnapshotContextEngine,
 };
-use crate::contracts::*;
-use crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient;
-use crate::reviewer::canaries::{
+use crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient;
+use crate::reviewer_kernel::canaries::{
     export_canary_evidence_manifest, export_model_provider_canary_evidence,
     export_remote_object_store_canary_evidence, load_canary_evidence_manifest,
     load_model_provider_canary_evidence, load_remote_object_store_canary_evidence,
@@ -26,9 +25,12 @@ use crate::reviewer::canaries::{
     run_remote_snapshot_object_store_canary, CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
     EnvCredentialResolver, ModelProviderCanaryEvidence, OpenAiProviderCanaryConfig,
 };
-use crate::reviewer::snapshots::{HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient};
-use crate::runtime::repo::RepoSnapshot;
-use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
+use crate::reviewer_kernel::review_contract::*;
+use crate::reviewer_kernel::snapshots::{
+    HttpRemoteObjectClient, InMemoryRemoteSnapshotObjectClient,
+};
+use crate::reviewer_kernel::system::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
+use crate::workspace::RepoSnapshot;
 
 const CANARY_PROVIDER_EVIDENCE_FILE: &str = "model-provider.json";
 const CANARY_SNAPSHOT_EVIDENCE_FILE: &str = "remote-snapshot-object-store.json";
@@ -293,7 +295,7 @@ struct ContextEvalBatchSnapshotInput {
     #[serde(default)]
     host_metadata: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
-    host_instructions: Vec<crate::runtime::contracts::SessionInstruction>,
+    host_instructions: Vec<crate::reviewer_kernel::kernel_types::SessionInstruction>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -723,7 +725,7 @@ pub(crate) struct CanaryProofReport {
     pub(crate) workflow: Option<CanaryWorkflowProvenance>,
     pub(crate) preflight: Option<CanaryPublicationPreflightReport>,
     pub(crate) publication: Option<CanaryPublicationReport>,
-    pub(crate) status: Option<crate::reviewer::canaries::CanaryEvidenceStatusReport>,
+    pub(crate) status: Option<crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport>,
     pub(crate) ok: bool,
     pub(crate) failures: Vec<String>,
 }
@@ -949,7 +951,7 @@ async fn index_context_snapshot(
 async fn index_context_snapshot_with_host(
     args: &ContextSnapshotArgs,
     host_metadata: Option<BTreeMap<String, serde_json::Value>>,
-    host_instructions: Option<Vec<crate::runtime::contracts::SessionInstruction>>,
+    host_instructions: Option<Vec<crate::reviewer_kernel::kernel_types::SessionInstruction>>,
 ) -> Result<(
     SnapshotContextEngine,
     Arc<RepoSnapshot>,
@@ -1001,7 +1003,7 @@ fn context_index_request(
     config: &ContextEngineConfig,
     args: &ContextSnapshotArgs,
     host_metadata: Option<BTreeMap<String, serde_json::Value>>,
-    host_instructions: Option<Vec<crate::runtime::contracts::SessionInstruction>>,
+    host_instructions: Option<Vec<crate::reviewer_kernel::kernel_types::SessionInstruction>>,
 ) -> Result<ContextIndexRequest> {
     let mut request = ContextIndexRequest::for_snapshot(Arc::clone(snapshot), config);
     if let Some(metadata) = host_metadata {
@@ -1016,8 +1018,9 @@ fn context_index_request(
         request.instructions = instructions;
         request.include_host_context = true;
     } else if let Some(path) = &args.host_instruction_json {
-        request.instructions =
-            read_context_json_file::<Vec<crate::runtime::contracts::SessionInstruction>>(path)?;
+        request.instructions = read_context_json_file::<
+            Vec<crate::reviewer_kernel::kernel_types::SessionInstruction>,
+        >(path)?;
         request.include_host_context = true;
     }
     Ok(request)
@@ -1203,8 +1206,8 @@ fn non_empty_host_metadata(
 }
 
 fn non_empty_host_instructions(
-    value: &[crate::runtime::contracts::SessionInstruction],
-) -> Option<Vec<crate::runtime::contracts::SessionInstruction>> {
+    value: &[crate::reviewer_kernel::kernel_types::SessionInstruction],
+) -> Option<Vec<crate::reviewer_kernel::kernel_types::SessionInstruction>> {
     if value.is_empty() {
         None
     } else {
@@ -1432,7 +1435,7 @@ fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot
         &args.repo,
         &PathPolicyV1::bench(args.max_file_kb, args.max_search_matches),
         &change,
-        crate::runtime::contracts::SnapshotStoragePolicy::default(),
+        crate::reviewer_kernel::kernel_types::SnapshotStoragePolicy::default(),
     )
     .map_err(|error| anyhow::anyhow!("{error}"))
 }
@@ -1997,8 +2000,8 @@ fn load_or_run_provider_canary_evidence(
 fn run_remote_object_store_canary_evidence(
     args: &CanaryPublishArgs,
 ) -> Result<(
-    crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence,
-    crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence,
+    crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence,
+    crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence,
 )> {
     match args.object_store_driver {
         RemoteObjectStoreCanaryDriver::Memory => {
@@ -2276,7 +2279,7 @@ pub(crate) fn canary_proof_report(args: &CanaryProofArgs) -> CanaryProofReport {
         );
     }
 
-    let status: Option<crate::reviewer::canaries::CanaryEvidenceStatusReport> =
+    let status: Option<crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport> =
         read_canary_json_file(&status_path, "canary status report", &mut failures);
     if let Some(status) = &status {
         validate_canary_status_proof_report(status, args, &mut failures);
@@ -2312,7 +2315,7 @@ pub(crate) fn canary_proof_report(args: &CanaryProofArgs) -> CanaryProofReport {
     if let Some(snapshot) = &snapshot {
         validate_remote_object_store_canary_proof(
             snapshot,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
             &mut failures,
         );
     }
@@ -2325,7 +2328,7 @@ pub(crate) fn canary_proof_report(args: &CanaryProofArgs) -> CanaryProofReport {
     if let Some(artifact) = &artifact {
         validate_remote_object_store_canary_proof(
             artifact,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact,
             &mut failures,
         );
     }
@@ -2374,7 +2377,7 @@ pub(crate) fn canary_proof_report(args: &CanaryProofArgs) -> CanaryProofReport {
 }
 
 fn canary_status_report_json(
-    report: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
+    report: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
 ) -> Result<Vec<u8>> {
     let mut status_json = serde_json::to_vec_pretty(report)?;
     status_json.push(b'\n');
@@ -2383,7 +2386,7 @@ fn canary_status_report_json(
 
 fn write_canary_status_report(
     path: &Path,
-    report: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
+    report: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
 ) -> Result<usize> {
     if let Some(parent) = path
         .parent()
@@ -2435,7 +2438,7 @@ fn write_canary_workflow_provenance(
 
 pub(crate) fn canary_publication_report(
     args: &CanaryPublishArgs,
-    status: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
+    status: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
 ) -> CanaryPublicationReport {
     CanaryPublicationReport {
         schema_version: CANARY_PUBLICATION_SCHEMA_VERSION.to_string(),
@@ -2589,7 +2592,7 @@ fn load_remote_object_store_canary_evidence_for_proof(
     path: &Path,
     label: &str,
     failures: &mut Vec<String>,
-) -> Option<crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence> {
+) -> Option<crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence> {
     match load_remote_object_store_canary_evidence(path) {
         Ok(evidence) => Some(evidence),
         Err(error) => {
@@ -2936,10 +2939,10 @@ fn validate_required_preflight_check(
 
 struct CanaryPreflightConsistencyContext<'a> {
     publication: Option<&'a CanaryPublicationReport>,
-    status: Option<&'a crate::reviewer::canaries::CanaryEvidenceStatusReport>,
+    status: Option<&'a crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport>,
     provider: Option<&'a ModelProviderCanaryEvidence>,
-    snapshot: Option<&'a crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence>,
-    artifact: Option<&'a crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence>,
+    snapshot: Option<&'a crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence>,
+    artifact: Option<&'a crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence>,
     max_evidence_age_seconds: u64,
 }
 
@@ -3033,13 +3036,13 @@ fn validate_canary_preflight_consistency(
     if let Some(status) = context.status {
         validate_preflight_status_remote_base_uri(
             status,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
             &config.snapshot_base_uri,
             failures,
         );
         validate_preflight_status_remote_base_uri(
             status,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact,
             &config.artifact_base_uri,
             failures,
         );
@@ -3060,8 +3063,8 @@ fn validate_preflight_remote_base_uri(
 }
 
 fn validate_preflight_status_remote_base_uri(
-    status: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
-    target: crate::reviewer::canaries::RemoteObjectStoreCanaryTarget,
+    status: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
+    target: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget,
     preflight_base_uri: &str,
     failures: &mut Vec<String>,
 ) {
@@ -3172,7 +3175,7 @@ fn validate_canary_publication_file(
 }
 
 fn validate_canary_status_proof_report(
-    status: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
+    status: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
     args: &CanaryProofArgs,
     failures: &mut Vec<String>,
 ) {
@@ -3206,19 +3209,19 @@ fn validate_canary_status_proof_report(
     }
     validate_canary_remote_status(
         status,
-        crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
         failures,
     );
     validate_canary_remote_status(
         status,
-        crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact,
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact,
         failures,
     );
 }
 
 fn validate_canary_remote_status(
-    status: &crate::reviewer::canaries::CanaryEvidenceStatusReport,
-    target: crate::reviewer::canaries::RemoteObjectStoreCanaryTarget,
+    status: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
+    target: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget,
     failures: &mut Vec<String>,
 ) {
     let target_name = canary_remote_target_name(target);
@@ -3261,7 +3264,7 @@ fn validate_canary_remote_status(
 
 fn validate_canary_manifest_status_consistency(
     manifest: &CanaryEvidenceManifest,
-    status: Option<&crate::reviewer::canaries::CanaryEvidenceStatusReport>,
+    status: Option<&crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport>,
     failures: &mut Vec<String>,
 ) {
     let Some(status) = status else {
@@ -3326,8 +3329,8 @@ fn validate_model_provider_canary_proof(
 }
 
 fn validate_remote_object_store_canary_proof(
-    evidence: &crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence,
-    expected_target: crate::reviewer::canaries::RemoteObjectStoreCanaryTarget,
+    evidence: &crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence,
+    expected_target: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget,
     failures: &mut Vec<String>,
 ) {
     let expected_name = canary_remote_target_name(expected_target);
@@ -3353,8 +3356,8 @@ fn validate_remote_object_store_canary_proof(
 fn validate_canary_child_files_match_manifest(
     manifest: Option<&CanaryEvidenceManifest>,
     provider: Option<&ModelProviderCanaryEvidence>,
-    snapshot: Option<&crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence>,
-    artifact: Option<&crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence>,
+    snapshot: Option<&crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence>,
+    artifact: Option<&crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence>,
     failures: &mut Vec<String>,
 ) {
     let Some(manifest) = manifest else {
@@ -3373,7 +3376,7 @@ fn validate_canary_child_files_match_manifest(
         validate_manifest_remote_evidence_match(
             manifest,
             snapshot,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot,
             failures,
         );
     }
@@ -3381,7 +3384,7 @@ fn validate_canary_child_files_match_manifest(
         validate_manifest_remote_evidence_match(
             manifest,
             artifact,
-            crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact,
+            crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact,
             failures,
         );
     }
@@ -3389,8 +3392,8 @@ fn validate_canary_child_files_match_manifest(
 
 fn validate_manifest_remote_evidence_match(
     manifest: &CanaryEvidenceManifest,
-    evidence: &crate::reviewer::canaries::RemoteObjectStoreCanaryEvidence,
-    target: crate::reviewer::canaries::RemoteObjectStoreCanaryTarget,
+    evidence: &crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence,
+    target: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget,
     failures: &mut Vec<String>,
 ) {
     let target_name = canary_remote_target_name(target);
@@ -3415,11 +3418,11 @@ fn validate_manifest_remote_evidence_match(
 }
 
 fn canary_remote_target_name(
-    target: crate::reviewer::canaries::RemoteObjectStoreCanaryTarget,
+    target: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget,
 ) -> &'static str {
     match target {
-        crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot => "snapshot",
-        crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact => "artifact",
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot => "snapshot",
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact => "artifact",
     }
 }
 

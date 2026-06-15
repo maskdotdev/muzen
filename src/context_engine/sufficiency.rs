@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::RepoPath;
+use crate::reviewer_kernel::kernel_types::RepoPath;
 
 use super::chunking::range_overlaps;
 use super::graph::ContextEdgeKind;

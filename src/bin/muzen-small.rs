@@ -29,12 +29,14 @@ use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 
 // ---- muzen facade (used only by --engine mode) -----------------------------
-use muzen::reviewer::adapters::runtime::RuntimeResult;
-use muzen::reviewer::adapters::{AgentBudget, Cancellation, Role, TokenUsage};
-use muzen::reviewer::model::{ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall};
-use muzen::reviewer::run::Run;
-use muzen::reviewer::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
-use muzen::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunMode, RunSpec};
+use muzen::reviewer_kernel::adapters::runtime::RuntimeResult;
+use muzen::reviewer_kernel::adapters::{AgentBudget, Cancellation, Role, TokenUsage};
+use muzen::reviewer_kernel::kernel::Run;
+use muzen::reviewer_kernel::review_model::{
+    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall,
+};
+use muzen::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
+use muzen::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunMode, RunSpec};
 
 const MAX_AGENT_TURNS: usize = 8;
 const SUBAGENT_CONCURRENCY: usize = 4;

@@ -39,11 +39,11 @@ work, but the surface is still settling.
   retries, leases, and worker claims
 - Durable libSQL-backed SQLite stores by default, with an explicit in-memory
   store mode
-- Workspace-scoped model and provider profiles with secret references (no raw
+- Project-scoped model and provider profiles with secret references (no raw
   credentials)
 - GitHub and GitLab webhook verification, source mapping, and queued scheduling
 - Full HTTP API: review creation, SSE streaming, results, artifacts,
-  cancellation, webhooks, and workspace profiles
+  cancellation, webhooks, and project profiles
 - An Axum-backed `muzen-service` binary wrapping the core HTTP router
 - Pull request and merge request materialization with temporary Git checkouts,
   token-safe auth, provider base URL routing, and changed-file inference
@@ -129,20 +129,20 @@ const muzen = createMuzenClient({
   token: process.env.MUZEN_TOKEN,
 });
 
-const workspace = muzen.workspace("acme");
+const project = muzen.project("acme");
 
-await workspace.models.set("default", {
+await project.models.set("default", {
   provider: "openai_compatible",
   model: "gpt-5",
-  secretRef: "vault://workspaces/acme/models/default",
+  secretRef: "vault://projects/acme/models/default",
 });
 
-await workspace.providers.set("github", {
+await project.providers.set("github", {
   provider: "github",
-  secretRef: "vault://workspaces/acme/providers/github",
+  secretRef: "vault://projects/acme/providers/github",
 });
 
-const review = await workspace.review("github:maskdotdev/heimdaal#123", {
+const review = await project.review("github:maskdotdev/heimdaal#123", {
   model: "default",
 });
 
@@ -161,7 +161,7 @@ export async function POST(request: Request) {
 ```
 
 The helpers verify signatures (GitHub) or tokens (GitLab), map pull request and
-merge request events to review sources, and queue workspace reviews
+merge request events to review sources, and queue project reviews
 automatically.
 
 ## Python

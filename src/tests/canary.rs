@@ -4,20 +4,21 @@ use super::support::*;
 #[test]
 fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
     let remote_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
-    let evidence = crate::reviewer::adapters::storage::run_remote_snapshot_object_store_canary(
-        "s3://muzen-test-snapshots/canary",
-        remote_client.as_ref(),
-    );
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+    let evidence =
+        crate::reviewer_kernel::adapters::storage::run_remote_snapshot_object_store_canary(
+            "s3://muzen-test-snapshots/canary",
+            remote_client.as_ref(),
+        );
 
     evidence.require_passed().expect("snapshot canary passed");
     assert_eq!(
         evidence.schema_version,
-        crate::reviewer::adapters::storage::REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION
+        crate::reviewer_kernel::adapters::storage::REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION
     );
     assert_eq!(
         evidence.target,
-        crate::reviewer::adapters::storage::RemoteObjectStoreCanaryTarget::Snapshot
+        crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryTarget::Snapshot
     );
     assert!(evidence.cleanup_supported);
     assert_eq!(evidence.gate.passed, 4);
@@ -30,16 +31,17 @@ fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
         .path()
         .join("canaries")
         .join("remote-snapshot-object-store.json");
-    let export = crate::reviewer::adapters::storage::export_remote_object_store_canary_evidence(
-        &evidence_path,
-        &evidence,
-    )
-    .unwrap();
+    let export =
+        crate::reviewer_kernel::adapters::storage::export_remote_object_store_canary_evidence(
+            &evidence_path,
+            &evidence,
+        )
+        .unwrap();
     assert!(export.valid);
     assert_eq!(export.path, evidence_path);
     let serialized = fs::read_to_string(&export.path).unwrap();
     assert!(serialized.ends_with('\n'));
-    let loaded: crate::reviewer::adapters::storage::RemoteObjectStoreCanaryEvidence =
+    let loaded: crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryEvidence =
         serde_json::from_str(&serialized).unwrap();
     loaded.require_passed().expect("loaded canary passed");
 
@@ -55,16 +57,17 @@ fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
 #[test]
 fn public_remote_artifact_object_store_canary_proves_integrity_and_cleanup() {
     let remote_client =
-        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let evidence = crate::reviewer::adapters::storage::run_remote_artifact_object_store_canary(
-        "s3://muzen-test-artifacts/canary",
-        remote_client.as_ref(),
-    );
+        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let evidence =
+        crate::reviewer_kernel::adapters::storage::run_remote_artifact_object_store_canary(
+            "s3://muzen-test-artifacts/canary",
+            remote_client.as_ref(),
+        );
 
     evidence.require_passed().expect("artifact canary passed");
     assert_eq!(
         evidence.target,
-        crate::reviewer::adapters::storage::RemoteObjectStoreCanaryTarget::Artifact
+        crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryTarget::Artifact
     );
     assert!(evidence.cleanup_supported);
     assert_eq!(evidence.gate.passed, 4);
@@ -75,7 +78,8 @@ fn public_remote_artifact_object_store_canary_proves_integrity_and_cleanup() {
     assert!(object_uri.starts_with("s3://muzen-test-artifacts/canary/artifacts/redacted/"));
     assert!(remote_client.read(object_uri).is_none());
     assert!(evidence.steps.iter().all(|step| {
-        step.status == crate::reviewer::adapters::storage::RemoteObjectStoreCanaryStatus::Passed
+        step.status
+            == crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryStatus::Passed
     }));
 }
 
@@ -83,18 +87,18 @@ fn public_remote_artifact_object_store_canary_proves_integrity_and_cleanup() {
 fn public_canary_evidence_manifest_gates_provider_and_remote_store_evidence() {
     let model_provider = passing_model_provider_canary_evidence();
     let snapshot_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let artifact_client =
-        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
-    let artifact = crate::reviewer::canaries::run_remote_artifact_object_store_canary(
+    let artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
         "s3://muzen-test-artifacts/canary",
         artifact_client.as_ref(),
     );
-    let manifest = crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
+    let manifest = crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
         "manifest-time",
         Some(model_provider.clone()),
         vec![snapshot.clone(), artifact.clone()],
@@ -103,7 +107,7 @@ fn public_canary_evidence_manifest_gates_provider_and_remote_store_evidence() {
     manifest.require_passed().expect("manifest passed");
     assert_eq!(
         manifest.schema_version,
-        crate::reviewer::canaries::CANARY_EVIDENCE_MANIFEST_SCHEMA_VERSION
+        crate::reviewer_kernel::canaries::CANARY_EVIDENCE_MANIFEST_SCHEMA_VERSION
     );
     assert_eq!(
         manifest.gate.passed,
@@ -114,18 +118,20 @@ fn public_canary_evidence_manifest_gates_provider_and_remote_store_evidence() {
 
     let evidence_dir = tempfile::tempdir().unwrap();
     let evidence_path = evidence_dir.path().join("canaries").join("manifest.json");
-    let export =
-        crate::reviewer::canaries::export_canary_evidence_manifest(&evidence_path, &manifest)
-            .unwrap();
+    let export = crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
+        &evidence_path,
+        &manifest,
+    )
+    .unwrap();
     assert!(export.valid);
     assert_eq!(export.path, evidence_path);
     let serialized = fs::read_to_string(&export.path).unwrap();
     assert!(serialized.ends_with('\n'));
-    let loaded: crate::reviewer::canaries::CanaryEvidenceManifest =
+    let loaded: crate::reviewer_kernel::canaries::CanaryEvidenceManifest =
         serde_json::from_str(&serialized).unwrap();
     loaded.require_passed().expect("loaded manifest passed");
 
-    let missing_model = crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
+    let missing_model = crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
         "manifest-time",
         None,
         vec![snapshot.clone(), artifact.clone()],
@@ -133,11 +139,12 @@ fn public_canary_evidence_manifest_gates_provider_and_remote_store_evidence() {
     let error = missing_model.require_passed().unwrap_err().to_string();
     assert!(error.contains("missing model provider canary evidence"));
 
-    let duplicate_snapshot = crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
-        "manifest-time",
-        Some(model_provider.clone()),
-        vec![snapshot.clone(), snapshot.clone(), artifact.clone()],
-    );
+    let duplicate_snapshot =
+        crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
+            "manifest-time",
+            Some(model_provider.clone()),
+            vec![snapshot.clone(), snapshot.clone(), artifact.clone()],
+        );
     let error = duplicate_snapshot.require_passed().unwrap_err().to_string();
     assert!(error.contains("duplicate snapshot remote object-store canary evidence: 2"));
 
@@ -154,32 +161,32 @@ fn public_canary_evidence_manifest_gates_provider_and_remote_store_evidence() {
 fn public_canary_evidence_manifest_freshness_policy_rejects_stale_and_future_evidence() {
     let model_provider = passing_model_provider_canary_evidence_at("1000.000000000Z");
     let snapshot_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let artifact_client =
-        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let mut snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let mut snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
-    let mut artifact = crate::reviewer::canaries::run_remote_artifact_object_store_canary(
+    let mut artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
         "s3://muzen-test-artifacts/canary",
         artifact_client.as_ref(),
     );
     snapshot.generated_at_utc = "1000.000000000Z".to_string();
     artifact.generated_at_utc = "1000.000000000Z".to_string();
-    let manifest = crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
+    let manifest = crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
         "1000.000000000Z",
         Some(model_provider),
         vec![snapshot, artifact],
     );
     let fresh =
-        crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::at("1100.000000000Z", 120);
+        crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::at("1100.000000000Z", 120);
     manifest
         .require_passed_with_freshness(&fresh)
         .expect("fresh manifest passed");
 
     let stale =
-        crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::at("1300.000000000Z", 120);
+        crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::at("1300.000000000Z", 120);
     let error = manifest
         .require_passed_with_freshness(&stale)
         .unwrap_err()
@@ -190,7 +197,7 @@ fn public_canary_evidence_manifest_freshness_policy_rejects_stale_and_future_evi
     assert!(error.contains("artifact remote object-store canary evidence is stale"));
 
     let future =
-        crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::at("900.000000000Z", 120);
+        crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::at("900.000000000Z", 120);
     let error = manifest
         .require_passed_with_freshness(&future)
         .unwrap_err()
@@ -202,26 +209,29 @@ fn public_canary_evidence_manifest_freshness_policy_rejects_stale_and_future_evi
 fn public_canary_evidence_status_report_separates_gate_and_freshness_failures() {
     let model_provider = passing_model_provider_canary_evidence_at("1000.000000000Z");
     let snapshot_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
-    let mut snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+    let mut snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
     snapshot.generated_at_utc = "1000.000000000Z".to_string();
-    let manifest = crate::reviewer::canaries::CanaryEvidenceManifest::with_generated_at(
+    let manifest = crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
         "1000.000000000Z",
         Some(model_provider),
         vec![snapshot],
     );
 
     let report = manifest.status_report(
-        &crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::at("1300.000000000Z", 120),
+        &crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::at(
+            "1300.000000000Z",
+            120,
+        ),
     );
 
     assert!(!report.ok);
     assert_eq!(
         report.manifest_schema_version,
-        crate::reviewer::canaries::CANARY_EVIDENCE_MANIFEST_SCHEMA_VERSION
+        crate::reviewer_kernel::canaries::CANARY_EVIDENCE_MANIFEST_SCHEMA_VERSION
     );
     assert_eq!(report.generated_at_utc, "1000.000000000Z");
     assert_eq!(report.freshness_checked_at_utc, "1300.000000000Z");
@@ -252,27 +262,30 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
     let manifest_path = evidence_dir.path().join("manifest.json");
     let invalid_manifest_path = evidence_dir.path().join("invalid-manifest.json");
     let provider = passing_model_provider_canary_evidence();
-    crate::reviewer::canaries::export_model_provider_canary_evidence(&provider_path, &provider)
-        .unwrap();
+    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
+        &provider_path,
+        &provider,
+    )
+    .unwrap();
 
     let snapshot_client =
-        Arc::new(crate::reviewer::snapshots::InMemoryRemoteSnapshotObjectClient::default());
+        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let artifact_client =
-        Arc::new(crate::reviewer::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let snapshot = crate::reviewer::canaries::run_remote_snapshot_object_store_canary(
+        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
+    let snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
-    let artifact = crate::reviewer::canaries::run_remote_artifact_object_store_canary(
+    let artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
         "s3://muzen-test-artifacts/canary",
         artifact_client.as_ref(),
     );
-    crate::reviewer::canaries::export_remote_object_store_canary_evidence(
+    crate::reviewer_kernel::canaries::export_remote_object_store_canary_evidence(
         &snapshot_path,
         &snapshot,
     )
     .unwrap();
-    crate::reviewer::canaries::export_remote_object_store_canary_evidence(
+    crate::reviewer_kernel::canaries::export_remote_object_store_canary_evidence(
         &artifact_path,
         &artifact,
     )
@@ -286,7 +299,7 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
     })
     .unwrap();
     assert_eq!(code, 0);
-    let loaded = crate::reviewer::canaries::load_canary_evidence_manifest(&manifest_path)
+    let loaded = crate::reviewer_kernel::canaries::load_canary_evidence_manifest(&manifest_path)
         .expect("load manifest");
     loaded.require_passed().expect("manifest passed");
 
@@ -299,8 +312,9 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("missing artifact remote object-store canary evidence"));
-    let invalid = crate::reviewer::canaries::load_canary_evidence_manifest(&invalid_manifest_path)
-        .expect("load invalid manifest");
+    let invalid =
+        crate::reviewer_kernel::canaries::load_canary_evidence_manifest(&invalid_manifest_path)
+            .expect("load invalid manifest");
     assert!(!invalid.gate.valid);
 }
 
@@ -310,7 +324,7 @@ fn cli_canary_publish_writes_child_evidence_and_manifest() {
     let provider_input_path = evidence_dir.path().join("input-provider.json");
     let output_dir = evidence_dir.path().join("published");
     let provider = passing_model_provider_canary_evidence();
-    crate::reviewer::canaries::export_model_provider_canary_evidence(
+    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
         &provider_input_path,
         &provider,
     )
@@ -344,14 +358,15 @@ fn cli_canary_publish_writes_child_evidence_and_manifest() {
     assert!(status_output.exists());
     assert!(publication_output.exists());
 
-    let manifest = crate::reviewer::canaries::load_canary_evidence_manifest(&manifest_output)
-        .expect("load published manifest");
+    let manifest =
+        crate::reviewer_kernel::canaries::load_canary_evidence_manifest(&manifest_output)
+            .expect("load published manifest");
     manifest
         .require_passed_with_freshness(
-            &crate::reviewer::canaries::CanaryEvidenceFreshnessPolicy::current(86_400),
+            &crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::current(86_400),
         )
         .expect("published manifest passed");
-    let status: crate::reviewer::canaries::CanaryEvidenceStatusReport =
+    let status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
         serde_json::from_str(&fs::read_to_string(&status_output).unwrap()).unwrap();
     assert!(status.ok);
     assert!(status.evidence.model_provider.present);
@@ -376,11 +391,11 @@ fn cli_canary_publish_writes_status_for_failed_manifest_gate() {
     let evidence_dir = tempfile::tempdir().unwrap();
     let provider_input_path = evidence_dir.path().join("input-provider.json");
     let output_dir = evidence_dir.path().join("published");
-    let provider = crate::reviewer::canaries::ModelProviderCanaryEvidence::with_generated_at(
-        crate::util::timestamp_utc(),
+    let provider = crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence::with_generated_at(
+        crate::reviewer_kernel::system::timestamp_utc(),
         Vec::new(),
     );
-    crate::reviewer::canaries::export_model_provider_canary_evidence(
+    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
         &provider_input_path,
         &provider,
     )
@@ -408,7 +423,7 @@ fn cli_canary_publish_writes_status_for_failed_manifest_gate() {
     assert!(manifest_output.exists());
     assert!(status_output.exists());
     assert!(publication_output.exists());
-    let status: crate::reviewer::canaries::CanaryEvidenceStatusReport =
+    let status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
         serde_json::from_str(&fs::read_to_string(&status_output).unwrap()).unwrap();
     assert!(!status.ok);
     assert!(status.evidence.model_provider.present);
@@ -437,7 +452,7 @@ fn cli_canary_preflight_accepts_reused_provider_evidence_and_memory_store() {
     let evidence_dir = tempfile::tempdir().unwrap();
     let provider_input_path = evidence_dir.path().join("input-provider.json");
     let provider = passing_model_provider_canary_evidence();
-    crate::reviewer::canaries::export_model_provider_canary_evidence(
+    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
         &provider_input_path,
         &provider,
     )
@@ -575,8 +590,11 @@ fn cli_canary_verify_gates_published_manifest_files() {
     let manifest_path = evidence_dir.path().join("manifest.json");
     let stale_manifest_path = evidence_dir.path().join("stale-manifest.json");
     let fresh_manifest = current_passing_canary_manifest();
-    crate::reviewer::canaries::export_canary_evidence_manifest(&manifest_path, &fresh_manifest)
-        .unwrap();
+    crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
+        &manifest_path,
+        &fresh_manifest,
+    )
+    .unwrap();
 
     let code = crate::cli::run_canary_verify(CanaryVerifyArgs {
         manifest: manifest_path,
@@ -586,7 +604,7 @@ fn cli_canary_verify_gates_published_manifest_files() {
     assert_eq!(code, 0);
 
     let stale_manifest = passing_canary_manifest_at("1000.000000000Z");
-    crate::reviewer::canaries::export_canary_evidence_manifest(
+    crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
         &stale_manifest_path,
         &stale_manifest,
     )
@@ -608,8 +626,11 @@ fn cli_canary_status_reports_published_manifest_state() {
     let stale_manifest_path = evidence_dir.path().join("stale-manifest.json");
     let stale_status_path = evidence_dir.path().join("stale-status.json");
     let fresh_manifest = current_passing_canary_manifest();
-    crate::reviewer::canaries::export_canary_evidence_manifest(&manifest_path, &fresh_manifest)
-        .unwrap();
+    crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
+        &manifest_path,
+        &fresh_manifest,
+    )
+    .unwrap();
 
     let code = crate::cli::run_canary_status(crate::cli::CanaryStatusArgs {
         manifest: manifest_path,
@@ -618,24 +639,25 @@ fn cli_canary_status_reports_published_manifest_state() {
     })
     .unwrap();
     assert_eq!(code, 0);
-    let status: crate::reviewer::canaries::CanaryEvidenceStatusReport =
+    let status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
         serde_json::from_str(&fs::read_to_string(&status_path).unwrap()).unwrap();
     assert!(status.ok);
     assert!(status.evidence.model_provider.present);
     assert_eq!(
         status.evidence.model_provider.required_protocols,
-        crate::reviewer::canaries::openai_provider_canary_protocols().to_vec()
+        crate::reviewer_kernel::canaries::openai_provider_canary_protocols().to_vec()
     );
     assert_eq!(
         status.evidence.model_provider.passed_protocols,
-        crate::reviewer::canaries::openai_provider_canary_protocols().to_vec()
+        crate::reviewer_kernel::canaries::openai_provider_canary_protocols().to_vec()
     );
     let snapshot_status = status
         .evidence
         .remote_object_stores
         .iter()
         .find(|evidence| {
-            evidence.target == crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Snapshot
+            evidence.target
+                == crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot
         })
         .expect("snapshot evidence status");
     assert_eq!(snapshot_status.evidence_count, 1);
@@ -650,14 +672,15 @@ fn cli_canary_status_reports_published_manifest_state() {
         .remote_object_stores
         .iter()
         .find(|evidence| {
-            evidence.target == crate::reviewer::canaries::RemoteObjectStoreCanaryTarget::Artifact
+            evidence.target
+                == crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact
         })
         .expect("artifact evidence status");
     assert_eq!(artifact_status.evidence_count, 1);
     assert!(artifact_status.gate.as_ref().expect("artifact gate").valid);
 
     let stale_manifest = passing_canary_manifest_at("1000.000000000Z");
-    crate::reviewer::canaries::export_canary_evidence_manifest(
+    crate::reviewer_kernel::canaries::export_canary_evidence_manifest(
         &stale_manifest_path,
         &stale_manifest,
     )
@@ -671,7 +694,7 @@ fn cli_canary_status_reports_published_manifest_state() {
     .to_string();
     assert!(error.contains("canary evidence manifest status failed"));
     assert!(error.contains("canary evidence manifest is stale"));
-    let stale_status: crate::reviewer::canaries::CanaryEvidenceStatusReport =
+    let stale_status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
         serde_json::from_str(&fs::read_to_string(&stale_status_path).unwrap()).unwrap();
     assert!(!stale_status.ok);
     assert!(stale_status

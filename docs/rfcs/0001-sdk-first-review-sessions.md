@@ -395,7 +395,7 @@ const muzen = await createMuzen({
   },
 });
 
-const workspace = muzen.workspace("acme");
+const workspace = muzen.project("acme");
 
 await workspace.models.set("default", {
   provider: "openai-compatible",
@@ -465,7 +465,7 @@ interface Muzen {
 
   resumeReview(id: string): Promise<ReviewSession>;
 
-  workspace(id: string): MuzenWorkspace;
+  project(id: string): MuzenProject;
 
   createReviewSession(
     input: CreateReviewSessionInput,
@@ -497,7 +497,7 @@ interface Muzen {
   close(): Promise<void>;
 }
 
-interface MuzenWorkspace {
+interface MuzenProject {
   readonly id: string;
 
   review(
@@ -1209,10 +1209,10 @@ The workspace or user controls:
 - named model profiles,
 - named provider profiles.
 
-Example workspace profile setup:
+Example project profile setup:
 
 ```ts
-const workspace = muzen.workspace(workspaceId);
+const workspace = muzen.project(projectId);
 
 await workspace.models.set("default", {
   provider: "openai-compatible",
@@ -1367,7 +1367,7 @@ OPENAI_API_KEY=...
 BYOK or multi-tenant:
 
 ```ts
-const workspace = muzen.workspace("acme");
+const workspace = muzen.project("acme");
 
 await workspace.models.set("default", {
   provider: "openai-compatible",
@@ -1462,7 +1462,7 @@ defineMuzenConfig()
 
 muzen.review(...)
 muzen.resumeReview(...)
-muzen.workspace(...)
+muzen.project(...)
 muzen.webhooks.github(...)
 muzen.workers.start(...)
 

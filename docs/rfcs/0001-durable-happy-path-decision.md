@@ -20,11 +20,11 @@ vocabulary.
 
 - `createMuzenClient({ baseUrl }).review(...)` is the production client-only
   happy path and expects the remote service to schedule durable work.
-- `createMuzenClient({ baseUrl }).workspace(id).review(...)` is the
+- `createMuzenClient({ baseUrl }).project(id).review(...)` is the
   workspace-scoped durable scheduling path.
-- Rust `MuzenWorkspace::schedule_review(...)` is the canonical core operation
+- Rust `MuzenProject::schedule_review(...)` is the canonical core operation
   for durable workspace scheduling.
-- Rust `MuzenWorkspace::review(...)` and SDK local `createMuzen().review(...)`
+- Rust `MuzenProject::review(...)` and SDK local `createMuzen().review(...)`
   remain preview conveniences for inline local repository execution.
 - Provider-backed local `createMuzen().review("github:...")` is resolved by
   Rust runner provider materialization before inline preview execution.
@@ -44,7 +44,7 @@ execution to queued durable execution when all of these are true:
    claiming and lease semantics equivalent to the in-memory store contract.
    Implemented by `PostgresReviewSessionStore`.
 3. Workspace profile persistence exists for model/provider records and
-   secret-reference snapshots. Implemented by `PostgresWorkspaceProfileStore`.
+   secret-reference snapshots. Implemented by `PostgresProjectProfileStore`.
 4. Provider source materialization exists for GitHub and GitLab pull/merge
    requests. Implemented by Rust runner provider materialization.
 5. SDK `review.wait()`, `events()`, `eventsResponse()`, `cancel()`,

@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
-use muzen::reviewer::adapters::runtime::RuntimeResult;
-use muzen::reviewer::adapters::{Cancellation, TokenUsage};
-use muzen::reviewer::model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
-use muzen::reviewer::run::Run;
-use muzen::reviewer::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
-use muzen::reviewer::spec::{ReviewRunLimits, RunSpec};
+use muzen::reviewer_kernel::adapters::runtime::RuntimeResult;
+use muzen::reviewer_kernel::adapters::{Cancellation, TokenUsage};
+use muzen::reviewer_kernel::kernel::Run;
+use muzen::reviewer_kernel::review_model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
+use muzen::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
+use muzen::reviewer_kernel::spec::{ReviewRunLimits, RunSpec};
 
 const MODEL_LATENCY_MS: u64 = 25;
 const FILES_PER_UNIT: usize = 4;

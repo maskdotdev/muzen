@@ -1497,7 +1497,7 @@
       "shape": "object",
       "fields": [
         {
-          "name": "workspaceId",
+          "name": "projectId",
           "type": "string",
           "required": false,
           "default": "null"
@@ -1610,7 +1610,7 @@
       "shape": "enum",
       "values": [
         "fifo",
-        "round_robin_by_workspace"
+        "round_robin_by_project"
       ]
     },
     {
@@ -1645,7 +1645,7 @@
           "default": "null"
         },
         {
-          "name": "maxRunningPerWorkspace",
+          "name": "maxRunningPerProject",
           "type": "integer",
           "required": false,
           "default": "null"

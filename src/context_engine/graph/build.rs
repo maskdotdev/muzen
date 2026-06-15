@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::runtime::contracts::{RepoPath, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{RepoPath, SnapshotId};
 
 use super::super::chunking::{range_overlaps, FileChunk};
 use super::super::syntax::ParsedSymbols;

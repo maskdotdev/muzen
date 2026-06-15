@@ -73,7 +73,7 @@ pressure, and commit-sized milestones.
 - [x] Rust core exposes framework-agnostic HTTP/SSE response helpers for review
   events and webhook deliveries.
 - [x] Rust core exposes a framework-neutral remote HTTP router for the
-  documented review, event, artifact, webhook, and workspace profile routes.
+  documented review, event, artifact, webhook, and project profile routes.
 - [x] Rust exposes a concrete Axum HTTP service adapter and `muzen-service`
   binary around the core router.
 - [x] Developer docs and examples run against the implementation.
@@ -198,7 +198,7 @@ Exit criteria:
 - [x] Implement Python `Client.create()`.
 - [x] Implement Python review session event iteration and final result access.
 - [x] Add a notebook-friendly basic review example.
-- [x] Add Python remote/workspace profile wrappers.
+- [x] Add Python remote/project profile wrappers.
 
 Exit criteria:
 
@@ -261,10 +261,10 @@ Exit criteria:
 ## Phase 9: Workspace-Owned Configuration And BYOK
 
 - [x] Define host configuration model.
-- [x] Define workspace profile records.
+- [x] Define project profile records.
 - [x] Implement model profile set/get/list.
 - [x] Implement provider profile set/get/list.
-- [x] Implement libSQL-backed persistent workspace profile storage.
+- [x] Implement libSQL-backed persistent project profile storage.
 - [x] Capture effective config snapshots when scheduling workspace reviews.
 - [x] Store only secret references and non-secret routing metadata in review
   session records.
@@ -355,7 +355,7 @@ Record every milestone with the commands that were run.
 | 2026-06-05 | 4643441 | Redacted artifact read/export helpers in Rust, TypeScript, and Python | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test`; `MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner npm test`; `PYTHONPATH=/Users/e464543/code/muzen/sdk/python MUZEN_RUNNER_PATH=/Users/e464543/code/muzen/target/debug/muzen-runner python3 -m unittest discover -s tests` |
 | 2026-06-05 | c9fbbc6 | Rust review-session store boundary with in-memory records, replay, results, and dedupe | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | 387629c | Runner protocol mapping and drift gate audit | `cargo test runner::tests --lib` |
-| 2026-06-05 | e939764 | Rust workspace profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
+| 2026-06-05 | e939764 | Rust project profile records, model/provider profile APIs, and effective config snapshots | `cargo fmt --check`; `cargo test` |
 | 2026-06-05 | 20f556f | Rust durable cancellation, worker claims, leases, retry backoff, and workspace claim limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | b7f1abc | Rust host scheduling config and global/workspace/user/model/provider worker concurrency limits | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
 | 2026-06-05 | cc1c12c | Rust queued workspace scheduling and worker execution loop over durable session records | `cargo fmt --check`; `cargo test review_session --lib`; `cargo test` |
@@ -401,14 +401,14 @@ Record every milestone with the commands that were run.
   so `source-head` dedupe keys distinguish new commits for the same pull/merge
   request. Direct provider reviews still fall back to stable source-key dedupe
   unless the caller supplies known head metadata.
-- The Rust `MuzenWorkspace` facade now has explicit queued scheduling and a
+- The Rust `MuzenProject` facade now has explicit queued scheduling and a
   worker execution loop. The default `review(...)` happy path still executes
   local reviews synchronously for preview compatibility; production service
   paths should use durable queued scheduling.
 - The store boundary has in-memory and libSQL-backed SQLite implementations.
   The SQLite store is the service default and persists session records, events,
   results, artifacts, logs, leases, cancellations, retry state, dedupe keys, and
-  workspace profiles in a local database file.
+  project profiles in a local database file.
 - Host scheduling configuration now defines lease defaults, retry defaults,
   fairness strategy, and global/workspace/user/model/provider concurrency
   limits. Durable stores enforce worker claiming transactionally.
@@ -443,7 +443,7 @@ Record every milestone with the commands that were run.
   resume, wait for, cancel, replay events for, stream events for, and read/export
   artifacts from remote reviews through `createMuzenClient({ baseUrl })`.
   Rust core now exposes `ReviewHttpRouter`, a framework-neutral router for
-  review, event, artifact, webhook, and workspace profile routes. The
+  review, event, artifact, webhook, and project profile routes. The
   `muzen-service` binary binds that router through an Axum HTTP adapter and
   selects durable SQLite or explicit memory stores through
   `--store-url` / `MUZEN_STORE_URL`.

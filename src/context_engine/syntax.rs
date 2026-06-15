@@ -10,7 +10,7 @@ use tree_sitter::Node;
 
 use super::chunking::{language_for_path, parse_tree};
 use super::ContextRange;
-use crate::runtime::contracts::RepoPath;
+use crate::reviewer_kernel::kernel_types::RepoPath;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContextSymbolGraph {

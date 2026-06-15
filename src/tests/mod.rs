@@ -15,3 +15,5 @@ mod facade;
 mod path_policy;
 #[cfg(test)]
 mod snapshots;
+#[cfg(test)]
+mod source_architecture;

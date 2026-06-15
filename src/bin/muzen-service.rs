@@ -5,11 +5,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use muzen::context_engine::ContextHttpRouterOptions;
-use muzen::review_session::{
-    stores_from_url, Muzen, ReviewHttpRouter, ReviewHttpRouterOptions, DEFAULT_MUZEN_STORE_URL,
-    MUZEN_STORE_URL_ENV,
+use muzen::remote_http::{serve, MuzenHttpService, ReviewHttpRouter, ReviewHttpRouterOptions};
+use muzen::review_sessions::{
+    stores_from_url, Muzen, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
 };
-use muzen::service::{serve, MuzenHttpService};
 
 #[derive(Debug, Parser)]
 #[command(name = "muzen-service")]

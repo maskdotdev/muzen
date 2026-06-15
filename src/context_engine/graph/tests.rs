@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::context_engine::chunking::FileChunk;
 use crate::context_engine::syntax::{parse_symbols, ImportStatement, ParsedSymbols};
 use crate::context_engine::{ContextRange, ContextRelationshipKind};
-use crate::runtime::contracts::{RepoPath, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{RepoPath, SnapshotId};
 
 use super::build::co_change_facts;
 use super::*;

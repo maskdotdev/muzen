@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use crate::runtime::contracts::{RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 
 use super::{ContextEmbeddingProviderKind, EmbeddingInput, EmbeddingProvider, EmbeddingVector};
 

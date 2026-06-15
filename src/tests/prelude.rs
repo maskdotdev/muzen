@@ -1,16 +1,16 @@
 pub(crate) use crate::cli::{CanaryManifestArgs, CanaryVerifyArgs};
-pub(crate) use crate::contracts::*;
-pub(crate) use crate::runtime::contracts::{
+pub(crate) use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, FsScope, LimitInfo, ModelToolCall, ProviderResourceId,
     ProviderResourceScope, RepoPath, RuntimeLimits, ToolCallId, ToolEffects, ToolErrorCode,
     ToolGrant, ToolId, ToolMetricKey, ToolProviderHealthState, ToolProviderId, TurnId,
 };
-pub(crate) use crate::runtime::repo::RepoSnapshot;
-pub(crate) use crate::runtime::tools::ToolEngine;
-pub(crate) use crate::runtime::tools::{
+pub(crate) use crate::reviewer_kernel::review_contract::*;
+pub(crate) use crate::reviewer_kernel::system::DEFAULT_MODEL;
+pub(crate) use crate::reviewer_kernel::tool_engine::ToolEngine;
+pub(crate) use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolOptions, JsonRpcToolResponse, ToolRegistry,
 };
-pub(crate) use crate::util::DEFAULT_MODEL;
+pub(crate) use crate::workspace::RepoSnapshot;
 pub(crate) use std::fs;
 pub(crate) use std::path::Path;
 pub(crate) use std::sync::atomic::{AtomicUsize, Ordering};

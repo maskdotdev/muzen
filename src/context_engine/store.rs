@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::{RuntimeError, RuntimeResult, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult, SnapshotId};
 
 use super::{ContextIndex, ContextLearning};
 

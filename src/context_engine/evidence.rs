@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::{ArtifactId, EvidenceId, RepoPath, ToolCallId};
+use crate::reviewer_kernel::kernel_types::{ArtifactId, EvidenceId, RepoPath, ToolCallId};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]

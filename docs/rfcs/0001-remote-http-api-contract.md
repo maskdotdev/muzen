@@ -8,7 +8,7 @@ friendly SDK surface.
 ## Authentication
 
 Clients may send `Authorization: Bearer <token>`. The host decides how tokens
-map to users, workspaces, and allowed profile access.
+map to users, projects, and allowed profile access.
 
 ## Rust Router Binding
 
@@ -155,12 +155,12 @@ Request:
 
 Returns `ReviewArtifactExport`.
 
-## Workspace Reviews
+## Project Reviews
 
-`POST /v1/workspaces/{workspaceId}/reviews`
+`POST /v1/projects/{projectId}/reviews`
 
 Request and response shapes match `POST /v1/reviews`, but the host schedules
-the review in the named workspace and captures workspace-owned model/provider
+the review in the named project and captures project-owned model/provider
 profile snapshots.
 
 ## Webhooks
@@ -185,20 +185,20 @@ review sources, schedule a durable review, and return a webhook delivery body:
 `review_deduped` responses use status `200 OK`; `review_created` and
 `ignored` responses use status `202 Accepted`.
 
-Hosts MAY also expose workspace-scoped webhook routes:
+Hosts MAY also expose project-scoped webhook routes:
 
-`POST /v1/workspaces/{workspaceId}/webhooks/github`
+`POST /v1/projects/{projectId}/webhooks/github`
 
-`POST /v1/workspaces/{workspaceId}/webhooks/gitlab`
+`POST /v1/projects/{projectId}/webhooks/gitlab`
 
 The TypeScript remote SDK forwards `muzen.webhooks.github.response(request)`
 and `muzen.webhooks.gitlab.response(request)` to these routes, preserving the
-raw body and provider headers. Passing `{ workspaceId }` selects the
-workspace-scoped route.
+raw body and provider headers. Passing `{ projectId }` selects the
+project-scoped route.
 
-## Workspace Model Profiles
+## Project Model Profiles
 
-`PUT /v1/workspaces/{workspaceId}/models/{name}`
+`PUT /v1/projects/{projectId}/models/{name}`
 
 Request:
 
@@ -206,7 +206,7 @@ Request:
 {
   "provider": "openai_compatible",
   "model": "gpt-5",
-  "secretRef": "vault://workspaces/acme/models/default",
+  "secretRef": "vault://projects/acme/models/default",
   "baseUrl": "https://models.example.test",
   "routing": {
     "region": "us-east"
@@ -219,12 +219,12 @@ Response:
 ```json
 {
   "profile": {
-    "workspaceId": "acme",
+    "projectId": "acme",
     "name": "default",
     "version": "1",
     "provider": "openai_compatible",
     "model": "gpt-5",
-    "secretRef": "vault://workspaces/acme/models/default",
+    "secretRef": "vault://projects/acme/models/default",
     "baseUrl": "https://models.example.test",
     "routing": {
       "region": "us-east"
@@ -236,25 +236,25 @@ Response:
 
 The response MAY also be the profile object directly.
 
-`GET /v1/workspaces/{workspaceId}/models/{name}`
+`GET /v1/projects/{projectId}/models/{name}`
 
 Returns `{ "profile": ModelProfile }`, `ModelProfile` directly, or
 `204 No Content` when absent.
 
-`GET /v1/workspaces/{workspaceId}/models`
+`GET /v1/projects/{projectId}/models`
 
 Returns `{ "profiles": ModelProfile[] }` or the array directly.
 
-## Workspace Provider Profiles
+## Project Provider Profiles
 
-`PUT /v1/workspaces/{workspaceId}/providers/{name}`
+`PUT /v1/projects/{projectId}/providers/{name}`
 
 Request:
 
 ```json
 {
   "provider": "github",
-  "secretRef": "vault://workspaces/acme/providers/github",
+  "secretRef": "vault://projects/acme/providers/github",
   "baseUrl": "https://api.github.com",
   "routing": {
     "installation": "123"
@@ -267,11 +267,11 @@ Response:
 ```json
 {
   "profile": {
-    "workspaceId": "acme",
+    "projectId": "acme",
     "name": "github",
     "version": "1",
     "provider": "github",
-    "secretRef": "vault://workspaces/acme/providers/github",
+    "secretRef": "vault://projects/acme/providers/github",
     "baseUrl": "https://api.github.com",
     "routing": {
       "installation": "123"
@@ -283,12 +283,12 @@ Response:
 
 The response MAY also be the profile object directly.
 
-`GET /v1/workspaces/{workspaceId}/providers/{name}`
+`GET /v1/projects/{projectId}/providers/{name}`
 
 Returns `{ "profile": ProviderProfile }`, `ProviderProfile` directly, or
 `204 No Content` when absent.
 
-`GET /v1/workspaces/{workspaceId}/providers`
+`GET /v1/projects/{projectId}/providers`
 
 Returns `{ "profiles": ProviderProfile[] }` or the array directly.
 

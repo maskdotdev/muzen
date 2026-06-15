@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::runtime::contracts::{EvidenceId, RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{EvidenceId, RuntimeError, RuntimeResult};
 
 use super::{
     ContextEvidence, ContextSemanticConfig, ContextSemanticMode, ContextSensitivity, ContextTrust,

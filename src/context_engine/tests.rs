@@ -4,17 +4,17 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
 use crate::context_engine::*;
-use crate::contracts::{
+use crate::reviewer_kernel::events::{InMemoryReviewEventSink, ReviewEvent};
+use crate::reviewer_kernel::kernel::Run;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, SessionInstruction};
+use crate::reviewer_kernel::review_contract::{
     AgentBudget, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1, Role,
     TokenUsage,
 };
-use crate::reviewer::events::{InMemoryReviewEventSink, ReviewEvent};
-use crate::reviewer::model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
-use crate::reviewer::run::Run;
-use crate::reviewer::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
-use crate::reviewer::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
-use crate::runtime::contracts::{RuntimeError, SessionInstruction};
-use crate::runtime::repo::RepoSnapshot;
+use crate::reviewer_kernel::review_model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
+use crate::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
+use crate::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
+use crate::workspace::RepoSnapshot;
 
 #[test]
 fn config_defaults_to_disabled() {
@@ -29,13 +29,13 @@ fn config_defaults_to_disabled() {
 #[test]
 fn context_contracts_serde_round_trip() {
     let evidence = ContextEvidence {
-        id: crate::runtime::contracts::EvidenceId("ev_1".to_string()),
+        id: crate::reviewer_kernel::kernel_types::EvidenceId("ev_1".to_string()),
         kind: ContextEvidenceKind::FileSpan,
         source: ContextEvidenceSource::Snapshot,
         trust: ContextTrust::Kernel,
         sensitivity: ContextSensitivity::Private,
         scope: ContextScope::Snapshot,
-        path: Some(crate::runtime::contracts::RepoPath::parse("src/lib.rs").unwrap()),
+        path: Some(crate::reviewer_kernel::kernel_types::RepoPath::parse("src/lib.rs").unwrap()),
         revision: Some(ContextRevision::head()),
         range: Some(ContextRange {
             start_line: 1,
@@ -67,7 +67,7 @@ fn context_contracts_serde_round_trip() {
 fn semantic_config_defaults_to_no_vector_and_blocks_restricted_hosted_inputs() {
     let mut config = ContextEngineConfig::snapshot_v0();
     let evidence = ContextEvidence {
-        id: crate::runtime::contracts::EvidenceId("ev_restricted".to_string()),
+        id: crate::reviewer_kernel::kernel_types::EvidenceId("ev_restricted".to_string()),
         kind: ContextEvidenceKind::FileSpan,
         source: ContextEvidenceSource::Snapshot,
         trust: ContextTrust::Kernel,
@@ -808,7 +808,7 @@ fn sufficiency_query(
     snapshot: &RepoSnapshot,
     kind: ContextQueryKind,
     arguments: serde_json::Value,
-    current_evidence: Vec<crate::runtime::contracts::EvidenceId>,
+    current_evidence: Vec<crate::reviewer_kernel::kernel_types::EvidenceId>,
 ) -> ContextQuery {
     ContextQuery {
         run_id: None,
@@ -1941,7 +1941,7 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
             max_tool_calls: 0,
             max_prompt_tokens: 4000,
             max_output_tokens: 1000,
-            budget_source: crate::contracts::BudgetSource::CallerHardCap,
+            budget_source: crate::reviewer_kernel::review_contract::BudgetSource::CallerHardCap,
         },
     );
     let events = Arc::new(InMemoryReviewEventSink::default());
@@ -1996,8 +1996,8 @@ impl ReviewModel for CleanModel {
     async fn complete_review(
         &self,
         _request: ReviewModelRequest,
-        _cancel: crate::reviewer::adapters::Cancellation,
-    ) -> crate::runtime::contracts::RuntimeResult<ReviewModelTurn> {
+        _cancel: crate::reviewer_kernel::adapters::Cancellation,
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<ReviewModelTurn> {
         Ok(ReviewModelTurn::Text {
             usage: TokenUsage {
                 input_tokens: 10,
@@ -2022,7 +2022,7 @@ impl ReviewModel for CleanModel {
 
 fn build_snapshot(root: &std::path::Path, changed_files: Vec<&str>) -> Arc<RepoSnapshot> {
     let change = ChangeScopeV1 {
-        kind: crate::contracts::ChangeKind::LocalDiff,
+        kind: crate::reviewer_kernel::review_contract::ChangeKind::LocalDiff,
         change_id: "local".to_string(),
         source_ref: "head".to_string(),
         target_ref: "base".to_string(),
@@ -2032,8 +2032,8 @@ fn build_snapshot(root: &std::path::Path, changed_files: Vec<&str>) -> Arc<RepoS
         changed_files_manifest_ref: None,
         diff_manifest_ref: None,
         inline_diff: Some("@@ -1 +1 @@\n+changed\n".to_string()),
-        snapshot_mode: crate::contracts::SnapshotMode::WorktreeHead,
-        rename_detection: crate::contracts::RenameDetection::None,
+        snapshot_mode: crate::reviewer_kernel::review_contract::SnapshotMode::WorktreeHead,
+        rename_detection: crate::reviewer_kernel::review_contract::RenameDetection::None,
         changed_files: changed_files
             .into_iter()
             .map(|path| ChangedFileEntryV1 {
@@ -2056,7 +2056,7 @@ fn build_snapshot_with_diff(
     inline_diff: &str,
 ) -> Arc<RepoSnapshot> {
     let change = ChangeScopeV1 {
-        kind: crate::contracts::ChangeKind::LocalDiff,
+        kind: crate::reviewer_kernel::review_contract::ChangeKind::LocalDiff,
         change_id: "local".to_string(),
         source_ref: "head".to_string(),
         target_ref: "base".to_string(),
@@ -2066,8 +2066,8 @@ fn build_snapshot_with_diff(
         changed_files_manifest_ref: None,
         diff_manifest_ref: None,
         inline_diff: Some(inline_diff.to_string()),
-        snapshot_mode: crate::contracts::SnapshotMode::WorktreeHead,
-        rename_detection: crate::contracts::RenameDetection::None,
+        snapshot_mode: crate::reviewer_kernel::review_contract::SnapshotMode::WorktreeHead,
+        rename_detection: crate::reviewer_kernel::review_contract::RenameDetection::None,
         changed_files: changed_files
             .into_iter()
             .map(|path| ChangedFileEntryV1 {
@@ -2322,7 +2322,7 @@ fn assert_pack_budget_and_dedup_invariants(pack: &ContextPack) {
 async fn large_related_file_enters_budget_constrained_pack_as_skeleton() {
     let (engine, snapshot, _repo) = skeleton_fixture().await;
     let index = engine.get_index(&snapshot.snapshot_id).unwrap();
-    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    let big_path = crate::reviewer_kernel::kernel_types::RepoPath::parse("src/big.rs").unwrap();
     let big_chunk = index
         .evidence
         .iter()
@@ -2402,7 +2402,7 @@ async fn full_content_suppresses_skeleton_when_budget_allows() {
         )
         .await
         .unwrap();
-    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    let big_path = crate::reviewer_kernel::kernel_types::RepoPath::parse("src/big.rs").unwrap();
     assert!(pack.evidence.iter().any(|evidence| {
         evidence.path.as_ref() == Some(&big_path)
             && evidence.representation == ContextEvidenceRepresentation::FullContent
@@ -2439,7 +2439,7 @@ async fn skeleton_evidence_does_not_satisfy_hunk_coverage() {
         .await
         .unwrap();
     let index = engine.get_index(&snapshot.snapshot_id).unwrap();
-    let big_path = crate::runtime::contracts::RepoPath::parse("src/big.rs").unwrap();
+    let big_path = crate::reviewer_kernel::kernel_types::RepoPath::parse("src/big.rs").unwrap();
     let changed_chunk = index
         .evidence
         .iter()

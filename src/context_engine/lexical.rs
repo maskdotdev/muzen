@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::runtime::contracts::EvidenceId;
+use crate::reviewer_kernel::kernel_types::EvidenceId;
 
 use super::chunking::slice_evidence_lines;
 use super::ContextEvidence;
@@ -37,7 +37,7 @@ impl LexicalIndex {
     /// same either way.
     pub fn build(
         evidence: &[ContextEvidence],
-        file_contents: &BTreeMap<crate::runtime::contracts::RepoPath, String>,
+        file_contents: &BTreeMap<crate::reviewer_kernel::kernel_types::RepoPath, String>,
         cached_body_terms: &BTreeMap<String, BTreeMap<String, f32>>,
     ) -> Self {
         let mut index = Self::default();
@@ -231,7 +231,7 @@ fn split_identifier(identifier: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::contracts::{EvidenceId, RepoPath};
+    use crate::reviewer_kernel::kernel_types::{EvidenceId, RepoPath};
 
     use crate::context_engine::{
         ContextEvidenceKind, ContextEvidenceSource, ContextProvenance, ContextRankSignals,
@@ -271,7 +271,9 @@ mod tests {
         }
     }
 
-    fn contents(entries: &[(&str, &str)]) -> BTreeMap<crate::runtime::contracts::RepoPath, String> {
+    fn contents(
+        entries: &[(&str, &str)],
+    ) -> BTreeMap<crate::reviewer_kernel::kernel_types::RepoPath, String> {
         entries
             .iter()
             .map(|(path, content)| (RepoPath::parse(path).unwrap(), content.to_string()))

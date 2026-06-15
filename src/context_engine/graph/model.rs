@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::{stable_id, RepoPath, SnapshotId};
+use crate::reviewer_kernel::kernel_types::{stable_id, RepoPath, SnapshotId};
 
 use super::super::ContextRange;
 
