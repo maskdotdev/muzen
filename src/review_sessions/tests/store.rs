@@ -261,7 +261,6 @@ async fn review_store_preserves_cancellation_against_late_execution_result() {
         .unwrap();
     let late_result = ReviewResult {
         review_id: review_id.clone(),
-        session_id: review_id.clone(),
         status: ReviewStatus::Completed,
         conclusion: ReviewConclusion::Approved,
         summary: "late result".to_string(),

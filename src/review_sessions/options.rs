@@ -20,8 +20,6 @@ pub struct ReviewOptions {
     #[serde(default)]
     pub dedupe: DedupePolicy,
     #[serde(default)]
-    pub cancel_superseded: bool,
-    #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
@@ -49,7 +47,6 @@ impl Default for ReviewOptions {
     fn default() -> Self {
         Self {
             dedupe: DedupePolicy::None,
-            cancel_superseded: false,
             user_id: None,
             model: None,
             change: None,
@@ -329,10 +326,6 @@ impl ReviewToolOption {
 pub struct ReviewScope {
     #[serde(default)]
     pub files: Vec<String>,
-    #[serde(default)]
-    pub include: Vec<String>,
-    #[serde(default)]
-    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

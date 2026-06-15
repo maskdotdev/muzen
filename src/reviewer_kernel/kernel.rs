@@ -180,7 +180,6 @@ impl RunBuilder {
             .collect::<Vec<_>>();
         Ok(Run {
             run_id: self.spec.run_id,
-            mode: self.spec.mode,
             snapshot_handles,
             shards,
             limits,
@@ -195,7 +194,6 @@ impl RunBuilder {
 
 pub struct Run {
     run_id: String,
-    mode: RunMode,
     snapshot_handles: Vec<SnapshotHandle>,
     pub(crate) shards: Vec<RunShard>,
     limits: Arc<RuntimeLimits>,
@@ -258,7 +256,6 @@ impl Run {
         let active_sessions = Arc::new(tokio::sync::Semaphore::new(
             self.limits.max_active_sessions.max(1),
         ));
-        let mode = self.mode;
         let mut joins = tokio::task::JoinSet::new();
         for (index, shard) in self.shards.into_iter().enumerate() {
             let event_sink = self.event_sink.clone();
@@ -399,37 +396,33 @@ impl Run {
                 }
                 let events = RuntimeEventDispatcher::new(shard_event_sink.clone());
                 let tools = Arc::clone(&shard.tools);
-                let outcome = match mode {
-                    RunMode::Review => {
-                        let runtime = Arc::new(AutonomousReviewRuntime {
-                            snapshot: shard.snapshot,
-                            model_router,
-                            tools: shard.tools,
-                            policy: reviewer_policy,
-                            limits,
-                            review_revision_id: shard.review_revision_id,
-                            events,
-                            active_sessions,
-                            delegate_host: autonomous_delegate_host,
-                        });
-                        let report = Arc::clone(&runtime)
-                            .run_with_cancel(sessions, cancel.child_token())
-                            .await;
-                        let mut shard_findings = report.findings;
-                        if context_enabled {
-                            apply_context_evidence_policy(
-                                &mut shard_findings,
-                                context_config.strict_evidence_required,
-                            );
-                        }
-                        ShardOutcome {
-                            index,
-                            metrics: report.metrics,
-                            findings: shard_findings,
-                            file_reviews: report.file_reviews,
-                            tools,
-                        }
-                    }
+                let runtime = Arc::new(AutonomousReviewRuntime {
+                    snapshot: shard.snapshot,
+                    model_router,
+                    tools: shard.tools,
+                    policy: reviewer_policy,
+                    limits,
+                    review_revision_id: shard.review_revision_id,
+                    events,
+                    active_sessions,
+                    delegate_host: autonomous_delegate_host,
+                });
+                let report = Arc::clone(&runtime)
+                    .run_with_cancel(sessions, cancel.child_token())
+                    .await;
+                let mut shard_findings = report.findings;
+                if context_enabled {
+                    apply_context_evidence_policy(
+                        &mut shard_findings,
+                        context_config.strict_evidence_required,
+                    );
+                }
+                let outcome = ShardOutcome {
+                    index,
+                    metrics: report.metrics,
+                    findings: shard_findings,
+                    file_reviews: report.file_reviews,
+                    tools,
                 };
                 if let Some(sink) = &shard_event_sink {
                     sink.emit(RuntimeEvent::SnapshotFinished {

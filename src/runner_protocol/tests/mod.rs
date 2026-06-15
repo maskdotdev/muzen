@@ -213,50 +213,6 @@ fn stdio_starts_run_emits_events_and_stores_result() {
 }
 
 #[test]
-fn stdio_rejects_unknown_run_mode() {
-    let repo = tempfile::tempdir().expect("temp repo");
-    std::fs::write(repo.path().join("Cargo.toml"), "[package]\n").expect("fixture file");
-    let start = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "run.start",
-        "params": {
-            "protocolVersion": RUNNER_PROTOCOL_VERSION,
-            "runId": "bad-mode-run",
-            "repo": repo.path(),
-            "changedFiles": ["Cargo.toml"],
-            "model": {},
-            "mode": "swarm",
-            "sessions": [
-                {"id": "agent", "role": "generalist", "objective": "Answer"}
-            ]
-        }
-    });
-    let input = format!("{start}\n");
-    let mut reader = std::io::Cursor::new(input.into_bytes());
-    let mut writer = Vec::new();
-
-    run_stdio(&mut reader, &mut writer).expect("stdio run");
-
-    let output = String::from_utf8(writer).expect("utf8 output");
-    let values = output
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json line"))
-        .collect::<Vec<_>>();
-    let response = values
-        .iter()
-        .find(|value| value.get("id") == Some(&json!(1)))
-        .expect("start response");
-    let message = response["error"]["message"]
-        .as_str()
-        .expect("error message");
-    assert!(
-        message.contains("unsupported run mode swarm"),
-        "unexpected error message: {message}"
-    );
-}
-
-#[test]
 fn stdio_failed_run_emits_structured_failure_notification() {
     let mut session = RunnerStdioSession::default();
     let mut writer = Vec::new();

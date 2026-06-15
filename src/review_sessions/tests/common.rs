@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 pub(super) fn completed_result(review_id: &ReviewSessionId, summary: &str) -> ReviewResult {
     ReviewResult {
         review_id: review_id.clone(),
-        session_id: review_id.clone(),
         status: ReviewStatus::Completed,
         conclusion: ReviewConclusion::Approved,
         summary: summary.to_string(),

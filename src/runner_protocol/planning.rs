@@ -14,7 +14,7 @@ use crate::reviewer_kernel::snapshots::{
     ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
     SnapshotPathPolicy, SnapshotSpec,
 };
-use crate::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunMode, RunSpec};
+use crate::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
 
 use super::transport::RunnerCallbackTransport;
 use super::types::{
@@ -86,7 +86,6 @@ pub(crate) fn plan_run_start(
             .as_ref()
             .and_then(|limits| limits.max_active_sessions),
     );
-    let mode = parse_run_mode(params.mode.as_deref())?;
     let sessions = if params.sessions.is_empty() {
         default_review_orchestrator_session()
     } else {
@@ -121,19 +120,11 @@ pub(crate) fn plan_run_start(
     Ok(RunnerPlan {
         run_id: run_id.clone(),
         metadata,
-        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, limits).with_mode(mode),
+        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, limits),
         max_active_sessions,
         #[cfg(test)]
         target_path,
     })
-}
-
-fn parse_run_mode(mode: Option<&str>) -> Result<RunMode> {
-    match mode.map(str::trim).filter(|value| !value.is_empty()) {
-        None => Ok(RunMode::default()),
-        Some("review") => Ok(RunMode::Review),
-        Some(unknown) => anyhow::bail!("unsupported run mode {unknown}"),
-    }
 }
 
 fn default_max_active_sessions(

@@ -349,7 +349,6 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("model", "RunModelParams"),
                 defaulted("tools", "RunToolParams[]", "[]"),
                 optional("heartbeat", "RunHeartbeatConfigParams"),
-                optional("mode", "string"),
                 optional("contextEngine", "ContextEngineConfig"),
             ],
         ),

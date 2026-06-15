@@ -352,13 +352,11 @@ const review = await muzen.review(
   }),
   {
     dedupe: "source-head",
-    cancelSuperseded: true,
 
     model: "deep",
 
     scope: {
-      include: ["packages/muzen/**"],
-      exclude: ["**/*.snap"],
+      files: ["packages/muzen/src/reviewer_kernel/spec.rs"],
     },
 
     metadata: {

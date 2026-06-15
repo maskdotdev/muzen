@@ -692,12 +692,6 @@
           "default": "null"
         },
         {
-          "name": "mode",
-          "type": "string",
-          "required": false,
-          "default": "null"
-        },
-        {
           "name": "contextEngine",
           "type": "ContextEngineConfig",
           "required": false,

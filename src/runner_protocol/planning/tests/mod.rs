@@ -10,20 +10,6 @@ fn default_review_uses_one_orchestrator() {
 }
 
 #[test]
-fn parses_explicit_review_mode() {
-    let mode = parse_run_mode(Some("review")).expect("mode should parse");
-
-    assert_eq!(mode, RunMode::Review);
-}
-
-#[test]
-fn rejects_unknown_mode() {
-    let error = parse_run_mode(Some("swarm")).expect_err("mode should be rejected");
-
-    assert!(error.to_string().contains("swarm"));
-}
-
-#[test]
 fn defaults_large_reviews_to_eight_active_sessions() {
     assert_eq!(
         default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, None),

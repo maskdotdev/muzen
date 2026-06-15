@@ -351,7 +351,6 @@ impl CreateReviewSessionInput {
             model: self.options.runner_model(),
             tools: self.options.runner_tools(),
             heartbeat: None,
-            mode: None,
             context_engine: self.options.context_engine,
         })
     }

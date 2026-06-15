@@ -178,7 +178,6 @@ pub struct ReviewSessionSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewResult {
     pub review_id: ReviewSessionId,
-    pub session_id: ReviewSessionId,
     pub status: ReviewStatus,
     pub conclusion: ReviewConclusion,
     pub summary: String,
@@ -207,8 +206,7 @@ impl ReviewResult {
         metadata.insert("runnerStatus".to_string(), json!(result.status));
         metadata.insert("source".to_string(), json!(source.source_key()));
         Self {
-            review_id: review_id.clone(),
-            session_id: review_id,
+            review_id,
             status,
             conclusion,
             summary: review_summary(&result.summary, findings.len()),

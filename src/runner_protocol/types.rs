@@ -61,9 +61,6 @@ pub struct RunStartParams {
     pub tools: Vec<RunToolParams>,
     #[serde(default)]
     pub heartbeat: Option<RunHeartbeatConfigParams>,
-    /// "review" (default).
-    #[serde(default)]
-    pub mode: Option<String>,
     #[serde(default)]
     pub context_engine: Option<ContextEngineConfig>,
 }
