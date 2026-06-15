@@ -615,10 +615,6 @@ impl RemoteSnapshotObjectStore {
             client,
         })
     }
-
-    pub fn base_uri(&self) -> &str {
-        &self.base_uri
-    }
 }
 
 impl std::fmt::Debug for RemoteSnapshotObjectStore {
@@ -639,11 +635,6 @@ impl SnapshotObjectStore for RemoteSnapshotObjectStore {
     fn read_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
         validate_remote_snapshot_object_uri(&self.base_uri, uri)?;
         self.client.read_remote_snapshot_object(uri)
-    }
-
-    fn remove_snapshot_object(&self, uri: &str) -> RuntimeResult<bool> {
-        validate_remote_snapshot_object_uri(&self.base_uri, uri)?;
-        self.client.remove_remote_snapshot_object(uri)
     }
 }
 
@@ -666,13 +657,6 @@ impl InMemoryRemoteSnapshotObjectClient {
             .lock()
             .expect("in-memory remote snapshot object client poisoned")
             .insert(uri.into(), bytes);
-    }
-
-    pub fn remove(&self, uri: &str) {
-        self.objects
-            .lock()
-            .expect("in-memory remote snapshot object client poisoned")
-            .remove(uri);
     }
 
     pub fn object_count(&self) -> usize {

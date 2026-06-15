@@ -79,8 +79,6 @@ pub trait SnapshotObjectStore: Send + Sync {
     fn put_snapshot_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()>;
 
     fn read_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>>;
-
-    fn remove_snapshot_object(&self, uri: &str) -> RuntimeResult<bool>;
 }
 
 impl Default for SnapshotStoragePolicy {

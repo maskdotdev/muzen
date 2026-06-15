@@ -153,10 +153,6 @@ pub struct ModelProviderCanaryEvidence {
 }
 
 impl ModelProviderCanaryEvidence {
-    pub fn from_reports(reports: Vec<ModelProviderCanaryReport>) -> Self {
-        Self::with_generated_at(timestamp_utc(), reports)
-    }
-
     pub fn with_generated_at(
         generated_at_utc: impl Into<String>,
         reports: Vec<ModelProviderCanaryReport>,

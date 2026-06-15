@@ -41,13 +41,6 @@ impl InMemoryRemoteArtifactObjectClient {
             .insert(uri.into(), bytes);
     }
 
-    pub fn remove(&self, uri: &str) {
-        self.objects
-            .lock()
-            .expect("in-memory remote artifact object client poisoned")
-            .remove(uri);
-    }
-
     pub fn object_count(&self) -> usize {
         self.objects
             .lock()

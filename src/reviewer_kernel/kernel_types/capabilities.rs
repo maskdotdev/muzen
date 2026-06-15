@@ -167,17 +167,6 @@ impl CapabilitySet {
         capabilities
     }
 
-    pub fn empty_review_policy(fs_scope: FsScope) -> Self {
-        Self {
-            fs_scope,
-            tool_grants: BTreeMap::new(),
-            artifact_access: ArtifactAccessPolicy::review_read_only(),
-            model_output: ModelOutputPolicy::review_read_only(),
-            tool_input: ToolInputPolicy::review_read_only(),
-            runtime_authority: RuntimeAuthorityPolicy::review_read_only(),
-        }
-    }
-
     pub fn with_fs_scope(mut self, fs_scope: FsScope) -> Self {
         self.fs_scope = fs_scope;
         self
@@ -222,36 +211,6 @@ impl ArtifactAccessPolicy {
             allowed_artifact_ids: None,
         }
     }
-
-    pub fn deny_all() -> Self {
-        Self {
-            read_redacted: false,
-            read_raw: false,
-            write: false,
-            allowed_artifact_ids: None,
-        }
-    }
-
-    pub fn allow_raw() -> Self {
-        Self {
-            read_redacted: true,
-            read_raw: true,
-            write: true,
-            allowed_artifact_ids: None,
-        }
-    }
-
-    pub fn scoped_to_artifacts(mut self, artifact_ids: Vec<ArtifactId>) -> Self {
-        self.allowed_artifact_ids = Some(artifact_ids);
-        self
-    }
-
-    pub fn allows_artifact(&self, artifact_id: &ArtifactId) -> bool {
-        match &self.allowed_artifact_ids {
-            Some(allowed) => allowed.iter().any(|allowed_id| allowed_id == artifact_id),
-            None => true,
-        }
-    }
 }
 
 impl Default for ArtifactAccessPolicy {
@@ -274,14 +233,6 @@ impl ModelOutputPolicy {
             include_tool_data: true,
             include_artifact_refs: true,
             max_tool_data_bytes: 16 * 1024,
-        }
-    }
-
-    pub fn metadata_only() -> Self {
-        Self {
-            include_tool_data: false,
-            include_artifact_refs: false,
-            max_tool_data_bytes: 0,
         }
     }
 }
@@ -339,40 +290,11 @@ impl RuntimeAuthorityPolicy {
         }
     }
 
-    pub fn trusted_host_read() -> Self {
-        Self {
-            host_read: true,
-            ..Self::review_read_only()
-        }
-    }
-
-    pub fn allow_all_trusted() -> Self {
-        Self {
-            network_read: true,
-            host_read: true,
-            scratch_read: true,
-            scratch_write: true,
-            external_side_effect: true,
-            allowed_provider_ids: None,
-            allowed_provider_resources: None,
-        }
-    }
-
-    pub fn scoped_to_providers(mut self, provider_ids: Vec<ToolProviderId>) -> Self {
-        self.allowed_provider_ids = Some(provider_ids);
-        self
-    }
-
     pub fn allows_provider(&self, provider_id: &ToolProviderId) -> bool {
         match &self.allowed_provider_ids {
             Some(allowed) => allowed.iter().any(|allowed_id| allowed_id == provider_id),
             None => true,
         }
-    }
-
-    pub fn scoped_to_provider_resources(mut self, resources: Vec<ProviderResourceScope>) -> Self {
-        self.allowed_provider_resources = Some(resources);
-        self
     }
 
     pub fn allows_provider_resource(

@@ -432,14 +432,6 @@ pub struct EvidenceView {
 }
 
 impl EvidenceView {
-    pub fn artifact_id(&self) -> &str {
-        &self.artifact_id.0
-    }
-
-    pub fn producing_tool_call_id(&self) -> &str {
-        &self.producing_tool_call_id.0
-    }
-
     fn from_evidence(evidence: &crate::reviewer_kernel::review_contract::EvidenceRefV1) -> Self {
         Self {
             evidence_id: evidence.evidence_id.clone(),
@@ -449,9 +441,4 @@ impl EvidenceView {
             producing_tool_call_id: ToolCallId(evidence.producing_tool_call_id.clone()),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct RunHandle {
-    pub run_id: String,
 }

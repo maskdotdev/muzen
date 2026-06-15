@@ -48,10 +48,6 @@ impl ReviewRunLimits {
         Self { limits }
     }
 
-    pub fn as_runtime_limits(&self) -> &RuntimeLimits {
-        &self.limits
-    }
-
     pub(crate) fn into_runtime_limits(self) -> RuntimeLimits {
         self.limits
     }
@@ -136,23 +132,6 @@ impl ReviewSessionSpec {
         self
     }
 
-    pub fn grant_provider_read_only_tool(
-        mut self,
-        provider_id: ToolProviderId,
-        tool_id: ToolId,
-    ) -> Self {
-        allow_runtime_provider(&mut self.capabilities, provider_id);
-        self.capabilities.grant_tool(
-            tool_id,
-            ToolGrant {
-                allow: true,
-                max_calls: None,
-                effects_allowed: ToolEffects::review_read_only(),
-            },
-        );
-        self
-    }
-
     pub fn grant_provider_read_only_tool_for_resources(
         mut self,
         provider_id: ToolProviderId,
@@ -167,24 +146,6 @@ impl ReviewSessionSpec {
                 allow: true,
                 max_calls: None,
                 effects_allowed: ToolEffects::review_read_only(),
-            },
-        );
-        self
-    }
-
-    pub fn grant_provider_network_read_tool(
-        mut self,
-        provider_id: ToolProviderId,
-        tool_id: ToolId,
-    ) -> Self {
-        self.capabilities.runtime_authority.network_read = true;
-        allow_runtime_provider(&mut self.capabilities, provider_id);
-        self.capabilities.grant_tool(
-            tool_id,
-            ToolGrant {
-                allow: true,
-                max_calls: None,
-                effects_allowed: provider_network_read_effects(),
             },
         );
         self

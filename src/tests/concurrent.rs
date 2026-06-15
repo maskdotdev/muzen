@@ -987,9 +987,8 @@ fn concurrent_jsonrpc_provider_requires_runtime_provider_scope() {
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority = capabilities
-        .runtime_authority
-        .scoped_to_providers(vec![ToolProviderId::parse("other_provider").unwrap()]);
+    capabilities.runtime_authority.allowed_provider_ids =
+        Some(vec![ToolProviderId::parse("other_provider").unwrap()]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1065,13 +1064,11 @@ fn concurrent_jsonrpc_provider_resource_requires_runtime_resource_scope() {
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority =
-        capabilities
-            .runtime_authority
-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-                provider_id,
-                ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
-            )]);
+    capabilities.runtime_authority.allowed_provider_resources =
+        Some(vec![ProviderResourceScope::new(
+            provider_id,
+            ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
+        )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1148,13 +1145,11 @@ fn concurrent_jsonrpc_provider_resource_scope_is_sent_when_allowed() {
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority =
-        capabilities
-            .runtime_authority
-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-                provider_id.clone(),
-                resource_id,
-            )]);
+    capabilities.runtime_authority.allowed_provider_resources =
+        Some(vec![ProviderResourceScope::new(
+            provider_id.clone(),
+            resource_id,
+        )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
