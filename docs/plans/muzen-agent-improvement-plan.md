@@ -252,83 +252,17 @@ Progress:
     each clean case must have a best scored Muzen leg with zero false positives.
     Historical blind/hinted misses can stay visible, but the current best Muzen
     path must satisfy the quality bar.
-  - Review-quality production results now record `inputs.runMode`
-    (`planned_review` or `direct_sessions`), and corpus leg aggregates report
-    run-mode counts. This makes direct-session experiments comparable without
-    mixing them into planned-review legs by accident.
-  - Direct-session review-quality runs now have a scored extraction path:
-    direct sessions are prompted to return strict JSON with `findings`, the
-    benchmark harness parses final `sessionOutputs` into finding-like records
-    for golden scoring, and the result stores `directSessionExtraction` with
-    parsed-session counts, parse failures, bounded parse repairs, and explicit
-    candidate decision records. Each decision captures accepted/rejected status,
-    reason, location/before-after evidence completeness, related evidence, and
-    scope-broadening evidence, plus restrictive-predicate contract evidence.
-    The extraction path can also append deterministic high-signal probe
-    candidates with explicit source/decision provenance.
-    Core direct sessions still remain raw explore sessions with no built-in
-    finding synthesis; scoring is explicitly benchmark-layer behavior. The
-    harness now marks runs invalid when runner status is not completed, any
-    session fails to complete, or any direct-session final output fails to parse
-    after bounded repair, so model/provider failures cannot masquerade as clean
-    controls.
-  - Direct-session benchmark sessions are now risk-specialized when multiple
-    sessions are requested. Concurrent direct sessions share one runner process
-    and the same tool registry, but rotate QueryScope, TimeBoundary, and
-    CallerShape objectives so `--sessions 3 --max-active 3` tests useful
-    fanout instead of three copies of the same prompt.
-  - `run-anti-cheat.mjs` and `run-github-pr-review.mjs` now pass through
-    `--mode`, `--sessions`, and prompt/tool budget controls, so direct-session
-    anti-cheat controls and positive PR runs can be generated with the same
-    result schema, trace artifacts, and corpus comparator as planned-review
-    and opencode legs.
-  - First real scored direct-session corpus leg landed for
-    `safe-sms-retry-cleanup`. The direct run completed with `gpt-5.4-mini`,
-    used 10 model turns and 6 tool calls, peaked at 18.4 MiB RSS, and published
-    zero findings on the clean control. It surfaced the same
-    restrictive-predicate false-positive shape, then benchmark-layer
-    direct-session adjudication rejected it with
-    `restrictive_predicate_without_contract_evidence`. The current corpus now
-    includes this `direct` leg alongside planned Muzen and opencode for the same
-    case.
-  - First real positive direct-session corpus leg landed for `cal-pr-14943`.
-    The direct run completed with `gpt-5.4-mini`, used 10 model turns and 9
-    tool calls, peaked at 43.1 MiB RSS, hit the 1/1 golden issue, and published
-    zero false positives. The current corpus now has direct-session legs for a
-    positive SMS scope case, a clean SMS retry-control case, and one-session
-    plus three-session variants of the multi-issue TimeBoundary case.
-  - Direct-session `cal-pr-8330` evidence landed as a scored corpus leg. The
-    one-session direct run completed with `gpt-5.4-mini`, used 10 model turns
-    and 9 tool calls, peaked at 31.7 MiB RSS, hit 3/3 goldens, and published
-    zero false positives after deterministic TimeBoundary probes supplied the
-    Dayjs-reference and selected-slot/date-override findings while the
-    working-hours probe was rejected as
-    `deterministic_probe_subsumed_by_model_finding`.
-    The three-session direct run completed through one
-    runner process with three concurrent risk-focused sessions, used 30 model
-    turns and 27 tool calls, peaked at 33.7 MiB RSS, hit 3/3 goldens, and
-    published four unmatched model-generated findings. This confirms direct sessions are
-    low-memory, tool-active, concurrent, structured, and decision-auditable, and
-    that deterministic probes close the TimeBoundary recall gap. The remaining
-    direct-session gap is final merge/adjudication of extra model-generated
-    timezone/date-override claims under parallel fanout.
-  - Corpus comparison now treats `directSessionExtraction` as the direct-mode
-    candidate audit surface. Direct-session legs no longer report missing
-    planned-review candidate-decision traces when their final outputs were
-    parsed and adjudicated by the benchmark harness.
-  - The OpenAI Responses request builder now adds a minimal user input for
-    system-only transcripts. This fixed direct-session runs that previously
-    failed provider validation with a missing `input` request. A focused Rust
-    unit test covers this system-only Responses request shape.
+  - Historical generic-session benchmark experiments were retired with the
+    single review path. Current review-quality production results are scored
+    through planned review only; reusable loop mechanics are internal runtime
+    infrastructure rather than a benchmark-visible runner mode.
   - The corpus comparator now rejects legacy or partial Muzen result files that
     lack a `muzen.review-quality-*` schema, benchmark data, audit coverage, or
     finite scored quality fields. Old direct-runner artifacts therefore cannot
     silently enter the matrix as null-quality/null-memory evidence.
-  - `bench/review-quality/run-production-review.mjs` now accepts explicit
-    `--mode direct_sessions` and `--max-prompt-tokens` controls. Normal
-    production-review benchmark defaults remain planned review with the
-    existing prompt budget; the controls exist so audit probes can exercise the
-    direct loop and prompt compaction path reproducibly.
+  - `bench/review-quality/run-production-review.mjs` keeps prompt/tool budget
+    controls for planned review. Generic loop probes should be added as
+    internal runtime tests, not as a second production-review mode.
   - Planned-review synthesis now emits an explicit
     `candidate_finding_decision` trace with `decision: "none"` and
     `reason: "no_candidate_findings"` when synthesis produces zero candidates.

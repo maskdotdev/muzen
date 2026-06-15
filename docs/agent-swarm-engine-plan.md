@@ -9,28 +9,14 @@ Progress:
   ordering and a concurrency proof test.
 - Phase 1.3 landed: shards run concurrently too, sharing one
   `max_active_sessions` semaphore owned by the run.
-- Phase 0 benchmark landed: `cargo run --release --bin muzen-bench-swarm`
-  compares sequential vs concurrent over the public facade with a mock
-  model (no API key). Results committed under
-  `bench/results-concurrent-compare/summary.md`: 10.4x at 10 units,
-  12.6x at 50, 14.3x at 100, all sessions completing.
-- Phase 2 (kernel half) landed: `RunMode::DirectSessions` runs
-  user-supplied sessions straight through the generic agent loop
-  (`src/runtime/agent_sessions.rs`) — no unit planning, no evidence
-  obligations, no findings. Each session returns its final text in
-  `RunReport.session_outputs`.
-- Phase 2 (protocol half) landed: `run.start` accepts
-  `mode: "direct_sessions"` (unknown modes are rejected; direct mode
-  skips review batch expansion and requires explicit sessions), and run
-  results carry `sessionOutputs`. Schema fixture regenerated
-  (additive).
-- Phase 2 (SDK half) landed: `muzen.runSwarm(...)` (TypeScript) and
-  `Client.run_swarm(...)` (Python) take agents + tools + models over
-  one repo snapshot and return per-agent outputs plus usage; review
-  API unchanged on top. The exit-criteria proof is the TS integration
-  test that runs 20 heterogeneous agents with a custom host tool
-  through the generic loop, plus `examples/typescript/swarm/` and
-  `examples/python/swarm.py` showing per-agent BYO endpoints.
+- The old standalone swarm benchmark binary was retired when the kernel stopped
+  being an external Rust facade. Concurrency coverage now belongs in focused
+  runtime and review-session tests.
+- The generic swarm execution experiment was superseded by the single review
+  path. Reusable model/tool loop mechanics now live in the private
+  `reviewer_kernel::agent_loop` module, and product APIs should enter through
+  review sessions or future chat/session products rather than a second runner
+  mode.
 - Phase 3.1 landed: model profiles carry per-profile base URLs; mixed
   endpoints in one run are supported.
 - Phase 4.3 (budget + caching halves) landed: mid-loop

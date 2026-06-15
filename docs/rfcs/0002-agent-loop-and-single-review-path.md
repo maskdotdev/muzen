@@ -6,34 +6,29 @@ Accepted.
 
 ## Context
 
-Muzen currently has two real Reviewer Kernel execution paths:
-
-- `RunMode::Review`, which runs the autonomous review product path.
-- `RunMode::DirectSessions`, which runs caller-supplied sessions through a
-  generic model/tool loop and returns per-session text outputs.
-
-The direct-session path added useful implementation proof, but it is not a
-product interface. It also duplicates loop mechanics now present in the
-autonomous review path: transcript setup, prompt-budget enforcement, model
-turns, tool batches, tool-result transcript effects, accounting, cancellation,
-and terminal session status.
+Muzen previously had a second generic session execution experiment beside the
+autonomous review product path. That experiment added useful implementation
+proof, but it was not a product interface. It also duplicated loop mechanics
+now present in the autonomous review path: transcript setup, prompt-budget
+enforcement, model turns, tool batches, tool-result transcript effects,
+accounting, cancellation, and terminal session status.
 
 Muzen is unreleased, so this decision does not preserve compatibility for
 obsolete execution modes, runner fields, aliases, or migration shims.
 
 ## Decision
 
-Review execution has one product path: `RunMode::Review`.
+Review execution has one product path.
 
 The reusable implementation will be a private `reviewer_kernel::agent_loop`
 Module. Its Interface is internal to the Reviewer Kernel and represents one
 bounded model/tool conversation over a `SessionScope`.
 
-`DirectSessions` is not the future chat product Interface. A future Chat
-Session must be its own durable product unit with chat-specific message
-history, attachments, streaming events, continuation semantics, and result
-contract. Chat may reuse Agent Loop internally, but it must not depend on
-Review Session direct-session outputs.
+The retired generic session experiment is not the future chat product
+Interface. A future Chat Session must be its own durable product unit with
+chat-specific message history, attachments, streaming events, continuation
+semantics, and result contract. Chat may reuse Agent Loop internally, but it
+must not depend on review-session runner outputs.
 
 ## Implementation Order
 
@@ -75,6 +70,7 @@ The Agent Loop becomes a deeper Module: callers get reusable model/tool loop
 behavior through a small private Interface, while review-specific decisions
 retain locality in Autonomous Review.
 
-Deleting `DirectSessions` removes a shallow public execution seam. It also
-removes runner protocol mode mapping, per-session direct outputs, direct-mode
-tests, and demo coupling that exist only to support the obsolete path.
+Deleting the generic session experiment removes a shallow public execution
+seam. It also removes runner protocol mode mapping, per-session text outputs,
+mode-specific tests, and demo coupling that exist only to support the obsolete
+path.
