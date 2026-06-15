@@ -498,19 +498,23 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
-        .register_read_only_tool(
-            "host_custom_check",
-            "Host engine supplied custom reviewer check.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
-            }),
-            false,
-            Arc::new(EchoCustomTool),
+        .register_tool(
+            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
+                id: "host_custom_check".to_string(),
+                description: "Host engine supplied custom reviewer check.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }),
+                cacheable: false,
+                provider_resources: Vec::new(),
+                effects: ToolEffects::custom_read_only(),
+                handler: Arc::new(EchoCustomTool),
+            },
         )
         .unwrap();
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
@@ -595,23 +599,26 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
-        .register_scoped_read_only_tool(
-            "host_resource_scoped_check",
-            "Host custom check scoped to one external resource.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
-            }),
-            false,
-            vec![resource_id.clone()],
-            Arc::new(ResourceScopedReviewTool {
-                expected_provider_resources: vec![resource_id.clone()],
-                calls: Arc::clone(&calls),
-            }),
+        .register_tool(
+            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
+                id: "host_resource_scoped_check".to_string(),
+                description: "Host custom check scoped to one external resource.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }),
+                cacheable: false,
+                provider_resources: vec![resource_id.clone()],
+                effects: ToolEffects::custom_read_only(),
+                handler: Arc::new(ResourceScopedReviewTool {
+                    expected_provider_resources: vec![resource_id.clone()],
+                    calls: Arc::clone(&calls),
+                }),
+            },
         )
         .unwrap();
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
@@ -661,23 +668,27 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let custom_tool_id = registry
-        .register_scoped_read_only_tool(
-            "host_resource_denied_check",
-            "Host custom check scoped to a different external resource.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
-            }),
-            false,
-            vec![allowed_resource.clone()],
-            Arc::new(ResourceScopedReviewTool {
-                expected_provider_resources: vec![allowed_resource],
-                calls: Arc::clone(&calls),
-            }),
+        .register_tool(
+            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
+                id: "host_resource_denied_check".to_string(),
+                description: "Host custom check scoped to a different external resource."
+                    .to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }),
+                cacheable: false,
+                provider_resources: vec![allowed_resource.clone()],
+                effects: ToolEffects::custom_read_only(),
+                handler: Arc::new(ResourceScopedReviewTool {
+                    expected_provider_resources: vec![allowed_resource],
+                    calls: Arc::clone(&calls),
+                }),
+            },
         )
         .unwrap();
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
@@ -745,21 +756,22 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
-        .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcReadOnlyToolRegistration {
+        .register_jsonrpc_tool(
+            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_check".to_string(),
                 description: "External JSON-RPC check scoped to one provider resource.".to_string(),
                 parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
                 }),
                 cacheable: false,
                 provider_resources: vec![resource_id.clone()],
+                effects: ToolEffects::review_read_only(),
                 transport: Arc::new(PublicJsonRpcReviewTool {
                     provider_id: provider_id.clone(),
                     tool_id: "public_jsonrpc_check".to_string(),
@@ -842,22 +854,23 @@ fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
-        .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcReadOnlyToolRegistration {
+        .register_jsonrpc_tool(
+            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_http_jsonrpc_check".to_string(),
                 description: "External HTTP JSON-RPC check scoped to one provider resource."
                     .to_string(),
                 parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
+                        "type": "object",
+                        "properties": {
+                            "value": { "type": "string" }
+                        },
+                        "required": ["value"],
+                        "additionalProperties": false
                 }),
                 cacheable: false,
                 provider_resources: vec![resource_id.clone()],
+                effects: ToolEffects::review_read_only(),
                 transport: Arc::new(transport),
             },
         )
@@ -932,21 +945,22 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
-        .register_scoped_jsonrpc_network_read_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcNetworkReadToolRegistration {
+        .register_jsonrpc_tool(
+            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_network_check".to_string(),
                 description: "External JSON-RPC check that needs network read.".to_string(),
                 parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
+                        "type": "object",
+                        "properties": {
+                            "value": { "type": "string" }
+                        },
+                        "required": ["value"],
+                        "additionalProperties": false
                 }),
                 cacheable: false,
                 provider_resources: vec![resource_id.clone()],
+                effects: crate::reviewer_kernel::spec::provider_network_read_effects(),
                 transport: Arc::new(PublicJsonRpcReviewTool {
                     provider_id: provider_id.clone(),
                     tool_id: "public_jsonrpc_network_check".to_string(),
@@ -1014,25 +1028,29 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
-        .register_jsonrpc_network_read_tool(
-            provider_id.clone(),
-            "public_jsonrpc_network_denied_check",
-            "External JSON-RPC check that needs denied network read.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
-            }),
-            false,
-            Arc::new(PublicJsonRpcReviewTool {
+        .register_jsonrpc_tool(
+            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
                 provider_id: provider_id.clone(),
-                tool_id: "public_jsonrpc_network_denied_check".to_string(),
-                expected_provider_resources: Vec::new(),
-                calls: Arc::clone(&calls),
-            }),
+                id: "public_jsonrpc_network_denied_check".to_string(),
+                description: "External JSON-RPC check that needs denied network read.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }),
+                cacheable: false,
+                provider_resources: Vec::new(),
+                effects: crate::reviewer_kernel::spec::provider_network_read_effects(),
+                transport: Arc::new(PublicJsonRpcReviewTool {
+                    provider_id: provider_id.clone(),
+                    tool_id: "public_jsonrpc_network_denied_check".to_string(),
+                    expected_provider_resources: Vec::new(),
+                    calls: Arc::clone(&calls),
+                }),
+            },
         )
         .unwrap();
     let mut capabilities = crate::reviewer_kernel::kernel_types::CapabilitySet::review_read_only();
@@ -1122,22 +1140,23 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
     let mut registry =
         crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
     let tool_id = registry
-        .register_scoped_jsonrpc_read_only_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcReadOnlyToolRegistration {
+        .register_jsonrpc_tool(
+            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
                 provider_id: provider_id.clone(),
                 id: "public_jsonrpc_denied_check".to_string(),
                 description: "External JSON-RPC check scoped to another provider resource."
                     .to_string(),
                 parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
                 }),
                 cacheable: false,
                 provider_resources: vec![allowed_resource.clone()],
+                effects: ToolEffects::review_read_only(),
                 transport: Arc::new(PublicJsonRpcReviewTool {
                     provider_id: provider_id.clone(),
                     tool_id: "public_jsonrpc_denied_check".to_string(),

@@ -8,44 +8,34 @@ use crate::reviewer_kernel::kernel_types::{
 };
 use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
-    JsonRpcToolRegistration, JsonRpcToolTransport, ToolRegistry as RuntimeToolRegistry,
+    JsonRpcToolRegistration as RuntimeJsonRpcToolRegistration, JsonRpcToolTransport,
+    ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::reviewer_kernel::spec::*;
 use tokio_util::sync::CancellationToken as Cancellation;
 pub struct ReviewToolRegistry {
     inner: RuntimeToolRegistry,
 }
 
-pub struct ReviewJsonRpcReadOnlyToolRegistration {
+pub struct ReviewToolRegistration {
+    pub id: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+    pub cacheable: bool,
+    pub provider_resources: Vec<ProviderResourceId>,
+    pub effects: ToolEffects,
+    pub handler: Arc<dyn ReviewToolHandler>,
+}
+
+pub struct ReviewJsonRpcToolRegistration {
     pub provider_id: ToolProviderId,
     pub id: String,
     pub description: String,
     pub parameters: serde_json::Value,
     pub cacheable: bool,
     pub provider_resources: Vec<ProviderResourceId>,
+    pub effects: ToolEffects,
     pub transport: Arc<dyn JsonRpcToolTransport>,
-}
-
-pub struct ReviewJsonRpcNetworkReadToolRegistration {
-    pub provider_id: ToolProviderId,
-    pub id: String,
-    pub description: String,
-    pub parameters: serde_json::Value,
-    pub cacheable: bool,
-    pub provider_resources: Vec<ProviderResourceId>,
-    pub transport: Arc<dyn JsonRpcToolTransport>,
-}
-
-struct ReviewJsonRpcRuntimeToolRegistration {
-    provider_id: ToolProviderId,
-    id: String,
-    description: String,
-    parameters: serde_json::Value,
-    cacheable: bool,
-    provider_resources: Vec<ProviderResourceId>,
-    effects: ToolEffects,
-    transport: Arc<dyn JsonRpcToolTransport>,
 }
 
 impl std::fmt::Debug for ReviewToolRegistry {
@@ -61,155 +51,30 @@ impl ReviewToolRegistry {
         })
     }
 
-    pub fn register_read_only_tool(
-        &mut self,
-        id: impl AsRef<str>,
-        description: impl Into<String>,
-        parameters: serde_json::Value,
-        cacheable: bool,
-        handler: Arc<dyn ReviewToolHandler>,
-    ) -> RuntimeResult<ToolId> {
-        let id = ToolId::parse(id.as_ref())?;
-        self.inner.register_custom(
-            id.clone(),
-            description,
-            parameters,
-            cacheable,
-            Arc::new(ReviewToolHandlerAdapter::new(handler)),
-        )?;
-        Ok(id)
-    }
-
-    pub fn register_scoped_read_only_tool(
-        &mut self,
-        id: impl AsRef<str>,
-        description: impl Into<String>,
-        parameters: serde_json::Value,
-        cacheable: bool,
-        provider_resources: Vec<ProviderResourceId>,
-        handler: Arc<dyn ReviewToolHandler>,
-    ) -> RuntimeResult<ToolId> {
-        let id = ToolId::parse(id.as_ref())?;
+    pub fn register_tool(&mut self, registration: ReviewToolRegistration) -> RuntimeResult<ToolId> {
+        let id = ToolId::parse(registration.id.as_ref())?;
         self.inner.register_custom_with_alias_and_effects(
             id.clone(),
             id.clone(),
-            description,
-            parameters,
+            registration.description,
+            registration.parameters,
             CustomToolOptions {
-                cacheable,
-                effects: ToolEffects::custom_read_only(),
-                provider_resources,
+                cacheable: registration.cacheable,
+                effects: registration.effects,
+                provider_resources: registration.provider_resources,
             },
-            Arc::new(ReviewToolHandlerAdapter::new(handler)),
+            Arc::new(ReviewToolHandlerAdapter::new(registration.handler)),
         )?;
         Ok(id)
     }
 
-    pub fn register_scoped_tool_with_effects(
+    pub fn register_jsonrpc_tool(
         &mut self,
-        id: impl AsRef<str>,
-        description: impl Into<String>,
-        parameters: serde_json::Value,
-        cacheable: bool,
-        provider_resources: Vec<ProviderResourceId>,
-        effects: ToolEffects,
-        handler: Arc<dyn ReviewToolHandler>,
-    ) -> RuntimeResult<ToolId> {
-        let id = ToolId::parse(id.as_ref())?;
-        self.inner.register_custom_with_alias_and_effects(
-            id.clone(),
-            id.clone(),
-            description,
-            parameters,
-            CustomToolOptions {
-                cacheable,
-                effects,
-                provider_resources,
-            },
-            Arc::new(ReviewToolHandlerAdapter::new(handler)),
-        )?;
-        Ok(id)
-    }
-
-    pub fn register_jsonrpc_read_only_tool(
-        &mut self,
-        provider_id: ToolProviderId,
-        id: impl AsRef<str>,
-        description: impl Into<String>,
-        parameters: serde_json::Value,
-        cacheable: bool,
-        transport: Arc<dyn JsonRpcToolTransport>,
-    ) -> RuntimeResult<ToolId> {
-        self.register_scoped_jsonrpc_read_only_tool(ReviewJsonRpcReadOnlyToolRegistration {
-            provider_id,
-            id: id.as_ref().to_string(),
-            description: description.into(),
-            parameters,
-            cacheable,
-            provider_resources: Vec::new(),
-            transport,
-        })
-    }
-
-    pub fn register_scoped_jsonrpc_read_only_tool(
-        &mut self,
-        registration: ReviewJsonRpcReadOnlyToolRegistration,
-    ) -> RuntimeResult<ToolId> {
-        self.register_jsonrpc_tool_registration(ReviewJsonRpcRuntimeToolRegistration {
-            provider_id: registration.provider_id,
-            id: registration.id,
-            description: registration.description,
-            parameters: registration.parameters,
-            cacheable: registration.cacheable,
-            provider_resources: registration.provider_resources,
-            effects: ToolEffects::review_read_only(),
-            transport: registration.transport,
-        })
-    }
-
-    pub fn register_jsonrpc_network_read_tool(
-        &mut self,
-        provider_id: ToolProviderId,
-        id: impl AsRef<str>,
-        description: impl Into<String>,
-        parameters: serde_json::Value,
-        cacheable: bool,
-        transport: Arc<dyn JsonRpcToolTransport>,
-    ) -> RuntimeResult<ToolId> {
-        self.register_scoped_jsonrpc_network_read_tool(ReviewJsonRpcNetworkReadToolRegistration {
-            provider_id,
-            id: id.as_ref().to_string(),
-            description: description.into(),
-            parameters,
-            cacheable,
-            provider_resources: Vec::new(),
-            transport,
-        })
-    }
-
-    pub fn register_scoped_jsonrpc_network_read_tool(
-        &mut self,
-        registration: ReviewJsonRpcNetworkReadToolRegistration,
-    ) -> RuntimeResult<ToolId> {
-        self.register_jsonrpc_tool_registration(ReviewJsonRpcRuntimeToolRegistration {
-            provider_id: registration.provider_id,
-            id: registration.id,
-            description: registration.description,
-            parameters: registration.parameters,
-            cacheable: registration.cacheable,
-            provider_resources: registration.provider_resources,
-            effects: provider_network_read_effects(),
-            transport: registration.transport,
-        })
-    }
-
-    fn register_jsonrpc_tool_registration(
-        &mut self,
-        registration: ReviewJsonRpcRuntimeToolRegistration,
+        registration: ReviewJsonRpcToolRegistration,
     ) -> RuntimeResult<ToolId> {
         let id = ToolId::parse(registration.id.as_ref())?;
         self.inner
-            .register_jsonrpc_tool_with_alias(JsonRpcToolRegistration {
+            .register_jsonrpc_tool_with_alias(RuntimeJsonRpcToolRegistration {
                 provider_id: registration.provider_id,
                 id: id.clone(),
                 model_alias: id.clone(),

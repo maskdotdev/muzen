@@ -10,7 +10,7 @@ use crate::reviewer_kernel::model::{
 };
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
-use crate::reviewer_kernel::review_tools::ReviewToolRegistry;
+use crate::reviewer_kernel::review_tools::{ReviewToolRegistration, ReviewToolRegistry};
 use crate::reviewer_kernel::tool_engine::ToolRegistry as RuntimeToolRegistry;
 
 #[cfg(test)]
@@ -98,18 +98,18 @@ fn runner_tool_registry(
             let provider_resources = parse_provider_resources(&tool.provider_resources)?;
             let effects = parse_tool_effects(&tool.effects)?;
             registry
-                .register_scoped_tool_with_effects(
-                    &tool.id,
-                    tool.description.clone(),
-                    tool.parameters.clone(),
-                    tool.cacheable,
+                .register_tool(ReviewToolRegistration {
+                    id: tool.id.clone(),
+                    description: tool.description.clone(),
+                    parameters: tool.parameters.clone(),
+                    cacheable: tool.cacheable,
                     provider_resources,
                     effects,
-                    Arc::new(CallbackReviewTool::new(
+                    handler: Arc::new(CallbackReviewTool::new(
                         run_id.to_string(),
                         transport.clone(),
                     )),
-                )
+                })
                 .map_err(|error| {
                     anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
                 })?;
