@@ -705,16 +705,6 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("findings", "RunnerFinding[]"),
                 required("snapshots", "RunnerSnapshotSummary[]"),
                 defaulted("metadata", "json", "{}"),
-                defaulted("sessionOutputs", "RunnerSessionOutput[]", "[]"),
-            ],
-        ),
-        object(
-            "RunnerSessionOutput",
-            vec![
-                required("sessionId", "string"),
-                required("status", "string"),
-                required("completed", "boolean"),
-                optional("output", "string"),
             ],
         ),
         object(

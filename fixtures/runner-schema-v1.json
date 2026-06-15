@@ -1876,39 +1876,6 @@
           "type": "json",
           "required": false,
           "default": "{}"
-        },
-        {
-          "name": "sessionOutputs",
-          "type": "RunnerSessionOutput[]",
-          "required": false,
-          "default": "[]"
-        }
-      ]
-    },
-    {
-      "name": "RunnerSessionOutput",
-      "shape": "object",
-      "fields": [
-        {
-          "name": "sessionId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "completed",
-          "type": "boolean",
-          "required": true
-        },
-        {
-          "name": "output",
-          "type": "string",
-          "required": false,
-          "default": "null"
         }
       ]
     },

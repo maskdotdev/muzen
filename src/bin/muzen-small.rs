@@ -1,12 +1,8 @@
 //! muzen-small — lean autonomous code reviewer demo with depth-2 orchestration.
 //!
-//! Two run modes:
-//!   - `--engine`  : single lead session through muzen's public `reviewer`
-//!                   facade (RunMode::DirectSessions). Proves kernel reuse.
-//!   - default     : in-binary depth-2 orchestrator. A lead reviewer agent runs
-//!                   an agentic tool-call loop (read / grep / spawn_subagent) and
-//!                   can spawn `explore` / `verify` sub-agents. Concurrency-capped,
-//!                   digest-only returns, full per-agent tracking.
+//! A lead reviewer agent runs an agentic tool-call loop (read / grep /
+//! spawn_subagent) and can spawn `explore` / `verify` sub-agents.
+//! Concurrency-capped, digest-only returns, full per-agent tracking.
 //!
 //! Materialization uses the GitHub API (anonymous; public PRs) — no giant clone.
 //!
@@ -15,7 +11,7 @@
 //!
 //! Usage:
 //!   cargo run --release --bin muzen-small -- \
-//!     --pr https://github.com/calcom/cal.com/pull/14943 [--out r.json] [--engine] [--mock]
+//!     --pr https://github.com/calcom/cal.com/pull/14943 [--out r.json] [--mock]
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -27,16 +23,6 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
-
-// ---- muzen facade (used only by --engine mode) -----------------------------
-use muzen::reviewer_kernel::adapters::runtime::RuntimeResult;
-use muzen::reviewer_kernel::adapters::{AgentBudget, Cancellation, Role, TokenUsage};
-use muzen::reviewer_kernel::kernel::Run;
-use muzen::reviewer_kernel::review_model::{
-    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall,
-};
-use muzen::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
-use muzen::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunMode, RunSpec};
 
 const MAX_AGENT_TURNS: usize = 8;
 const SUBAGENT_CONCURRENCY: usize = 4;
@@ -72,7 +58,6 @@ struct Args {
     model: String,
     out: Option<String>,
     force_mock: bool,
-    engine_mode: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -81,7 +66,6 @@ fn parse_args() -> Result<Args> {
     let mut model = "gpt-5.4-mini".to_string();
     let mut out = None;
     let mut force_mock = false;
-    let mut engine_mode = false;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -108,7 +92,6 @@ fn parse_args() -> Result<Args> {
                 );
             }
             "--mock" => force_mock = true,
-            "--engine" => engine_mode = true,
             other => return Err(anyhow!("unknown argument: {other}")),
         }
         i += 1;
@@ -121,7 +104,6 @@ fn parse_args() -> Result<Args> {
         model,
         out,
         force_mock,
-        engine_mode,
     })
 }
 
@@ -266,9 +248,6 @@ struct Step {
 #[async_trait]
 trait Brain: Send + Sync {
     async fn step(&self, role: &str, messages: &[Value], tools: &[Value]) -> Result<Step>;
-    fn is_mock(&self) -> bool {
-        false
-    }
 }
 
 /// Real OpenAI Chat Completions brain.
@@ -387,9 +366,6 @@ impl Brain for MockBrain {
                 "body": "Mock finding (verify sub-agent marked CONFIRMED low-confidence). Real findings require a real model."
             }]
         }).to_string()))
-    }
-    fn is_mock(&self) -> bool {
-        true
     }
 }
 
@@ -573,74 +549,6 @@ impl Orchestrator {
 }
 
 // ============================================================================
-// --engine mode: single lead via muzen facade (kernel reuse + RSS proof)
-// ============================================================================
-
-struct FacadeMock {
-    first_file: String,
-}
-#[async_trait]
-impl ReviewModel for FacadeMock {
-    async fn complete_review(
-        &self,
-        request: ReviewModelRequest,
-        _c: Cancellation,
-    ) -> RuntimeResult<ReviewModelTurn> {
-        if request.tool_result_count() == 0 {
-            return Ok(ReviewModelTurn::ToolCalls {
-                calls: vec![ReviewToolCall::new(
-                    "read",
-                    json!({"path": self.first_file}),
-                )],
-                usage: TokenUsage::default(),
-            });
-        }
-        Ok(ReviewModelTurn::Text {
-            content: json!({"summary":"[engine-mode mock]","findings":[]}).to_string(),
-            usage: TokenUsage::default(),
-        })
-    }
-}
-
-async fn run_engine_mode(material: &Material, pr: u64) -> Result<Value> {
-    let specs: Vec<ChangedFileSpec> = material
-        .files
-        .iter()
-        .map(ChangedFileSpec::modified)
-        .collect();
-    let snapshot = SnapshotSpec::new(
-        material.repo_root.path(),
-        ChangeSpec::local(format!("pr-{pr}"), "head", specs),
-    );
-    let lead = ReviewSessionSpec::review_read_only(
-        "lead",
-        Role::Generalist,
-        LEAD_PROMPT,
-        AgentBudget::planned_baseline(),
-    );
-    let spec = RunSpec::single_snapshot(
-        format!("muzen-small-pr-{pr}"),
-        snapshot,
-        vec![lead],
-        ReviewRunLimits::standard(1, 256 * 1024, 120),
-    )
-    .with_mode(RunMode::DirectSessions);
-    let model: Arc<dyn ReviewModel> = Arc::new(FacadeMock {
-        first_file: material.files[0].clone(),
-    });
-    let run = Run::builder(spec)
-        .review_model(model)
-        .build()
-        .map_err(|e| anyhow!("build: {e:?}"))?;
-    let report = run.execute().await;
-    let s = &report.summary;
-    Ok(
-        json!({"sessions": s.sessions, "model_calls": s.model_calls, "tool_calls": s.tool_calls,
-        "input_tokens": s.input_tokens, "output_tokens": s.output_tokens, "total_tokens": s.total_tokens}),
-    )
-}
-
-// ============================================================================
 // Resources
 // ============================================================================
 
@@ -675,15 +583,6 @@ async fn main() -> Result<()> {
         material.files.len(),
         material.unified_diff.len()
     );
-
-    if args.engine_mode {
-        let started = Instant::now();
-        let tracking = run_engine_mode(&material, args.pr).await?;
-        let report = json!({"tool":"muzen-small","mode":"engine-facade","pr":format!("{}/{}#{}",args.owner,args.repo,args.pr),
-            "tracking":tracking,"resources":{"elapsed_ms":started.elapsed().as_millis(),"peak_rss_mib":format!("{:.1}",peak_rss_bytes() as f64/1048576.0)}});
-        emit(&args, &report)?;
-        return Ok(());
-    }
 
     // Pick brain.
     let api_key = std::env::var("OPENAI_API_KEY")

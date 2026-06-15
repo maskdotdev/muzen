@@ -61,7 +61,7 @@ pub struct RunStartParams {
     pub tools: Vec<RunToolParams>,
     #[serde(default)]
     pub heartbeat: Option<RunHeartbeatConfigParams>,
-    /// "review" (default) or "direct_sessions".
+    /// "review" (default).
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -577,19 +577,6 @@ pub struct RunnerRunResult {
     pub snapshots: Vec<RunnerSnapshotSummary>,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
-    /// Per-session final outputs; populated by direct-session runs only.
-    #[serde(default)]
-    pub session_outputs: Vec<RunnerSessionOutput>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct RunnerSessionOutput {
-    pub session_id: String,
-    pub status: String,
-    pub completed: bool,
-    #[serde(default)]
-    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

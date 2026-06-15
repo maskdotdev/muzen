@@ -24,9 +24,6 @@ pub enum RunMode {
     /// Run the autonomous review orchestrator for the snapshot diff.
     #[default]
     Review,
-    /// Run each supplied session directly through the generic agent loop and
-    /// return its final text output. No review planning or findings.
-    DirectSessions,
 }
 
 impl RunSpec {

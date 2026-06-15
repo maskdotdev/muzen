@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::reviewer_kernel::kernel_types::{
-    AgentSessionOutput, ArtifactId, ArtifactView, ConcurrentCounters, ConcurrentRunReport,
-    ModelMetricsSnapshot, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
-    RuntimeResult, SnapshotId, ToolCallId, ToolMetricKey, ToolMetricsSnapshot,
-    ToolProviderHealthSnapshot, ToolProviderHealthState,
+    ArtifactId, ArtifactView, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
+    RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, RuntimeResult, SnapshotId,
+    ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
+    ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::ToolCounts;
 
@@ -243,8 +243,6 @@ pub struct RunReport {
     pub summary: ReviewRunSummary,
     pub metrics: metrics::ConcurrentRunReport,
     pub artifacts: Arc<tool_adapters::ArtifactStore>,
-    /// Per-session final outputs; populated by direct-session runs only.
-    pub session_outputs: Vec<AgentSessionOutput>,
     pub(crate) snapshot_readers: Vec<SnapshotReader>,
     pub(crate) findings: Vec<FindingV1>,
     pub(crate) file_reviews: Vec<FileReviewV1>,

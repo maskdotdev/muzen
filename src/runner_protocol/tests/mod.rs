@@ -213,64 +213,6 @@ fn stdio_starts_run_emits_events_and_stores_result() {
 }
 
 #[test]
-fn stdio_direct_sessions_run_returns_session_outputs() {
-    let repo = tempfile::tempdir().expect("temp repo");
-    std::fs::write(
-        repo.path().join("Cargo.toml"),
-        "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
-    )
-    .expect("fixture file");
-    let start = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "run.start",
-        "params": {
-            "protocolVersion": RUNNER_PROTOCOL_VERSION,
-            "runId": "direct-run",
-            "repo": repo.path(),
-            "changedFiles": ["Cargo.toml"],
-            "model": {},
-            "mode": "direct_sessions",
-            "sessions": [
-                {"id": "agent-a", "role": "generalist", "objective": "Answer task A"},
-                {"id": "agent-b", "role": "generalist", "objective": "Answer task B"}
-            ]
-        }
-    });
-    let input = format!("{start}\n");
-    let mut reader = std::io::Cursor::new(input.into_bytes());
-    let mut writer = Vec::new();
-
-    run_stdio(&mut reader, &mut writer).expect("stdio run");
-
-    let output = String::from_utf8(writer).expect("utf8 output");
-    let values = output
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json line"))
-        .collect::<Vec<_>>();
-    let response = values
-        .iter()
-        .find(|value| value.get("id") == Some(&json!(1)))
-        .expect("start response");
-    let result = &response["result"];
-    assert_eq!(result["status"], "completed");
-    assert_eq!(result["summary"]["sessions"], 2);
-    assert_eq!(result["summary"]["completedSessions"], 2);
-    assert_eq!(result["findings"], json!([]));
-    let outputs = result["sessionOutputs"].as_array().expect("sessionOutputs");
-    assert_eq!(outputs.len(), 2);
-    assert_eq!(outputs[0]["sessionId"], "agent-a");
-    assert_eq!(outputs[1]["sessionId"], "agent-b");
-    for output in outputs {
-        assert_eq!(output["completed"], json!(true));
-        assert_eq!(output["status"], "done");
-        assert!(output["output"]
-            .as_str()
-            .is_some_and(|content| !content.is_empty()));
-    }
-}
-
-#[test]
 fn stdio_rejects_unknown_run_mode() {
     let repo = tempfile::tempdir().expect("temp repo");
     std::fs::write(repo.path().join("Cargo.toml"), "[package]\n").expect("fixture file");

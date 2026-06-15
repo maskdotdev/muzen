@@ -88,9 +88,6 @@ pub(crate) fn plan_run_start(
     );
     let mode = parse_run_mode(params.mode.as_deref())?;
     let sessions = if params.sessions.is_empty() {
-        if mode == RunMode::DirectSessions {
-            anyhow::bail!("direct_sessions mode requires at least one session");
-        }
         default_review_orchestrator_session()
     } else {
         params.sessions
@@ -135,7 +132,6 @@ fn parse_run_mode(mode: Option<&str>) -> Result<RunMode> {
     match mode.map(str::trim).filter(|value| !value.is_empty()) {
         None => Ok(RunMode::default()),
         Some("review") => Ok(RunMode::Review),
-        Some("direct_sessions") => Ok(RunMode::DirectSessions),
         Some(unknown) => anyhow::bail!("unsupported run mode {unknown}"),
     }
 }

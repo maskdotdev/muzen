@@ -16,11 +16,9 @@ use crate::reviewer_kernel::tool_engine::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
 };
 
-use crate::reviewer_kernel::agent_sessions::AgentSessionRuntime;
 use crate::reviewer_kernel::autonomous_review::{
     register_autonomous_delegate_tools, AutonomousDelegateHost, AutonomousReviewRuntime,
 };
-use crate::reviewer_kernel::kernel_types::AgentSessionOutput;
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{ChangeScopeV1, FileReviewV1, PathPolicyV1};
 use crate::reviewer_kernel::review_contract::{
@@ -221,7 +219,6 @@ struct ShardOutcome {
     metrics: crate::reviewer_kernel::kernel_types::ConcurrentRunReport,
     findings: Vec<FindingV1>,
     file_reviews: Vec<FileReviewV1>,
-    session_outputs: Vec<AgentSessionOutput>,
     tools: Arc<ToolEngine>,
 }
 
@@ -430,27 +427,6 @@ impl Run {
                             metrics: report.metrics,
                             findings: shard_findings,
                             file_reviews: report.file_reviews,
-                            session_outputs: Vec::new(),
-                            tools,
-                        }
-                    }
-                    RunMode::DirectSessions => {
-                        let runtime = Arc::new(AgentSessionRuntime {
-                            model_router,
-                            tools: shard.tools,
-                            policy: reviewer_policy,
-                            limits,
-                            review_revision_id: shard.review_revision_id,
-                            events,
-                            active_sessions,
-                        });
-                        let report = runtime.run_with_cancel(sessions, cancel).await;
-                        ShardOutcome {
-                            index,
-                            metrics: report.metrics,
-                            findings: Vec::new(),
-                            file_reviews: Vec::new(),
-                            session_outputs: report.outputs,
                             tools,
                         }
                     }
@@ -482,12 +458,10 @@ impl Run {
         let mut summaries = Vec::new();
         let mut findings = Vec::new();
         let mut file_reviews = Vec::new();
-        let mut session_outputs = Vec::new();
         for outcome in shard_outcomes {
             aggregate_artifacts.merge_from(&outcome.tools.artifacts);
             findings.extend(outcome.findings);
             file_reviews.extend(outcome.file_reviews);
-            session_outputs.extend(outcome.session_outputs);
             summaries.push(outcome.metrics);
         }
         let mut metrics = merge_run_summaries(summaries);
@@ -529,7 +503,6 @@ impl Run {
             summary: ReviewRunSummary::from_metrics(&metrics),
             metrics,
             artifacts: aggregate_artifacts,
-            session_outputs,
             snapshot_readers,
             findings,
             file_reviews,

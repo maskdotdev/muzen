@@ -1,6 +1,5 @@
 pub mod adapters;
 pub(crate) mod agent_loop;
-pub(crate) mod agent_sessions;
 pub mod agent_trace;
 pub mod artifacts;
 pub(crate) mod assembly;

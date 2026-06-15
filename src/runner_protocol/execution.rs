@@ -21,8 +21,7 @@ use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
     RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
-    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSessionOutput,
-    RunnerSnapshotSummary,
+    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
 };
 use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;
@@ -250,16 +249,6 @@ fn runner_result_from_report(
             unit_id: review.unit_id,
         })
         .collect();
-    let session_outputs = report
-        .session_outputs
-        .iter()
-        .map(|output| RunnerSessionOutput {
-            session_id: output.session_id.clone(),
-            status: output.status.clone(),
-            completed: output.completed,
-            output: output.output.clone(),
-        })
-        .collect();
     RunnerRunResult {
         protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
         run_id: report.run_id.clone(),
@@ -269,7 +258,6 @@ fn runner_result_from_report(
         findings,
         snapshots,
         metadata,
-        session_outputs,
     }
 }
 
