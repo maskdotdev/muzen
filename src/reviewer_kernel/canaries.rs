@@ -12,12 +12,12 @@ use crate::workspace::remote_content_addressed_uri;
 
 use crate::reviewer_kernel::artifacts::*;
 #[cfg(test)]
-pub use crate::reviewer_kernel::model::ModelProviderCanaryReport;
 pub use crate::reviewer_kernel::model::{
-    export_model_provider_canary_evidence, load_model_provider_canary_evidence,
-    openai_provider_canary_protocols, run_openai_provider_canaries, EnvCredentialResolver,
+    export_model_provider_canary_evidence, ModelProviderCanaryReport,
+};
+pub use crate::reviewer_kernel::model::{
+    load_model_provider_canary_evidence, openai_provider_canary_protocols,
     ModelProviderCanaryEvidence, ModelProviderCanaryGate, ModelProviderCanaryStatus,
-    OpenAiProviderCanaryConfig,
 };
 use crate::reviewer_kernel::snapshots::*;
 

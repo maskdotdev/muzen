@@ -250,7 +250,7 @@ fn public_canary_evidence_status_report_separates_gate_and_freshness_failures() 
 }
 
 #[test]
-fn cli_canary_manifest_composes_and_gates_evidence_files() {
+fn operational_proof_manifest_composes_and_gates_evidence_files() {
     let evidence_dir = tempfile::tempdir().unwrap();
     let provider_path = evidence_dir.path().join("provider.json");
     let snapshot_path = evidence_dir.path().join("snapshot.json");
@@ -287,7 +287,7 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
     )
     .unwrap();
 
-    let code = crate::cli::run_canary_manifest(CanaryManifestArgs {
+    let code = crate::operational_proof::run_manifest(ProofManifestArgs {
         provider_evidence: provider_path.clone(),
         remote_object_store_evidence: vec![snapshot_path.clone(), artifact_path.clone()],
         output: Some(manifest_path.clone()),
@@ -299,7 +299,7 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
         .expect("load manifest");
     loaded.require_passed().expect("manifest passed");
 
-    let error = crate::cli::run_canary_manifest(CanaryManifestArgs {
+    let error = crate::operational_proof::run_manifest(ProofManifestArgs {
         provider_evidence: provider_path,
         remote_object_store_evidence: vec![snapshot_path],
         output: Some(invalid_manifest_path.clone()),
@@ -315,273 +315,7 @@ fn cli_canary_manifest_composes_and_gates_evidence_files() {
 }
 
 #[test]
-fn cli_canary_publish_writes_child_evidence_and_manifest() {
-    let evidence_dir = tempfile::tempdir().unwrap();
-    let provider_input_path = evidence_dir.path().join("input-provider.json");
-    let output_dir = evidence_dir.path().join("published");
-    let provider = passing_model_provider_canary_evidence();
-    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
-        &provider_input_path,
-        &provider,
-    )
-    .unwrap();
-
-    let code = crate::cli::run_canary_publish(crate::cli::CanaryPublishArgs {
-        output_dir: output_dir.clone(),
-        provider_evidence: Some(provider_input_path),
-        snapshot_base_uri: "memory://muzen-canaries/snapshots".to_string(),
-        artifact_base_uri: "memory://muzen-canaries/artifacts".to_string(),
-        object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Memory,
-        object_store_bearer_token_env: "MUZEN_TEST_UNUSED_BEARER_TOKEN".to_string(),
-        model: DEFAULT_MODEL.to_string(),
-        provider_base_url: None,
-        max_output_tokens: 64,
-        max_evidence_age_seconds: 86_400,
-    })
-    .unwrap();
-    assert_eq!(code, 0);
-
-    let provider_output = output_dir.join("model-provider.json");
-    let snapshot_output = output_dir.join("remote-snapshot-object-store.json");
-    let artifact_output = output_dir.join("remote-artifact-object-store.json");
-    let manifest_output = output_dir.join("manifest.json");
-    let status_output = output_dir.join("status.json");
-    let publication_output = output_dir.join("publication.json");
-    assert!(provider_output.exists());
-    assert!(snapshot_output.exists());
-    assert!(artifact_output.exists());
-    assert!(manifest_output.exists());
-    assert!(status_output.exists());
-    assert!(publication_output.exists());
-
-    let manifest =
-        crate::reviewer_kernel::canaries::load_canary_evidence_manifest(&manifest_output)
-            .expect("load published manifest");
-    manifest
-        .require_passed_with_freshness(
-            &crate::reviewer_kernel::canaries::CanaryEvidenceFreshnessPolicy::current(86_400),
-        )
-        .expect("published manifest passed");
-    let status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
-        serde_json::from_str(&fs::read_to_string(&status_output).unwrap()).unwrap();
-    assert!(status.ok);
-    assert!(status.evidence.model_provider.present);
-    let publication: crate::cli::CanaryPublicationReport =
-        serde_json::from_str(&fs::read_to_string(&publication_output).unwrap()).unwrap();
-    assert_eq!(
-        publication.provider_evidence_source,
-        crate::cli::CanaryProviderEvidenceSource::ReusedEvidenceFile
-    );
-    assert_eq!(
-        publication.object_store_driver,
-        crate::cli::RemoteObjectStoreCanaryDriver::Memory
-    );
-    assert!(publication.provider_evidence_input.is_some());
-    assert!(publication.status_ok);
-    assert!(publication.failures.is_empty());
-    assert_eq!(publication.files.status, "status.json");
-}
-
-#[test]
-fn cli_canary_publish_writes_status_for_failed_manifest_gate() {
-    let evidence_dir = tempfile::tempdir().unwrap();
-    let provider_input_path = evidence_dir.path().join("input-provider.json");
-    let output_dir = evidence_dir.path().join("published");
-    let provider = crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence::with_generated_at(
-        crate::reviewer_kernel::system::timestamp_utc(),
-        Vec::new(),
-    );
-    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
-        &provider_input_path,
-        &provider,
-    )
-    .unwrap();
-
-    let error = crate::cli::run_canary_publish(crate::cli::CanaryPublishArgs {
-        output_dir: output_dir.clone(),
-        provider_evidence: Some(provider_input_path),
-        snapshot_base_uri: "memory://muzen-canaries/snapshots".to_string(),
-        artifact_base_uri: "memory://muzen-canaries/artifacts".to_string(),
-        object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Memory,
-        object_store_bearer_token_env: "MUZEN_TEST_UNUSED_BEARER_TOKEN".to_string(),
-        model: DEFAULT_MODEL.to_string(),
-        provider_base_url: None,
-        max_output_tokens: 64,
-        max_evidence_age_seconds: 86_400,
-    })
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("canary evidence manifest gate failed"));
-
-    let manifest_output = output_dir.join("manifest.json");
-    let status_output = output_dir.join("status.json");
-    let publication_output = output_dir.join("publication.json");
-    assert!(manifest_output.exists());
-    assert!(status_output.exists());
-    assert!(publication_output.exists());
-    let status: crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport =
-        serde_json::from_str(&fs::read_to_string(&status_output).unwrap()).unwrap();
-    assert!(!status.ok);
-    assert!(status.evidence.model_provider.present);
-    assert!(status.evidence.model_provider.reported_protocols.is_empty());
-    assert!(status
-        .validation_failures
-        .iter()
-        .any(|failure| failure.contains("missing responses canary report")));
-    assert!(status
-        .evidence
-        .remote_object_stores
-        .iter()
-        .all(|evidence| evidence.gate.as_ref().is_some_and(|gate| gate.valid)));
-    let publication: crate::cli::CanaryPublicationReport =
-        serde_json::from_str(&fs::read_to_string(&publication_output).unwrap()).unwrap();
-    assert_eq!(
-        publication.provider_evidence_source,
-        crate::cli::CanaryProviderEvidenceSource::ReusedEvidenceFile
-    );
-    assert!(!publication.status_ok);
-    assert_eq!(publication.failures, status.failures());
-}
-
-#[test]
-fn cli_canary_preflight_accepts_reused_provider_evidence_and_memory_store() {
-    let evidence_dir = tempfile::tempdir().unwrap();
-    let provider_input_path = evidence_dir.path().join("input-provider.json");
-    let provider = passing_model_provider_canary_evidence();
-    crate::reviewer_kernel::canaries::export_model_provider_canary_evidence(
-        &provider_input_path,
-        &provider,
-    )
-    .unwrap();
-
-    let args = crate::cli::CanaryPublishArgs {
-        output_dir: evidence_dir.path().join("published"),
-        provider_evidence: Some(provider_input_path),
-        snapshot_base_uri: "memory://muzen-canaries/snapshots".to_string(),
-        artifact_base_uri: "memory://muzen-canaries/artifacts".to_string(),
-        object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Memory,
-        object_store_bearer_token_env: "MUZEN_TEST_UNUSED_BEARER_TOKEN".to_string(),
-        model: DEFAULT_MODEL.to_string(),
-        provider_base_url: None,
-        max_output_tokens: 64,
-        max_evidence_age_seconds: 86_400,
-    };
-    let report = crate::cli::canary_publication_preflight_report_with_env(&args, &|_| None);
-
-    assert!(report.ok);
-    assert_eq!(
-        report.config.provider_evidence_source,
-        crate::cli::CanaryProviderEvidenceSource::ReusedEvidenceFile
-    );
-    assert_eq!(
-        report.config.object_store_driver,
-        crate::cli::RemoteObjectStoreCanaryDriver::Memory
-    );
-    assert!(report.checks.iter().any(|check| {
-        check.name == "providerEvidence"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Passed
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.name == "remoteObjectStoreAuth"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Passed
-    }));
-}
-
-#[test]
-fn cli_canary_preflight_reports_missing_live_configuration() {
-    let evidence_dir = tempfile::tempdir().unwrap();
-    let args = crate::cli::CanaryPublishArgs {
-        output_dir: evidence_dir.path().join("published"),
-        provider_evidence: None,
-        snapshot_base_uri: "s3://muzen-canaries/snapshots".to_string(),
-        artifact_base_uri: "s3://muzen-canaries/artifacts".to_string(),
-        object_store_driver: crate::cli::RemoteObjectStoreCanaryDriver::Http,
-        object_store_bearer_token_env: "MUZEN_REMOTE_OBJECT_STORE_BEARER_TOKEN".to_string(),
-        model: DEFAULT_MODEL.to_string(),
-        provider_base_url: Some("https://api.example.test/v1".to_string()),
-        max_output_tokens: 64,
-        max_evidence_age_seconds: 86_400,
-    };
-    let report = crate::cli::canary_publication_preflight_report_with_env(&args, &|_| None);
-
-    assert!(!report.ok);
-    assert_eq!(report.config.snapshot_base_uri, args.snapshot_base_uri);
-    assert_eq!(report.config.artifact_base_uri, args.artifact_base_uri);
-    assert_eq!(
-        report.config.provider_base_url,
-        "https://api.example.test/v1"
-    );
-    assert!(report.checks.iter().any(|check| {
-        check.name == "providerCredential"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Failed
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.name == "snapshotBaseUri"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Failed
-            && check.message.contains("HTTP object-store driver")
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.name == "artifactBaseUri"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Failed
-            && check.message.contains("HTTP object-store driver")
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.name == "remoteObjectStoreAuth"
-            && check.status == crate::cli::CanaryPublicationPreflightStatus::Warning
-    }));
-}
-
-#[test]
-fn cli_canary_proof_accepts_live_http_evidence_bundle() {
-    let evidence_dir = tempfile::tempdir().unwrap();
-    write_passing_live_canary_proof_bundle(evidence_dir.path());
-    let proof_path = evidence_dir.path().join("proof.json");
-
-    let code =
-        crate::cli::run_canary_proof(canary_proof_args(evidence_dir.path(), proof_path.clone()))
-            .unwrap();
-
-    assert_eq!(code, 0);
-    let proof: crate::cli::CanaryProofReport =
-        serde_json::from_str(&fs::read_to_string(&proof_path).unwrap()).unwrap();
-    assert!(proof.ok);
-    assert!(proof.failures.is_empty());
-    assert_eq!(proof.workflow_expectation.event_name, "schedule");
-    assert_eq!(proof.workflow_expectation.workflow, "Muzen Canary Evidence");
-    assert_eq!(proof.workflow_expectation.job, "publish-canary-evidence");
-    assert_eq!(
-        proof.workflow_expectation.repository,
-        Some("heimdaal/review".to_string())
-    );
-    assert_eq!(
-        proof.workflow_expectation.git_ref,
-        Some("refs/heads/main".to_string())
-    );
-    assert_eq!(proof.file_digests.len(), 8);
-    assert!(proof.file_digests.iter().all(|digest| digest.bytes > 0));
-    let manifest_digest = proof
-        .file_digests
-        .iter()
-        .find(|digest| digest.label == "manifest")
-        .expect("manifest digest");
-    let manifest_bytes = fs::read(evidence_dir.path().join("manifest.json")).unwrap();
-    assert_eq!(manifest_digest.file, "manifest.json");
-    assert_eq!(manifest_digest.bytes, manifest_bytes.len() as u64);
-    assert_eq!(
-        manifest_digest.blake3,
-        blake3::hash(&manifest_bytes).to_hex().to_string()
-    );
-    assert_eq!(
-        proof
-            .publication
-            .expect("publication report")
-            .provider_evidence_source,
-        crate::cli::CanaryProviderEvidenceSource::LiveProviderCanary
-    );
-}
-
-#[test]
-fn cli_canary_verify_gates_published_manifest_files() {
+fn operational_proof_verify_gates_published_manifest_files() {
     let evidence_dir = tempfile::tempdir().unwrap();
     let manifest_path = evidence_dir.path().join("manifest.json");
     let stale_manifest_path = evidence_dir.path().join("stale-manifest.json");
@@ -592,7 +326,7 @@ fn cli_canary_verify_gates_published_manifest_files() {
     )
     .unwrap();
 
-    let code = crate::cli::run_canary_verify(CanaryVerifyArgs {
+    let code = crate::operational_proof::run_verify(ProofVerifyArgs {
         manifest: manifest_path,
         max_evidence_age_seconds: 86_400,
     })
@@ -605,7 +339,7 @@ fn cli_canary_verify_gates_published_manifest_files() {
         &stale_manifest,
     )
     .unwrap();
-    let error = crate::cli::run_canary_verify(CanaryVerifyArgs {
+    let error = crate::operational_proof::run_verify(ProofVerifyArgs {
         manifest: stale_manifest_path,
         max_evidence_age_seconds: 1,
     })
@@ -615,7 +349,7 @@ fn cli_canary_verify_gates_published_manifest_files() {
 }
 
 #[test]
-fn cli_canary_status_reports_published_manifest_state() {
+fn operational_proof_status_reports_published_manifest_state() {
     let evidence_dir = tempfile::tempdir().unwrap();
     let manifest_path = evidence_dir.path().join("manifest.json");
     let status_path = evidence_dir.path().join("status.json");
@@ -628,7 +362,7 @@ fn cli_canary_status_reports_published_manifest_state() {
     )
     .unwrap();
 
-    let code = crate::cli::run_canary_status(crate::cli::CanaryStatusArgs {
+    let code = crate::operational_proof::run_status(crate::operational_proof::ProofStatusArgs {
         manifest: manifest_path,
         output: Some(status_path.clone()),
         max_evidence_age_seconds: 86_400,
@@ -681,7 +415,7 @@ fn cli_canary_status_reports_published_manifest_state() {
         &stale_manifest,
     )
     .unwrap();
-    let error = crate::cli::run_canary_status(crate::cli::CanaryStatusArgs {
+    let error = crate::operational_proof::run_status(crate::operational_proof::ProofStatusArgs {
         manifest: stale_manifest_path,
         output: Some(stale_status_path.clone()),
         max_evidence_age_seconds: 1,

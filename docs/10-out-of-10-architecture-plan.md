@@ -85,79 +85,11 @@ Strengths:
   Hosts can consume and persist `ReviewEventRecord` and `ReviewEvent` values
   through review-event JSONL export/load without matching raw `RuntimeEvent`
   variants or reading `RuntimeEventContext`.
-- `reviewer::canaries` gives hosts and schedulers one advanced canary module
-  for live model-provider evidence, remote snapshot/artifact object-store
-  evidence, and a schema-versioned aggregate canary evidence manifest that
-  fails closed when required provider, snapshot-store, or artifact-store proof
-  is missing, duplicated, skipped, failed, or forged.
-- `muzen canary-manifest` composes provider and remote object-store evidence
-  JSON files into the aggregate canary manifest, writes a durable proof object,
-  and exits non-zero when the gate does not pass. This gives scheduled jobs and
-  CI one command-line proof gate instead of requiring bespoke JSON parsing.
-- The aggregate canary manifest supports a freshness policy. The CLI defaults
-  to rejecting child or aggregate evidence older than 24 hours, and the
-  reviewer canary module exposes the same policy for schedulers that need a
-  different window.
-- `muzen canary-verify` validates an already-published aggregate canary
-  manifest with the same freshness policy. Release gates can therefore check
-  the exact promoted proof artifact without needing to reassemble child
-  evidence files.
-- `CanaryEvidenceManifest::status_report` and `muzen canary-status` expose the
-  same gate and freshness checks as a structured status artifact, separating
-  schema/gate failures from stale/future evidence failures so a reviewer can
-  audit a promoted manifest without reverse-engineering a process exit code. The
-  status report also summarizes the required provider protocol matrix,
-  observed provider protocol results, and observed snapshot/artifact remote
-  object-store evidence, so `status.json` is the reviewable proof entrypoint for
-  the scheduled evidence bundle. `muzen canary-publish` writes this report
-  beside the promoted manifest before returning a manifest-gate failure, and
-  the scheduled workflow also verifies it before promotion.
-- `muzen canary-publish` also writes `publication.json`, a provenance report
-  that records whether provider evidence came from live canaries or a reused
-  evidence file, which object-store driver was used, which model/provider base
-  URL was configured, the freshness window, emitted evidence filenames, and the
-  final status failures. A passing scheduled bundle can therefore prove it used
-  live provider canaries plus the HTTP object-store adapter rather than only
-  presenting a locally reusable manifest.
-- `muzen canary-preflight` validates the same publication configuration used by
-  `canary-publish` before evidence files are written: output path shape,
-  reused provider evidence, live-provider credentials, provider base URL,
-  remote snapshot/artifact base URIs, object-store driver compatibility,
-  optional HTTP bearer-token environment, provider output envelope, and
-  freshness window. It also records a schema-versioned publication config
-  summary with provider mode, object-store driver, base URIs, effective
-  provider base URL, model, output envelope, and freshness window. The
-  scheduled workflow saves this preflight report as `preflight.json`, so
-  configuration failures leave a structured artifact too.
-- `muzen canary-workflow-provenance` writes schema-versioned GitHub Actions
-  provenance from the scheduled job environment. The scheduled workflow now
-  calls Muzen for `workflow.json`, so the Rust canary module owns both
-  provenance production and validation instead of relying on bespoke workflow
-  JSON assembly.
-- `muzen canary-proof` validates a full scheduled evidence directory as one
-  final proof bundle. It requires `workflow.json`, `preflight.json`,
-  `publication.json`, child provider/snapshot/artifact evidence,
-  `manifest.json`, and `status.json`; it rejects reused provider evidence,
-  non-HTTP object-store publication, non-HTTP remote base URIs, stale or failed
-  manifests, failed child evidence, child evidence that does not match the
-  aggregate manifest, and a saved preflight report that is not shaped like a
-  live scheduled run or whose recorded config does not match the
-  publication/provider/object-store evidence. The proof verifier also
-  freshness-gates workflow, preflight, publication, and status proof
-  timestamps, and it requires workflow provenance with a scheduled GitHub
-  Actions event plus the expected workflow/job identity and optional exact
-  repository/ref identity. `proof.json` records that expected
-  event/workflow/job/repository/ref identity beside the observed provenance,
-  and it records `fileDigests` with byte counts and BLAKE3 hashes for every
-  required evidence JSON file, so reviewers can audit the final gate and the
-  exact validated file bytes from the artifact alone. The scheduled workflow
-  writes this report as `proof.json`, pins it to the current GitHub repository
-  and ref, runs with explicit read-only repository permissions, avoids
-  overlapping evidence runs with a non-cancelling concurrency group, installs
-  and selects stable Rust through `rustup` instead of an extra third-party
-  action, and uploads the evidence bundle with an
-  explicit 30-day retention period while failing the upload step if no evidence
-  files are produced.
+- `reviewer::canaries` retains lower-level provider and remote object-store evidence primitives.
+- `muzen proof manifest` composes provider and remote object-store evidence JSON files into an aggregate canary manifest and exits non-zero when the manifest gate or freshness gate fails.
+- `muzen proof verify` validates a previously published aggregate canary manifest with the same freshness policy.
+- `CanaryEvidenceManifest::status_report` and `muzen proof status` expose the same gate and freshness checks as a structured status artifact. Removed publication and bundle-generation commands should be rebuilt only as a fresh Operational Proof interface if production proof needs them again.
+
 - Raw runtime event payload/context/record and sink-trait compatibility now
   lives under `muzen::reviewer::runtime_events`, so the facade root points hosts
   toward review events while still preserving migration fixtures and low-level
@@ -279,15 +211,15 @@ merely a reasonable design direction.
 
 | Criterion | Current Rating | Evidence | Gap To 10/10 |
 | --- | ---: | --- | --- |
-| Deep host-facing module interface | 9.98 | Public `Run`, `RunBuilder`, `RunSpec`, `ReviewRunLimits`, `ReviewSessionSpec`, `ReviewModel`, `ReviewToolRegistry`, `ReviewEventSink`, `RunReport`, `ReviewRunSummary`, public model/tool/event/artifact/snapshot adapters, host-facing snapshot storage/read helpers, host-facing redacted/raw artifact workflow facade through `RunReport::redacted_artifacts`, `RunReport::raw_artifacts`, and `ReviewArtifacts`, host-facing JSON-RPC provider read-only and network-read tool registration/grants, artifact-id/object-ref string accessors, artifact bundle value constructors, host-facing review-event JSONL adapter, explicit `runtime_events`, `model_adapters`, `tool_adapters`, `capabilities`, `metrics`, `ids`, `artifacts`, `paths`, `storage`, `canaries`, and `runtime` modules for advanced compatibility instead of root raw-event/model/tool/provider/helper/capability/metrics/summary/id/path/storage/runtime/canary re-exports; raw `RuntimeLimits` is now behind `ReviewRunLimits::from_runtime_limits`; `muzen-runner stdio` exposes the kernel through a stable SDK protocol with implemented model/tool callbacks and event streaming; `muzen canary-preflight`, `muzen canary-workflow-provenance`, `muzen canary-publish`, `muzen canary-manifest`, `muzen canary-verify`, `muzen canary-status`, and `muzen canary-proof` expose canary configuration, scheduled workflow provenance, publication, publication provenance, aggregate proof, per-evidence status summaries, status gates, and final scheduled proof-bundle validation to automation | Remaining local facade work is mostly advanced compatibility and migration tests that intentionally instantiate low-level ids/objects for schema, corruption, and forgery proof |
-| Immutable evidence | 9.98 | Snapshot ids, content hashes, captured text bytes, public `SnapshotReader`, `SnapshotReader::read_text_path`, public `SnapshotManifest`, host-facing memory/content-addressed/remote snapshot storage helpers, memory, content-addressed directory, remote object-store backing stores, HTTP remote object-store canary adapter, scheduled canary workflow scaffold with persisted schema-versioned `workflow.json`, `preflight.json`, `publication.json`, publish-owned `status.json`, and final `proof.json`, public snapshot storage validation/cleanup reports, schema-versioned `RemoteObjectStoreCanaryEvidence`, aggregate `CanaryEvidenceManifest`, structured `CanaryEvidenceStatusReport` with per-target remote object-store status summaries, structured `CanaryProofReport` validating child evidence, scheduled workflow provenance, expected workflow/job/repository/ref identity, exact run URL, per-file proof byte counts/BLAKE3 digests, preflight config, proof-artifact freshness against the manifest, explicit workflow artifact retention, snapshot remote-client put/read/remove/read-after-remove canary proof, artifact retention/object-store contracts including remote artifact object refs, memory-envelope, content-addressed, and remote-object public tests, stale/missing backing-object lifecycle proof, mutation-after-capture read/search tests | The scheduled workflow must publish a current passing proof bundle from a production object-store endpoint |
+| Deep host-facing module interface | 9.98 | SDK/session/protocol Interfaces are now the external seam; reviewer_kernel is crate-private, muzen-runner stdio exposes the stable SDK protocol, and the internal CLI is limited to context diagnostics plus retained muzen proof manifest, muzen proof verify, and muzen proof status operations. | Remaining local facade work is mostly advanced compatibility and migration tests that intentionally instantiate low-level ids/objects for schema, corruption, and forgery proof |
+| Immutable evidence | 9.98 | Snapshot ids, content hashes, captured text bytes, snapshot storage helpers, schema-versioned RemoteObjectStoreCanaryEvidence, aggregate CanaryEvidenceManifest, structured CanaryEvidenceStatusReport, and retained Operational Proof manifest/verify/status commands. | Scheduled proof publication was retired; any future production proof should be rebuilt as a fresh Operational Proof interface |
 | Capability security | 9.75 | `ToolAuthorizer`, effects denial tests, max-call denial tests, artifact access policy with per-artifact scopes, model-visible output policy, tool input policy, runtime authority policy, provider and provider-resource allowlist policies, raw export denial, `ToolCallDenied` events, JSON-RPC authority/provider/resource denial-before-transport tests, public in-process host-tool provider-resource allow/deny tests, public JSON-RPC provider-resource allow/deny tests through `Run`, public JSON-RPC network-read allow/deny tests through `Run` proving missing runtime network authority denies before transport, scheduled canary workflow scoped to read-only repository permissions | Broader real-provider contract gates are still incomplete |
 | Policy locality | 9.95 | `ReviewerPolicy` owns exposure, initial transcript construction, transcript compaction, transcript append item shape, evidence gate, evidence and session-budget tool-batch planning, planned batch counts, denial reasons, legacy session/model/tool/error event planning, lifecycle and tool-result runtime event planning, terminal tracking, terminal diagnostics, session state, retry choice; `SessionModelAccounting` owns model/token/cost accounting outside the loop; `RuntimeEventDispatcher` owns legacy/runtime event delivery; `ModelTurnRunner` owns model retry/await timing and model start/completion event emission; `ToolBatchRunner` owns guarded tool-batch scheduling, denial result construction, batch-start event emission, denied-result metrics, and result merge ordering; `ToolResultEffectProcessor` owns per-result tool side-effect ordering; `SessionFlow` owns session completion/cancellation/failure transitions; `SessionRunner` owns the per-session async loop behind a narrow `run_scope` interface while `JobRuntime` owns only scheduling and report aggregation | The remaining locality risk is smaller and specific: `SessionRunner` still owns transcript append timing and the high-level handoff between model turns, tool batches, and tool-result effects. This is appropriate orchestration today, but a future transcript/turn coordinator would be needed if those rules grow |
 | Provider-neutral tool execution | 9.82 | `ToolProvider` trait, built-in/in-process/JSON-RPC providers, shared provider-output policy, provider metrics, provider/resource allowlists, host-facing provider-resource scoped custom-tool registration, host-facing JSON-RPC read-only and network-read provider registration through `ReviewToolRegistry` named registration values, provider/resource/effect grants through `ReviewSessionSpec`, provider resources propagated through `ReviewToolContext` and `JsonRpcToolRequest`, JSON-RPC artifact/output/authority/resource/cancellation limit tests, in-process and JSON-RPC provider-resource allow/deny public facade tests, public JSON-RPC network-read allow/deny facade tests, public HTTP JSON-RPC wire-envelope proof through `Run::builder`, queued/deduped search cancellation proof, post-tool/pre-transcript cancellation guard | Broader external-provider contract runs still need stronger coverage |
-| Provider-neutral model routing | 9.7 | `ModelRouter`, per-profile/client routing, `ModelApiProtocol` profile selection, Chat Completions and Responses clients, shared Chat/Responses tool exposure conversion, shared alias-table replay and parsing proof, SDK runner `model.complete` callback adapter, public `reviewer::canaries` two-protocol `OpenAiProviderCanaryConfig` / `ModelProviderCanaryReport` canary contract, schema-versioned `ModelProviderCanaryEvidence` with required-protocol validation and gate failures, aggregate `CanaryEvidenceManifest`, status-report required/reported/passed protocol summary, publication-report live-vs-reused provider evidence source, proof-report rejection of reused provider evidence, freshness-gated CLI `canary-preflight` configuration proof, freshness-gated CLI `canary-publish` evidence publication, freshness-gated CLI `canary-manifest` composition/gating, freshness-gated CLI `canary-verify` published-manifest proof, freshness-gated CLI `canary-proof` scheduled-bundle proof, scheduled canary workflow scaffold, `bench-concurrent --run-provider-canaries`, `bench-concurrent --provider-canary-report`, safe skipped-status proof for disabled or missing credentials, durable canary evidence JSON roundtrip proof, per-provider/profile/key/session limiter buckets, in-flight model cancellation proof | The scheduled workflow must actually run with credentials and publish a passing proof bundle; broader provider compatibility gates are incomplete |
+| Provider-neutral model routing | 9.7 | ModelRouter, per-profile/client routing, ModelApiProtocol profile selection, Chat Completions and Responses clients, SDK runner model.complete callback adapter, provider canary evidence contracts, aggregate manifests, status reports, and durable canary evidence JSON roundtrip proof. | Broader provider compatibility gates are incomplete |
 | Stable observability | 9.92 | `ReviewEventSink`, `ReviewEventRecord`, `ReviewEvent`, host-facing review-event JSONL export/load with schema-version validation, SDK runner `event.review`, `event.runtime`, `run.finished`, and `run.failed` notifications, `RuntimeEvent`, camelCase runtime payload JSON, `RuntimeEventContext`, `RuntimeEventDispatcher`, in-memory and bounded runtime sinks, runtime JSONL export/load with schema-version validation, migration reports, v0 contextless and v1 full-variant JSONL fixtures, contextless legacy event-log migration, policy-owned legacy session/model/tool/error event payloads, `ToolCallDenied` events, public facade review-event assertions for successful/denial/multi-snapshot/cancellation runs, and happy-path review-event JSONL roundtrip proof | Future schema versions must add fixtures when introduced |
-| Artifact/evidence retrieval | 9.98 | Redacted/raw artifact views, host-facing redacted-all and redacted-scoped artifact workflow facade, string artifact-id/object-ref accessors for evidence/export/persistence views, scoped artifact export, bundle export, finding evidence traversal, raw export gated by `CapabilitySet` authority, snapshot storage object lifecycle reports including remote snapshot objects, public artifact bundle validation/cleanup reports, artifact retention count/byte envelope, `ArtifactObjectStore` persistence/cleanup contract, `ArtifactObjectReader` validation contract, serializable persistence manifests, in-memory, local filesystem, remote-URI artifact object-store adapters, HTTP remote object-store canary adapter, artifact remote-client put/read/remove/read-after-remove canary proof, aggregate `CanaryEvidenceManifest`, structured manifest status report with snapshot/artifact target summaries, publication provenance for the object-store driver, `CanaryProofReport` validation that snapshot/artifact child files match the manifest and use HTTP base URIs plus per-file proof digests for the scheduled bundle, scheduled canary workflow scaffold with persisted preflight, publication, status, and proof artifacts, stale/missing object-store proof, stale/missing bundle-object proof, forged remote URI and bundle-path denial proof | Scheduled production object-store canary runs must publish current passing proof bundles |
-| Testability through interfaces | 9.99 | Public facade tests exist, including host-facing `ReviewSessionSpec` and `ReviewRunLimits` run construction, host-facing snapshot storage/read helpers, host-facing `ReviewArtifacts` workflow proof for export, scoped evidence, persistence, validation, cleanup, and local object paths without low-level ids, host-facing redacted artifact export policy construction and artifact-id accessors, host-facing `ReviewModel` adapters, host-facing `ReviewToolRegistry` custom, provider-resource-scoped custom, JSON-RPC read-only/network-read provider registration, and HTTP JSON-RPC transport execution, SDK runner callback proof through `interactive_stdio_runs_model_and_tool_callbacks`, runner handshake/schema fixtures, host-facing `ReviewEventSink` observation and review-event JSONL roundtrip, host-facing `ReviewRunSummary` status/snapshot-count proof, memory/content-addressed/remote snapshot storage lifecycle, public remote object-store canary proof, public aggregate canary evidence manifest proof, public canary status-report and evidence-summary proof, CLI canary preflight proof with versioned config summary, CLI canary workflow-provenance generation proof, CLI canary publication proof for both passing and manifest-gate-failing bundles, CLI publication provenance proof for reused and live-provider modes, CLI aggregate canary manifest composition proof, CLI published-manifest verification proof, CLI published-manifest status proof, CLI proof-bundle acceptance for live HTTP evidence with expected workflow/source identity and evidence file digests recorded in `proof.json`, CLI proof-bundle rejection for reused provider evidence, reused-provider preflight shape, preflight config/evidence mismatch, stale preflight proof metadata, missing workflow provenance, manual workflow-dispatch provenance, wrong workflow/job/repository/ref provenance, and wrong workflow run URL, canary freshness policy proof for stale/future evidence, artifact bundle lifecycle, artifact retention envelopes, artifact object-store persistence, validation, and cleanup after manifest JSON roundtrip, fixture-backed runtime event-log migration through `reviewer::runtime_events`, bounded raw event sink proof through `reviewer::runtime_events`, runtime provider proof through `reviewer::tool_adapters`, capability and cache fixture construction through `reviewer::capabilities` / `reviewer::metrics`, explicit public id/artifact/runtime contract modules in advanced facade tests, successful/denial/multi-snapshot/cancellation review-event proof, public host-resource allow/deny proof, public JSON-RPC provider-resource allow/deny proof, and public JSON-RPC network-read allow/deny proof; focused policy/authorization/validation/model-protocol/canary/accounting/dispatch/effects/flow/model-turn/tool-batch tests exist | Some tests still instantiate private runtime/tool modules directly |
+| Artifact/evidence retrieval | 9.98 | Redacted/raw artifact views, host-facing redacted-all and redacted-scoped artifact workflow facade, string artifact-id/object-ref accessors for evidence/export/persistence views, scoped artifact export, bundle export, finding evidence traversal, raw export gated by `CapabilitySet` authority, snapshot storage object lifecycle reports including remote snapshot objects, public artifact bundle validation/cleanup reports, artifact retention count/byte envelope, `ArtifactObjectStore` persistence/cleanup contract, `ArtifactObjectReader` validation contract, serializable persistence manifests, in-memory, local filesystem, remote-URI artifact object-store adapters, HTTP remote object-store canary adapter, artifact remote-client put/read/remove/read-after-remove canary proof, aggregate `CanaryEvidenceManifest`, structured manifest status report with snapshot/artifact target summaries, operational proof manifest and status checks | Scheduled proof publication was retired; future production proof should use a fresh Operational Proof interface |
+| Testability through interfaces | 9.99 | Public facade tests, runner handshake/schema fixtures, SDK runner callback proof, remote object-store canary proof, aggregate manifest proof, Operational Proof manifest/verify/status tests, canary freshness policy proof, artifact lifecycle tests, event-log tests, capability tests, and focused policy/authorization/validation/model-protocol/accounting/dispatch/effects/flow/model-turn/tool-batch tests exist. | Some tests still instantiate private runtime/tool modules directly |
 | Migration without losing proof | 9.99 | Rust tests, clippy, release build, sync runtime deletion gates, focused in-flight, queued/deduped, post-tool/pre-transcript cancellation proof, public snapshot and artifact bundle lifecycle proof, remote snapshot object-store proof, artifact retention and object-store persistence/validation/cleanup proof, schema-versioned remote object-store canary evidence export/load proof, aggregate canary evidence manifest export/load, structured canary status-report proof, freshness policy, CLI publication preflight proof, CLI workflow-provenance generation proof, CLI publication proof, CLI composition proof, CLI published-manifest verification proof, CLI published-manifest status proof, CLI final proof-bundle validation with expected workflow/source identity and per-file digests, scheduled canary workflow scaffold with preflight/status/proof artifacts, fixture-backed runtime event-log schema migration proof, runner handshake/schema fixture drift proof, SDK runner callback proof, public runtime-path event-log roundtrip proof, host-facing review-event JSONL roundtrip proof, public HTTP JSON-RPC provider wire proof, Chat/Responses model protocol contract proof, opt-in Chat/Responses real-provider canary contract proof, focused model-turn retry/event proof, focused guarded tool-batch denial/order proof, and schema-versioned provider canary evidence export/load proof | Credentialed benchmark/canary evidence and production object-store proof bundles are not proven by a completed scheduled run yet |
 
 ## 10/10 Criteria
@@ -2685,7 +2617,7 @@ Implemented state after CLI canary manifest gate:
   canary evidence manifests now have public load functions in
   `reviewer::canaries`, so automation does not need to duplicate JSON parsing
   or schema handling.
-- `muzen canary-manifest --provider-evidence <path>
+- `muzen proof manifest --provider-evidence <path>
   --remote-object-store-evidence <path> --remote-object-store-evidence <path>
   --output <path>` composes the aggregate canary evidence manifest from
   previously exported child evidence files. It writes the manifest and then
@@ -2714,7 +2646,7 @@ Implemented state after canary evidence freshness gate:
   the manifest timestamp, model-provider evidence timestamp, snapshot
   object-store evidence timestamp, and artifact object-store evidence timestamp
   to be within a caller-specified age window and not in the future.
-- `muzen canary-manifest` now accepts `--max-evidence-age-seconds`, defaulting
+- `muzen proof manifest` now accepts `--max-evidence-age-seconds`, defaulting
   to 86,400 seconds. The command still writes the aggregate manifest first, but
   it now fails if any child or aggregate evidence is stale or future-dated.
 - Public tests prove fresh evidence passes, stale evidence fails for each
@@ -2735,12 +2667,12 @@ cargo build --release -p muzen
 
 Implemented state after CLI published-manifest verification gate:
 
-- `muzen canary-verify --manifest <path> --max-evidence-age-seconds <seconds>`
+- `muzen proof verify --manifest <path> --max-evidence-age-seconds <seconds>`
   now validates one previously published aggregate `CanaryEvidenceManifest`
-  using the same gate and freshness policy as `muzen canary-manifest`.
+  using the same gate and freshness policy as `muzen proof manifest`.
 - Release gates no longer need child evidence files or custom JSON parsing to
   validate the exact proof artifact being promoted. They can run
-  `canary-verify` against the manifest that a scheduled provider/cloud canary
+  `proof verify` against the manifest that a scheduled provider/cloud canary
   job published.
 - Public tests prove CLI parsing, successful verification of a freshly exported
   manifest, and failure for a stale published manifest. This improves
@@ -2784,46 +2716,6 @@ Latest local verification after host-facing artifact workflow facade:
 ```bash
 cargo fmt --check
 cargo test -p muzen              # 122 tests passed
-cargo clippy -p muzen --all-targets --all-features -- -D warnings
-cargo build --release -p muzen
-```
-
-Implemented state after canary publication interface:
-
-- `HttpRemoteObjectClient` now implements the remote snapshot and artifact
-  object-client interfaces with HTTP `PUT`, `GET`, and `DELETE`, plus optional
-  bearer-token authorization. This gives production infrastructure a concrete
-  adapter for the same remote object-store canary contract used by memory
-  tests, without baking one cloud vendor SDK into Muzen.
-- `muzen canary-publish --output-dir <dir> --snapshot-base-uri <uri>
-  --artifact-base-uri <uri>` now owns the full publication workflow: run or
-  reuse provider evidence, run snapshot and artifact remote object-store
-  canaries, write the three child evidence files, compose `manifest.json`, and
-  verify the aggregate freshness gate. Failed publication still leaves the
-  child and aggregate evidence files behind for release logs.
-- `--object-store-driver http` is the production/default path. Tests use
-  `--object-store-driver memory` with an existing provider evidence file to
-  prove the command writes `model-provider.json`,
-  `remote-snapshot-object-store.json`, `remote-artifact-object-store.json`,
-  and `manifest.json`, then verifies the aggregate manifest through the public
-  loader and freshness policy.
-- This moves Muzen-side canary publication from an out-of-band script concern
-  into a deep CLI module interface. The remaining 10/10 gap is now external:
-  scheduled infrastructure must run `canary-publish` with live OpenAI-compatible
-  credentials and a production object-store HTTP endpoint, then publish a
-  current passing manifest.
-- `.github/workflows/muzen-canary-evidence.yml` wires that interface into a
-  daily/manual scheduled job. The workflow builds the release binary, runs
-  `canary-publish` with required provider and object-store secrets, verifies
-  the published manifest, and uploads the evidence directory even on failure.
-  This makes the remaining gap operational configuration and successful
-  external execution, not missing repository automation.
-
-Latest local verification after canary publication interface:
-
-```bash
-cargo fmt --check
-cargo test -p muzen              # 123 tests passed
 cargo clippy -p muzen --all-targets --all-features -- -D warnings
 cargo build --release -p muzen
 ```
@@ -2909,33 +2801,6 @@ cargo clippy -p muzen --all-targets --all-features -- -D warnings
 cargo build --release -p muzen
 ```
 
-Implemented state after canary publication preflight:
-
-- `muzen canary-preflight` now accepts the same publication arguments as
-  `canary-publish` and emits a structured preflight report before evidence is
-  written. The report fails for missing live provider credentials, invalid
-  provider base URLs, empty models, invalid freshness windows, and remote
-  object-store base URIs that are incompatible with the selected driver.
-- Reused provider evidence is loaded and schema-gated during preflight, so
-  scheduled jobs that intentionally avoid live provider calls can prove their
-  substituted evidence is structurally valid before publication begins.
-- HTTP object-store authorization is reported as a pass or warning without
-  printing token values. This keeps bearer-token and signed-URL deployments
-  supported while still making missing token configuration visible in CI logs.
-- The scheduled canary workflow now runs `canary-preflight` with the exact
-  arguments passed to `canary-publish`. The remaining 10/10 gap is therefore a
-  completed scheduled run with live credentials and production object-store
-  endpoints, not hidden configuration ambiguity.
-
-Latest local verification after canary publication preflight:
-
-```bash
-cargo fmt --check
-cargo test -p muzen              # 134 tests passed
-cargo clippy -p muzen --all-targets --all-features -- -D warnings
-cargo build --release -p muzen
-```
-
 Implemented state after structured canary status reports:
 
 - `CanaryEvidenceManifest::status_report` now exposes the same aggregate gate
@@ -2943,7 +2808,7 @@ Implemented state after structured canary status reports:
   manifest schema version, manifest timestamp, freshness check timestamp, max
   evidence age, aggregate gate, schema/gate failures, freshness failures, and a
   combined failure list.
-- `muzen canary-status --manifest <path> --output <path>
+- `muzen proof status --manifest <path> --output <path>
   --max-evidence-age-seconds <seconds>` writes that report for a previously
   published manifest and exits non-zero when either the aggregate gate or
   freshness gate fails. It writes the status JSON before returning a failure,
@@ -2953,7 +2818,7 @@ Implemented state after structured canary status reports:
   passing status report while stale published manifests write a failing status
   report with status-specific diagnostics.
 - The scheduled canary workflow now writes
-  `bench/canary-evidence/status.json` before the silent `canary-verify` gate,
+  `bench/canary-evidence/status.json` before the silent `proof verify` gate,
   so the uploaded evidence bundle contains the manifest, child evidence, and
   reviewer-friendly aggregate status when publication succeeds.
 - This improves evidence reviewability for the last external gap. It still does
@@ -2999,7 +2864,7 @@ cargo fmt --check
 cargo test -p muzen              # 141 tests passed
 cargo clippy -p muzen --all-targets --all-features -- -D warnings
 cargo build --release -p muzen
-target/release/muzen canary-status --help
+target/release/muzen proof status --help
 ```
 
 Implemented state after canary status evidence summary:
@@ -3010,7 +2875,7 @@ Implemented state after canary status evidence summary:
   provider gate. It also records one status entry each for expected snapshot and
   artifact remote object-store evidence, including evidence count, timestamp,
   base URI, object URI, and gate summary.
-- `muzen canary-status` therefore writes a single review entrypoint:
+- `muzen proof status` therefore writes a single review entrypoint:
   `status.json` still carries aggregate gate and freshness failures, but it now
   also answers what live provider and remote object-store proof was observed.
   Reviewers no longer have to infer the evidence contract from child file
@@ -3029,139 +2894,6 @@ cargo fmt --check
 cargo test -p muzen              # 141 tests passed
 cargo clippy -p muzen --all-targets --all-features -- -D warnings
 cargo build --release -p muzen
-```
-
-Implemented state after publish-owned canary diagnostics:
-
-- `muzen canary-publish` now writes `status.json` beside `manifest.json`
-  immediately after manifest creation and before returning a manifest-gate
-  failure. A failing aggregate gate therefore still leaves provider evidence,
-  snapshot object-store evidence, artifact object-store evidence, the manifest,
-  and the structured status artifact in the same publication directory.
-- `muzen canary-publish` also writes `publication.json`, which records the
-  provider evidence source (`live_provider_canary` vs `reused_evidence_file`),
-  optional reused evidence input path, object-store driver, provider base URL,
-  model, freshness window, emitted evidence filenames, final status, and
-  failures. This lets a scheduled artifact bundle prove it used live provider
-  canaries and the HTTP object-store adapter without relying on workflow logs.
-- The scheduled canary workflow now saves `canary-preflight` output as
-  `bench/canary-evidence/preflight.json` with `tee`, so configuration failures
-  can still be reviewed from the uploaded artifact bundle.
-- CLI tests now prove `canary-publish` writes `status.json` for both passing
-  publication and failing manifest-gate publication. The failure test uses
-  structurally loaded provider evidence with an incomplete required protocol
-  matrix, so the remote object-store child evidence is still published while
-  the aggregate gate fails and the diagnostic status is preserved.
-- CLI tests also prove publication provenance for both reused-evidence and
-  live-provider modes without making a network call.
-- This fixes a reviewability bug in the scheduled proof path. The final 10/10
-  blocker remains a completed scheduled run with live provider credentials and
-  production object-store endpoints that produces a current passing status and
-  manifest.
-
-Latest local verification after publish-owned canary diagnostics:
-
-```bash
-cargo fmt --check
-cargo test -p muzen              # 143 tests passed
-cargo clippy -p muzen --all-targets --all-features -- -D warnings
-cargo build --release -p muzen --bin muzen
-cargo run --release -p muzen --bin muzen -- canary-publish --help
-```
-
-Implemented state after scheduled canary proof verifier:
-
-- `muzen canary-proof` now validates a full evidence directory rather than a
-  single manifest. The proof report requires `workflow.json`,
-  `preflight.json`, `publication.json`, `model-provider.json`,
-  `remote-snapshot-object-store.json`, `remote-artifact-object-store.json`,
-  `manifest.json`, and `status.json`.
-- `workflow.json` is now schema-versioned and records GitHub Actions
-  provenance: event name, workflow, job, run id, run attempt, repository, ref,
-  commit SHA, actor, server URL, and run URL. `muzen
-  canary-workflow-provenance` now writes this artifact from the GitHub Actions
-  environment before publishing evidence, so the Rust canary module owns the
-  JSON shape that `canary-proof` later validates.
-- `preflight.json` is now schema-versioned and includes the checked
-  publication config: provider evidence source/input, object-store driver,
-  remote snapshot/artifact base URIs, effective provider base URL and source,
-  model, output-token envelope, and freshness window.
-- The verifier rejects reused provider evidence, a reused provider input path,
-  non-HTTP object-store publication, freshness-window mismatches, failed
-  publication/status reports, non-HTTP remote object-store base URIs, failed
-  child evidence gates, child evidence files that do not match the aggregate
-  manifest, and saved preflight reports that contain reused-provider checks
-  instead of the live credential/base-URI checks expected from a scheduled run.
-  It also rejects preflight config mismatches against the publication, provider
-  reports, snapshot evidence, artifact evidence, or status summaries. The proof
-  now freshness-gates the workflow provenance timestamp, preflight report
-  timestamp, publication report timestamp, and status-report freshness-check
-  timestamp too. It also rejects missing workflow provenance, any event that is
-  not `schedule`, workflow/job/repository/ref identity mismatches, and run URLs
-  that do not exactly match the recorded server URL, repository, and run id, so
-  `workflow_dispatch`, a differently named job, the wrong source repository or
-  ref, or a misleading run link cannot masquerade as the scheduled proof
-  required for 10/10.
-- `proof.json` now records the expected scheduled event, workflow name, job id,
-  repository, and git ref as `workflowExpectation`, alongside the observed
-  `workflow.json` provenance. This makes the final artifact self-describing for
-  release reviewers and external auditors.
-- `proof.json` now also records `fileDigests` for the required
-  `workflow.json`, `preflight.json`, `publication.json`,
-  `model-provider.json`, `remote-snapshot-object-store.json`,
-  `remote-artifact-object-store.json`, `manifest.json`, and `status.json`
-  inputs. Each digest records the proof label, filename, byte count, and BLAKE3
-  hash, binding the final proof report to the exact evidence bytes it
-  validated.
-- The scheduled canary workflow now writes
-  `bench/canary-evidence/proof.json` after `canary-status` and
-  `canary-verify`, so uploaded evidence contains one final structured proof
-  artifact for reviewers and release gates. It now calls `muzen
-  canary-workflow-provenance` for `workflow.json` instead of embedding a
-  hand-written JSON generator in the workflow file. The verification step is
-  diagnostic-first: it attempts status, manifest verification, and final proof
-  generation before returning failure, so failed evidence gates still leave a
-  `proof.json` report when the Muzen binary is available. The proof command is
-  called with `GITHUB_REPOSITORY` and `GITHUB_REF` as exact expectations, so the
-  uploaded proof is tied to the scheduled run source as well as the workflow
-  and job identity.
-- The scheduled canary workflow now declares `permissions: contents: read`,
-  uses a non-cancelling `muzen-canary-evidence` concurrency group so scheduled
-  proof artifacts are not interrupted by overlapping runs, installs and selects
-  the stable Rust toolchain with `rustup` instead of an extra third-party
-  action, and uploads canary evidence with an explicit 30-day retention period.
-  The upload step uses `if-no-files-found: error`, so a run that produces no
-  evidence cannot look like a successful proof publication.
-- CLI tests now prove `canary-proof` accepts a live-provider/HTTP-object-store
-  shaped bundle, rejects a reused-provider publication bundle, and rejects a
-  reused-provider preflight shape even when the underlying manifest evidence
-  still passes. They also prove a tampered preflight snapshot base URI fails the
-  final proof and that stale preflight metadata fails even when the manifest
-  evidence still passes. They now also prove missing workflow provenance,
-  manual workflow-dispatch provenance, wrong workflow/job/repository/ref
-  provenance, and a wrong workflow run URL fail the final proof. The passing
-  proof test asserts that `proof.json` records the expected scheduled workflow
-  source identity plus all eight evidence-file digests, including the byte count
-  and BLAKE3 hash for `manifest.json`. A focused CLI test proves
-  `canary-workflow-provenance`
-  writes the expected GitHub Actions environment into the schema-versioned
-  provenance artifact.
-- This closes the reusable/local-proof loophole in the scheduled canary
-  interface. The score remains 9.98/10 until the workflow actually runs with
-  live provider credentials and production object-store endpoints and publishes
-  a current passing `proof.json`.
-
-Latest local verification after source-pinned proof provenance:
-
-```bash
-cargo fmt --check
-cargo test -p muzen              # 155 tests passed
-cargo clippy -p muzen --all-targets --all-features -- -D warnings
-cargo build --release -p muzen --bin muzen
-target/release/muzen canary-proof --help
-target/release/muzen canary-workflow-provenance --help
-ruby -e 'require "yaml"; YAML.load_file(".github/workflows/muzen-canary-evidence.yml")'
-go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/muzen-canary-evidence.yml
 ```
 
 Implemented state after host-facing run summary split:

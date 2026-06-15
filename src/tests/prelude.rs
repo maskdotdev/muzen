@@ -1,11 +1,10 @@
-pub(crate) use crate::cli::{CanaryManifestArgs, CanaryVerifyArgs};
+pub(crate) use crate::operational_proof::{ProofManifestArgs, ProofVerifyArgs};
 pub(crate) use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, FsScope, LimitInfo, ModelToolCall, ProviderResourceId,
     ProviderResourceScope, RepoPath, RuntimeLimits, ToolCallId, ToolEffects, ToolErrorCode,
     ToolGrant, ToolId, ToolMetricKey, ToolProviderHealthState, ToolProviderId, TurnId,
 };
 pub(crate) use crate::reviewer_kernel::review_contract::*;
-pub(crate) use crate::reviewer_kernel::system::DEFAULT_MODEL;
 pub(crate) use crate::reviewer_kernel::tool_engine::ToolEngine;
 pub(crate) use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolOptions, JsonRpcToolResponse, ToolRegistry,
