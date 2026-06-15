@@ -27,7 +27,6 @@ use crate::reviewer_kernel::review_contract::{
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
-use crate::reviewer_kernel::adapters::{model_adapters, tool_adapters, Cancellation};
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::report::*;
 use crate::reviewer_kernel::review_model::*;
@@ -35,6 +34,7 @@ use crate::reviewer_kernel::review_tools::*;
 use crate::reviewer_kernel::runtime_events;
 use crate::reviewer_kernel::snapshots::*;
 use crate::reviewer_kernel::spec::*;
+use tokio_util::sync::CancellationToken as Cancellation;
 pub struct RunBuilder {
     spec: RunSpec,
     model_router: Option<Arc<dyn RuntimeModelRouter>>,
@@ -56,7 +56,7 @@ impl RunBuilder {
         }
     }
 
-    pub fn model_router(mut self, model_router: Arc<dyn model_adapters::ModelRouter>) -> Self {
+    pub(crate) fn model_router(mut self, model_router: Arc<dyn RuntimeModelRouter>) -> Self {
         self.model_router = Some(model_router);
         self
     }
@@ -66,27 +66,22 @@ impl RunBuilder {
         self
     }
 
-    pub fn tool_registry(mut self, tool_registry: tool_adapters::ToolRegistry) -> Self {
-        self.tool_registry = Some(Arc::new(tool_registry));
-        self
-    }
-
     pub fn review_tool_registry(mut self, tool_registry: ReviewToolRegistry) -> Self {
         self.tool_registry = Some(Arc::new(tool_registry.into_tool_registry()));
         self
     }
 
-    pub fn shared_tool_registry(mut self, tool_registry: Arc<tool_adapters::ToolRegistry>) -> Self {
+    pub(crate) fn shared_tool_registry(mut self, tool_registry: Arc<RuntimeToolRegistry>) -> Self {
         self.tool_registry = Some(tool_registry);
         self
     }
 
-    pub fn reviewer_policy(mut self, reviewer_policy: Arc<ReviewerPolicy>) -> Self {
+    pub(crate) fn reviewer_policy(mut self, reviewer_policy: Arc<ReviewerPolicy>) -> Self {
         self.reviewer_policy = Some(reviewer_policy);
         self
     }
 
-    pub fn event_sink(mut self, event_sink: Arc<dyn runtime_events::EventSink>) -> Self {
+    pub(crate) fn event_sink(mut self, event_sink: Arc<dyn runtime_events::EventSink>) -> Self {
         self.event_sink = Some(event_sink);
         self
     }
@@ -96,7 +91,7 @@ impl RunBuilder {
         self
     }
 
-    pub fn context_engine(mut self, context_engine: Arc<dyn ContextEngine>) -> Self {
+    pub(crate) fn context_engine(mut self, context_engine: Arc<dyn ContextEngine>) -> Self {
         self.context_engine = Some(context_engine);
         self
     }

@@ -7,11 +7,12 @@ use crate::reviewer_kernel::kernel_types::{
     SessionScope, SnapshotId, ToolCallId, ToolErrorCode, ToolId, TurnId,
 };
 use crate::reviewer_kernel::model::{
-    ConcurrentModelClient as RuntimeModelClient, StaticModelRouter,
+    ConcurrentModelClient as RuntimeModelClient, ConcurrentModelRouter as RuntimeModelRouter,
+    StaticModelRouter,
 };
 use crate::reviewer_kernel::review_contract::{Role, TokenUsage};
 
-use crate::reviewer_kernel::adapters::{model_adapters, Cancellation};
+use crate::reviewer_kernel::adapters::Cancellation;
 #[async_trait]
 pub trait ReviewModel: Send + Sync {
     async fn complete_review(
@@ -222,7 +223,7 @@ impl RuntimeModelClient for ReviewModelClientAdapter {
     }
 }
 
-pub fn review_model_router(model: Arc<dyn ReviewModel>) -> Arc<dyn model_adapters::ModelRouter> {
+pub(crate) fn review_model_router(model: Arc<dyn ReviewModel>) -> Arc<dyn RuntimeModelRouter> {
     Arc::new(StaticModelRouter::new(Arc::new(
         ReviewModelClientAdapter::new(model),
     )))

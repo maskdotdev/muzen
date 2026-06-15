@@ -231,7 +231,6 @@ impl ReviewToolRegistry {
 }
 
 #[async_trait]
-#[async_trait]
 pub trait ReviewToolHandler: Send + Sync {
     async fn execute_review_tool(
         &self,
