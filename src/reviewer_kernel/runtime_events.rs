@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 pub use crate::reviewer_kernel::kernel_types::{
-    RuntimeEvent, RuntimeEventContext, RuntimeEventRecord, RuntimeEventSink as EventSink, TurnId,
+    RuntimeEvent, RuntimeEventContext, RuntimeEventRecord, RuntimeEventSink as EventSink,
 };
 use crate::reviewer_kernel::system::{timestamp_utc, SCHEMA_VERSION};
 
@@ -264,7 +264,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::reviewer_kernel::kernel_types::{SessionId, SessionScope};
+    use crate::reviewer_kernel::kernel_types::{SessionId, SessionScope, TurnId};
     use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
 
     #[test]

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod adapters;
 pub(crate) mod agent_loop;
 pub mod agent_trace;

@@ -8,10 +8,9 @@ Top-level `src/` modules:
 - `review_sources`: source descriptors and provider materialization into local review state.
 - `workspace`: local materialized review state: checkout, changed files, diffs, snapshots, file inventory, and file classification.
 - `context_engine`: Context Graph, Context Evidence, and Context Pack construction from workspace state.
-- `reviewer_kernel`: autonomous review loop, model clients, tools, policy, transcript, artifacts, semantic reports, and canary evidence formats.
+- `reviewer_kernel`: crate-private autonomous review loop, model clients, tools, policy, transcript, artifacts, and semantic reports.
 - `runner_protocol`: JSON-RPC contract, schema, stdio transport, and protocol dispatch.
 - `remote_http`: HTTP request/response contract, routes, SSE/event replay mapping, and Axum adapter.
-- `canary`: named operational proof flows.
 - `cli`: command-line adapter only.
 
 Forbidden top-level buckets are `runtime`, `runner`, `reviewer`, `review_session`, `diagnostics`, `contracts.rs`, `repo.rs`, `util.rs`, and `service.rs`.
@@ -24,4 +23,4 @@ Dependency direction:
 - `review_sources` produces workspace state; it does not own review lifecycle.
 - `workspace` has no knowledge of HTTP, JSON-RPC, profile stores, or worker scheduling.
 - `context_engine` reads workspace state and emits context artifacts.
-- `reviewer_kernel` executes the review loop; callers do not reach into its private support modules.
+- `reviewer_kernel` executes the review loop behind `review_sessions` and `runner_protocol`; external callers use session/protocol APIs instead of kernel modules.
