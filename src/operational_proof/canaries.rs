@@ -5,12 +5,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 
+#[cfg(test)]
 use crate::reviewer_kernel::kernel_types::stable_id;
 use crate::reviewer_kernel::review_contract::ModelApiProtocol;
 use crate::reviewer_kernel::system::timestamp_utc;
+#[cfg(test)]
 use crate::workspace::remote_content_addressed_uri;
 
-use crate::reviewer_kernel::artifacts::*;
+#[cfg(test)]
+use crate::reviewer_kernel::artifacts::{
+    normalize_remote_store_base_uri, remote_artifact_object_uri, ArtifactViewMode,
+    RemoteArtifactObjectClient,
+};
 #[cfg(test)]
 pub use crate::reviewer_kernel::model::{
     export_model_provider_canary_evidence, ModelProviderCanaryReport,
@@ -19,7 +25,8 @@ pub use crate::reviewer_kernel::model::{
     load_model_provider_canary_evidence, openai_provider_canary_protocols,
     ModelProviderCanaryEvidence, ModelProviderCanaryGate, ModelProviderCanaryStatus,
 };
-use crate::reviewer_kernel::snapshots::*;
+#[cfg(test)]
+use crate::reviewer_kernel::snapshots::{snapshot_content_hash, RemoteSnapshotObjectClient};
 
 pub const REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION: &str = "muzen.remote-object-store-canary.v1";
 
@@ -31,6 +38,7 @@ pub enum RemoteObjectStoreCanaryTarget {
 }
 
 impl RemoteObjectStoreCanaryTarget {
+    #[cfg(test)]
     fn as_str(self) -> &'static str {
         match self {
             Self::Snapshot => "snapshot",
@@ -67,6 +75,7 @@ pub struct RemoteObjectStoreCanaryStep {
 }
 
 impl RemoteObjectStoreCanaryStep {
+    #[cfg(test)]
     fn passed(step: RemoteObjectStoreCanaryStepKind, uri: &str, bytes: usize) -> Self {
         Self {
             step,
@@ -77,6 +86,7 @@ impl RemoteObjectStoreCanaryStep {
         }
     }
 
+    #[cfg(test)]
     fn failed(step: RemoteObjectStoreCanaryStepKind, uri: Option<&str>, message: String) -> Self {
         Self {
             step,
@@ -184,6 +194,7 @@ pub struct RemoteObjectStoreCanaryEvidence {
     pub gate: RemoteObjectStoreCanaryGate,
 }
 
+#[cfg(test)]
 struct RemoteObjectStoreCanaryEvidenceParts {
     generated_at_utc: String,
     target: RemoteObjectStoreCanaryTarget,
@@ -196,6 +207,7 @@ struct RemoteObjectStoreCanaryEvidenceParts {
 }
 
 impl RemoteObjectStoreCanaryEvidence {
+    #[cfg(test)]
     fn from_parts(parts: RemoteObjectStoreCanaryEvidenceParts) -> Self {
         let gate = RemoteObjectStoreCanaryGate::evaluate(parts.cleanup_supported, &parts.steps);
         Self {
@@ -241,6 +253,7 @@ impl RemoteObjectStoreCanaryEvidence {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteObjectStoreCanaryEvidenceExport {
@@ -250,6 +263,7 @@ pub struct RemoteObjectStoreCanaryEvidenceExport {
     pub failures: Vec<String>,
 }
 
+#[cfg(test)]
 pub fn run_remote_snapshot_object_store_canary(
     base_uri: impl Into<String>,
     client: &dyn RemoteSnapshotObjectClient,
@@ -337,6 +351,7 @@ pub fn run_remote_snapshot_object_store_canary(
     })
 }
 
+#[cfg(test)]
 pub fn run_remote_artifact_object_store_canary(
     base_uri: impl Into<String>,
     client: &dyn RemoteArtifactObjectClient,
@@ -450,6 +465,7 @@ pub fn run_remote_artifact_object_store_canary(
     })
 }
 
+#[cfg(test)]
 pub fn export_remote_object_store_canary_evidence(
     path: impl AsRef<Path>,
     evidence: &RemoteObjectStoreCanaryEvidence,
@@ -856,6 +872,7 @@ impl CanaryEvidenceFreshnessPolicy {
         }
     }
 
+    #[cfg(test)]
     pub fn at(now_utc: impl Into<String>, max_age_seconds: u64) -> Self {
         Self {
             now_utc: now_utc.into(),
@@ -987,6 +1004,7 @@ fn parse_unix_timestamp_seconds(timestamp: &str) -> Result<u64, String> {
         .map_err(|error| format!("{timestamp} has invalid seconds: {error}"))
 }
 
+#[cfg(test)]
 fn push_remote_snapshot_read_step(
     client: &dyn RemoteSnapshotObjectClient,
     uri: &str,
@@ -1017,6 +1035,7 @@ fn push_remote_snapshot_read_step(
     }
 }
 
+#[cfg(test)]
 fn remote_object_store_canary_payload(
     target: RemoteObjectStoreCanaryTarget,
     base_uri: &str,
@@ -1029,6 +1048,7 @@ fn remote_object_store_canary_payload(
     .into_bytes()
 }
 
+#[cfg(test)]
 fn remote_object_store_canary_evidence_temp_path(path: &Path) -> RuntimeResult<PathBuf> {
     let file_name = path.file_name().ok_or_else(|| {
         RuntimeError::InvalidInput(

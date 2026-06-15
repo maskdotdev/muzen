@@ -796,35 +796,35 @@ pub fn test_change_with_file(path: &str) -> ChangeScopeV1 {
     }
 }
 pub fn passing_model_provider_canary_evidence(
-) -> crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence {
+) -> crate::operational_proof::canaries::ModelProviderCanaryEvidence {
     passing_model_provider_canary_evidence_at(&crate::reviewer_kernel::system::timestamp_utc())
 }
 
-pub fn current_passing_canary_manifest() -> crate::reviewer_kernel::canaries::CanaryEvidenceManifest
-{
+pub fn current_passing_canary_manifest(
+) -> crate::operational_proof::canaries::CanaryEvidenceManifest {
     let now = crate::reviewer_kernel::system::timestamp_utc();
     passing_canary_manifest_at(&now)
 }
 
 pub fn passing_canary_manifest_at(
     generated_at_utc: &str,
-) -> crate::reviewer_kernel::canaries::CanaryEvidenceManifest {
+) -> crate::operational_proof::canaries::CanaryEvidenceManifest {
     let model_provider = passing_model_provider_canary_evidence_at(generated_at_utc);
     let snapshot_client =
         Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
     let artifact_client =
         Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let mut snapshot = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
+    let mut snapshot = crate::operational_proof::canaries::run_remote_snapshot_object_store_canary(
         "s3://muzen-test-snapshots/canary",
         snapshot_client.as_ref(),
     );
-    let mut artifact = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
+    let mut artifact = crate::operational_proof::canaries::run_remote_artifact_object_store_canary(
         "s3://muzen-test-artifacts/canary",
         artifact_client.as_ref(),
     );
     snapshot.generated_at_utc = generated_at_utc.to_string();
     artifact.generated_at_utc = generated_at_utc.to_string();
-    crate::reviewer_kernel::canaries::CanaryEvidenceManifest::with_generated_at(
+    crate::operational_proof::canaries::CanaryEvidenceManifest::with_generated_at(
         generated_at_utc,
         Some(model_provider),
         vec![snapshot, artifact],
@@ -833,20 +833,20 @@ pub fn passing_canary_manifest_at(
 
 pub fn passing_model_provider_canary_evidence_at(
     generated_at_utc: &str,
-) -> crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence {
-    let reports = crate::reviewer_kernel::canaries::openai_provider_canary_protocols()
+) -> crate::operational_proof::canaries::ModelProviderCanaryEvidence {
+    let reports = crate::operational_proof::canaries::openai_provider_canary_protocols()
         .iter()
         .map(
-            |protocol| crate::reviewer_kernel::canaries::ModelProviderCanaryReport {
+            |protocol| crate::operational_proof::canaries::ModelProviderCanaryReport {
                 protocol: *protocol,
                 base_url: "https://example.invalid/v1".to_string(),
                 model: "canary-model".to_string(),
                 credential_ref: "env:OPENAI_API_KEY".to_string(),
-                status: crate::reviewer_kernel::canaries::ModelProviderCanaryStatus::Passed,
+                status: crate::operational_proof::canaries::ModelProviderCanaryStatus::Passed,
             },
         )
         .collect::<Vec<_>>();
-    crate::reviewer_kernel::canaries::ModelProviderCanaryEvidence::with_generated_at(
+    crate::operational_proof::canaries::ModelProviderCanaryEvidence::with_generated_at(
         generated_at_utc,
         reports,
     )

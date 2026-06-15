@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use crate::reviewer_kernel::canaries::{
+pub(crate) mod canaries;
+
+use self::canaries::{
     export_canary_evidence_manifest, load_canary_evidence_manifest,
     load_model_provider_canary_evidence, load_remote_object_store_canary_evidence,
     CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
@@ -145,9 +147,7 @@ pub(crate) fn run_status(args: ProofStatusArgs) -> Result<i32> {
     );
 }
 
-fn status_report_json(
-    report: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
-) -> Result<Vec<u8>> {
+fn status_report_json(report: &canaries::CanaryEvidenceStatusReport) -> Result<Vec<u8>> {
     let mut status_json = serde_json::to_vec_pretty(report)?;
     status_json.push(b'\n');
     Ok(status_json)
@@ -155,7 +155,7 @@ fn status_report_json(
 
 fn write_status_report(
     path: &Path,
-    report: &crate::reviewer_kernel::canaries::CanaryEvidenceStatusReport,
+    report: &canaries::CanaryEvidenceStatusReport,
 ) -> Result<usize> {
     if let Some(parent) = path
         .parent()
