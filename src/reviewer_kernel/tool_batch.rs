@@ -22,16 +22,6 @@ struct RequestedToolCallTrace {
     argument_summary: Value,
 }
 
-#[derive(Debug, Clone)]
-struct AcceptedToolCallRepair {
-    call_id: ToolCallId,
-    index: usize,
-    original_tool_id: ToolId,
-    canonical_call: ModelToolCall,
-    error_code: ToolErrorCode,
-    repair_kinds: Vec<&'static str>,
-}
-
 impl<'a> ToolBatchRunner<'a> {
     pub(crate) fn new(
         policy: &'a ReviewerPolicy,
@@ -87,23 +77,6 @@ impl<'a> ToolBatchRunner<'a> {
                 })).collect::<Vec<_>>()
             }),
         ));
-        let (calls, accepted_repairs) = self.repair_tool_calls(calls);
-        for repair in &accepted_repairs {
-            self.emit_tool_call_repair_trace(
-                &scope,
-                turn_id,
-                repair.call_id.clone(),
-                repair.index,
-                repair.canonical_call.name.clone(),
-                repair.error_code,
-                "tool call was canonicalized before policy planning",
-                requested_calls.get(&repair.call_id),
-                Some(repair),
-                Some(repair.repair_kinds.as_slice()),
-                true,
-                true,
-            );
-        }
         let plan = self
             .policy
             .plan_tool_batch(calls, evidence, remaining_tool_calls);
@@ -122,10 +95,6 @@ impl<'a> ToolBatchRunner<'a> {
                 denied.denial.code,
                 denied.denial.message.as_str(),
                 requested_calls.get(&denied.call_id),
-                None,
-                None,
-                false,
-                false,
             );
         }
         self.events
@@ -209,10 +178,6 @@ impl<'a> ToolBatchRunner<'a> {
                     error.code,
                     error.message.as_str(),
                     requested_calls.get(&result.tool_call_id),
-                    None,
-                    None,
-                    false,
-                    false,
                 );
             }
         }
@@ -220,42 +185,6 @@ impl<'a> ToolBatchRunner<'a> {
             .into_iter()
             .map(|(_, result)| result)
             .collect()
-    }
-
-    fn repair_tool_calls(
-        &self,
-        calls: Vec<ModelToolCall>,
-    ) -> (Vec<ModelToolCall>, Vec<AcceptedToolCallRepair>) {
-        let mut repaired_calls = Vec::with_capacity(calls.len());
-        let mut accepted_repairs = Vec::new();
-        for call in calls {
-            let mut canonical = call.clone();
-            let original_tool_id = call.name.clone();
-            let mut repair_kinds = Vec::new();
-
-            if self.tools.registry.definition(&canonical.name).is_none() {
-                if let Some(tool_id) = self.tools.registry.tool_id_for_model_alias(&canonical.name)
-                {
-                    if tool_id != canonical.name {
-                        canonical.name = tool_id;
-                        repair_kinds.push("tool_alias");
-                    }
-                }
-            }
-
-            if !repair_kinds.is_empty() {
-                accepted_repairs.push(AcceptedToolCallRepair {
-                    call_id: canonical.call_id.clone(),
-                    index: canonical.index,
-                    original_tool_id: original_tool_id.clone(),
-                    canonical_call: canonical.clone(),
-                    error_code: ToolErrorCode::UnknownTool,
-                    repair_kinds,
-                });
-            }
-            repaired_calls.push(canonical);
-        }
-        (repaired_calls, accepted_repairs)
     }
 
     fn emit_tool_call_repair_trace(
@@ -268,10 +197,6 @@ impl<'a> ToolBatchRunner<'a> {
         error_code: ToolErrorCode,
         reason: &str,
         requested_call: Option<&RequestedToolCallTrace>,
-        accepted_repair: Option<&AcceptedToolCallRepair>,
-        repair_kinds: Option<&[&'static str]>,
-        repair_attempted: bool,
-        repair_accepted: bool,
     ) {
         let (argument_bytes, argument_hash, argument_summary, requested_tool_id) = requested_call
             .map(|call| {
@@ -283,42 +208,26 @@ impl<'a> ToolBatchRunner<'a> {
                 )
             })
             .unwrap_or_else(|| (0, String::new(), json!(null), tool_id.clone()));
-        let original_tool_id = accepted_repair
-            .map(|repair| repair.original_tool_id.clone())
-            .unwrap_or(requested_tool_id);
-        let canonical = accepted_repair.map(|repair| {
-            json!({
-                "canonicalToolId": repair.canonical_call.name.as_str(),
-                "canonicalArgumentBytes": repair.canonical_call.raw_arguments.len(),
-                "canonicalArgumentHash": blake3::hash(repair.canonical_call.raw_arguments.as_bytes()).to_hex().to_string(),
-                "canonicalArgumentSummary": repair.canonical_call.redacted_argument_summary(),
-                "repairKinds": repair.repair_kinds,
-            })
-        });
         self.events
             .emit_planned_runtime(self.policy.plan_agent_trace_event(
                 scope,
                 Some(turn_id),
                 "tool_call_repair",
-                if repair_accepted {
-                    format!("tool call {} was repaired: {reason}", call_id.0)
-                } else {
-                    format!("tool call {} was not repaired: {reason}", call_id.0)
-                },
+                format!("tool call {} was not repaired: {reason}", call_id.0),
                 json!({
                     "callId": call_id.0,
                     "index": index,
                     "toolId": tool_id.as_str(),
-                    "originalToolId": original_tool_id.as_str(),
+                    "originalToolId": requested_tool_id.as_str(),
                     "errorCode": error_code,
                     "reason": reason,
-                    "repairAttempted": repair_attempted,
-                    "repairAccepted": repair_accepted,
-                    "repairKinds": repair_kinds.unwrap_or(&[]),
+                    "repairAttempted": false,
+                    "repairAccepted": false,
+                    "repairKinds": [],
                     "argumentBytes": argument_bytes,
                     "argumentHash": argument_hash,
                     "argumentSummary": argument_summary,
-                    "acceptedRepair": canonical,
+                    "acceptedRepair": null,
                 }),
             ));
     }

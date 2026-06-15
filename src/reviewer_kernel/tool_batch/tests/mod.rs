@@ -192,7 +192,7 @@ async fn tool_batch_runner_traces_unrepaired_invalid_tool_calls() {
 }
 
 #[tokio::test]
-async fn tool_batch_runner_repairs_aliases_before_policy_without_rewriting_arguments() {
+async fn tool_batch_runner_rejects_aliases_without_repair() {
     let temp = tempfile::tempdir().expect("tempdir");
     std::fs::write(temp.path().join("README.md"), "first\nneedle\nthird\n").expect("write readme");
     let change = test_change_with_file("README.md");
@@ -205,7 +205,7 @@ async fn tool_batch_runner_repairs_aliases_before_policy_without_rewriting_argum
     let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
     let dispatcher = RuntimeEventDispatcher::new(Some(sink));
     let runner = ToolBatchRunner::new(&policy, &tools, &dispatcher);
-    let scope = test_scope("tool-repair-accepted");
+    let scope = test_scope("tool-alias-rejected");
 
     let results = runner
         .execute(
@@ -232,9 +232,14 @@ async fn tool_batch_runner_repairs_aliases_before_policy_without_rewriting_argum
         .await;
 
     assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|result| result.ok));
-    assert_eq!(results[0].tool_name, ToolId::from(ToolName::ReadFile));
-    assert_eq!(results[1].tool_name, ToolId::from(ToolName::SearchText));
+    assert!(results.iter().all(|result| {
+        result
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == ToolErrorCode::UnknownTool)
+    }));
+    assert_eq!(results[0].tool_name, ToolId::parse("read").unwrap());
+    assert_eq!(results[1].tool_name, ToolId::parse("grep").unwrap());
 
     let records = runtime_sink.records.lock().expect("sink lock");
     let repair_traces = records
@@ -253,28 +258,26 @@ async fn tool_batch_runner_repairs_aliases_before_policy_without_rewriting_argum
     let read_trace = repair_traces
         .iter()
         .find(|details| details["callId"] == "read-alias")
-        .expect("read repair trace");
+        .expect("read rejection trace");
     assert_eq!(read_trace["originalToolId"], "read");
-    assert_eq!(read_trace["toolId"], "read_file");
-    assert_eq!(read_trace["repairAttempted"], true);
-    assert_eq!(read_trace["repairAccepted"], true);
-    assert_eq!(
-        read_trace["acceptedRepair"]["canonicalArgumentSummary"]["path"],
-        "README.md"
-    );
-    assert_repair_kind(read_trace, "tool_alias");
+    assert_eq!(read_trace["toolId"], "read");
+    assert_eq!(read_trace["repairAttempted"], false);
+    assert_eq!(read_trace["repairAccepted"], false);
+    assert_eq!(read_trace["argumentSummary"]["parseable"], true);
+    assert_eq!(read_trace["argumentSummary"]["keys"], json!(["path"]));
+    assert!(read_trace["acceptedRepair"].is_null());
 
     let grep_trace = repair_traces
         .iter()
         .find(|details| details["callId"] == "grep-alias")
-        .expect("grep repair trace");
+        .expect("grep rejection trace");
     assert_eq!(grep_trace["originalToolId"], "grep");
-    assert_eq!(grep_trace["toolId"], "search_text");
-    assert_eq!(
-        grep_trace["acceptedRepair"]["canonicalArgumentSummary"]["query"],
-        "needle"
-    );
-    assert_repair_kind(grep_trace, "tool_alias");
+    assert_eq!(grep_trace["toolId"], "grep");
+    assert_eq!(grep_trace["repairAttempted"], false);
+    assert_eq!(grep_trace["repairAccepted"], false);
+    assert_eq!(grep_trace["argumentSummary"]["parseable"], true);
+    assert_eq!(grep_trace["argumentSummary"]["keys"], json!(["query"]));
+    assert!(grep_trace["acceptedRepair"].is_null());
 }
 
 fn model_call(id: &str, index: usize, tool: ToolName, raw_arguments: &str) -> ModelToolCall {
@@ -284,16 +287,6 @@ fn model_call(id: &str, index: usize, tool: ToolName, raw_arguments: &str) -> Mo
         name: ToolId::from(tool),
         raw_arguments: raw_arguments.to_string(),
     }
-}
-
-fn assert_repair_kind(details: &Value, expected: &str) {
-    let kinds = details["acceptedRepair"]["repairKinds"]
-        .as_array()
-        .expect("repair kinds");
-    assert!(
-        kinds.iter().any(|kind| kind == expected),
-        "missing repair kind {expected}: {details}"
-    );
 }
 
 fn test_scope(id: &str) -> SessionScope {
