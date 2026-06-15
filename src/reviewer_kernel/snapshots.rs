@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -16,7 +14,7 @@ use crate::reviewer_kernel::review_contract::{
     ChangedFileStatus as ContractChangedFileStatus, PathPolicyV1,
     RenameDetection as ContractRenameDetection, SnapshotMode as ContractSnapshotMode,
 };
-use crate::workspace::{remote_content_addressed_uri, RepoSnapshot, SnapshotContentRef};
+use crate::workspace::{remote_content_addressed_uri, RepoSnapshot};
 
 use crate::reviewer_kernel::artifacts::*;
 pub struct SnapshotSpec {
@@ -472,125 +470,6 @@ impl SnapshotReader {
         let path = RepoPath::parse(path.as_ref())?;
         self.read_text(&path, max_bytes)
     }
-
-    pub fn validate_storage(&self) -> RuntimeResult<SnapshotStorageValidationReport> {
-        let mut report = SnapshotStorageValidationReport::new(
-            self.snapshot.snapshot_id.clone(),
-            self.snapshot.storage_policy.clone(),
-        );
-        for file in &self.snapshot.manifest.files {
-            let Some(content) = file.snapshot_content.as_ref() else {
-                continue;
-            };
-            let expected_hash = file.content_hash.clone().ok_or(RuntimeError::Invariant(
-                "captured snapshot file missing content hash",
-            ))?;
-            let object = SnapshotStorageObject {
-                path: file.rel_path.clone(),
-                content_hash: expected_hash.clone(),
-                bytes: content.len(),
-                store_path: storage_object_path(content),
-                store_uri: storage_object_uri(content),
-            };
-            report.checked_files += 1;
-            report.checked_bytes += content.len();
-            report.checked_objects.push(object.clone());
-            let bytes = match content {
-                SnapshotContentRef::Memory(bytes) => bytes.to_vec(),
-                SnapshotContentRef::ContentAddressedFile { path, .. } => match fs::read(path) {
-                    Ok(bytes) => bytes,
-                    Err(error) if error.kind() == ErrorKind::NotFound => {
-                        report.missing_files.push(object);
-                        continue;
-                    }
-                    Err(error) => {
-                        return Err(RuntimeError::RepoUnavailable(format!(
-                            "failed to read snapshot storage object: {error}"
-                        )))
-                    }
-                },
-                SnapshotContentRef::RemoteObject { uri, store, .. } => {
-                    let Some(bytes) = store.read_snapshot_object(uri)? else {
-                        report.missing_files.push(object);
-                        continue;
-                    };
-                    bytes
-                }
-            };
-            if snapshot_content_hash(&bytes) != expected_hash {
-                report.stale_files.push(object);
-            }
-        }
-        report.valid = report.missing_files.is_empty() && report.stale_files.is_empty();
-        Ok(report)
-    }
-
-    pub fn cleanup_storage(&self) -> RuntimeResult<SnapshotStorageCleanupReport> {
-        let mut report = SnapshotStorageCleanupReport::new(
-            self.snapshot.snapshot_id.clone(),
-            self.snapshot.storage_policy.clone(),
-        );
-        let mut candidate_dirs = Vec::new();
-        for file in &self.snapshot.manifest.files {
-            let Some(content) = file.snapshot_content.as_ref() else {
-                continue;
-            };
-            let expected_hash = file.content_hash.clone().ok_or(RuntimeError::Invariant(
-                "captured snapshot file missing content hash",
-            ))?;
-            let object = SnapshotStorageObject {
-                path: file.rel_path.clone(),
-                content_hash: expected_hash,
-                bytes: content.len(),
-                store_path: storage_object_path(content),
-                store_uri: storage_object_uri(content),
-            };
-            match content {
-                SnapshotContentRef::Memory(_) => {}
-                SnapshotContentRef::ContentAddressedFile { path, .. } => match fs::metadata(path) {
-                    Ok(metadata) => {
-                        fs::remove_file(path).map_err(|error| {
-                            RuntimeError::RepoUnavailable(format!(
-                                "failed to remove snapshot storage object: {error}"
-                            ))
-                        })?;
-                        report.removed_files += 1;
-                        report.removed_bytes =
-                            report.removed_bytes.saturating_add(metadata.len() as usize);
-                        report.removed_objects.push(object);
-                        if let Some(parent) = path.parent() {
-                            candidate_dirs.push(parent.to_path_buf());
-                        }
-                    }
-                    Err(error) if error.kind() == ErrorKind::NotFound => {
-                        report.missing_files.push(object);
-                    }
-                    Err(error) => {
-                        return Err(RuntimeError::RepoUnavailable(format!(
-                            "failed to inspect snapshot storage object: {error}"
-                        )))
-                    }
-                },
-                SnapshotContentRef::RemoteObject { uri, store, .. } => {
-                    if store.remove_snapshot_object(uri)? {
-                        report.removed_files += 1;
-                        report.removed_bytes = report.removed_bytes.saturating_add(content.len());
-                        report.removed_objects.push(object);
-                    } else {
-                        report.missing_files.push(object);
-                    }
-                }
-            }
-        }
-        candidate_dirs.sort();
-        candidate_dirs.dedup();
-        for directory in candidate_dirs {
-            if prune_empty_directory(&directory)? {
-                report.pruned_empty_directories += 1;
-            }
-        }
-        Ok(report)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -710,81 +589,6 @@ pub struct SnapshotTextFile {
     pub bytes: usize,
     pub truncated: bool,
     pub content: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotStorageObject {
-    pub path: RepoPath,
-    pub content_hash: String,
-    pub bytes: usize,
-    pub store_path: Option<PathBuf>,
-    pub store_uri: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotStorageValidationReport {
-    pub snapshot_id: SnapshotId,
-    pub storage_policy: SnapshotStoragePolicy,
-    pub checked_files: usize,
-    pub checked_bytes: usize,
-    pub checked_objects: Vec<SnapshotStorageObject>,
-    pub valid: bool,
-    pub missing_files: Vec<SnapshotStorageObject>,
-    pub stale_files: Vec<SnapshotStorageObject>,
-}
-
-impl SnapshotStorageValidationReport {
-    pub fn uses_content_addressed_storage(&self) -> bool {
-        matches!(
-            self.storage_policy.mode,
-            SnapshotStorageMode::ContentAddressedDirectory { .. }
-        )
-    }
-
-    pub fn uses_remote_object_storage(&self) -> bool {
-        matches!(
-            self.storage_policy.mode,
-            SnapshotStorageMode::RemoteObjectStore { .. }
-        )
-    }
-
-    fn new(snapshot_id: SnapshotId, storage_policy: SnapshotStoragePolicy) -> Self {
-        Self {
-            snapshot_id,
-            storage_policy,
-            checked_files: 0,
-            checked_bytes: 0,
-            checked_objects: Vec::new(),
-            valid: true,
-            missing_files: Vec::new(),
-            stale_files: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotStorageCleanupReport {
-    pub snapshot_id: SnapshotId,
-    pub storage_policy: SnapshotStoragePolicy,
-    pub removed_files: usize,
-    pub removed_bytes: usize,
-    pub removed_objects: Vec<SnapshotStorageObject>,
-    pub missing_files: Vec<SnapshotStorageObject>,
-    pub pruned_empty_directories: usize,
-}
-
-impl SnapshotStorageCleanupReport {
-    fn new(snapshot_id: SnapshotId, storage_policy: SnapshotStoragePolicy) -> Self {
-        Self {
-            snapshot_id,
-            storage_policy,
-            removed_files: 0,
-            removed_bytes: 0,
-            removed_objects: Vec::new(),
-            missing_files: Vec::new(),
-            pruned_empty_directories: 0,
-        }
-    }
 }
 
 #[async_trait]
@@ -1027,21 +831,6 @@ impl RemoteArtifactObjectClient for HttpRemoteObjectClient {
     }
 }
 
-fn storage_object_path(content: &SnapshotContentRef) -> Option<PathBuf> {
-    match content {
-        SnapshotContentRef::Memory(_) => None,
-        SnapshotContentRef::ContentAddressedFile { path, .. } => Some(path.clone()),
-        SnapshotContentRef::RemoteObject { .. } => None,
-    }
-}
-
-fn storage_object_uri(content: &SnapshotContentRef) -> Option<String> {
-    match content {
-        SnapshotContentRef::Memory(_) | SnapshotContentRef::ContentAddressedFile { .. } => None,
-        SnapshotContentRef::RemoteObject { uri, .. } => Some(uri.clone()),
-    }
-}
-
 fn validate_remote_snapshot_object_uri(base_uri: &str, uri: &str) -> RuntimeResult<()> {
     let prefix = format!("{}/snapshots/", base_uri.trim_end_matches('/'));
     let Some(hash) = uri.strip_prefix(&prefix) else {
@@ -1055,25 +844,4 @@ fn validate_remote_snapshot_object_uri(base_uri: &str, uri: &str) -> RuntimeResu
 
 pub(crate) fn snapshot_content_hash(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
-}
-
-pub(crate) fn prune_empty_directory(path: &Path) -> RuntimeResult<bool> {
-    let mut entries = match fs::read_dir(path) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(RuntimeError::RepoUnavailable(format!(
-                "failed to inspect snapshot storage directory: {error}"
-            )))
-        }
-    };
-    if entries.next().is_some() {
-        return Ok(false);
-    }
-    fs::remove_dir(path).map_err(|error| {
-        RuntimeError::RepoUnavailable(format!(
-            "failed to prune snapshot storage directory: {error}"
-        ))
-    })?;
-    Ok(true)
 }
