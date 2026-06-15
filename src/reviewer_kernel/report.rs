@@ -1,19 +1,17 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::reviewer_kernel::kernel_types::{
-    ArtifactId, ArtifactView, CapabilitySet, ConcurrentCounters, ConcurrentRunReport,
-    ModelMetricsSnapshot, ReviewQualityDiagnostics, RuntimeError, RuntimeEvent,
-    RuntimeEventContext, RuntimeEventSink, RuntimeResult, SnapshotId, ToolCallId, ToolMetricKey,
-    ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
+    ArtifactId, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
+    ReviewQualityDiagnostics, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, SnapshotId,
+    ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
+    ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::ToolCounts;
 
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
 
-use crate::reviewer_kernel::artifacts::*;
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::snapshots::*;
 use crate::reviewer_kernel::tool_engine::ConcurrentArtifactStore as ArtifactStore;
@@ -276,142 +274,6 @@ impl RunReport {
     pub fn file_reviews(&self) -> Vec<FileReviewV1> {
         self.file_reviews.clone()
     }
-
-    pub fn finding_evidence_artifacts(
-        &self,
-        finding_id: &str,
-        policy: ArtifactExportPolicy,
-    ) -> RuntimeResult<Vec<EvidenceArtifactView>> {
-        let Some(finding) = self
-            .findings
-            .iter()
-            .find(|finding| finding.id == finding_id)
-        else {
-            return Err(RuntimeError::InvalidInput(format!(
-                "unknown finding id {finding_id}"
-            )));
-        };
-        let artifacts = finding
-            .evidence
-            .iter()
-            .filter(|evidence| policy.allows_artifact(&ArtifactId(evidence.artifact_id.clone())))
-            .map(|evidence| {
-                let artifact_id = ArtifactId(evidence.artifact_id.clone());
-                let artifact = if policy.include_raw() {
-                    self.artifacts.get_raw(&artifact_id)
-                } else {
-                    self.artifacts.get(&artifact_id)
-                }
-                .ok_or_else(|| {
-                    RuntimeError::InvalidInput(format!(
-                        "missing evidence artifact {}",
-                        evidence.artifact_id
-                    ))
-                })?;
-                Ok(EvidenceArtifactView {
-                    evidence: EvidenceView::from_evidence(evidence),
-                    artifact,
-                })
-            })
-            .collect::<RuntimeResult<Vec<_>>>()?;
-        policy.validate_retention(
-            artifacts.len(),
-            artifacts
-                .iter()
-                .map(|evidence_artifact| evidence_artifact.artifact.bytes)
-                .sum(),
-        )?;
-        Ok(artifacts)
-    }
-
-    pub fn redacted_artifacts(&self) -> ReviewArtifacts<'_> {
-        ReviewArtifacts::new(self, ArtifactExportPolicy::redacted_all())
-    }
-
-    pub fn raw_artifacts(
-        &self,
-        capabilities: &CapabilitySet,
-    ) -> RuntimeResult<ReviewArtifacts<'_>> {
-        Ok(ReviewArtifacts::new(
-            self,
-            ArtifactExportPolicy::raw(capabilities)?,
-        ))
-    }
-
-    pub fn export_artifacts(
-        &self,
-        policy: ArtifactExportPolicy,
-    ) -> RuntimeResult<ArtifactExportManifest> {
-        self.artifacts.export_with_policy(policy)
-    }
-
-    pub fn persist_artifacts(
-        &self,
-        object_store: &dyn ArtifactObjectStore,
-        policy: ArtifactExportPolicy,
-    ) -> RuntimeResult<ArtifactPersistenceManifest> {
-        self.artifacts.persist_with_policy(object_store, policy)
-    }
-
-    pub fn export_artifact_bundle(
-        &self,
-        root: impl AsRef<Path>,
-        policy: ArtifactExportPolicy,
-    ) -> RuntimeResult<ArtifactBundleManifest> {
-        self.artifacts.export_bundle(root.as_ref(), policy)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ReviewArtifacts<'a> {
-    report: &'a RunReport,
-    policy: ArtifactExportPolicy,
-}
-
-impl<'a> ReviewArtifacts<'a> {
-    fn new(report: &'a RunReport, policy: ArtifactExportPolicy) -> Self {
-        Self { report, policy }
-    }
-
-    pub fn only_artifacts<I, S>(mut self, artifact_ids: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        self.policy = self.policy.with_artifact_ids(artifact_ids);
-        self
-    }
-
-    pub fn with_retention_policy(mut self, retention: ArtifactRetentionPolicy) -> Self {
-        self.policy = self.policy.with_retention_policy(retention);
-        self
-    }
-
-    pub fn export(&self) -> RuntimeResult<ArtifactExportManifest> {
-        self.report.export_artifacts(self.policy.clone())
-    }
-
-    pub fn finding_evidence(&self, finding_id: &str) -> RuntimeResult<Vec<EvidenceArtifactView>> {
-        self.report
-            .finding_evidence_artifacts(finding_id, self.policy.clone())
-    }
-
-    pub fn persist_to(
-        &self,
-        object_store: &dyn ArtifactObjectStore,
-    ) -> RuntimeResult<ArtifactPersistenceManifest> {
-        self.report
-            .persist_artifacts(object_store, self.policy.clone())
-    }
-
-    pub fn bundle_at(&self, root: impl AsRef<Path>) -> RuntimeResult<ArtifactBundleManifest> {
-        self.report
-            .export_artifact_bundle(root, self.policy.clone())
-    }
-
-    pub fn policy(&self) -> &ArtifactExportPolicy {
-        &self.policy
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -488,6 +350,33 @@ fn challenge_status_name(
     }
 }
 
+fn evidence_kind_name(kind: crate::reviewer_kernel::review_contract::ArtifactKind) -> &'static str {
+    match kind {
+        crate::reviewer_kernel::review_contract::ArtifactKind::ToolSummary => "tool_summary",
+    }
+}
+
+fn finding_severity_name(
+    severity: crate::reviewer_kernel::review_contract::FindingSeverity,
+) -> &'static str {
+    match severity {
+        crate::reviewer_kernel::review_contract::FindingSeverity::Blocker => "blocker",
+        crate::reviewer_kernel::review_contract::FindingSeverity::High => "high",
+        crate::reviewer_kernel::review_contract::FindingSeverity::Medium => "medium",
+        crate::reviewer_kernel::review_contract::FindingSeverity::Low => "low",
+        crate::reviewer_kernel::review_contract::FindingSeverity::Nit => "nit",
+    }
+}
+
+fn validation_status_name(
+    status: crate::reviewer_kernel::review_contract::ValidationStatus,
+) -> &'static str {
+    match status {
+        crate::reviewer_kernel::review_contract::ValidationStatus::Challenged => "challenged",
+        crate::reviewer_kernel::review_contract::ValidationStatus::Validated => "validated",
+    }
+}
+
 fn finding_related_paths(finding: &FindingV1) -> Vec<String> {
     finding
         .file_refs
@@ -559,24 +448,6 @@ impl EvidenceView {
             content_hash: evidence.content_hash.clone(),
             producing_tool_call_id: ToolCallId(evidence.producing_tool_call_id.clone()),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EvidenceArtifactView {
-    pub evidence: EvidenceView,
-    pub artifact: ArtifactView,
-}
-
-impl EvidenceArtifactView {
-    pub fn artifact_id(&self) -> &str {
-        self.artifact.artifact_id()
-    }
-}
-
-impl ArtifactView {
-    pub fn artifact_id(&self) -> &str {
-        &self.artifact_id.0
     }
 }
 

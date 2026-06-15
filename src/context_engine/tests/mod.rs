@@ -1964,10 +1964,8 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
     assert_eq!(report.summary.sessions, 1);
     assert!(report.summary.artifacts >= 2);
     let artifact_contents = report
-        .redacted_artifacts()
-        .export()
-        .unwrap()
         .artifacts
+        .list()
         .into_iter()
         .map(|artifact| artifact.content)
         .collect::<Vec<_>>();
