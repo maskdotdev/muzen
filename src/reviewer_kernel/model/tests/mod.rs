@@ -108,8 +108,7 @@ fn responses_parse_tool_calls_through_model_alias_table() {
 fn responses_request_body_includes_structured_text_format() {
     let registry = ToolRegistry::review_defaults().expect("registry");
     let profile = profile_with_base_url("responses", None);
-    let scope = openai_provider_canary_scope("responses".to_string(), 64)
-        .with_response_format(test_response_format());
+    let scope = test_model_scope("responses", 64).with_response_format(test_response_format());
     let body = responses_request_body(
         &profile,
         &ReviewerPolicy::new(),
@@ -131,7 +130,7 @@ fn responses_request_body_includes_structured_text_format() {
 fn responses_request_body_adds_input_for_system_only_transcripts() {
     let registry = ToolRegistry::review_defaults().expect("registry");
     let profile = profile_with_base_url("responses", None);
-    let scope = openai_provider_canary_scope("responses".to_string(), 64);
+    let scope = test_model_scope("responses", 64);
     let body = responses_request_body(
         &profile,
         &ReviewerPolicy::new(),
@@ -147,26 +146,6 @@ fn responses_request_body_adds_input_for_system_only_transcripts() {
     assert_eq!(body["input"][0]["role"], "user");
     assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
     assert_eq!(body["input"][0]["content"][0]["text"], "Begin the task.");
-}
-
-#[test]
-fn openai_provider_canary_skips_all_protocols_without_credential() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let reports = runtime.block_on(run_openai_provider_canaries(
-        test_canary_config(true),
-        Arc::new(MissingCredentialResolver),
-    ));
-    assert_eq!(reports.len(), openai_provider_canary_protocols().len());
-    assert!(reports.iter().all(|report| {
-        matches!(
-            &report.status,
-            ModelProviderCanaryStatus::Skipped { reason }
-                if reason == "credential unavailable"
-        )
-    }));
 }
 
 #[test]
@@ -241,22 +220,23 @@ fn model_limiter_isolates_provider_profile_key_and_session_buckets() {
     });
 }
 
-struct MissingCredentialResolver;
-
-impl CredentialResolver for MissingCredentialResolver {
-    fn resolve_credential(&self, _credential_ref: &str) -> RuntimeResult<String> {
-        Err(RuntimeError::InvalidInput("missing credential".to_string()))
-    }
-}
-
-fn test_canary_config(enabled: bool) -> OpenAiProviderCanaryConfig {
-    OpenAiProviderCanaryConfig {
-        enabled,
-        base_url: "http://localhost:9999/v1".to_string(),
-        credential_ref: "test:credential".to_string(),
-        model: "gpt-4o-mini".to_string(),
-        max_output_tokens: 16,
-        prompt: "Return ready.".to_string(),
+fn test_model_scope(profile_id: &str, max_output_tokens: u32) -> SessionScope {
+    SessionScope {
+        id: SessionId(format!("test-model-{profile_id}")),
+        role: crate::reviewer_kernel::review_contract::Role::Generalist,
+        objective: "test model request".to_string(),
+        instructions: Vec::new(),
+        snapshot_id: None,
+        model_profile_id: Some(profile_id.to_string()),
+        response_format: None,
+        capabilities: CapabilitySet::review_read_only(),
+        budget: crate::reviewer_kernel::review_contract::AgentBudget {
+            max_turns: 1,
+            max_tool_calls: 1,
+            max_prompt_tokens: 4_096,
+            max_output_tokens: max_output_tokens as u64,
+            budget_source: crate::reviewer_kernel::review_contract::BudgetSource::RunReserve,
+        },
     }
 }
 
