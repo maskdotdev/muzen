@@ -1010,16 +1010,7 @@ pub(crate) fn evidence_kind_name(
     kind: crate::reviewer_kernel::review_contract::ArtifactKind,
 ) -> &'static str {
     match kind {
-        crate::reviewer_kernel::review_contract::ArtifactKind::FileSlice => "file_slice",
-        crate::reviewer_kernel::review_contract::ArtifactKind::DiffHunk => "diff_hunk",
-        crate::reviewer_kernel::review_contract::ArtifactKind::SearchResults => "search_results",
-        crate::reviewer_kernel::review_contract::ArtifactKind::FileList => "file_list",
-        crate::reviewer_kernel::review_contract::ArtifactKind::ChangedFileList => {
-            "changed_file_list"
-        }
-        crate::reviewer_kernel::review_contract::ArtifactKind::ImportSummary => "import_summary",
         crate::reviewer_kernel::review_contract::ArtifactKind::ToolSummary => "tool_summary",
-        crate::reviewer_kernel::review_contract::ArtifactKind::RedactedView => "redacted_view",
     }
 }
 
@@ -1039,10 +1030,8 @@ pub(crate) fn validation_status_name(
     status: crate::reviewer_kernel::review_contract::ValidationStatus,
 ) -> &'static str {
     match status {
-        crate::reviewer_kernel::review_contract::ValidationStatus::Candidate => "candidate",
         crate::reviewer_kernel::review_contract::ValidationStatus::Challenged => "challenged",
         crate::reviewer_kernel::review_contract::ValidationStatus::Validated => "validated",
-        crate::reviewer_kernel::review_contract::ValidationStatus::Rejected => "rejected",
     }
 }
 

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub(crate) mod agent_loop;
 pub(crate) mod artifacts;
 pub(crate) mod assembly;

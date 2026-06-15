@@ -286,11 +286,8 @@ pub(crate) struct RedactionMetadataV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum RedactionState {
-    None,
     Partial,
-    Full,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -314,36 +311,8 @@ pub struct FileReviewV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub(crate) enum ReviewOutcomeV1 {
-    CompletedNoFindings,
-    CompletedWithFindings,
-    BudgetExhaustedPartial,
-    CancelledPartial,
-    FailedPartial,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub(crate) enum Publishability {
-    Publishable,
-    DiagnosticOnly,
-    NotPublishable,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum ArtifactKind {
-    FileSlice,
-    DiffHunk,
-    SearchResults,
-    FileList,
-    ChangedFileList,
-    ImportSummary,
     ToolSummary,
-    RedactedView,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -356,8 +325,6 @@ pub(crate) struct EvidenceRefV1 {
     pub(crate) revision_id: String,
     pub(crate) location: EvidenceLocationV1,
     pub(crate) line_range: Option<LineRangeV1>,
-    pub(crate) byte_range: Option<ByteRangeV1>,
-    pub(crate) diff_anchor: Option<DiffAnchorV1>,
     pub(crate) content_hash: String,
     pub(crate) redaction: RedactionMetadataV1,
     pub(crate) producing_tool_call_id: String,
@@ -365,20 +332,14 @@ pub(crate) struct EvidenceRefV1 {
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum EvidenceRevision {
-    Base,
-    Head,
-    MergeBase,
     Review,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "locationKind", rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum EvidenceLocationV1 {
     SinglePath { path: String },
-    Rename { old_path: String, new_path: String },
 }
 
 #[derive(Debug, Copy, Clone, Serialize)]
@@ -386,33 +347,6 @@ pub(crate) enum EvidenceLocationV1 {
 pub(crate) struct LineRangeV1 {
     pub(crate) start_line: usize,
     pub(crate) end_line: usize,
-}
-
-#[derive(Debug, Copy, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ByteRangeV1 {
-    pub(crate) start_byte: usize,
-    pub(crate) end_byte: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct DiffAnchorV1 {
-    pub(crate) hunk_id: String,
-    pub(crate) side: DiffSide,
-    pub(crate) old_start: Option<usize>,
-    pub(crate) old_lines: Option<usize>,
-    pub(crate) new_start: Option<usize>,
-    pub(crate) new_lines: Option<usize>,
-    pub(crate) patch_hash: String,
-}
-
-#[derive(Debug, Copy, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub(crate) enum DiffSide {
-    Base,
-    Head,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -436,7 +370,6 @@ pub(crate) struct FindingV1 {
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum FindingSeverity {
     Blocker,
     High,
@@ -447,12 +380,9 @@ pub(crate) enum FindingSeverity {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub(crate) enum ValidationStatus {
-    Candidate,
     Challenged,
     Validated,
-    Rejected,
 }
 
 #[derive(Debug, Copy, Clone, Serialize)]

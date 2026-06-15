@@ -497,10 +497,6 @@ fn finding_related_paths(finding: &FindingV1) -> Vec<String> {
             crate::reviewer_kernel::review_contract::EvidenceLocationV1::SinglePath { path } => {
                 path.clone()
             }
-            crate::reviewer_kernel::review_contract::EvidenceLocationV1::Rename {
-                new_path,
-                ..
-            } => new_path.clone(),
         })
         .collect()
 }
@@ -511,10 +507,6 @@ fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {
             crate::reviewer_kernel::review_contract::EvidenceLocationV1::SinglePath { path } => {
                 path.clone()
             }
-            crate::reviewer_kernel::review_contract::EvidenceLocationV1::Rename {
-                new_path,
-                ..
-            } => new_path.clone(),
         };
         let line_range = finding.location_line_range;
         return Some(FindingLocationView {
@@ -531,10 +523,6 @@ fn finding_location_view(finding: &FindingV1) -> Option<FindingLocationView> {
                 crate::reviewer_kernel::review_contract::EvidenceLocationV1::SinglePath {
                     path,
                 } => path.clone(),
-                crate::reviewer_kernel::review_contract::EvidenceLocationV1::Rename {
-                    new_path,
-                    ..
-                } => new_path.clone(),
             };
             FindingLocationView {
                 path,

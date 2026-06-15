@@ -1155,8 +1155,6 @@ fn candidate_to_finding(
                 start_line,
                 end_line,
             }),
-        byte_range: None,
-        diff_anchor: None,
         content_hash: artifact.content_hash,
         redaction: RedactionMetadataV1 {
             redaction_state: RedactionState::Partial,
@@ -1250,7 +1248,6 @@ fn build_file_reviews(
         .flat_map(|finding| finding.file_refs.iter())
         .filter_map(|location| match location {
             EvidenceLocationV1::SinglePath { path } => Some(path.clone()),
-            EvidenceLocationV1::Rename { new_path, .. } => Some(new_path.clone()),
         })
         .collect::<std::collections::BTreeSet<_>>();
     snapshot
