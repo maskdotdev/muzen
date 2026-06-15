@@ -30,6 +30,16 @@ implementation plans.
   profile APIs.
 - **Reviewer Kernel**: Core repository-review execution engine behind the
   runner and service adapters.
+- **Agent Loop**: Private Reviewer Kernel module that runs one bounded
+  model/tool conversation over a SessionScope: transcript preparation, prompt
+  budget enforcement, model turns, tool batches, tool-result transcript
+  effects, accounting, cancellation, and terminal loop status. It is reusable
+  implementation, not a public product interface.
+- **Chat Session**: Future durable product unit for conversational repository,
+  issue, and workspace interaction. It owns chat-specific message history,
+  attachments, streaming events, continuation, and result semantics, and may
+  reuse Agent Loop internally. It is not the same thing as a direct execution
+  mode for Review Sessions.
 - **Context Engine**: Core evidence-compilation module that turns Workspace
   state, changed-file manifests, repository guidance, host metadata, tool
   results, and feedback into ranked, cited, permission-aware context packs and
