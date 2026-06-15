@@ -49,7 +49,7 @@ fn handshake_rejects_protocol_mismatch() {
 #[test]
 fn schema_fixture_matches_current_schema() {
     let fixture: serde_json::Value =
-        serde_json::from_str(include_str!("../../fixtures/runner-schema-v1.json"))
+        serde_json::from_str(include_str!("../../../fixtures/runner-schema-v1.json"))
             .expect("schema fixture");
     let current = serde_json::to_value(protocol_schema()).expect("current runner schema");
 
@@ -58,7 +58,7 @@ fn schema_fixture_matches_current_schema() {
 
 #[test]
 fn handshake_fixture_matches_current_response() {
-    let fixture_line = include_str!("../../fixtures/runner-handshake-v1.jsonl")
+    let fixture_line = include_str!("../../../fixtures/runner-handshake-v1.jsonl")
         .lines()
         .nth(1)
         .expect("handshake response fixture");
