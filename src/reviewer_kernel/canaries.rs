@@ -11,12 +11,13 @@ use crate::reviewer_kernel::system::timestamp_utc;
 use crate::workspace::remote_content_addressed_uri;
 
 use crate::reviewer_kernel::artifacts::*;
+#[cfg(test)]
+pub use crate::reviewer_kernel::model::ModelProviderCanaryReport;
 pub use crate::reviewer_kernel::model::{
     export_model_provider_canary_evidence, load_model_provider_canary_evidence,
-    openai_provider_canary_protocols, run_openai_provider_canaries, CredentialResolver,
-    EnvCredentialResolver, ModelProviderCanaryEvidence, ModelProviderCanaryEvidenceExport,
-    ModelProviderCanaryGate, ModelProviderCanaryReport, ModelProviderCanaryStatus,
-    OpenAiProviderCanaryConfig, MODEL_PROVIDER_CANARY_EVIDENCE_SCHEMA_VERSION,
+    openai_provider_canary_protocols, run_openai_provider_canaries, EnvCredentialResolver,
+    ModelProviderCanaryEvidence, ModelProviderCanaryGate, ModelProviderCanaryStatus,
+    OpenAiProviderCanaryConfig,
 };
 use crate::reviewer_kernel::snapshots::*;
 
@@ -542,6 +543,7 @@ impl CanaryEvidenceManifest {
         }
     }
 
+    #[cfg(test)]
     pub fn require_passed(&self) -> RuntimeResult<()> {
         let failures = self.validation_failures();
         if failures.is_empty() {

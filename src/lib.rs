@@ -1,4 +1,3 @@
-pub mod canary;
 pub mod cli;
 pub mod remote_http;
 pub mod review_sessions;

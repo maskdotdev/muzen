@@ -5,7 +5,6 @@ fn source_tree_uses_product_concept_modules() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
 
     for entry in [
-        "canary.rs",
         "cli.rs",
         "context_engine",
         "remote_http",

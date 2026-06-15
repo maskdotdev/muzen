@@ -55,14 +55,6 @@ pub mod paths {
 
 pub mod storage {
     pub use crate::reviewer_kernel::artifacts::RemoteArtifactObjectClient;
-    pub use crate::reviewer_kernel::canaries::{
-        export_remote_object_store_canary_evidence, run_remote_artifact_object_store_canary,
-        run_remote_snapshot_object_store_canary, RemoteObjectStoreCanaryEvidence,
-        RemoteObjectStoreCanaryEvidenceExport, RemoteObjectStoreCanaryGate,
-        RemoteObjectStoreCanaryStatus, RemoteObjectStoreCanaryStep,
-        RemoteObjectStoreCanaryStepKind, RemoteObjectStoreCanaryTarget,
-        REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION,
-    };
     pub use crate::reviewer_kernel::kernel_types::{
         SnapshotCaptureStatus, SnapshotObjectStore, SnapshotStorageMode, SnapshotStoragePolicy,
     };

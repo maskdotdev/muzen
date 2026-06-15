@@ -5,20 +5,19 @@ use super::support::*;
 fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
     let remote_client =
         Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
-    let evidence =
-        crate::reviewer_kernel::adapters::storage::run_remote_snapshot_object_store_canary(
-            "s3://muzen-test-snapshots/canary",
-            remote_client.as_ref(),
-        );
+    let evidence = crate::reviewer_kernel::canaries::run_remote_snapshot_object_store_canary(
+        "s3://muzen-test-snapshots/canary",
+        remote_client.as_ref(),
+    );
 
     evidence.require_passed().expect("snapshot canary passed");
     assert_eq!(
         evidence.schema_version,
-        crate::reviewer_kernel::adapters::storage::REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION
+        crate::reviewer_kernel::canaries::REMOTE_OBJECT_STORE_CANARY_SCHEMA_VERSION
     );
     assert_eq!(
         evidence.target,
-        crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryTarget::Snapshot
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Snapshot
     );
     assert!(evidence.cleanup_supported);
     assert_eq!(evidence.gate.passed, 4);
@@ -31,17 +30,16 @@ fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
         .path()
         .join("canaries")
         .join("remote-snapshot-object-store.json");
-    let export =
-        crate::reviewer_kernel::adapters::storage::export_remote_object_store_canary_evidence(
-            &evidence_path,
-            &evidence,
-        )
-        .unwrap();
+    let export = crate::reviewer_kernel::canaries::export_remote_object_store_canary_evidence(
+        &evidence_path,
+        &evidence,
+    )
+    .unwrap();
     assert!(export.valid);
     assert_eq!(export.path, evidence_path);
     let serialized = fs::read_to_string(&export.path).unwrap();
     assert!(serialized.ends_with('\n'));
-    let loaded: crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryEvidence =
+    let loaded: crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryEvidence =
         serde_json::from_str(&serialized).unwrap();
     loaded.require_passed().expect("loaded canary passed");
 
@@ -58,16 +56,15 @@ fn public_remote_snapshot_object_store_canary_proves_integrity_and_cleanup() {
 fn public_remote_artifact_object_store_canary_proves_integrity_and_cleanup() {
     let remote_client =
         Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let evidence =
-        crate::reviewer_kernel::adapters::storage::run_remote_artifact_object_store_canary(
-            "s3://muzen-test-artifacts/canary",
-            remote_client.as_ref(),
-        );
+    let evidence = crate::reviewer_kernel::canaries::run_remote_artifact_object_store_canary(
+        "s3://muzen-test-artifacts/canary",
+        remote_client.as_ref(),
+    );
 
     evidence.require_passed().expect("artifact canary passed");
     assert_eq!(
         evidence.target,
-        crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryTarget::Artifact
+        crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryTarget::Artifact
     );
     assert!(evidence.cleanup_supported);
     assert_eq!(evidence.gate.passed, 4);
@@ -78,8 +75,7 @@ fn public_remote_artifact_object_store_canary_proves_integrity_and_cleanup() {
     assert!(object_uri.starts_with("s3://muzen-test-artifacts/canary/artifacts/redacted/"));
     assert!(remote_client.read(object_uri).is_none());
     assert!(evidence.steps.iter().all(|step| {
-        step.status
-            == crate::reviewer_kernel::adapters::storage::RemoteObjectStoreCanaryStatus::Passed
+        step.status == crate::reviewer_kernel::canaries::RemoteObjectStoreCanaryStatus::Passed
     }));
 }
 

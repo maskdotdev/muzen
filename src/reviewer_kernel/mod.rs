@@ -4,7 +4,7 @@ pub mod agent_trace;
 pub mod artifacts;
 pub(crate) mod assembly;
 pub(crate) mod autonomous_review;
-pub mod canaries;
+pub(crate) mod canaries;
 pub(crate) mod dispatch;
 pub(crate) mod effects;
 pub mod events;
