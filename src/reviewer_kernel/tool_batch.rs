@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::policy::{ReviewerPolicy, SessionEvidence};
-use crate::reviewer_kernel::review_contract::ToolName;
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 
 pub(crate) struct ToolBatchRunner<'a> {
@@ -30,16 +29,6 @@ struct AcceptedToolCallRepair {
     original_tool_id: ToolId,
     canonical_call: ModelToolCall,
     error_code: ToolErrorCode,
-    repair_kinds: Vec<&'static str>,
-}
-
-#[derive(Debug, Clone)]
-struct RejectedToolCallRepair {
-    call_id: ToolCallId,
-    index: usize,
-    tool_id: ToolId,
-    error_code: ToolErrorCode,
-    reason: &'static str,
     repair_kinds: Vec<&'static str>,
 }
 
@@ -98,7 +87,7 @@ impl<'a> ToolBatchRunner<'a> {
                 })).collect::<Vec<_>>()
             }),
         ));
-        let (calls, accepted_repairs, rejected_repairs) = self.repair_tool_calls(calls);
+        let (calls, accepted_repairs) = self.repair_tool_calls(calls);
         for repair in &accepted_repairs {
             self.emit_tool_call_repair_trace(
                 &scope,
@@ -115,22 +104,6 @@ impl<'a> ToolBatchRunner<'a> {
                 true,
             );
         }
-        for repair in &rejected_repairs {
-            self.emit_tool_call_repair_trace(
-                &scope,
-                turn_id,
-                repair.call_id.clone(),
-                repair.index,
-                repair.tool_id.clone(),
-                repair.error_code,
-                repair.reason,
-                requested_calls.get(&repair.call_id),
-                None,
-                Some(repair.repair_kinds.as_slice()),
-                true,
-                false,
-            );
-        }
         let plan = self
             .policy
             .plan_tool_batch(calls, evidence, remaining_tool_calls);
@@ -138,10 +111,6 @@ impl<'a> ToolBatchRunner<'a> {
             .denied_calls
             .iter()
             .map(|denied| denied.call_id.clone())
-            .collect::<HashSet<_>>();
-        let rejected_repair_call_ids = rejected_repairs
-            .iter()
-            .map(|repair| repair.call_id.clone())
             .collect::<HashSet<_>>();
         for denied in &plan.denied_calls {
             self.emit_tool_call_repair_trace(
@@ -226,9 +195,6 @@ impl<'a> ToolBatchRunner<'a> {
             if policy_denied_call_ids.contains(&result.tool_call_id) {
                 continue;
             }
-            if rejected_repair_call_ids.contains(&result.tool_call_id) {
-                continue;
-            }
             if let Some(error) = result
                 .error
                 .as_ref()
@@ -259,19 +225,13 @@ impl<'a> ToolBatchRunner<'a> {
     fn repair_tool_calls(
         &self,
         calls: Vec<ModelToolCall>,
-    ) -> (
-        Vec<ModelToolCall>,
-        Vec<AcceptedToolCallRepair>,
-        Vec<RejectedToolCallRepair>,
-    ) {
+    ) -> (Vec<ModelToolCall>, Vec<AcceptedToolCallRepair>) {
         let mut repaired_calls = Vec::with_capacity(calls.len());
         let mut accepted_repairs = Vec::new();
-        let mut rejected_repairs = Vec::new();
         for call in calls {
             let mut canonical = call.clone();
             let original_tool_id = call.name.clone();
             let mut repair_kinds = Vec::new();
-            let mut rejected_repair_kinds = Vec::new();
 
             if self.tools.registry.definition(&canonical.name).is_none() {
                 if let Some(tool_id) = self.tools.registry.tool_id_for_model_alias(&canonical.name)
@@ -283,52 +243,19 @@ impl<'a> ToolBatchRunner<'a> {
                 }
             }
 
-            if let Some(builtin) = canonical.name.as_builtin() {
-                match repair_builtin_arguments(builtin, &canonical.raw_arguments) {
-                    Some(BuiltinArgumentRepair::Accepted {
-                        arguments,
-                        repair_kind,
-                    }) => {
-                        if arguments != canonical.raw_arguments {
-                            canonical.raw_arguments = arguments;
-                            repair_kinds.push(repair_kind);
-                        }
-                    }
-                    Some(BuiltinArgumentRepair::Rejected { repair_kind }) => {
-                        rejected_repair_kinds.push(repair_kind);
-                    }
-                    None => {}
-                }
-            }
-
             if !repair_kinds.is_empty() {
-                let error_code = if repair_kinds.iter().any(|kind| *kind != "tool_alias") {
-                    ToolErrorCode::InvalidArgs
-                } else {
-                    ToolErrorCode::UnknownTool
-                };
                 accepted_repairs.push(AcceptedToolCallRepair {
                     call_id: canonical.call_id.clone(),
                     index: canonical.index,
                     original_tool_id: original_tool_id.clone(),
                     canonical_call: canonical.clone(),
-                    error_code,
+                    error_code: ToolErrorCode::UnknownTool,
                     repair_kinds,
-                });
-            }
-            if !rejected_repair_kinds.is_empty() {
-                rejected_repairs.push(RejectedToolCallRepair {
-                    call_id: canonical.call_id.clone(),
-                    index: canonical.index,
-                    tool_id: canonical.name.clone(),
-                    error_code: ToolErrorCode::InvalidArgs,
-                    reason: "tool call arguments matched a repair shape but could not be safely canonicalized",
-                    repair_kinds: rejected_repair_kinds,
                 });
             }
             repaired_calls.push(canonical);
         }
-        (repaired_calls, accepted_repairs, rejected_repairs)
+        (repaired_calls, accepted_repairs)
     }
 
     fn emit_tool_call_repair_trace(
@@ -395,199 +322,6 @@ impl<'a> ToolBatchRunner<'a> {
                 }),
             ));
     }
-}
-
-enum BuiltinArgumentRepair {
-    Accepted {
-        arguments: String,
-        repair_kind: &'static str,
-    },
-    Rejected {
-        repair_kind: &'static str,
-    },
-}
-
-fn repair_builtin_arguments(tool: ToolName, raw: &str) -> Option<BuiltinArgumentRepair> {
-    match tool {
-        ToolName::ListChangedFiles | ToolName::ReadDiff | ToolName::ListFiles => {
-            repair_empty_arguments(raw).map(|arguments| BuiltinArgumentRepair::Accepted {
-                arguments,
-                repair_kind: "empty_args",
-            })
-        }
-        ToolName::ReadFile
-        | ToolName::ReadBaseFile
-        | ToolName::ReadHeadFile
-        | ToolName::FindRelatedFiles
-        | ToolName::FindTestsForFile
-        | ToolName::ListImports => repair_path_arguments(raw, "path_args"),
-        ToolName::ReadFileRange => repair_range_arguments(raw),
-        ToolName::SearchText => repair_search_arguments(raw, "search_args"),
-    }
-}
-
-fn repair_empty_arguments(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Some("{}".to_string());
-    }
-    let parsed = serde_json::from_str::<Value>(trimmed).ok()?;
-    if parsed.is_null() || parsed.as_array().is_some_and(Vec::is_empty) {
-        Some("{}".to_string())
-    } else {
-        None
-    }
-}
-
-fn repair_path_arguments(raw: &str, repair_kind: &'static str) -> Option<BuiltinArgumentRepair> {
-    let parsed = serde_json::from_str::<Value>(raw).ok()?;
-    let path = match parsed {
-        Value::String(path) => match normalize_path_string(&path) {
-            Some(path) => path,
-            None => return Some(BuiltinArgumentRepair::Rejected { repair_kind }),
-        },
-        Value::Object(ref object) => {
-            if !has_any_key(object, &["path", "file", "filepath", "filename"]) {
-                return None;
-            }
-            match path_field(object) {
-                Some(path) => path,
-                None => return Some(BuiltinArgumentRepair::Rejected { repair_kind }),
-            }
-        }
-        _ => return None,
-    };
-    Some(BuiltinArgumentRepair::Accepted {
-        arguments: json_string(json!({ "path": path })),
-        repair_kind,
-    })
-}
-
-fn repair_search_arguments(raw: &str, repair_kind: &'static str) -> Option<BuiltinArgumentRepair> {
-    let parsed = serde_json::from_str::<Value>(raw).ok()?;
-    let query = match parsed {
-        Value::String(query) => match non_empty_trimmed_string(&query) {
-            Some(query) => query,
-            None => return Some(BuiltinArgumentRepair::Rejected { repair_kind }),
-        },
-        Value::Object(ref object) => {
-            if !has_any_key(object, &["query", "pattern", "text"]) {
-                return None;
-            }
-            match string_field(object, &["query", "pattern", "text"]) {
-                Some(query) => query,
-                None => return Some(BuiltinArgumentRepair::Rejected { repair_kind }),
-            }
-        }
-        _ => return None,
-    };
-    Some(BuiltinArgumentRepair::Accepted {
-        arguments: json_string(json!({ "query": query })),
-        repair_kind,
-    })
-}
-
-fn repair_range_arguments(raw: &str) -> Option<BuiltinArgumentRepair> {
-    let repair_kind = "range_args";
-    let Value::Object(object) = serde_json::from_str::<Value>(raw).ok()? else {
-        return None;
-    };
-    if !has_any_key(
-        &object,
-        &[
-            "path",
-            "file",
-            "filepath",
-            "filename",
-            "line",
-            "start_line",
-            "startLine",
-            "start",
-            "end_line",
-            "endLine",
-            "end",
-        ],
-    ) {
-        return None;
-    }
-    let Some(path) = path_field(&object) else {
-        return Some(BuiltinArgumentRepair::Rejected { repair_kind });
-    };
-    let line = usize_field(&object, &["line"]);
-    let Some(mut start_line) = usize_field(&object, &["start_line", "startLine", "start"]).or(line)
-    else {
-        return Some(BuiltinArgumentRepair::Rejected { repair_kind });
-    };
-    let Some(mut end_line) = usize_field(&object, &["end_line", "endLine", "end"]).or(line) else {
-        return Some(BuiltinArgumentRepair::Rejected { repair_kind });
-    };
-    start_line = start_line.max(1);
-    end_line = end_line.max(1);
-    if start_line > end_line {
-        std::mem::swap(&mut start_line, &mut end_line);
-    }
-    Some(BuiltinArgumentRepair::Accepted {
-        arguments: json_string(json!({
-            "path": path,
-            "start_line": start_line,
-            "end_line": end_line
-        })),
-        repair_kind,
-    })
-}
-
-fn path_field(object: &Map<String, Value>) -> Option<String> {
-    string_field(object, &["path", "file", "filepath", "filename"])
-        .and_then(|path| normalize_path_string(&path))
-}
-
-fn string_field(object: &Map<String, Value>, names: &[&str]) -> Option<String> {
-    names
-        .iter()
-        .find_map(|name| object.get(*name).and_then(Value::as_str))
-        .and_then(non_empty_trimmed_string)
-}
-
-fn has_any_key(object: &Map<String, Value>, names: &[&str]) -> bool {
-    names.iter().any(|name| object.contains_key(*name))
-}
-
-fn usize_field(object: &Map<String, Value>, names: &[&str]) -> Option<usize> {
-    names.iter().find_map(|name| {
-        let value = object.get(*name)?;
-        if let Some(value) = value.as_u64() {
-            return usize::try_from(value).ok();
-        }
-        if let Some(value) = value.as_i64() {
-            return usize::try_from(value).ok();
-        }
-        value.as_str()?.trim().parse::<usize>().ok()
-    })
-}
-
-fn normalize_path_string(input: &str) -> Option<String> {
-    let mut path = non_empty_trimmed_string(input)?;
-    while let Some(stripped) = path.strip_prefix("./") {
-        path = stripped.to_string();
-    }
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
-}
-
-fn non_empty_trimmed_string(input: &str) -> Option<String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn json_string(value: Value) -> String {
-    serde_json::to_string(&value).expect("canonical repair arguments serialize")
 }
 
 fn trace_tool_call_repair(error_code: ToolErrorCode) -> bool {

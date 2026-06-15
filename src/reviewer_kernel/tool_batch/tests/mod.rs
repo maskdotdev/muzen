@@ -178,15 +178,21 @@ async fn tool_batch_runner_traces_unrepaired_invalid_tool_calls() {
     let rejected_path_trace = repair_traces
         .iter()
         .find(|details| details["callId"] == "bad-path-shape")
-        .expect("rejected path repair trace");
+        .expect("invalid args trace");
     assert_eq!(rejected_path_trace["errorCode"], "invalid_args");
-    assert_eq!(rejected_path_trace["repairAttempted"], true);
+    assert_eq!(rejected_path_trace["repairAttempted"], false);
     assert_eq!(rejected_path_trace["repairAccepted"], false);
-    assert_eq!(rejected_path_trace["repairKinds"][0], "path_args");
+    assert_eq!(
+        rejected_path_trace["repairKinds"]
+            .as_array()
+            .expect("repair kinds")
+            .len(),
+        0
+    );
 }
 
 #[tokio::test]
-async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
+async fn tool_batch_runner_repairs_aliases_before_policy_without_rewriting_arguments() {
     let temp = tempfile::tempdir().expect("tempdir");
     std::fs::write(temp.path().join("README.md"), "first\nneedle\nthird\n").expect("write readme");
     let change = test_change_with_file("README.md");
@@ -210,19 +216,13 @@ async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
                     call_id: ToolCallId("read-alias".to_string()),
                     index: 0,
                     name: ToolId::parse("read").unwrap(),
-                    raw_arguments: "\"./README.md\"".to_string(),
+                    raw_arguments: r#"{"path":"README.md"}"#.to_string(),
                 },
                 ModelToolCall {
                     call_id: ToolCallId("grep-alias".to_string()),
                     index: 1,
                     name: ToolId::parse("grep").unwrap(),
-                    raw_arguments: "\"needle\"".to_string(),
-                },
-                ModelToolCall {
-                    call_id: ToolCallId("range-args".to_string()),
-                    index: 2,
-                    name: ToolId::from(ToolName::ReadFileRange),
-                    raw_arguments: r#"{"file":"README.md","startLine":2,"endLine":1}"#.to_string(),
+                    raw_arguments: r#"{"query":"needle"}"#.to_string(),
                 },
             ],
             &SessionEvidence::default(),
@@ -231,11 +231,10 @@ async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
         )
         .await;
 
-    assert_eq!(results.len(), 3);
+    assert_eq!(results.len(), 2);
     assert!(results.iter().all(|result| result.ok));
     assert_eq!(results[0].tool_name, ToolId::from(ToolName::ReadFile));
     assert_eq!(results[1].tool_name, ToolId::from(ToolName::SearchText));
-    assert_eq!(results[2].tool_name, ToolId::from(ToolName::ReadFileRange));
 
     let records = runtime_sink.records.lock().expect("sink lock");
     let repair_traces = records
@@ -249,7 +248,7 @@ async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(repair_traces.len(), 3);
+    assert_eq!(repair_traces.len(), 2);
 
     let read_trace = repair_traces
         .iter()
@@ -264,7 +263,6 @@ async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
         "README.md"
     );
     assert_repair_kind(read_trace, "tool_alias");
-    assert_repair_kind(read_trace, "path_args");
 
     let grep_trace = repair_traces
         .iter()
@@ -277,23 +275,6 @@ async fn tool_batch_runner_repairs_aliases_and_loose_arguments_before_policy() {
         "needle"
     );
     assert_repair_kind(grep_trace, "tool_alias");
-    assert_repair_kind(grep_trace, "search_args");
-
-    let range_trace = repair_traces
-        .iter()
-        .find(|details| details["callId"] == "range-args")
-        .expect("range repair trace");
-    assert_eq!(range_trace["originalToolId"], "read_file_range");
-    assert_eq!(range_trace["toolId"], "read_file_range");
-    assert_eq!(
-        range_trace["acceptedRepair"]["canonicalArgumentSummary"]["startLine"],
-        1
-    );
-    assert_eq!(
-        range_trace["acceptedRepair"]["canonicalArgumentSummary"]["endLine"],
-        2
-    );
-    assert_repair_kind(range_trace, "range_args");
 }
 
 fn model_call(id: &str, index: usize, tool: ToolName, raw_arguments: &str) -> ModelToolCall {
