@@ -232,8 +232,6 @@ pub struct ConcurrentRunReport {
     pub model_metrics: ModelMetricsSnapshot,
     pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
     pub quality_diagnostics: ReviewQualityDiagnostics,
-    pub benchmark_valid: bool,
-    pub benchmark_failures: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

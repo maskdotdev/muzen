@@ -879,8 +879,6 @@ fn build_run_metrics(
         }],
         model_metrics,
         completion_diagnostics: diagnostics,
-        benchmark_valid: sessions > 0 && completed_sessions > 0,
-        benchmark_failures: Vec::new(),
     }
 }
 
