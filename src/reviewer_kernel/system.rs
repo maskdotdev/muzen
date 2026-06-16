@@ -3,9 +3,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 
-pub(crate) const SCHEMA_VERSION: &str = "heimdaal.review-run.v1";
-pub(crate) const DEFAULT_MODEL: &str = "gpt-5.4-mini";
-
 pub(crate) fn timestamp_utc() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

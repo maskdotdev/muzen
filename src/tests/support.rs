@@ -13,7 +13,7 @@ use crate::reviewer_kernel::kernel_types::{
 };
 use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::*;
-use crate::reviewer_kernel::system::{timestamp_utc, SCHEMA_VERSION};
+use crate::reviewer_kernel::system::timestamp_utc;
 use crate::reviewer_kernel::tool_engine::registry::{
     JsonRpcToolRegistration, JsonRpcToolRequest, JsonRpcToolResponse, JsonRpcToolTransport,
 };
@@ -25,6 +25,7 @@ use crate::reviewer_kernel::tool_engine::{
 use async_trait::async_trait;
 
 pub const TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION: &str = "heimdaal.review-events.v1";
+const TEST_RUNTIME_EVENT_LOG_SCHEMA_VERSION: &str = "heimdaal.review-run.v1";
 
 #[derive(Debug, Clone)]
 pub struct TestReviewEventJsonlManifest {
@@ -251,7 +252,7 @@ fn export_test_runtime_event_records_jsonl(
     let mut bytes = 0usize;
     for record in records {
         let line = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": SCHEMA_VERSION,
+            "schemaVersion": TEST_RUNTIME_EVENT_LOG_SCHEMA_VERSION,
             "seq": record.seq,
             "timestampUtc": record.timestamp_utc,
             "context": &record.context,
