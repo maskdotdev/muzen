@@ -1,5 +1,4 @@
 mod chunking;
-pub(crate) mod cli;
 mod config;
 mod derived;
 mod engine;
