@@ -58,7 +58,7 @@ impl<'a> ToolResultEffectProcessor<'a> {
     ) {
         let mut artifact = None;
         if let Some(artifact_id) = &result.artifact_id {
-            artifact = self.tools.artifacts.get(artifact_id);
+            artifact = self.tools.artifact(artifact_id);
         }
         let runtime_events = self.policy.plan_tool_result_runtime_events(
             scope,

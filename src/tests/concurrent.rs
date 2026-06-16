@@ -74,7 +74,7 @@ fn concurrent_queued_search_observes_cancellation_before_permit() {
         .unwrap();
 
     runtime.block_on(async {
-        let search_permit = engine.search.acquire_search_permit_for_test().await;
+        let search_permit = engine.acquire_search_permit_for_test().await;
         let cancel = tokio_util::sync::CancellationToken::new();
         let queued_engine = Arc::clone(&engine);
         let queued_cancel = cancel.clone();
@@ -141,7 +141,7 @@ fn concurrent_deduped_search_waiter_observes_its_own_cancellation() {
         .unwrap();
 
     runtime.block_on(async {
-        let search_permit = engine.search.acquire_search_permit_for_test().await;
+        let search_permit = engine.acquire_search_permit_for_test().await;
         let owner_engine = Arc::clone(&engine);
         let owner = tokio::spawn(async move {
             owner_engine
@@ -757,8 +757,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
         serde_json::Value::String("[REDACTED]".to_string())
     );
     let artifact_text = engine
-        .artifacts
-        .list()
+        .redacted_artifacts_for_test()
         .into_iter()
         .map(|artifact| artifact.content)
         .collect::<Vec<_>>()
@@ -766,8 +765,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
     assert!(artifact_text.contains("[REDACTED]"));
     assert!(!artifact_text.contains("AKIA1234567890ABCDEF"));
     let raw_artifact_text = engine
-        .artifacts
-        .list_raw()
+        .raw_artifacts_for_test()
         .into_iter()
         .map(|artifact| artifact.content)
         .collect::<Vec<_>>()
@@ -864,7 +862,7 @@ fn concurrent_jsonrpc_provider_artifact_write_requires_capability_policy() {
         results[0].error.as_ref().unwrap().code,
         ToolErrorCode::ToolNotAllowed
     );
-    assert!(engine.artifacts.list().is_empty());
+    assert!(engine.redacted_artifacts_for_test().is_empty());
 }
 
 #[test]
@@ -1257,7 +1255,7 @@ fn concurrent_jsonrpc_provider_rejects_oversized_artifacts_before_storage() {
         results[0].error.as_ref().unwrap().code,
         ToolErrorCode::TooLarge
     );
-    assert!(engine.artifacts.list().is_empty());
+    assert!(engine.redacted_artifacts_for_test().is_empty());
 }
 
 #[test]

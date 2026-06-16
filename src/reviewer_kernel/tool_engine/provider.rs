@@ -129,11 +129,7 @@ impl ToolProvider for JsonRpcToolProvider {
         let provider_id = self.provider_id.clone();
         let call_id = invocation.call_id;
         let tool_id = invocation.tool_id;
-        let provider_resources = engine
-            .registry
-            .definition(&tool_id)
-            .map(|definition| definition.provider_resources.clone())
-            .unwrap_or_default();
+        let provider_resources = engine.provider_resources(&tool_id);
         let output = self
             .transport
             .call(
@@ -143,7 +139,7 @@ impl ToolProvider for JsonRpcToolProvider {
                     turn_id: invocation.turn_id,
                     call_id: call_id.clone(),
                     tool_id: tool_id.clone(),
-                    snapshot_id: engine.snapshot.snapshot_id.clone(),
+                    snapshot_id: engine.snapshot_id().clone(),
                     provider_resources,
                     arguments,
                 },

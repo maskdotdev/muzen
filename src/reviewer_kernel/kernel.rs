@@ -442,7 +442,7 @@ impl Run {
         let mut findings = Vec::new();
         let mut file_reviews = Vec::new();
         for outcome in shard_outcomes {
-            aggregate_artifacts.merge_from(&outcome.tools.artifacts);
+            outcome.tools.merge_artifacts_into(&aggregate_artifacts);
             findings.extend(outcome.findings);
             file_reviews.extend(outcome.file_reviews);
             summaries.push(outcome.metrics);

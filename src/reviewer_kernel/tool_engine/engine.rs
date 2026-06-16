@@ -27,19 +27,19 @@ use super::store::ConcurrentArtifactStore;
 use super::validation::validate_invocation;
 
 pub(crate) struct ToolEngine {
-    pub(crate) snapshot: Arc<RepoSnapshot>,
-    pub(crate) artifacts: Arc<ConcurrentArtifactStore>,
-    pub(crate) read: Arc<ReadService>,
-    pub(crate) search: Arc<SearchCoordinator>,
-    pub(crate) registry: Arc<ToolRegistry>,
-    pub(crate) limits: Arc<RuntimeLimits>,
-    pub(crate) redactor: Arc<Redactor>,
+    snapshot: Arc<RepoSnapshot>,
+    artifacts: Arc<ConcurrentArtifactStore>,
+    read: Arc<ReadService>,
+    search: Arc<SearchCoordinator>,
+    registry: Arc<ToolRegistry>,
+    limits: Arc<RuntimeLimits>,
+    redactor: Arc<Redactor>,
     result_cache: ToolResultCache,
     read_permits: Arc<Semaphore>,
     authorizer: ToolAuthorizer,
     dispatcher: ToolProviderDispatcher,
-    pub(crate) counters: Arc<ConcurrentAtomicCounters>,
-    pub(crate) metrics: Arc<ConcurrentToolMetricsStore>,
+    counters: Arc<ConcurrentAtomicCounters>,
+    metrics: Arc<ConcurrentToolMetricsStore>,
 }
 
 impl ToolEngine {
@@ -218,6 +218,52 @@ impl ToolEngine {
             .collect::<Vec<_>>();
         self.record_batch_metrics(&results);
         results
+    }
+
+    pub(crate) fn registry(&self) -> &ToolRegistry {
+        &self.registry
+    }
+
+    pub(crate) fn snapshot_id(&self) -> &SnapshotId {
+        &self.snapshot.snapshot_id
+    }
+
+    pub(crate) fn provider_resources(&self, tool_id: &ToolId) -> Vec<ProviderResourceId> {
+        self.registry
+            .definition(tool_id)
+            .map(|definition| definition.provider_resources.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn artifact(&self, artifact_id: &ArtifactId) -> Option<ArtifactView> {
+        self.artifacts.get(artifact_id)
+    }
+
+    pub(crate) fn insert_artifact(&self, key: ArtifactKey, content: String) -> ArtifactId {
+        self.artifacts.insert(key, content)
+    }
+
+    pub(crate) fn merge_artifacts_into(&self, target: &ConcurrentArtifactStore) {
+        target.merge_from(&self.artifacts);
+    }
+
+    pub(crate) fn artifact_stats(&self) -> (usize, usize) {
+        self.artifacts.stats()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn acquire_search_permit_for_test(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.search.acquire_search_permit_for_test().await
+    }
+
+    #[cfg(test)]
+    pub(crate) fn redacted_artifacts_for_test(&self) -> Vec<ArtifactView> {
+        self.artifacts.list()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn raw_artifacts_for_test(&self) -> Vec<ArtifactView> {
+        self.artifacts.list_raw()
     }
 
     async fn execute_invocation(

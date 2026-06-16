@@ -140,7 +140,7 @@ impl AgentLoopRuntime {
                         transcript.len(),
                         self.policy
                             .tool_schemas_for_transcript(
-                                &self.tools.registry,
+                                self.tools.registry(),
                                 &transcript,
                                 &call_scope.capabilities
                             )

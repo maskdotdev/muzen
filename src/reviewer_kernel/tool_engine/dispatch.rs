@@ -37,7 +37,7 @@ impl ToolProviderDispatcher {
     ) -> ToolResultEnvelope {
         let call_id = invocation.call_id.clone();
         let tool_id = invocation.tool_id.clone();
-        let Some(definition) = engine.registry.definition(&tool_id) else {
+        let Some(definition) = engine.registry().definition(&tool_id) else {
             return engine.error_result(
                 call_id,
                 tool_id,

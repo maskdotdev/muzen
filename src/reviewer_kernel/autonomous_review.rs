@@ -605,7 +605,7 @@ async fn run_child_delegate(
     let parsed = parse_child_packet(kind, report.output.as_deref());
     let artifact_content = serde_json::to_string_pretty(&parsed)
         .unwrap_or_else(|_| report.output.clone().unwrap_or_default());
-    let artifact_id = state.tools.artifacts.insert(
+    let artifact_id = state.tools.insert_artifact(
         ArtifactKey(stable_id(&[
             &state.snapshot.snapshot_id.0,
             "delegate_child_packet",
@@ -836,7 +836,7 @@ fn build_run_metrics(
         diagnostics.push(report.diagnostic.clone());
     }
     diagnostics.sort_by(|left, right| left.session_id.cmp(&right.session_id));
-    let (artifacts, artifact_bytes) = tools.artifacts.stats();
+    let (artifacts, artifact_bytes) = tools.artifact_stats();
     let elapsed_ms = elapsed_ms(started);
     let sessions = reports.len();
     let mut quality_diagnostics = ReviewQualityDiagnostics::default();
@@ -1119,15 +1119,13 @@ fn candidate_to_finding(
         .filter_map(|id| {
             let artifact_id = ArtifactId(id.clone());
             tools
-                .artifacts
-                .get(&artifact_id)
+                .artifact(&artifact_id)
                 .map(|artifact| (artifact_id, artifact))
         })
         .collect::<Vec<_>>();
     let fallback_artifact = validation.artifact_id.as_ref().and_then(|artifact_id| {
         tools
-            .artifacts
-            .get(artifact_id)
+            .artifact(artifact_id)
             .map(|artifact| (artifact_id.clone(), artifact))
     });
     let evidence = if artifact_ids.is_empty() {
