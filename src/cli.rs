@@ -15,8 +15,6 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Inspect Muzen Context Engine output for a local snapshot.
     Context(crate::context_engine::cli::ContextArgs),
-    /// Compose, validate, or inspect operational proof evidence.
-    Proof(crate::operational_proof::ProofArgs),
 }
 
 pub fn main_entry() {
@@ -34,6 +32,5 @@ pub(crate) fn run_main() -> Result<i32> {
     let cli = Cli::parse();
     match cli.command {
         Command::Context(args) => crate::context_engine::cli::run_context(args),
-        Command::Proof(args) => crate::operational_proof::run_proof(args),
     }
 }

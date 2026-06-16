@@ -1200,8 +1200,8 @@ mod context_cli_tests {
             "token-efficiency",
         ])
         .expect("valid context command");
-        let Command::Context(context) = cli.command else {
-            panic!("expected context command");
+        let context = match cli.command {
+            Command::Context(context) => context,
         };
         let ContextCommand::Pack(pack) = context.command else {
             panic!("expected context pack command");
@@ -1237,8 +1237,8 @@ mod context_cli_tests {
             "graph-debug.json",
         ])
         .expect("valid graph debug command");
-        let Command::Context(context) = cli.command else {
-            panic!("expected context command");
+        let context = match cli.command {
+            Command::Context(context) => context,
         };
         let ContextCommand::GraphDebug(debug) = context.command else {
             panic!("expected context graph-debug command");

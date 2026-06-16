@@ -56,10 +56,6 @@ implementation plans.
 - **Context Pack**: Durable, session-specific compiled artifact containing the
   evidence selected for a review purpose, the evidence relationships, the
   omitted candidates, budget usage, and a sufficiency assessment.
-- **Operational Proof**: Internal diagnostics/operations module for composing,
-  validating, and summarizing provider and object-store evidence manifests. It
-  is not a Review Session product Interface.
-
 ## Architecture Quality Target
 
 Architecture work should make modules deeper: small, stable interfaces with

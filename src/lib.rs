@@ -1,5 +1,4 @@
 pub mod cli;
-pub(crate) mod operational_proof;
 pub mod remote_http;
 pub mod review_sessions;
 pub mod review_sources;

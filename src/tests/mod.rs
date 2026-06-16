@@ -4,8 +4,6 @@ mod prelude;
 pub(crate) mod support;
 
 #[cfg(test)]
-mod canary;
-#[cfg(test)]
 mod concurrent;
 #[cfg(test)]
 mod facade;
