@@ -42,7 +42,8 @@ impl ToolRegistry {
         Ok(registry)
     }
 
-    pub fn register_custom(
+    #[cfg(test)]
+    pub(crate) fn register_custom(
         &mut self,
         id: ToolId,
         description: impl Into<String>,
@@ -106,7 +107,8 @@ impl ToolRegistry {
         })
     }
 
-    pub fn register_jsonrpc_tool(
+    #[cfg(test)]
+    pub(crate) fn register_jsonrpc_tool(
         &mut self,
         provider_id: ToolProviderId,
         id: ToolId,
