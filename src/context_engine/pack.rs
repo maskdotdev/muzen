@@ -76,6 +76,7 @@ pub struct ContextSufficiency {
 }
 
 impl ContextSufficiency {
+    #[cfg(test)]
     pub fn probably_sufficient() -> Self {
         Self {
             status: ContextSufficiencyStatus::ProbablySufficient,

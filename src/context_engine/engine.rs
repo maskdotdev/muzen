@@ -157,10 +157,6 @@ impl SnapshotContextEngine {
         }
     }
 
-    pub fn with_store(config: ContextEngineConfig, store: Arc<dyn ContextIndexStore>) -> Self {
-        Self::with_stores(config, store, Arc::new(InMemoryContextLearningStore::new()))
-    }
-
     pub fn with_stores(
         config: ContextEngineConfig,
         store: Arc<dyn ContextIndexStore>,
@@ -205,6 +201,7 @@ impl SnapshotContextEngine {
         &self.config
     }
 
+    #[cfg(test)]
     pub fn store(&self) -> Arc<dyn ContextIndexStore> {
         Arc::clone(&self.store)
     }

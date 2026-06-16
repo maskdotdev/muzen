@@ -49,13 +49,6 @@ impl ContextNodeId {
         }
     }
 
-    pub fn range(&self) -> Option<ContextRange> {
-        match self {
-            Self::Chunk { range, .. } | Self::Symbol { range, .. } => Some(*range),
-            _ => None,
-        }
-    }
-
     /// Canonical text form: the basis for deterministic edge ids and
     /// debug output.
     pub fn key(&self) -> String {
@@ -226,6 +219,7 @@ pub struct CoChangeStat {
 /// relationships between repository artifacts, built per snapshot.
 #[derive(Debug, Clone)]
 pub struct ContextGraph {
+    #[cfg(test)]
     pub snapshot_id: SnapshotId,
     pub(crate) nodes: BTreeMap<ContextNodeId, ContextNode>,
     pub(crate) edges: Vec<ContextEdge>,
@@ -246,9 +240,10 @@ pub struct ContextGraph {
 }
 
 impl ContextGraph {
-    pub(crate) fn empty(snapshot_id: SnapshotId) -> Self {
+    pub(crate) fn empty(_snapshot_id: SnapshotId) -> Self {
         Self {
-            snapshot_id,
+            #[cfg(test)]
+            snapshot_id: _snapshot_id,
             nodes: BTreeMap::new(),
             edges: Vec::new(),
             edges_from: BTreeMap::new(),
@@ -261,14 +256,12 @@ impl ContextGraph {
         }
     }
 
-    pub fn node(&self, id: &ContextNodeId) -> Option<&ContextNode> {
-        self.nodes.get(id)
-    }
-
+    #[cfg(test)]
     pub fn nodes(&self) -> impl Iterator<Item = &ContextNode> {
         self.nodes.values()
     }
 
+    #[cfg(test)]
     pub fn edges(&self) -> impl Iterator<Item = &ContextEdge> {
         self.edges.iter()
     }
@@ -289,6 +282,7 @@ impl ContextGraph {
             .map(|index| &self.edges[*index])
     }
 
+    #[cfg(test)]
     /// Diff anchors: changed chunk nodes when chunks exist for the
     /// file, otherwise the changed file node.
     pub fn changed_anchors(&self) -> impl Iterator<Item = &ContextNodeId> {

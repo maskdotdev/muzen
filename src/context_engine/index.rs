@@ -197,14 +197,12 @@ pub enum ContextIndexSkipReason {
 
 #[derive(Debug, Clone)]
 pub struct ContextIndex {
-    pub index_id: ContextIndexId,
     pub snapshot_id: SnapshotId,
-    pub manifest_hash: String,
     pub evidence: Vec<ContextEvidence>,
     pub file_contents: BTreeMap<RepoPath, String>,
     pub lexical: super::LexicalIndex,
-    pub symbol_graph: ContextSymbolGraph,
     pub graph: ContextGraph,
+    #[cfg(test)]
     pub graph_expansion: ContextGraphExpansion,
     pub relationships: Vec<ContextRelationship>,
     /// Diff hunk ranges by changed file path (new-side line spans).
@@ -217,6 +215,7 @@ pub struct ContextIndex {
     pub semantic: ContextSemanticConfig,
     pub semantic_vectors: Option<InMemoryVectorIndex>,
     pub denied_cross_repo_contracts: usize,
+    #[cfg(test)]
     pub skips: Vec<ContextIndexSkip>,
     pub report: ContextIndexReport,
     pub manifest_artifact: ContextManifestArtifact,
@@ -641,14 +640,12 @@ impl ContextIndex {
             warnings,
         };
         Ok(Self {
-            index_id,
             snapshot_id: snapshot.snapshot_id.clone(),
-            manifest_hash: snapshot.manifest_hash.clone(),
             evidence,
             file_contents,
             lexical,
-            symbol_graph,
             graph,
+            #[cfg(test)]
             graph_expansion,
             relationships,
             hunk_ranges,
@@ -656,6 +653,7 @@ impl ContextIndex {
             semantic: request.semantic,
             semantic_vectors,
             denied_cross_repo_contracts,
+            #[cfg(test)]
             skips,
             report,
             manifest_artifact,

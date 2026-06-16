@@ -18,8 +18,8 @@ fn review_defaults_expose_familiar_model_aliases() {
         Some(&ToolId::parse("glob").unwrap())
     );
     assert_eq!(
-        table.tool_for_alias(&ToolId::parse("diff").unwrap()),
-        Some(&ToolId::from(ToolName::ReadDiff))
+        registry.tool_id_for_model_alias(&ToolId::parse("diff").unwrap()),
+        Some(ToolId::from(ToolName::ReadDiff))
     );
     assert_eq!(
         registry.tool_id_for_model_alias(&ToolId::parse("imports").unwrap()),
@@ -30,12 +30,5 @@ fn review_defaults_expose_familiar_model_aliases() {
         Some(ToolId::from(ToolName::FindTestsForFile))
     );
 
-    let schema_names = registry
-        .schemas()
-        .into_iter()
-        .map(|schema| schema.model_alias)
-        .collect::<std::collections::BTreeSet<_>>();
-    for alias in ["read", "grep", "glob", "diff", "imports", "tests"] {
-        assert!(schema_names.contains(&ToolId::parse(alias).unwrap()));
-    }
+    assert!(registry.alias_table().is_ok());
 }

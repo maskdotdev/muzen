@@ -3,15 +3,18 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::Result;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::execution::execute_run_start;
 use super::protocol::{
-    parse_params, stateful_method, write_notification, write_response, JsonRpcError, JsonRpcFrame,
-    JsonRpcRequest, JsonRpcResponse,
+    parse_params, stateful_method, JsonRpcError, JsonRpcFrame, JsonRpcRequest, JsonRpcResponse,
 };
+#[cfg(test)]
+use super::protocol::{write_notification, write_response};
 use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
 use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportEvent};
@@ -35,6 +38,7 @@ use crate::reviewer_kernel::review_contract::{
 };
 use crate::workspace::RepoSnapshot;
 
+#[cfg(test)]
 pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<i32>
 where
     R: BufRead,
@@ -100,6 +104,7 @@ where
     Ok(0)
 }
 
+#[cfg(test)]
 pub fn handle_jsonrpc_line(line: &str) -> JsonRpcResponse {
     match serde_json::from_str::<JsonRpcRequest>(line) {
         Ok(request) => handle_request(request),
@@ -231,6 +236,7 @@ fn execute_interactive_run_start(
 }
 
 impl RunnerStdioSession {
+    #[cfg(test)]
     pub(crate) fn handle_line<W: Write>(&mut self, line: &str, writer: &mut W) -> Result<()> {
         let response = match serde_json::from_str::<JsonRpcRequest>(line) {
             Ok(request) => self.handle_stateful_request(request, writer)?,
@@ -243,6 +249,7 @@ impl RunnerStdioSession {
         Ok(())
     }
 
+    #[cfg(test)]
     fn handle_stateful_request<W: Write>(
         &mut self,
         request: JsonRpcRequest,

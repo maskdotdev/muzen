@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 
-use super::{ContextEmbeddingProviderKind, EmbeddingInput, EmbeddingProvider, EmbeddingVector};
+use super::{EmbeddingInput, EmbeddingProvider, EmbeddingVector};
 
 /// Token cap per embedded input; bounds inference latency on dense code.
 const LOCAL_ONNX_MAX_TOKENS: usize = 2048;
@@ -182,10 +182,6 @@ impl LocalOnnxEmbeddingProvider {
 
 #[async_trait]
 impl EmbeddingProvider for LocalOnnxEmbeddingProvider {
-    fn kind(&self) -> ContextEmbeddingProviderKind {
-        ContextEmbeddingProviderKind::LocalOnnx
-    }
-
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
         let mut vectors = Vec::with_capacity(inputs.len());
         for batch in inputs.chunks(LOCAL_ONNX_BATCH) {

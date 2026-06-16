@@ -142,21 +142,6 @@ impl ToolRegistry {
             .map(|definition| definition.id.clone())
     }
 
-    pub fn schemas(&self) -> Vec<ToolSchema> {
-        let mut schemas = self
-            .definitions
-            .values()
-            .map(|definition| ToolSchema {
-                id: definition.id.clone(),
-                model_alias: definition.model_alias.clone(),
-                description: definition.description.clone(),
-                parameters: definition.parameters.clone(),
-            })
-            .collect::<Vec<_>>();
-        schemas.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
-        schemas
-    }
-
     pub(crate) fn jsonrpc_transports(
         &self,
     ) -> Vec<(ToolProviderId, Arc<dyn JsonRpcToolTransport>)> {
@@ -234,14 +219,6 @@ impl fmt::Debug for ToolDefinition {
 }
 
 #[derive(Debug, Clone)]
-pub struct ToolSchema {
-    pub id: ToolId,
-    pub model_alias: ToolId,
-    pub description: String,
-    pub parameters: Value,
-}
-
-#[derive(Debug, Clone)]
 pub struct CustomToolOptions {
     pub cacheable: bool,
     pub effects: ToolEffects,
@@ -261,18 +238,14 @@ impl Default for CustomToolOptions {
 #[derive(Debug, Clone)]
 pub struct ToolAliasTable {
     by_tool: HashMap<ToolId, ToolId>,
-    by_alias: HashMap<ToolId, ToolId>,
 }
 
 impl ToolAliasTable {
     pub fn from_registry(registry: &ToolRegistry) -> RuntimeResult<Self> {
         let mut by_tool = HashMap::new();
-        let mut by_alias = HashMap::new();
+        let mut aliases = std::collections::HashSet::new();
         for definition in registry.definitions.values() {
-            if by_alias
-                .insert(definition.model_alias.clone(), definition.id.clone())
-                .is_some()
-            {
+            if !aliases.insert(definition.model_alias.clone()) {
                 return Err(RuntimeError::InvalidInput(format!(
                     "duplicate tool alias {}",
                     definition.model_alias.as_str()
@@ -280,16 +253,13 @@ impl ToolAliasTable {
             }
             by_tool.insert(definition.id.clone(), definition.model_alias.clone());
         }
-        Ok(Self { by_tool, by_alias })
+        Ok(Self { by_tool })
     }
 
     pub fn alias_for(&self, tool_id: &ToolId) -> Option<&ToolId> {
         self.by_tool.get(tool_id)
     }
 
-    pub fn tool_for_alias(&self, alias: &ToolId) -> Option<&ToolId> {
-        self.by_alias.get(alias)
-    }
 }
 
 #[async_trait]

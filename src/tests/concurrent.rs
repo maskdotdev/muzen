@@ -1544,7 +1544,7 @@ fn concurrent_tool_registry_rejects_alias_collisions() {
 
     let table = registry.alias_table().unwrap();
     assert_eq!(table.alias_for(&first), Some(&alias));
-    assert_eq!(table.tool_for_alias(&alias), Some(&first));
+    assert_eq!(registry.tool_id_for_model_alias(&alias), Some(first));
 
     let duplicate = registry.register_custom_with_alias_and_effects(
         ToolId::parse("second_custom_alias_check").unwrap(),

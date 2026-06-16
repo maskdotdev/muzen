@@ -74,10 +74,6 @@ impl ContextRevision {
     pub fn head() -> Self {
         Self("head".to_string())
     }
-
-    pub fn base() -> Self {
-        Self("base".to_string())
-    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]

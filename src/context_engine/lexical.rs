@@ -112,10 +112,6 @@ impl LexicalIndex {
         index
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.doc_ids.is_empty()
-    }
-
     /// Rank documents for a query with BM25. Results are sorted by
     /// descending score, ties broken by evidence id for determinism.
     pub fn search(&self, query: &str, limit: usize, k1: f32, b: f32) -> Vec<(EvidenceId, f32)> {

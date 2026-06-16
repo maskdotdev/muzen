@@ -11,12 +11,10 @@ use super::{ContextIndex, ContextLearning};
 pub trait ContextIndexStore: Send + Sync {
     fn put_index(&self, index: ContextIndex) -> RuntimeResult<()>;
     fn get_index(&self, snapshot_id: &SnapshotId) -> Option<Arc<ContextIndex>>;
-    fn remove_index(&self, snapshot_id: &SnapshotId) -> RuntimeResult<bool>;
 }
 
 pub trait ContextLearningStore: Send + Sync {
     fn put_learning(&self, learning: ContextLearning) -> RuntimeResult<()>;
-    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning>;
     fn update_learning(
         &self,
         learning_id: &str,
@@ -53,14 +51,6 @@ impl ContextIndexStore for InMemoryContextIndexStore {
             .cloned()
     }
 
-    fn remove_index(&self, snapshot_id: &SnapshotId) -> RuntimeResult<bool> {
-        Ok(self
-            .indexes
-            .lock()
-            .expect("context index store poisoned")
-            .remove(snapshot_id)
-            .is_some())
-    }
 }
 
 #[derive(Debug, Default)]
@@ -81,14 +71,6 @@ impl ContextLearningStore for InMemoryContextLearningStore {
             .expect("context learning store poisoned")
             .insert(learning.id.clone(), learning);
         Ok(())
-    }
-
-    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning> {
-        self.learnings
-            .lock()
-            .expect("context learning store poisoned")
-            .get(learning_id)
-            .cloned()
     }
 
     fn update_learning(
@@ -261,14 +243,6 @@ impl ContextLearningStore for FileContextLearningStore {
             .expect("context learning store poisoned");
         learnings.insert(learning.id.clone(), learning);
         self.persist(&learnings)
-    }
-
-    fn get_learning(&self, learning_id: &str) -> Option<ContextLearning> {
-        self.learnings
-            .lock()
-            .expect("context learning store poisoned")
-            .get(learning_id)
-            .cloned()
     }
 
     fn update_learning(
