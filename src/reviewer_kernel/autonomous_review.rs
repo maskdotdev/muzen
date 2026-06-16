@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -11,6 +10,7 @@ mod diff_risk;
 mod finding_filters;
 mod findings;
 mod prompts;
+mod reporting;
 mod schemas;
 mod sessions;
 mod tasks;
@@ -26,6 +26,7 @@ use findings::{
     ValidationPacket,
 };
 use prompts::neutral_starter_context;
+use reporting::build_run_metrics;
 #[cfg(test)]
 use schemas::child_response_format;
 #[cfg(test)]
@@ -39,18 +40,13 @@ use tasks::{
     VALIDATE_FINDING_TOOL,
 };
 
-use crate::reviewer_kernel::agent_loop::AgentLoopReport;
 use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 #[cfg(test)]
 use crate::reviewer_kernel::review_contract::BudgetSource;
-use crate::reviewer_kernel::review_contract::{
-    AgentBudget, FileReviewV1, FindingV1, Role, TokenUsage, ToolCounts,
-};
-use crate::reviewer_kernel::session_metrics::add_model_metrics;
-use crate::reviewer_kernel::session_metrics::elapsed_ms;
+use crate::reviewer_kernel::review_contract::{AgentBudget, FileReviewV1, FindingV1, Role};
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
@@ -101,12 +97,10 @@ impl AutonomousReviewRuntime {
             cancel.child_token(),
         )
         .await;
-        let child_reports = state.child_reports();
         let parsed = parse_orchestrator_output(report.output.as_deref());
         let validations = self
             .run_mandatory_validations(Arc::clone(&state), &parsed.candidates, &cancel)
             .await;
-        let validation_reports = state.child_reports();
 
         let finding_outcome = build_findings(
             &self.tools,
@@ -141,15 +135,7 @@ impl AutonomousReviewRuntime {
         );
         let mut all_reports = Vec::new();
         all_reports.push(report);
-        all_reports.extend(child_reports);
-        for validation in validation_reports {
-            if !all_reports
-                .iter()
-                .any(|existing| existing.session_id == validation.session_id)
-            {
-                all_reports.push(validation);
-            }
-        }
+        all_reports.extend(state.child_reports());
         let metrics = build_run_metrics(
             "autonomous_review",
             started,
