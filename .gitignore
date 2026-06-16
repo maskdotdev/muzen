@@ -8,4 +8,12 @@ __pycache__/
 .pytest_cache/
 bench/results-review-quality/
 bench/results-sdk-memory-real/
+bench/review-quality/current-corpus-runs.json
+bench/review-quality/fixtures/full-audit-scenarios.json
+experiments/**/results/
+experiments/**/*.events.jsonl
+experiments/**/*.replay.json
+experiments/**/*.profile.json
+experiments/**/*.png
+experiments/**/*.html
 bench/context-engine/corpus/derived/**/context-derived-cache.json
