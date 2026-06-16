@@ -20,7 +20,8 @@ pub use response::{
     HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
 pub use router::{
-    ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter, ReviewHttpRouterOptions,
+    ContextHttpRouterOptions, ReviewHttpRequest, ReviewHttpRouteError, ReviewHttpRouter,
+    ReviewHttpRouterOptions,
 };
 
 #[derive(Debug, Clone)]

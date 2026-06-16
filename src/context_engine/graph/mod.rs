@@ -19,18 +19,14 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-pub use build::ContextGraphBuildInput;
-pub use debug::{
-    ContextGraphConfidenceSummary, ContextGraphDebugCandidate, ContextGraphDebugEdge,
-    ContextGraphDebugExport, ContextGraphDebugLimits, ContextGraphDebugNode,
-    ContextGraphDebugOmission, ContextGraphDebugPathStep, GRAPH_DEBUG_SCHEMA_VERSION,
-};
-pub use expand::{
+pub(crate) use build::ContextGraphBuildInput;
+pub(crate) use debug::ContextGraphDebugExport;
+#[cfg(test)]
+pub(crate) use debug::{ContextGraphDebugLimits, GRAPH_DEBUG_SCHEMA_VERSION};
+pub(crate) use expand::{
     ContextGraphCandidate, ContextGraphExpansion, ContextGraphExpansionPurpose,
     ContextGraphExpansionRequest, ContextGraphOmission, ContextGraphOmissionReason,
-    ContextGraphPath, ContextGraphPathStep,
 };
-pub use model::{
-    CoChangeStat, ContextEdge, ContextEdgeId, ContextEdgeKind, ContextGraph,
-    ContextGraphProvenance, ContextGraphSource, ContextNode, ContextNodeId, ContextNodeKind,
-};
+pub(crate) use model::{ContextEdgeKind, ContextGraph, ContextNodeId, ContextNodeKind};
+#[cfg(test)]
+pub(crate) use model::{ContextEdge, ContextEdgeId, ContextGraphSource};

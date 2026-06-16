@@ -5,7 +5,7 @@ pub mod review_sources;
 pub(crate) mod reviewer_kernel;
 pub mod runner_protocol;
 
-pub mod context_engine;
+pub(crate) mod context_engine;
 pub(crate) mod workspace;
 
 #[cfg(test)]

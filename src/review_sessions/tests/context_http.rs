@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::context_engine::ContextHttpRouterOptions;
+use crate::remote_http::ContextHttpRouterOptions;
 use serde_json::{json, Value};
 
 #[tokio::test]

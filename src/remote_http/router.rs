@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use super::response::{
     ReviewHttpResponse, CONTENT_TYPE_TEXT, HTTP_STATUS_ACCEPTED, HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_METHOD_NOT_ALLOWED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK,
 };
-use crate::context_engine::{ContextHttpRoute, ContextHttpRouter, ContextHttpRouterOptions};
+use crate::context_engine::{
+    ContextHttpRoute, ContextHttpRouter, ContextHttpRouterOptions as EngineContextHttpRouterOptions,
+};
 use crate::review_sessions::{
     ModelProfile, ModelProfileInput, Muzen, ProviderProfile, ProviderProfileInput, ReviewArtifact,
     ReviewArtifactReadOptions, ReviewArtifactView, ReviewCancelOptions, ReviewOptions,
@@ -75,6 +78,21 @@ impl ReviewHttpRequest {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ContextHttpRouterOptions {
+    pub learning_store_root: Option<PathBuf>,
+    pub derived_cache_root: Option<PathBuf>,
+}
+
+impl From<ContextHttpRouterOptions> for EngineContextHttpRouterOptions {
+    fn from(options: ContextHttpRouterOptions) -> Self {
+        Self {
+            learning_store_root: options.learning_store_root,
+            derived_cache_root: options.derived_cache_root,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ReviewHttpRouterOptions {
     pub github_webhook_secret: Option<String>,
     pub gitlab_webhook_secret: Option<String>,
@@ -94,7 +112,7 @@ impl ReviewHttpRouter {
     }
 
     pub fn with_options(muzen: Muzen, options: ReviewHttpRouterOptions) -> Self {
-        let context_routes = ContextHttpRouter::with_options(options.context.clone());
+        let context_routes = ContextHttpRouter::with_options(options.context.clone().into());
         Self {
             muzen,
             options,
