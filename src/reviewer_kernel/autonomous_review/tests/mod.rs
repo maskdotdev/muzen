@@ -141,6 +141,42 @@ fn orchestrator_output_defaults_to_incomplete_when_malformed() {
 }
 
 #[test]
+fn orchestrator_output_parses_camel_case_candidate_contract() {
+    let parsed = parse_orchestrator_output(Some(
+        r#"{
+            "verdict": "issues_found",
+            "summary": "done",
+            "candidates": [{
+                "id": "finding_1",
+                "title": "Async callback returns early",
+                "claim": "The changed loop returns success before writes finish.",
+                "severity": "high",
+                "path": "src/workflow.ts",
+                "startLine": 42,
+                "endLine": 43,
+                "behaviorBefore": "The caller waited for each write.",
+                "behaviorAfter": "The caller returns before write promises settle.",
+                "evidenceArtifactIds": ["artifact_1"],
+                "relatedPaths": ["src/caller.ts"]
+            }],
+            "notes": [],
+            "completeness": {}
+        }"#,
+    ));
+
+    assert_eq!(parsed.candidates.len(), 1);
+    let candidate = &parsed.candidates[0];
+    assert_eq!(candidate.start_line, Some(42));
+    assert_eq!(candidate.end_line, Some(43));
+    assert_eq!(
+        candidate.behavior_after.as_deref(),
+        Some("The caller returns before write promises settle.")
+    );
+    assert_eq!(candidate.evidence_artifact_ids, ["artifact_1"]);
+    assert_eq!(candidate.related_paths, ["src/caller.ts"]);
+}
+
+#[test]
 fn publication_gate_rejects_supported_no_bug_candidate() {
     let candidate = publication_candidate(
         "Async callback remains correct",
