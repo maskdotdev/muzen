@@ -1,6 +1,122 @@
 use super::prelude::*;
 use super::support::*;
 
+fn session_for_snapshot(
+    id: impl Into<String>,
+    role: Role,
+    objective: impl Into<String>,
+    budget: AgentBudget,
+    snapshot_id: crate::reviewer_kernel::kernel_types::SnapshotId,
+) -> crate::reviewer_kernel::spec::ReviewSessionSpec {
+    crate::reviewer_kernel::kernel_types::SessionScope::review_read_only(
+        crate::reviewer_kernel::kernel_types::SessionId(id.into()),
+        role,
+        objective,
+        budget,
+    )
+    .with_snapshot_id(snapshot_id)
+    .into()
+}
+
+fn grant_custom_tool(
+    mut capabilities: CapabilitySet,
+    tool_id: ToolId,
+    effects: ToolEffects,
+) -> CapabilitySet {
+    allow_effect_authority(&mut capabilities, effects);
+    capabilities.grant_tool(
+        tool_id,
+        ToolGrant {
+            allow: true,
+            max_calls: None,
+            effects_allowed: effects,
+        },
+    );
+    capabilities
+}
+
+fn grant_custom_tool_for_resources(
+    mut capabilities: CapabilitySet,
+    tool_id: ToolId,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+) -> CapabilitySet {
+    allow_effect_authority(&mut capabilities, effects);
+    capabilities.runtime_authority.host_read = true;
+    capabilities.runtime_authority.allowed_provider_resources = Some(
+        provider_resources
+            .into_iter()
+            .map(|resource_id| {
+                ProviderResourceScope::new(ToolProviderId::in_process(), resource_id)
+            })
+            .collect(),
+    );
+    capabilities.grant_tool(
+        tool_id,
+        ToolGrant {
+            allow: true,
+            max_calls: None,
+            effects_allowed: effects,
+        },
+    );
+    capabilities
+}
+
+fn grant_provider_tool_for_resources(
+    mut capabilities: CapabilitySet,
+    provider_id: ToolProviderId,
+    tool_id: ToolId,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+) -> CapabilitySet {
+    allow_effect_authority(&mut capabilities, effects);
+    capabilities.runtime_authority.allowed_provider_ids = Some(vec![
+        ToolProviderId::builtin_review(),
+        ToolProviderId::in_process(),
+        provider_id.clone(),
+    ]);
+    capabilities.runtime_authority.allowed_provider_resources = Some(
+        provider_resources
+            .into_iter()
+            .map(|resource_id| ProviderResourceScope::new(provider_id.clone(), resource_id))
+            .collect(),
+    );
+    capabilities.grant_tool(
+        tool_id,
+        ToolGrant {
+            allow: true,
+            max_calls: None,
+            effects_allowed: effects,
+        },
+    );
+    capabilities
+}
+
+fn allow_effect_authority(capabilities: &mut CapabilitySet, effects: ToolEffects) {
+    if effects.host_read {
+        capabilities.runtime_authority.host_read = true;
+    }
+    if effects.network_read {
+        capabilities.runtime_authority.network_read = true;
+    }
+    if effects.scratch_read {
+        capabilities.runtime_authority.scratch_read = true;
+    }
+    if effects.scratch_write {
+        capabilities.runtime_authority.scratch_write = true;
+    }
+    if effects.external_side_effect {
+        capabilities.runtime_authority.external_side_effect = true;
+    }
+}
+
+fn provider_network_read_effects() -> ToolEffects {
+    ToolEffects {
+        network_read: true,
+        ..ToolEffects::review_read_only()
+    }
+}
+
 #[test]
 fn public_reviewer_facade_runs_mock_review() {
     let temp = tempfile::tempdir().unwrap();
@@ -234,15 +350,17 @@ fn public_reviewer_facade_emits_tool_denial_events() {
     .with_path_policy(
         crate::reviewer_kernel::snapshots::SnapshotPathPolicy::standard(64 * 1024, 20),
     );
+    let mut capabilities = CapabilitySet::review_read_only();
+    capabilities
+        .tool_grants
+        .remove(&ToolId::from(ToolName::ReadDiff));
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "denied-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
         "Run with read_diff denied.",
         public_budget(),
     )
-    .deny_tool(crate::reviewer_kernel::kernel_types::ToolId::from(
-        ToolName::ReadDiff,
-    ));
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "denied-run",
         snapshot,
@@ -402,20 +520,20 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
         crate::reviewer_kernel::snapshots::SnapshotPathPolicy::standard(64 * 1024, 20),
     );
     let sessions = vec![
-        crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
+        session_for_snapshot(
             "first-session",
             crate::reviewer_kernel::review_contract::Role::Generalist,
             "Review first snapshot.",
             public_budget(),
-        )
-        .with_snapshot_id(first_id.clone()),
-        crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
+            first_id.clone(),
+        ),
+        session_for_snapshot(
             "second-session",
             crate::reviewer_kernel::review_contract::Role::Generalist,
             "Review second snapshot.",
             public_budget(),
-        )
-        .with_snapshot_id(second_id.clone()),
+            second_id.clone(),
+        ),
     ];
     let spec = crate::reviewer_kernel::spec::RunSpec {
         run_id: "multi-snapshot-run".to_string(),
@@ -511,6 +629,11 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_custom_tool(
+        CapabilitySet::review_read_only(),
+        custom_tool_id.clone(),
+        ToolEffects::custom_read_only(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "custom-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -518,7 +641,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_custom_read_only_tool(custom_tool_id.clone());
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-custom-run",
         snapshot,
@@ -602,6 +725,12 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_custom_tool_for_resources(
+        CapabilitySet::review_read_only(),
+        custom_tool_id.clone(),
+        vec![resource_id],
+        ToolEffects::custom_read_only(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "host-resource-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -609,7 +738,7 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_custom_read_only_tool_for_resources(custom_tool_id.clone(), vec![resource_id]);
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-host-resource-run",
         snapshot,
@@ -658,6 +787,12 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_custom_tool_for_resources(
+        CapabilitySet::review_read_only(),
+        custom_tool_id.clone(),
+        vec![denied_resource],
+        ToolEffects::custom_read_only(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "host-resource-denied-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -665,7 +800,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_custom_read_only_tool_for_resources(custom_tool_id.clone(), vec![denied_resource]);
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-host-resource-denied-run",
         snapshot,
@@ -735,6 +870,13 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_provider_tool_for_resources(
+        CapabilitySet::review_read_only(),
+        provider_id.clone(),
+        tool_id.clone(),
+        vec![resource_id],
+        ToolEffects::review_read_only(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -742,11 +884,7 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_provider_read_only_tool_for_resources(
-        provider_id.clone(),
-        tool_id.clone(),
-        vec![resource_id],
-    );
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-jsonrpc-run",
         snapshot,
@@ -802,7 +940,7 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         "public_jsonrpc_network_check",
         "External JSON-RPC check that needs network read.",
         vec![resource_id.clone()],
-        crate::reviewer_kernel::spec::provider_network_read_effects(),
+        provider_network_read_effects(),
         Arc::new(PublicJsonRpcReviewTool {
             provider_id: provider_id.clone(),
             tool_id: "public_jsonrpc_network_check".to_string(),
@@ -818,6 +956,13 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_provider_tool_for_resources(
+        CapabilitySet::review_read_only(),
+        provider_id.clone(),
+        tool_id.clone(),
+        vec![resource_id],
+        provider_network_read_effects(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-network-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -825,11 +970,7 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_provider_network_read_tool_for_resources(
-        provider_id.clone(),
-        tool_id.clone(),
-        vec![resource_id],
-    );
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-jsonrpc-network-run",
         snapshot,
@@ -872,7 +1013,7 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
         "public_jsonrpc_network_denied_check",
         "External JSON-RPC check that needs denied network read.",
         Vec::new(),
-        crate::reviewer_kernel::spec::provider_network_read_effects(),
+        provider_network_read_effects(),
         Arc::new(PublicJsonRpcReviewTool {
             provider_id: provider_id.clone(),
             tool_id: "public_jsonrpc_network_denied_check".to_string(),
@@ -987,6 +1128,13 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
             vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
         ),
     );
+    let capabilities = grant_provider_tool_for_resources(
+        CapabilitySet::review_read_only(),
+        provider_id.clone(),
+        tool_id.clone(),
+        vec![denied_resource],
+        ToolEffects::review_read_only(),
+    );
     let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
         "public-jsonrpc-denied-session",
         crate::reviewer_kernel::review_contract::Role::Generalist,
@@ -994,11 +1142,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
         public_budget(),
     )
     .with_model_profile_id("mock")
-    .grant_provider_read_only_tool_for_resources(
-        provider_id.clone(),
-        tool_id.clone(),
-        vec![denied_resource],
-    );
+    .with_capabilities(capabilities);
     let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
         "public-jsonrpc-denied-run",
         snapshot,

@@ -62,11 +62,6 @@ impl ReviewSessionSpec {
         }
     }
 
-    pub fn with_snapshot_id(mut self, snapshot_id: SnapshotId) -> Self {
-        self.snapshot_id = Some(snapshot_id);
-        self
-    }
-
     pub fn with_model_profile_id(mut self, model_profile_id: impl Into<String>) -> Self {
         self.model_profile_id = Some(model_profile_id.into());
         self
@@ -88,69 +83,6 @@ impl ReviewSessionSpec {
     pub fn with_capabilities(mut self, capabilities: CapabilitySet) -> Self {
         self.capabilities = capabilities;
         self
-    }
-
-    pub fn deny_tool(mut self, tool_id: ToolId) -> Self {
-        self.capabilities.tool_grants.remove(&tool_id);
-        self
-    }
-
-    pub fn grant_custom_read_only_tool(mut self, tool_id: ToolId) -> Self {
-        self.capabilities.runtime_authority.host_read = true;
-        self.capabilities
-            .grant_tool(tool_id, ToolGrant::allow_custom_read_only());
-        self
-    }
-
-    pub fn grant_provider_read_only_tool_for_resources(
-        mut self,
-        provider_id: ToolProviderId,
-        tool_id: ToolId,
-        provider_resources: Vec<ProviderResourceId>,
-    ) -> Self {
-        allow_runtime_provider(&mut self.capabilities, provider_id.clone());
-        allow_runtime_provider_resources(&mut self.capabilities, provider_id, provider_resources);
-        self.capabilities.grant_tool(
-            tool_id,
-            ToolGrant {
-                allow: true,
-                max_calls: None,
-                effects_allowed: ToolEffects::review_read_only(),
-            },
-        );
-        self
-    }
-
-    pub fn grant_provider_network_read_tool_for_resources(
-        mut self,
-        provider_id: ToolProviderId,
-        tool_id: ToolId,
-        provider_resources: Vec<ProviderResourceId>,
-    ) -> Self {
-        self.capabilities.runtime_authority.network_read = true;
-        allow_runtime_provider(&mut self.capabilities, provider_id.clone());
-        allow_runtime_provider_resources(&mut self.capabilities, provider_id, provider_resources);
-        self.capabilities.grant_tool(
-            tool_id,
-            ToolGrant {
-                allow: true,
-                max_calls: None,
-                effects_allowed: provider_network_read_effects(),
-            },
-        );
-        self
-    }
-
-    pub fn grant_custom_read_only_tool_for_resources(
-        self,
-        tool_id: ToolId,
-        provider_resources: Vec<ProviderResourceId>,
-    ) -> Self {
-        self.grant_custom_tool_with_effects_for_resources(
-            tool_id,
-            provider_resources,
-            ToolEffects::custom_read_only(),
-        )
     }
 
     pub fn grant_custom_tool_with_effects(mut self, tool_id: ToolId, effects: ToolEffects) -> Self {
@@ -234,38 +166,6 @@ impl From<SessionScope> for ReviewSessionSpec {
     }
 }
 
-fn allow_runtime_provider(capabilities: &mut CapabilitySet, provider_id: ToolProviderId) {
-    let providers = capabilities
-        .runtime_authority
-        .allowed_provider_ids
-        .get_or_insert_with(|| {
-            vec![
-                ToolProviderId::builtin_review(),
-                ToolProviderId::in_process(),
-            ]
-        });
-    if !providers.iter().any(|allowed| allowed == &provider_id) {
-        providers.push(provider_id);
-    }
-}
-
-fn allow_runtime_provider_resources(
-    capabilities: &mut CapabilitySet,
-    provider_id: ToolProviderId,
-    provider_resources: Vec<ProviderResourceId>,
-) {
-    let resources = capabilities
-        .runtime_authority
-        .allowed_provider_resources
-        .get_or_insert_with(Vec::new);
-    for resource_id in provider_resources {
-        let scope = ProviderResourceScope::new(provider_id.clone(), resource_id);
-        if !resources.iter().any(|allowed| allowed == &scope) {
-            resources.push(scope);
-        }
-    }
-}
-
 fn allow_custom_tool_effect_authority(capabilities: &mut CapabilitySet, effects: ToolEffects) {
     if effects.host_read {
         capabilities.runtime_authority.host_read = true;
@@ -281,12 +181,5 @@ fn allow_custom_tool_effect_authority(capabilities: &mut CapabilitySet, effects:
     }
     if effects.external_side_effect {
         capabilities.runtime_authority.external_side_effect = true;
-    }
-}
-
-pub(crate) fn provider_network_read_effects() -> ToolEffects {
-    ToolEffects {
-        network_read: true,
-        ..ToolEffects::review_read_only()
     }
 }
