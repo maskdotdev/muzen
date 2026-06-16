@@ -340,7 +340,7 @@ Provider mappings:
 - Local Git: merge base/head, staged changes, working tree, or synthetic
   revisions.
 - Raw diff: `kind = "diff"` with inline diff and optional changed file list.
-- Raw snapshot: `kind = "snapshot_pair"` with content-addressed manifests.
+- Raw snapshot: `kind = "snapshot_pair"` with host-provided manifests.
 
 ### `ReviewSessionSpec`
 
