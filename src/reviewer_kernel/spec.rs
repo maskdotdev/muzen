@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::reviewer_kernel::kernel_types::{
     CapabilitySet, ModelResponseFormat, ProviderResourceId, ProviderResourceScope, RuntimeLimits,
     SessionId, SessionInstruction, SessionScope, SnapshotId, ToolEffects, ToolGrant, ToolId,
@@ -12,7 +10,7 @@ pub struct RunSpec {
     pub run_id: String,
     pub snapshots: Vec<SnapshotSpec>,
     pub sessions: Vec<ReviewSessionSpec>,
-    pub limits: ReviewRunLimits,
+    pub limits: RuntimeLimits,
 }
 
 impl RunSpec {
@@ -20,42 +18,14 @@ impl RunSpec {
         run_id: impl Into<String>,
         snapshot: SnapshotSpec,
         sessions: Vec<ReviewSessionSpec>,
-        limits: impl Into<ReviewRunLimits>,
+        limits: RuntimeLimits,
     ) -> Self {
         Self {
             run_id: run_id.into(),
             snapshots: vec![snapshot],
             sessions,
-            limits: limits.into(),
+            limits,
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewRunLimits {
-    limits: RuntimeLimits,
-}
-
-impl ReviewRunLimits {
-    pub fn standard(sessions: usize, max_file_bytes: usize, max_search_matches: usize) -> Self {
-        Self {
-            limits: RuntimeLimits::standard(sessions, max_file_bytes, max_search_matches),
-        }
-    }
-
-    pub fn from_runtime_limits(limits: RuntimeLimits) -> Self {
-        Self { limits }
-    }
-
-    pub(crate) fn into_runtime_limits(self) -> RuntimeLimits {
-        self.limits
-    }
-}
-
-impl From<RuntimeLimits> for ReviewRunLimits {
-    fn from(value: RuntimeLimits) -> Self {
-        Self::from_runtime_limits(value)
     }
 }
 

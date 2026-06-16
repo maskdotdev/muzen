@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::context_engine::*;
 use crate::reviewer_kernel::events::{InMemoryReviewEventSink, ReviewEvent};
 use crate::reviewer_kernel::kernel::Run;
+use crate::reviewer_kernel::kernel_types::RuntimeLimits;
 use crate::reviewer_kernel::kernel_types::{RuntimeError, SessionInstruction};
 use crate::reviewer_kernel::review_contract::{
     AgentBudget, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1, Role,
@@ -13,7 +14,7 @@ use crate::reviewer_kernel::review_contract::{
 };
 use crate::reviewer_kernel::review_model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
 use crate::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
-use crate::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
+use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunSpec};
 use crate::workspace::RepoSnapshot;
 
 #[test]
@@ -1949,7 +1950,7 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
         "context-run",
         snapshot,
         vec![session],
-        ReviewRunLimits::standard(1, 200 * 1024, 20),
+        RuntimeLimits::standard(1, 200 * 1024, 20),
     ))
     .review_model(Arc::new(CleanModel))
     .context_engine(Arc::new(SnapshotContextEngine::new(

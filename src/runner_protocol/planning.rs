@@ -13,7 +13,7 @@ use crate::reviewer_kernel::snapshots::{
     ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
     SnapshotPathPolicy, SnapshotSpec,
 };
-use crate::reviewer_kernel::spec::{ReviewRunLimits, ReviewSessionSpec, RunSpec};
+use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunSpec};
 
 use super::transport::RunnerCallbackTransport;
 use super::types::{
@@ -115,11 +115,10 @@ pub(crate) fn plan_run_start(
         runtime_limits.explore_model_profile_id = limit_params.explore_model_profile_id.clone();
         runtime_limits.validator_model_profile_id = limit_params.validator_model_profile_id.clone();
     }
-    let limits = ReviewRunLimits::from_runtime_limits(runtime_limits);
     Ok(RunnerPlan {
         run_id: run_id.clone(),
         metadata,
-        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, limits),
+        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, runtime_limits),
         max_active_sessions,
         #[cfg(test)]
         target_path,

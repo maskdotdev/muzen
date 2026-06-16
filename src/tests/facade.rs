@@ -26,7 +26,7 @@ fn public_reviewer_facade_runs_mock_review() {
         "public-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
@@ -247,7 +247,7 @@ fn public_reviewer_facade_emits_tool_denial_events() {
         "denied-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
@@ -309,7 +309,7 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
         "public-cancel-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -421,7 +421,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
         run_id: "multi-snapshot-run".to_string(),
         snapshots: vec![first_snapshot, second_snapshot],
         sessions,
-        limits: crate::reviewer_kernel::spec::ReviewRunLimits::standard(2, 64 * 1024, 20),
+        limits: crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(2, 64 * 1024, 20),
     };
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
@@ -523,7 +523,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
         "public-custom-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id.clone())))
@@ -614,7 +614,7 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
         "public-host-resource-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
@@ -670,7 +670,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
         "public-host-resource-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
@@ -751,7 +751,7 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         "public-jsonrpc-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
@@ -834,7 +834,7 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         "public-jsonrpc-network-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
@@ -912,7 +912,7 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
         "public-jsonrpc-network-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
@@ -1003,7 +1003,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
         "public-jsonrpc-denied-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)

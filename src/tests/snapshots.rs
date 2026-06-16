@@ -21,7 +21,7 @@ fn public_snapshot_capture_policy_reports_memory_envelope_skips() {
         "storage-run",
         snapshot,
         Vec::new(),
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {
@@ -82,7 +82,7 @@ fn public_snapshot_capture_serves_stable_evidence() {
         "captured-evidence-run",
         snapshot,
         vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
+        crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicFacadeModel {

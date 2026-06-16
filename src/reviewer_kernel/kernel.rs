@@ -111,7 +111,7 @@ impl RunBuilder {
         let autonomous_delegate_host = AutonomousDelegateHost::default();
         register_autonomous_delegate_tools(&mut registry, autonomous_delegate_host.clone())?;
         let registry = Arc::new(registry);
-        let limits = Arc::new(self.spec.limits.into_runtime_limits());
+        let limits = Arc::new(self.spec.limits);
         let mut shards = Vec::new();
         for snapshot_spec in self.spec.snapshots {
             let change: ChangeScopeV1 = snapshot_spec.change.clone().into();
