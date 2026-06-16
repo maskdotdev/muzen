@@ -167,9 +167,8 @@ Important Muzen context:
   snapshot across the run.
 - `src/review_session/session.rs` passes source, change, instructions, and tools
   into runner-backed durable review creation.
-- SDK run params already expose callback tools, and the runner maps them into
-  the internal runtime `ToolRegistry` with scoped grants and explicit
-  provider-neutral effects.
+- `src/reviewer.rs` already exposes a Rust-side `ReviewToolRegistry` and
+  scoped custom tool grants with explicit provider-neutral effects.
 - `src/runtime/policy.rs` currently keeps the system review policy
   kernel-owned and primarily allows objective/session influence, so prompt
   customization should be layered instructions before raw system prompt
@@ -341,7 +340,7 @@ Provider mappings:
 - Local Git: merge base/head, staged changes, working tree, or synthetic
   revisions.
 - Raw diff: `kind = "diff"` with inline diff and optional changed file list.
-- Raw snapshot: `kind = "snapshot_pair"` with host-provided manifests.
+- Raw snapshot: `kind = "snapshot_pair"` with content-addressed manifests.
 
 ### `ReviewSessionSpec`
 
