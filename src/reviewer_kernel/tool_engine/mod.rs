@@ -14,10 +14,8 @@ mod validation;
 
 pub use registry::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
-    JsonRpcToolRegistration, JsonRpcToolTransport, ToolRegistry,
+    ToolRegistry,
 };
-#[cfg(test)]
-pub use registry::{HttpJsonRpcToolTransport, JsonRpcToolRequest, JsonRpcToolResponse};
 pub use store::ConcurrentArtifactStore;
 
 pub(crate) use engine::ToolEngine;

@@ -10,8 +10,7 @@ use crate::reviewer_kernel::model::{
 };
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
-use crate::reviewer_kernel::review_tools::{ReviewToolRegistration, ReviewToolRegistry};
-use crate::reviewer_kernel::tool_engine::ToolRegistry as RuntimeToolRegistry;
+use crate::reviewer_kernel::tool_engine::{CustomToolOptions, ToolRegistry as RuntimeToolRegistry};
 
 #[cfg(test)]
 use super::adapters::TestRunnerModel;
@@ -89,7 +88,7 @@ fn runner_tool_registry(
     tools: &[RunToolParams],
     transport: Option<Arc<dyn RunnerCallbackTransport>>,
 ) -> Result<Arc<RuntimeToolRegistry>> {
-    let mut registry = ReviewToolRegistry::review_defaults()
+    let mut registry = RuntimeToolRegistry::review_defaults()
         .map_err(|error| anyhow::anyhow!("failed to create review tool registry: {error}"))?;
     if !tools.is_empty() {
         let transport =
@@ -97,25 +96,32 @@ fn runner_tool_registry(
         for tool in tools {
             let provider_resources = parse_provider_resources(&tool.provider_resources)?;
             let effects = parse_tool_effects(&tool.effects)?;
+            let id =
+                crate::reviewer_kernel::kernel_types::ToolId::parse(&tool.id).map_err(|error| {
+                    anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
+                })?;
             registry
-                .register_tool(ReviewToolRegistration {
-                    id: tool.id.clone(),
-                    description: tool.description.clone(),
-                    parameters: tool.parameters.clone(),
-                    cacheable: tool.cacheable,
-                    provider_resources,
-                    effects,
-                    handler: Arc::new(CallbackReviewTool::new(
+                .register_custom_with_alias_and_effects(
+                    id.clone(),
+                    id,
+                    tool.description.clone(),
+                    tool.parameters.clone(),
+                    CustomToolOptions {
+                        cacheable: tool.cacheable,
+                        effects,
+                        provider_resources,
+                    },
+                    Arc::new(CallbackReviewTool::new(
                         run_id.to_string(),
                         transport.clone(),
                     )),
-                })
+                )
                 .map_err(|error| {
                     anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
                 })?;
         }
     }
-    Ok(Arc::new(registry.into_tool_registry()))
+    Ok(Arc::new(registry))
 }
 
 fn hosted_model_router(

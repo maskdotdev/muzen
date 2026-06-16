@@ -167,8 +167,9 @@ Important Muzen context:
   snapshot across the run.
 - `src/review_session/session.rs` passes source, change, instructions, and tools
   into runner-backed durable review creation.
-- `src/reviewer.rs` already exposes a Rust-side `ReviewToolRegistry` and
-  scoped custom tool grants with explicit provider-neutral effects.
+- SDK run params already expose callback tools, and the runner maps them into
+  the internal runtime `ToolRegistry` with scoped grants and explicit
+  provider-neutral effects.
 - `src/runtime/policy.rs` currently keeps the system review policy
   kernel-owned and primarily allows objective/session influence, so prompt
   customization should be layered instructions before raw system prompt

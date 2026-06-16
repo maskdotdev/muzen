@@ -12,13 +12,13 @@ use crate::reviewer_kernel::review_contract::TokenUsage;
 use crate::reviewer_kernel::review_model::{
     ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall, ReviewTranscriptItem,
 };
-use crate::reviewer_kernel::review_tools::{
-    ReviewToolArtifact, ReviewToolContext, ReviewToolHandler, ReviewToolOutput,
-};
 use crate::reviewer_kernel::runtime_events::{
     EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
 };
 use crate::reviewer_kernel::system::timestamp_utc;
+use crate::reviewer_kernel::tool_engine::{
+    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput,
+};
 use tokio_util::sync::CancellationToken as Cancellation;
 
 use super::transport::RunnerCallbackTransport;
@@ -157,20 +157,20 @@ impl CallbackReviewTool {
 }
 
 #[async_trait]
-impl ReviewToolHandler for CallbackReviewTool {
-    async fn execute_review_tool(
+impl CustomToolHandler for CallbackReviewTool {
+    async fn execute(
         &self,
-        context: ReviewToolContext,
+        context: CustomToolContext,
         arguments: Value,
         _cancel: Cancellation,
-    ) -> RuntimeResult<ReviewToolOutput> {
+    ) -> RuntimeResult<CustomToolOutput> {
         let params = RunnerToolExecuteParams {
             protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
             run_id: self.run_id.clone(),
-            session_id: context.session_id,
-            turn: context.turn,
-            call_id: context.call_id,
-            tool_id: context.tool_id,
+            session_id: context.session_id.0,
+            turn: context.turn_id.0,
+            call_id: context.call_id.0,
+            tool_id: context.tool_id.as_str().to_string(),
             snapshot_id: context.snapshot_id.0,
             provider_resources: context
                 .provider_resources
@@ -186,12 +186,13 @@ impl ReviewToolHandler for CallbackReviewTool {
         let result = serde_json::from_value::<RunnerToolExecuteResult>(value).map_err(|error| {
             RuntimeError::InvalidInput(format!("invalid tool.execute result: {error}"))
         })?;
-        Ok(ReviewToolOutput {
+        Ok(CustomToolOutput {
             data: result.data,
-            artifact: result.artifact.map(|artifact| ReviewToolArtifact {
-                key: artifact.key,
+            artifact: result.artifact.map(|artifact| CustomToolArtifact {
+                key: crate::reviewer_kernel::kernel_types::ArtifactKey(artifact.key),
                 content: artifact.content,
             }),
+            limits: crate::reviewer_kernel::kernel_types::LimitInfo::default(),
         })
     }
 }

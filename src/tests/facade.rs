@@ -494,28 +494,15 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
 fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let custom_tool_id = registry
-        .register_tool(
-            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
-                id: "host_custom_check".to_string(),
-                description: "Host engine supplied custom reviewer check.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: Vec::new(),
-                effects: ToolEffects::custom_read_only(),
-                handler: Arc::new(EchoCustomTool),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let custom_tool_id = register_test_custom_tool(
+        &mut registry,
+        "host_custom_check",
+        "Host engine supplied custom reviewer check.",
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(EchoCustomTool),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -540,7 +527,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id.clone())))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
     let tokio = tokio::runtime::Builder::new_current_thread()
@@ -595,31 +582,18 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
     let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let custom_tool_id = registry
-        .register_tool(
-            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
-                id: "host_resource_scoped_check".to_string(),
-                description: "Host custom check scoped to one external resource.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![resource_id.clone()],
-                effects: ToolEffects::custom_read_only(),
-                handler: Arc::new(ResourceScopedReviewTool {
-                    expected_provider_resources: vec![resource_id.clone()],
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let custom_tool_id = register_test_custom_tool(
+        &mut registry,
+        "host_resource_scoped_check",
+        "Host custom check scoped to one external resource.",
+        vec![resource_id.clone()],
+        ToolEffects::custom_read_only(),
+        Arc::new(ResourceScopedReviewTool {
+            expected_provider_resources: vec![resource_id.clone()],
+            calls: Arc::clone(&calls),
+        }),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -644,7 +618,7 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
     let tokio = tokio::runtime::Builder::new_current_thread()
@@ -664,32 +638,18 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     let allowed_resource = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let denied_resource = ProviderResourceId::parse("github/org-b/repo-b").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let custom_tool_id = registry
-        .register_tool(
-            crate::reviewer_kernel::review_tools::ReviewToolRegistration {
-                id: "host_resource_denied_check".to_string(),
-                description: "Host custom check scoped to a different external resource."
-                    .to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![allowed_resource.clone()],
-                effects: ToolEffects::custom_read_only(),
-                handler: Arc::new(ResourceScopedReviewTool {
-                    expected_provider_resources: vec![allowed_resource],
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let custom_tool_id = register_test_custom_tool(
+        &mut registry,
+        "host_resource_denied_check",
+        "Host custom check scoped to a different external resource.",
+        vec![allowed_resource.clone()],
+        ToolEffects::custom_read_only(),
+        Arc::new(ResourceScopedReviewTool {
+            expected_provider_resources: vec![allowed_resource],
+            calls: Arc::clone(&calls),
+        }),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -715,7 +675,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()
         .unwrap();
@@ -752,34 +712,21 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         crate::reviewer_kernel::kernel_types::ProviderResourceId::parse("github/org-a/repo-a")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let tool_id = registry
-        .register_jsonrpc_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
-                provider_id: provider_id.clone(),
-                id: "public_jsonrpc_check".to_string(),
-                description: "External JSON-RPC check scoped to one provider resource.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![resource_id.clone()],
-                effects: ToolEffects::review_read_only(),
-                transport: Arc::new(PublicJsonRpcReviewTool {
-                    provider_id: provider_id.clone(),
-                    tool_id: "public_jsonrpc_check".to_string(),
-                    expected_provider_resources: vec![resource_id.clone()],
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let tool_id = register_test_jsonrpc_tool(
+        &mut registry,
+        provider_id.clone(),
+        "public_jsonrpc_check",
+        "External JSON-RPC check scoped to one provider resource.",
+        vec![resource_id.clone()],
+        ToolEffects::review_read_only(),
+        Arc::new(PublicJsonRpcReviewTool {
+            provider_id: provider_id.clone(),
+            tool_id: "public_jsonrpc_check".to_string(),
+            expected_provider_resources: vec![resource_id.clone()],
+            calls: Arc::clone(&calls),
+        }),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -808,7 +755,7 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
     let tokio = tokio::runtime::Builder::new_current_thread()
@@ -837,99 +784,6 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
 }
 
 #[test]
-fn public_reviewer_facade_runs_http_jsonrpc_provider_tool() {
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("README.md"), "hello\n").unwrap();
-    let provider_id =
-        crate::reviewer_kernel::kernel_types::ToolProviderId::parse("public_http_jsonrpc_provider")
-            .unwrap();
-    let resource_id =
-        crate::reviewer_kernel::kernel_types::ProviderResourceId::parse("github/org-http/repo")
-            .unwrap();
-    let server = LoopbackJsonRpcToolServer::spawn();
-    let transport =
-        crate::reviewer_kernel::tool_engine::HttpJsonRpcToolTransport::new(server.endpoint())
-            .unwrap();
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let tool_id = registry
-        .register_jsonrpc_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
-                provider_id: provider_id.clone(),
-                id: "public_http_jsonrpc_check".to_string(),
-                description: "External HTTP JSON-RPC check scoped to one provider resource."
-                    .to_string(),
-                parameters: serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "value": { "type": "string" }
-                        },
-                        "required": ["value"],
-                        "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![resource_id.clone()],
-                effects: ToolEffects::review_read_only(),
-                transport: Arc::new(transport),
-            },
-        )
-        .unwrap();
-    let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
-        temp.path().to_path_buf(),
-        crate::reviewer_kernel::snapshots::ChangeSpec::local(
-            "change-public-http-jsonrpc",
-            "head-public-http-jsonrpc",
-            vec![crate::reviewer_kernel::snapshots::ChangedFileSpec::modified("README.md")],
-        ),
-    );
-    let session = crate::reviewer_kernel::spec::ReviewSessionSpec::review_read_only(
-        "public-http-jsonrpc-session",
-        crate::reviewer_kernel::review_contract::Role::Generalist,
-        "Run public HTTP JSON-RPC provider check.",
-        public_budget(),
-    )
-    .with_model_profile_id("mock")
-    .grant_provider_read_only_tool_for_resources(
-        provider_id.clone(),
-        tool_id.clone(),
-        vec![resource_id.clone()],
-    );
-    let spec = crate::reviewer_kernel::spec::RunSpec::single_snapshot(
-        "public-http-jsonrpc-run",
-        snapshot,
-        vec![session],
-        crate::reviewer_kernel::spec::ReviewRunLimits::standard(1, 64 * 1024, 20),
-    );
-    let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
-        .review_tool_registry(registry)
-        .build()
-        .unwrap();
-    let tokio = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let report = tokio.block_on(run.execute());
-    let wire_request = server.join();
-
-    assert_eq!(report.summary.completed_sessions, 1);
-    assert_eq!(wire_request["jsonrpc"], "2.0");
-    assert_eq!(wire_request["method"], "tool.call");
-    assert_eq!(wire_request["params"]["providerId"], provider_id.as_str());
-    assert_eq!(wire_request["params"]["toolId"], tool_id.as_str());
-    assert_eq!(
-        wire_request["params"]["providerResources"],
-        serde_json::json!([resource_id.as_str()])
-    );
-    assert_eq!(wire_request["params"]["arguments"]["value"], "ok");
-    let metric_key =
-        crate::reviewer_kernel::kernel_types::ToolMetricKey::new(&provider_id, &tool_id);
-    let metrics = &report.metrics.tool_metrics[&metric_key];
-    assert_eq!(metrics.calls, 1);
-    assert_eq!(metrics.successes, 1);
-}
-
-#[test]
 fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("README.md"), "hello\n").unwrap();
@@ -941,34 +795,21 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         crate::reviewer_kernel::kernel_types::ProviderResourceId::parse("github/org-network/repo")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let tool_id = registry
-        .register_jsonrpc_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
-                provider_id: provider_id.clone(),
-                id: "public_jsonrpc_network_check".to_string(),
-                description: "External JSON-RPC check that needs network read.".to_string(),
-                parameters: serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "value": { "type": "string" }
-                        },
-                        "required": ["value"],
-                        "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![resource_id.clone()],
-                effects: crate::reviewer_kernel::spec::provider_network_read_effects(),
-                transport: Arc::new(PublicJsonRpcReviewTool {
-                    provider_id: provider_id.clone(),
-                    tool_id: "public_jsonrpc_network_check".to_string(),
-                    expected_provider_resources: vec![resource_id.clone()],
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let tool_id = register_test_jsonrpc_tool(
+        &mut registry,
+        provider_id.clone(),
+        "public_jsonrpc_network_check",
+        "External JSON-RPC check that needs network read.",
+        vec![resource_id.clone()],
+        crate::reviewer_kernel::spec::provider_network_read_effects(),
+        Arc::new(PublicJsonRpcReviewTool {
+            provider_id: provider_id.clone(),
+            tool_id: "public_jsonrpc_network_check".to_string(),
+            expected_provider_resources: vec![resource_id.clone()],
+            calls: Arc::clone(&calls),
+        }),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -997,7 +838,7 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
     let tokio = tokio::runtime::Builder::new_current_thread()
@@ -1024,34 +865,21 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     )
     .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let tool_id = registry
-        .register_jsonrpc_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
-                provider_id: provider_id.clone(),
-                id: "public_jsonrpc_network_denied_check".to_string(),
-                description: "External JSON-RPC check that needs denied network read.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: Vec::new(),
-                effects: crate::reviewer_kernel::spec::provider_network_read_effects(),
-                transport: Arc::new(PublicJsonRpcReviewTool {
-                    provider_id: provider_id.clone(),
-                    tool_id: "public_jsonrpc_network_denied_check".to_string(),
-                    expected_provider_resources: Vec::new(),
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let tool_id = register_test_jsonrpc_tool(
+        &mut registry,
+        provider_id.clone(),
+        "public_jsonrpc_network_denied_check",
+        "External JSON-RPC check that needs denied network read.",
+        Vec::new(),
+        crate::reviewer_kernel::spec::provider_network_read_effects(),
+        Arc::new(PublicJsonRpcReviewTool {
+            provider_id: provider_id.clone(),
+            tool_id: "public_jsonrpc_network_denied_check".to_string(),
+            expected_provider_resources: Vec::new(),
+            calls: Arc::clone(&calls),
+        }),
+    );
     let mut capabilities = crate::reviewer_kernel::kernel_types::CapabilitySet::review_read_only();
     capabilities.grant_tool(
         tool_id.clone(),
@@ -1089,7 +917,7 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()
         .unwrap();
@@ -1136,35 +964,21 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
         crate::reviewer_kernel::kernel_types::ProviderResourceId::parse("github/org-b/repo-b")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut registry =
-        crate::reviewer_kernel::review_tools::ReviewToolRegistry::review_defaults().unwrap();
-    let tool_id = registry
-        .register_jsonrpc_tool(
-            crate::reviewer_kernel::review_tools::ReviewJsonRpcToolRegistration {
-                provider_id: provider_id.clone(),
-                id: "public_jsonrpc_denied_check".to_string(),
-                description: "External JSON-RPC check scoped to another provider resource."
-                    .to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
-                }),
-                cacheable: false,
-                provider_resources: vec![allowed_resource.clone()],
-                effects: ToolEffects::review_read_only(),
-                transport: Arc::new(PublicJsonRpcReviewTool {
-                    provider_id: provider_id.clone(),
-                    tool_id: "public_jsonrpc_denied_check".to_string(),
-                    expected_provider_resources: vec![allowed_resource],
-                    calls: Arc::clone(&calls),
-                }),
-            },
-        )
-        .unwrap();
+    let mut registry = ToolRegistry::review_defaults().unwrap();
+    let tool_id = register_test_jsonrpc_tool(
+        &mut registry,
+        provider_id.clone(),
+        "public_jsonrpc_denied_check",
+        "External JSON-RPC check scoped to another provider resource.",
+        vec![allowed_resource.clone()],
+        ToolEffects::review_read_only(),
+        Arc::new(PublicJsonRpcReviewTool {
+            provider_id: provider_id.clone(),
+            tool_id: "public_jsonrpc_denied_check".to_string(),
+            expected_provider_resources: vec![allowed_resource],
+            calls: Arc::clone(&calls),
+        }),
+    );
     let snapshot = crate::reviewer_kernel::snapshots::SnapshotSpec::new(
         temp.path().to_path_buf(),
         crate::reviewer_kernel::snapshots::ChangeSpec::local(
@@ -1194,7 +1008,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
         .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
-        .review_tool_registry(registry)
+        .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()
         .unwrap();

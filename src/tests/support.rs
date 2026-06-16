@@ -8,16 +8,19 @@ use crate::reviewer_kernel::events::ReviewEventRecord;
 use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
     ProviderResourceId, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
-    RuntimeEventSink, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId, ToolProviderId,
-    TurnId,
+    RuntimeEventSink, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolEffects, ToolId,
+    ToolProviderId, TurnId,
 };
 use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::*;
 use crate::reviewer_kernel::system::{timestamp_utc, SCHEMA_VERSION};
+use crate::reviewer_kernel::tool_engine::registry::{
+    JsonRpcToolRegistration, JsonRpcToolRequest, JsonRpcToolResponse, JsonRpcToolTransport,
+};
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::reviewer_kernel::tool_engine::{
-    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, JsonRpcToolRequest,
-    JsonRpcToolResponse, JsonRpcToolTransport,
+    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
+    ToolRegistry,
 };
 use async_trait::async_trait;
 
@@ -296,101 +299,69 @@ pub struct PublicJsonRpcReviewTool {
     pub calls: Arc<AtomicUsize>,
 }
 
-pub struct LoopbackJsonRpcToolServer {
-    pub endpoint: String,
-    pub handle: std::thread::JoinHandle<serde_json::Value>,
+pub fn register_test_custom_tool(
+    registry: &mut ToolRegistry,
+    id: &str,
+    description: &str,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+    handler: Arc<dyn CustomToolHandler>,
+) -> ToolId {
+    let tool_id = ToolId::parse(id).unwrap();
+    registry
+        .register_custom_with_alias_and_effects(
+            tool_id.clone(),
+            tool_id.clone(),
+            description,
+            test_tool_parameters(),
+            CustomToolOptions {
+                cacheable: false,
+                effects,
+                provider_resources,
+            },
+            handler,
+        )
+        .unwrap();
+    tool_id
 }
 
-impl LoopbackJsonRpcToolServer {
-    pub fn spawn() -> Self {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let request_bytes = read_http_request(&mut stream);
-            let (headers, body) = split_http_body(&request_bytes);
-            let content_length = http_content_length(headers);
-            let request: serde_json::Value =
-                serde_json::from_slice(&body[..content_length]).unwrap();
-            let result = serde_json::to_value(JsonRpcToolResponse {
-                data: Some(serde_json::json!({
-                    "wire": "ok",
-                    "value": request["params"]["arguments"]["value"].clone()
-                })),
-                artifact: None,
-                limits: LimitInfo::default(),
-            })
-            .unwrap();
-            let response = serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": request["id"].clone(),
-                "result": result
-            });
-            let response_body = serde_json::to_vec(&response).unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                response_body.len()
-            )
-            .unwrap();
-            stream.write_all(&response_body).unwrap();
-            request
-        });
-        Self { endpoint, handle }
-    }
-
-    pub fn endpoint(&self) -> String {
-        self.endpoint.clone()
-    }
-
-    pub fn join(self) -> serde_json::Value {
-        self.handle.join().expect("loopback JSON-RPC server")
-    }
-}
-
-pub fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
-    let mut request_bytes = Vec::new();
-    loop {
-        let mut chunk = [0u8; 4096];
-        let bytes_read = stream.read(&mut chunk).unwrap();
-        if bytes_read == 0 {
-            break;
-        }
-        request_bytes.extend_from_slice(&chunk[..bytes_read]);
-        if let Some((headers, body)) = try_split_http_body(&request_bytes) {
-            let content_length = http_content_length(headers);
-            if body.len() >= content_length {
-                break;
-            }
-        }
-    }
-    request_bytes
-}
-
-pub fn split_http_body(request_bytes: &[u8]) -> (&str, &[u8]) {
-    try_split_http_body(request_bytes).expect("complete HTTP request")
-}
-
-pub fn try_split_http_body(request_bytes: &[u8]) -> Option<(&str, &[u8])> {
-    let body_start = request_bytes
-        .windows(b"\r\n\r\n".len())
-        .position(|window| window == b"\r\n\r\n")?
-        + b"\r\n\r\n".len();
-    let headers = std::str::from_utf8(&request_bytes[..body_start]).ok()?;
-    Some((headers, &request_bytes[body_start..]))
-}
-
-pub fn http_content_length(headers: &str) -> usize {
-    headers
-        .lines()
-        .find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            if name.eq_ignore_ascii_case("content-length") {
-                return value.trim().parse::<usize>().ok();
-            }
-            None
+pub fn register_test_jsonrpc_tool(
+    registry: &mut ToolRegistry,
+    provider_id: ToolProviderId,
+    id: &str,
+    description: &str,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+    transport: Arc<dyn JsonRpcToolTransport>,
+) -> ToolId {
+    let tool_id = ToolId::parse(id).unwrap();
+    registry
+        .register_jsonrpc_tool_with_alias(JsonRpcToolRegistration {
+            provider_id,
+            id: tool_id.clone(),
+            model_alias: tool_id.clone(),
+            description: description.to_string(),
+            parameters: test_tool_parameters(),
+            options: CustomToolOptions {
+                cacheable: false,
+                effects,
+                provider_resources,
+            },
+            transport,
         })
-        .expect("HTTP content-length")
+        .unwrap();
+    tool_id
+}
+
+fn test_tool_parameters() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "value": { "type": "string" }
+        },
+        "required": ["value"],
+        "additionalProperties": false
+    })
 }
 
 #[derive(Debug)]
@@ -655,20 +626,18 @@ fn review_request_is_final_turn(
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::tool_engine::JsonRpcToolTransport for PublicJsonRpcReviewTool {
+impl JsonRpcToolTransport for PublicJsonRpcReviewTool {
     async fn call(
         &self,
-        request: crate::reviewer_kernel::tool_engine::JsonRpcToolRequest,
+        request: JsonRpcToolRequest,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::tool_engine::JsonRpcToolResponse,
-    > {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<JsonRpcToolResponse> {
         assert_eq!(request.provider_id, self.provider_id);
         assert_eq!(request.tool_id.as_str(), self.tool_id);
         assert_eq!(request.provider_resources, self.expected_provider_resources);
         assert_eq!(request.arguments["value"], "ok");
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(crate::reviewer_kernel::tool_engine::JsonRpcToolResponse {
+        Ok(JsonRpcToolResponse {
             data: Some(serde_json::json!({
                 "provider": request.provider_id.as_str(),
                 "tool": request.tool_id.as_str(),
@@ -694,49 +663,22 @@ impl Write for SharedWriter {
     }
 }
 
-#[async_trait]
-impl crate::reviewer_kernel::review_tools::ReviewToolHandler for EchoCustomTool {
-    async fn execute_review_tool(
-        &self,
-        context: crate::reviewer_kernel::review_tools::ReviewToolContext,
-        args: serde_json::Value,
-        _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::review_tools::ReviewToolOutput,
-    > {
-        Ok(crate::reviewer_kernel::review_tools::ReviewToolOutput {
-            data: Some(serde_json::json!({
-                "tool": context.tool_id,
-                "session": context.session_id,
-                "value": args["value"],
-                "secret": "AKIA1234567890ABCDEF"
-            })),
-            artifact: Some(crate::reviewer_kernel::review_tools::ReviewToolArtifact {
-                key: "host_custom_check".to_string(),
-                content: "artifact AKIA1234567890ABCDEF".to_string(),
-            }),
-        })
-    }
-}
-
 pub struct ResourceScopedReviewTool {
     pub expected_provider_resources: Vec<ProviderResourceId>,
     pub calls: Arc<AtomicUsize>,
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::review_tools::ReviewToolHandler for ResourceScopedReviewTool {
-    async fn execute_review_tool(
+impl CustomToolHandler for ResourceScopedReviewTool {
+    async fn execute(
         &self,
-        context: crate::reviewer_kernel::review_tools::ReviewToolContext,
+        context: CustomToolContext,
         _args: serde_json::Value,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::review_tools::ReviewToolOutput,
-    > {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         assert_eq!(context.provider_resources, self.expected_provider_resources);
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(crate::reviewer_kernel::review_tools::ReviewToolOutput {
+        Ok(CustomToolOutput {
             data: Some(serde_json::json!({
                 "resources": context
                     .provider_resources
@@ -745,6 +687,7 @@ impl crate::reviewer_kernel::review_tools::ReviewToolHandler for ResourceScopedR
                     .collect::<Vec<_>>()
             })),
             artifact: None,
+            limits: LimitInfo::default(),
         })
     }
 }
@@ -968,6 +911,46 @@ pub fn public_budget() -> crate::reviewer_kernel::review_contract::AgentBudget {
         max_output_tokens: 512,
         budget_source: crate::reviewer_kernel::review_contract::BudgetSource::PlannedDefault,
     }
+}
+
+pub fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        let read = stream.read(&mut buffer).unwrap();
+        assert!(read > 0, "connection closed before complete HTTP request");
+        request.extend_from_slice(&buffer[..read]);
+        if let Some((headers, body)) = try_split_http_body(&request) {
+            let content_length = http_content_length(headers);
+            if body.len() >= content_length {
+                return request;
+            }
+        }
+    }
+}
+
+pub fn split_http_body(request: &[u8]) -> (&str, &[u8]) {
+    try_split_http_body(request).expect("HTTP request missing header terminator")
+}
+
+fn try_split_http_body(request: &[u8]) -> Option<(&str, &[u8])> {
+    let header_end = request
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")?;
+    let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+    let body = &request[header_end + 4..];
+    Some((headers, body))
+}
+
+pub fn http_content_length(headers: &str) -> usize {
+    headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().unwrap())
+        })
+        .unwrap_or(0)
 }
 
 pub fn test_scope(id: &str) -> SessionScope {

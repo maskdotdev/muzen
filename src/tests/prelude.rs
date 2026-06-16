@@ -4,9 +4,10 @@ pub(crate) use crate::reviewer_kernel::kernel_types::{
     ToolGrant, ToolId, ToolMetricKey, ToolProviderHealthState, ToolProviderId, TurnId,
 };
 pub(crate) use crate::reviewer_kernel::review_contract::*;
+pub(crate) use crate::reviewer_kernel::tool_engine::registry::JsonRpcToolResponse;
 pub(crate) use crate::reviewer_kernel::tool_engine::ToolEngine;
 pub(crate) use crate::reviewer_kernel::tool_engine::{
-    CustomToolArtifact, CustomToolOptions, JsonRpcToolResponse, ToolRegistry,
+    CustomToolArtifact, CustomToolOptions, ToolRegistry,
 };
 pub(crate) use crate::workspace::RepoSnapshot;
 pub(crate) use std::fs;

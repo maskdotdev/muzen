@@ -30,7 +30,6 @@ use crate::workspace::RepoSnapshot;
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::report::*;
 use crate::reviewer_kernel::review_model::*;
-use crate::reviewer_kernel::review_tools::*;
 use crate::reviewer_kernel::runtime_events;
 use crate::reviewer_kernel::snapshots::*;
 use crate::reviewer_kernel::spec::*;
@@ -63,11 +62,6 @@ impl RunBuilder {
 
     pub fn review_model(mut self, model: Arc<dyn ReviewModel>) -> Self {
         self.model_router = Some(review_model_router(model));
-        self
-    }
-
-    pub fn review_tool_registry(mut self, tool_registry: ReviewToolRegistry) -> Self {
-        self.tool_registry = Some(Arc::new(tool_registry.into_tool_registry()));
         self
     }
 
