@@ -12,14 +12,16 @@ use tokio_util::sync::CancellationToken;
 
 mod diff_risk;
 mod finding_filters;
+mod prompts;
 mod schemas;
 mod sessions;
 mod tasks;
 
 #[cfg(test)]
 use diff_risk::diff_risk_inventory;
-use diff_risk::{format_diff_risk_inventory, truncate_chars};
+use diff_risk::truncate_chars;
 use finding_filters::{autonomous_candidate_rejection_reason, changed_line_ranges_by_path};
+use prompts::{child_task_packet, neutral_starter_context};
 #[cfg(test)]
 use schemas::session_output_valid;
 use schemas::{
@@ -57,7 +59,6 @@ use crate::workspace::RepoSnapshot;
 
 const ORCHESTRATOR_SESSION_ID: &str = "review-orchestrator";
 const DEFAULT_MAX_CHILD_SESSIONS: usize = 32;
-const MAX_DIFF_RISK_ENTRIES: usize = 40;
 
 #[derive(Clone, Default)]
 pub(crate) struct AutonomousDelegateHost {
@@ -526,69 +527,6 @@ async fn run_child_delegate(
     };
     state.record_child_report(report);
     Ok(packet)
-}
-
-fn neutral_starter_context(snapshot: &RepoSnapshot, instructions: &[SessionInstruction]) -> String {
-    let changed_files = snapshot
-        .manifest
-        .changed_file_entries
-        .iter()
-        .map(|file| format!("- {}", file.summary))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let diff = truncate_chars(&snapshot.diff.content, 24_000);
-    let instruction_text = instructions
-        .iter()
-        .map(|instruction| format!("- [{}] {}", instruction.kind, instruction.text))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let risk_inventory = format_diff_risk_inventory(&snapshot.diff.content, MAX_DIFF_RISK_ENTRIES);
-    format!(
-        "Neutral review starter context.\n\nChanged files:\n{}\n\nDiff risk inventory:\n{}\n\nRisk inventory instructions:\n- Treat entries as review obligations, not findings.\n- For each listed risk id, inspect enough raw code or diff evidence to support a bug, refute it, or list the unresolved question.\n- Changed async, promise, lazy-loading, callback, and side-effect aggregation code needs caller adaptation, awaited ordering, value shape, and error propagation checked before returning clean.\n- Use search_code or explore_code when independent risk entries can be investigated in parallel.\n\nRaw diff{}:\n{}\n\nProject/review instructions:\n{}",
-        if changed_files.is_empty() { "(none)" } else { &changed_files },
-        risk_inventory,
-        if snapshot.diff.content.chars().count() > 24_000 {
-            " (truncated; use diff/read tools for omitted hunks)"
-        } else {
-            ""
-        },
-        diff,
-        if instruction_text.is_empty() {
-            "(none)"
-        } else {
-            &instruction_text
-        }
-    )
-}
-
-fn child_task_packet(
-    kind: DelegateTaskKind,
-    request: &DelegateTaskRequest,
-    snapshot: &RepoSnapshot,
-) -> String {
-    let changed_files = snapshot
-        .manifest
-        .changed_file_entries
-        .iter()
-        .map(|file| format!("- {}", file.summary))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "Task type: {}\nObjective: {}\nPrompt: {}\nCandidate: {}\n\nChanged files:\n{}",
-        kind.tool_name(),
-        request.objective,
-        request.prompt,
-        request
-            .candidate
-            .as_ref()
-            .map(Value::to_string)
-            .unwrap_or_else(|| "none".to_string()),
-        if changed_files.is_empty() {
-            "(none)"
-        } else {
-            &changed_files
-        }
-    )
 }
 
 fn build_run_metrics(
