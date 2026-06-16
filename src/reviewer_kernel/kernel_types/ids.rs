@@ -179,28 +179,8 @@ impl ToolMetricKey {
         Self(format!("{}:{}", provider_id.as_str(), tool_id.as_str()))
     }
 
-    pub fn builtin(tool: ToolName) -> Self {
-        Self::new(&ToolProviderId::builtin_review(), &ToolId::from(tool))
-    }
-
-    pub fn in_process(tool_id: &ToolId) -> Self {
-        Self::new(&ToolProviderId::in_process(), tool_id)
-    }
-
     pub(crate) fn from_encoded(value: String) -> Self {
         Self(value)
-    }
-
-    pub fn provider_id(&self) -> Option<ToolProviderId> {
-        self.0
-            .split_once(':')
-            .and_then(|(provider, _)| ToolProviderId::parse(provider).ok())
-    }
-
-    pub fn tool_id(&self) -> Option<ToolId> {
-        self.0
-            .split_once(':')
-            .and_then(|(_, tool)| ToolId::parse(tool).ok())
     }
 
     pub fn as_str(&self) -> &str {

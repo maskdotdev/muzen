@@ -660,7 +660,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
     let report = tokio.block_on(run.execute());
 
     assert_eq!(report.summary.completed_sessions, 1);
-    let custom_metrics = &report.metrics.tool_metrics[&ToolMetricKey::in_process(&custom_tool_id)];
+    let custom_metrics = &report.metrics.tool_metrics[&in_process_metric_key(&custom_tool_id)];
     assert_eq!(custom_metrics.calls, 1);
     assert_eq!(custom_metrics.successes, 1);
     assert_eq!(custom_metrics.artifacts, 1);

@@ -8,8 +8,8 @@ use crate::reviewer_kernel::events::ReviewEventRecord;
 use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
     ProviderResourceId, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
-    RuntimeEventSink, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolEffects, ToolId,
-    ToolProviderId, TurnId,
+    RuntimeEventSink, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolEffects, ToolGrant,
+    ToolId, ToolMetricKey, ToolProviderId, TurnId,
 };
 use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::*;
@@ -990,6 +990,22 @@ pub fn trusted_custom_capabilities() -> CapabilitySet {
     let mut capabilities = CapabilitySet::review_read_only();
     capabilities.runtime_authority.host_read = true;
     capabilities
+}
+
+pub fn custom_read_only_grant() -> ToolGrant {
+    ToolGrant {
+        allow: true,
+        max_calls: None,
+        effects_allowed: ToolEffects::custom_read_only(),
+    }
+}
+
+pub fn builtin_metric_key(tool: ToolName) -> ToolMetricKey {
+    ToolMetricKey::new(&ToolProviderId::builtin_review(), &ToolId::from(tool))
+}
+
+pub fn in_process_metric_key(tool_id: &ToolId) -> ToolMetricKey {
+    ToolMetricKey::new(&ToolProviderId::in_process(), tool_id)
 }
 
 pub fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> SessionScope {

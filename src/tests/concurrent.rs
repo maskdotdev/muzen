@@ -112,7 +112,7 @@ fn concurrent_queued_search_observes_cancellation_before_permit() {
         assert_eq!(engine.snapshot_counters().search_scans, 0);
         assert_eq!(engine.inflight_tool_count_for_test(), 0);
         let metrics = engine.snapshot_tool_metrics();
-        let search_metrics = &metrics[&ToolMetricKey::builtin(ToolName::SearchText)];
+        let search_metrics = &metrics[&builtin_metric_key(ToolName::SearchText)];
         assert_eq!(search_metrics.calls, 1);
         assert_eq!(search_metrics.errors, 1);
         assert_eq!(search_metrics.cancellations, 1);
@@ -198,7 +198,7 @@ fn concurrent_deduped_search_waiter_observes_its_own_cancellation() {
         assert_eq!(engine.snapshot_counters().search_dedupe_waiters, 1);
         assert_eq!(engine.snapshot_counters().search_scans, 1);
         let metrics = engine.snapshot_tool_metrics();
-        let search_metrics = &metrics[&ToolMetricKey::builtin(ToolName::SearchText)];
+        let search_metrics = &metrics[&builtin_metric_key(ToolName::SearchText)];
         assert_eq!(search_metrics.calls, 2);
         assert_eq!(search_metrics.successes, 1);
         assert_eq!(search_metrics.errors, 1);
@@ -246,7 +246,7 @@ fn concurrent_duplicate_tool_calls_in_one_turn_are_rejected() {
         ToolErrorCode::InvalidArgs
     );
     let metrics = engine.snapshot_tool_metrics();
-    let read_diff_metrics = &metrics[&ToolMetricKey::builtin(ToolName::ReadDiff)];
+    let read_diff_metrics = &metrics[&builtin_metric_key(ToolName::ReadDiff)];
     assert_eq!(read_diff_metrics.successes, 1);
     assert_eq!(read_diff_metrics.errors, 1);
 }
@@ -296,7 +296,7 @@ fn concurrent_tool_invalid_args_and_path_denied_are_reported() {
     );
     assert_eq!(engine.snapshot_counters().tool_errors, 2);
     let metrics = engine.snapshot_tool_metrics();
-    let read_file_metrics = &metrics[&ToolMetricKey::builtin(ToolName::ReadFile)];
+    let read_file_metrics = &metrics[&builtin_metric_key(ToolName::ReadFile)];
     assert_eq!(read_file_metrics.calls, 2);
     assert_eq!(read_file_metrics.errors, 2);
 }
@@ -357,10 +357,13 @@ fn concurrent_search_cache_is_scoped_by_filesystem_scope() {
     let counters = engine.snapshot_counters();
     assert_eq!(counters.search_scans, 2);
     let metrics = engine.snapshot_tool_metrics();
-    let search_key = ToolMetricKey::builtin(ToolName::SearchText);
+    let search_key = builtin_metric_key(ToolName::SearchText);
     assert_eq!(
-        search_key.provider_id(),
-        Some(ToolProviderId::builtin_review())
+        search_key,
+        ToolMetricKey::new(
+            &ToolProviderId::builtin_review(),
+            &ToolId::from(ToolName::SearchText)
+        )
     );
     let search_metrics = &metrics[&search_key];
     assert_eq!(search_metrics.calls, 2);
@@ -648,7 +651,7 @@ fn concurrent_in_process_tool_provider_timeout_is_typed() {
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -670,7 +673,7 @@ fn concurrent_in_process_tool_provider_timeout_is_typed() {
     );
     assert_eq!(results[0].provider_id, ToolProviderId::in_process());
     let metrics = engine.snapshot_tool_metrics();
-    let slow_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let slow_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(slow_metrics.errors, 1);
     assert_eq!(slow_metrics.timeouts, 1);
     assert_eq!(slow_metrics.cancellations, 0);
@@ -730,7 +733,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -1374,7 +1377,7 @@ fn concurrent_tool_provider_concurrency_is_bounded_per_provider() {
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -1400,7 +1403,7 @@ fn concurrent_tool_provider_concurrency_is_bounded_per_provider() {
     assert!(results.iter().all(|result| result.ok));
     assert_eq!(max_seen.load(Ordering::SeqCst), 1);
     let metrics = engine.snapshot_tool_metrics();
-    let counted_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let counted_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(counted_metrics.calls, 2);
     assert_eq!(counted_metrics.successes, 2);
     assert_eq!(
@@ -1442,7 +1445,7 @@ fn concurrent_in_process_tool_provider_panic_is_contained() {
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -1464,7 +1467,7 @@ fn concurrent_in_process_tool_provider_panic_is_contained() {
         ToolErrorCode::Internal
     );
     let metrics = engine.snapshot_tool_metrics();
-    let panic_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let panic_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(panic_metrics.errors, 1);
 }
 
@@ -1518,7 +1521,7 @@ fn concurrent_registry_executes_allowed_custom_tool() {
     );
 
     let mut allowed_capabilities = trusted_custom_capabilities();
-    allowed_capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    allowed_capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", allowed_capabilities),
         TurnId(0),
@@ -1538,8 +1541,11 @@ fn concurrent_registry_executes_allowed_custom_tool() {
     assert!(data.contains("[REDACTED]"));
     assert!(!data.contains("AKIA1234567890ABCDEF"));
     let metrics = engine.snapshot_tool_metrics();
-    let custom_key = ToolMetricKey::in_process(&tool_id);
-    assert_eq!(custom_key.provider_id(), Some(ToolProviderId::in_process()));
+    let custom_key = in_process_metric_key(&tool_id);
+    assert_eq!(
+        custom_key,
+        ToolMetricKey::new(&ToolProviderId::in_process(), &tool_id)
+    );
     let custom_metrics = &metrics[&custom_key];
     assert_eq!(custom_metrics.calls, 2);
     assert_eq!(custom_metrics.successes, 1);

@@ -126,14 +126,6 @@ impl ToolGrant {
             effects_allowed: ToolEffects::review_read_only(),
         }
     }
-
-    pub fn allow_custom_read_only() -> Self {
-        Self {
-            allow: true,
-            max_calls: None,
-            effects_allowed: ToolEffects::custom_read_only(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
