@@ -6,9 +6,9 @@ use crate::reviewer_kernel::agent_loop::{AgentLoopConfig, AgentLoopReport};
 use crate::reviewer_kernel::kernel_types::{ModelResponseFormat, SessionScope};
 use crate::reviewer_kernel::review_contract::{AgentBudget, BudgetSource};
 
+use super::delegates::AutonomousDelegateState;
 use super::schemas::{schema_repair_instruction, session_output_valid};
 use super::tasks::DelegateTaskKind;
-use super::AutonomousDelegateState;
 
 const DEFAULT_SCHEMA_REPAIR_ATTEMPTS: usize = 1;
 const MIN_ORCHESTRATOR_MODEL_TURN_GUARD: usize = 16;
