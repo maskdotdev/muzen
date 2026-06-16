@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::reviewer_kernel::kernel_types::SnapshotId;
 use crate::reviewer_kernel::kernel_types::{
     ArtifactId, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
-    ReviewQualityDiagnostics, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, SnapshotId,
-    ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
-    ToolProviderHealthState,
+    ReviewQualityDiagnostics, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, ToolCallId,
+    ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
 
@@ -208,9 +209,12 @@ impl ReviewRunSummary {
 #[derive(Debug, Clone)]
 pub struct RunReport {
     pub run_id: String,
+    #[cfg(test)]
     pub snapshot: SnapshotHandle,
+    #[cfg(test)]
     pub snapshots: Vec<SnapshotHandle>,
     pub summary: ReviewRunSummary,
+    #[cfg(test)]
     pub metrics: ConcurrentRunReport,
     pub artifacts: Arc<ArtifactStore>,
     pub(crate) snapshot_readers: Vec<SnapshotReader>,
@@ -223,6 +227,7 @@ impl RunReport {
         self.snapshot_readers.clone()
     }
 
+    #[cfg(test)]
     pub fn snapshot_reader(&self, snapshot_id: &SnapshotId) -> Option<SnapshotReader> {
         self.snapshot_readers
             .iter()
@@ -230,6 +235,14 @@ impl RunReport {
             .cloned()
     }
 
+    pub fn snapshot_summaries(&self) -> Vec<SnapshotSummary> {
+        self.snapshot_readers
+            .iter()
+            .map(SnapshotReader::summary)
+            .collect()
+    }
+
+    #[cfg(test)]
     pub fn snapshot_manifests(&self) -> Vec<SnapshotManifest> {
         self.snapshot_readers
             .iter()

@@ -397,6 +397,11 @@ impl SnapshotReader {
         &self.snapshot.snapshot_id
     }
 
+    pub fn summary(&self) -> SnapshotSummary {
+        SnapshotSummary::from_snapshot(&self.snapshot)
+    }
+
+    #[cfg(test)]
     pub fn manifest(&self) -> SnapshotManifest {
         SnapshotManifest::from_snapshot(&self.snapshot)
     }
@@ -435,8 +440,40 @@ impl SnapshotReader {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotManifest {
+pub struct SnapshotSummary {
     pub snapshot_id: SnapshotId,
+    pub files: usize,
+    pub changed_files: usize,
+    pub captured_files: usize,
+    pub captured_bytes: u64,
+}
+
+impl SnapshotSummary {
+    fn from_snapshot(snapshot: &RepoSnapshot) -> Self {
+        Self {
+            snapshot_id: snapshot.snapshot_id.clone(),
+            files: snapshot.manifest.files.len(),
+            changed_files: snapshot.manifest.changed_files.len(),
+            captured_files: snapshot
+                .manifest
+                .files
+                .iter()
+                .filter(|file| file.capture_status == SnapshotCaptureStatus::Captured)
+                .count(),
+            captured_bytes: snapshot
+                .manifest
+                .files
+                .iter()
+                .filter_map(|file| file.snapshot_content.as_ref())
+                .map(|content| content.len() as u64)
+                .sum(),
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct SnapshotManifest {
     pub manifest_hash: String,
     pub path_policy_hash: String,
     pub capture_policy_hash: String,
@@ -451,6 +488,7 @@ pub struct SnapshotManifest {
     pub changed_files: Vec<SnapshotChangedFile>,
 }
 
+#[cfg(test)]
 impl SnapshotManifest {
     pub fn max_captured_text_bytes(&self) -> usize {
         self.capture_policy.max_captured_text_bytes
@@ -487,7 +525,6 @@ impl SnapshotManifest {
             })
             .collect::<Vec<_>>();
         Self {
-            snapshot_id: snapshot.snapshot_id.clone(),
             manifest_hash: snapshot.manifest_hash.clone(),
             path_policy_hash: snapshot.path_policy_hash.clone(),
             capture_policy_hash: snapshot.capture_policy_hash.clone(),
@@ -504,6 +541,7 @@ impl SnapshotManifest {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct SnapshotFile {
     pub path: RepoPath,
@@ -514,12 +552,14 @@ pub struct SnapshotFile {
     pub capture_status: SnapshotCaptureStatus,
 }
 
+#[cfg(test)]
 impl SnapshotFile {
     pub fn capture_skipped_memory_limit(&self) -> bool {
         self.capture_status == SnapshotCaptureStatus::SkippedMemoryLimit
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct SnapshotChangedFile {
     pub path: RepoPath,

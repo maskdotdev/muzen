@@ -18,9 +18,13 @@ pub(crate) struct RepoSnapshot {
     pub(crate) source_root: PathBuf,
     pub(crate) manifest_hash: String,
     pub(crate) path_policy_hash: String,
+    #[cfg(test)]
     pub(crate) capture_policy_hash: String,
+    #[cfg(test)]
     pub(crate) capture_policy: SnapshotCapturePolicy,
+    #[cfg(test)]
     pub(crate) capture_skipped_files: usize,
+    #[cfg(test)]
     pub(crate) capture_skipped_bytes: u64,
     pub(crate) manifest: Arc<FileManifest>,
     pub(crate) diff: Arc<DiffArtifact>,
@@ -99,7 +103,9 @@ impl RepoSnapshot {
         let mut changed_files = Vec::new();
         let changed_file_entries = changed_file_entries(change);
         let mut captured_text_bytes = 0usize;
+        #[cfg(test)]
         let mut capture_skipped_files = 0usize;
+        #[cfg(test)]
         let mut capture_skipped_bytes = 0u64;
 
         let mut walker = WalkBuilder::new(&root_path);
@@ -172,8 +178,11 @@ impl RepoSnapshot {
                 if captured_text_bytes.saturating_add(budgeted_size)
                     > capture_policy.max_captured_text_bytes
                 {
-                    capture_skipped_files += 1;
-                    capture_skipped_bytes += size;
+                    #[cfg(test)]
+                    {
+                        capture_skipped_files += 1;
+                        capture_skipped_bytes += size;
+                    }
                     (None, SnapshotCaptureStatus::SkippedMemoryLimit)
                 } else {
                     match snapshot_file_content(&candidate.path, policy.max_file_bytes) {
@@ -267,9 +276,13 @@ impl RepoSnapshot {
             source_root: root_path,
             manifest_hash,
             path_policy_hash,
+            #[cfg(test)]
             capture_policy_hash,
+            #[cfg(test)]
             capture_policy,
+            #[cfg(test)]
             capture_skipped_files,
+            #[cfg(test)]
             capture_skipped_bytes,
             manifest,
             diff,

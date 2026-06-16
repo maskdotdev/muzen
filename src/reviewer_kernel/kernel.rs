@@ -481,9 +481,12 @@ impl Run {
         }
         RunReport {
             run_id: self.run_id,
+            #[cfg(test)]
             snapshot: first_snapshot,
+            #[cfg(test)]
             snapshots: self.snapshot_handles,
             summary: ReviewRunSummary::from_metrics(&metrics),
+            #[cfg(test)]
             metrics,
             artifacts: aggregate_artifacts,
             snapshot_readers,

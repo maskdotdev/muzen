@@ -167,23 +167,14 @@ fn runner_result_from_report(
 ) -> RunnerRunResult {
     let mut summary = runner_summary_from_review(&report.summary);
     let snapshots = report
-        .snapshot_manifests()
+        .snapshot_summaries()
         .into_iter()
-        .map(|manifest| RunnerSnapshotSummary {
-            snapshot_id: manifest.snapshot_id.0,
-            files: manifest.files.len(),
-            changed_files: manifest.changed_files.len(),
-            captured_files: manifest
-                .files
-                .iter()
-                .filter(|file| {
-                    matches!(
-                        file.capture_status,
-                        crate::reviewer_kernel::kernel_types::SnapshotCaptureStatus::Captured
-                    )
-                })
-                .count(),
-            captured_bytes: manifest.captured_text_bytes as u64,
+        .map(|snapshot| RunnerSnapshotSummary {
+            snapshot_id: snapshot.snapshot_id.0,
+            files: snapshot.files,
+            changed_files: snapshot.changed_files,
+            captured_files: snapshot.captured_files,
+            captured_bytes: snapshot.captured_bytes,
         })
         .collect();
     let findings = dedupe_runner_findings(
