@@ -191,6 +191,7 @@ pub struct ModelPermit {
 }
 
 impl ModelLimiter {
+    #[cfg(test)]
     pub fn new(global_concurrency: usize) -> Self {
         Self::new_with_per_key(global_concurrency, global_concurrency)
     }
@@ -225,19 +226,7 @@ impl ModelLimiter {
         }
     }
 
-    pub async fn acquire(&self) -> RuntimeResult<ModelPermit> {
-        let global = self
-            .global
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| RuntimeError::Cancelled)?;
-        Ok(ModelPermit {
-            _global: global,
-            _buckets: Vec::new(),
-        })
-    }
-
+    #[cfg(test)]
     pub async fn acquire_for_key(&self, key: &str) -> RuntimeResult<ModelPermit> {
         let global = self
             .global
