@@ -13,15 +13,19 @@ use tokio_util::sync::CancellationToken;
 mod diff_risk;
 mod finding_filters;
 mod schemas;
+mod tasks;
 
 #[cfg(test)]
 use diff_risk::diff_risk_inventory;
 use diff_risk::{format_diff_risk_inventory, truncate_chars};
 use finding_filters::{autonomous_candidate_rejection_reason, changed_line_ranges_by_path};
 use schemas::{
-    candidate_schema, child_final_instruction, child_response_format,
-    orchestrator_final_instruction, orchestrator_response_format, schema_repair_instruction,
-    session_output_valid,
+    child_final_instruction, child_response_format, orchestrator_final_instruction,
+    orchestrator_response_format, schema_repair_instruction, session_output_valid,
+};
+use tasks::{
+    parse_delegate_request, DelegateTaskKind, DelegateTaskRequest, EXPLORE_CODE_TOOL,
+    SEARCH_CODE_TOOL, VALIDATE_FINDING_TOOL,
 };
 
 use crate::reviewer_kernel::agent_loop::{AgentLoopConfig, AgentLoopReport, AgentLoopRuntime};
@@ -44,9 +48,6 @@ use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
 const ORCHESTRATOR_SESSION_ID: &str = "review-orchestrator";
-const SEARCH_CODE_TOOL: &str = "search_code";
-const EXPLORE_CODE_TOOL: &str = "explore_code";
-const VALIDATE_FINDING_TOOL: &str = "validate_finding";
 const DEFAULT_MAX_CHILD_SESSIONS: usize = 32;
 const DEFAULT_SCHEMA_REPAIR_ATTEMPTS: usize = 1;
 const MAX_DIFF_RISK_ENTRIES: usize = 40;
@@ -384,84 +385,6 @@ impl AutonomousReviewRuntime {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum DelegateTaskKind {
-    SearchCode,
-    ExploreCode,
-    ValidateFinding,
-}
-
-impl DelegateTaskKind {
-    fn tool_name(self) -> &'static str {
-        match self {
-            Self::SearchCode => SEARCH_CODE_TOOL,
-            Self::ExploreCode => EXPLORE_CODE_TOOL,
-            Self::ValidateFinding => VALIDATE_FINDING_TOOL,
-        }
-    }
-
-    fn slug(self) -> &'static str {
-        match self {
-            Self::SearchCode => "search",
-            Self::ExploreCode => "explore",
-            Self::ValidateFinding => "validate",
-        }
-    }
-
-    fn description(self) -> &'static str {
-        match self {
-            Self::SearchCode => {
-                "Run a bounded deterministic-first repository search for code-review leads. Use for broad discovery; it returns ranked leads and omission counts, not final findings."
-            }
-            Self::ExploreCode => {
-                "Spawn a read-only child review agent to investigate one concrete behavior, hypothesis, caller chain, or evidence question. It returns a structured evidence packet."
-            }
-            Self::ValidateFinding => {
-                "Spawn an adversarial read-only validator for one candidate finding. It tries to refute the claim from raw code and diff evidence."
-            }
-        }
-    }
-
-    fn parameters_schema(self) -> Value {
-        match self {
-            Self::ValidateFinding => json!({
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "objective": {"type": "string"},
-                    "prompt": {"type": "string"},
-                    "candidate": candidate_schema()
-                },
-                "required": ["objective", "prompt", "candidate"]
-            }),
-            _ => json!({
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "objective": {"type": "string"},
-                    "prompt": {"type": "string"}
-                },
-                "required": ["objective", "prompt"]
-            }),
-        }
-    }
-
-    fn child_prompt(self) -> &'static str {
-        match self {
-            Self::SearchCode => {
-                "You are Muzen's search_code child. Run broad read-only discovery for the requested review objective. Prefer grep/glob/import/test tools. Return ranked leads and omitted counts. Do not publish findings."
-            }
-            Self::ExploreCode => {
-                "You are Muzen's explore_code child. Investigate the requested behavior chain deeply with read-only tools. Return raw evidence, checked paths, candidate findings if any, and open questions."
-            }
-            Self::ValidateFinding => {
-                "You are Muzen's validate_finding child. Be adversarial. Try to refute the candidate from raw code and diff evidence. Return supported only when the changed-code evidence establishes one concrete negative outcome. Return insufficient for correctness/no-issue observations, speculative claims, or bundled claims that combine unrelated behaviors instead of one failing invariant."
-            }
-        }
-    }
-}
-
 struct DelegateToolHandler {
     host: AutonomousDelegateHost,
     kind: DelegateTaskKind,
@@ -504,42 +427,6 @@ impl CustomToolHandler for DelegateToolHandler {
             },
         })
     }
-}
-
-#[derive(Debug, Clone)]
-struct DelegateTaskRequest {
-    objective: String,
-    prompt: String,
-    candidate: Option<Value>,
-}
-
-fn parse_delegate_request(
-    kind: DelegateTaskKind,
-    args: Value,
-) -> RuntimeResult<DelegateTaskRequest> {
-    let objective = args
-        .get("objective")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| RuntimeError::InvalidInput("delegate objective is required".to_string()))?
-        .to_string();
-    let prompt = args
-        .get("prompt")
-        .and_then(Value::as_str)
-        .unwrap_or(&objective)
-        .to_string();
-    let candidate = args.get("candidate").cloned();
-    if kind == DelegateTaskKind::ValidateFinding && candidate.is_none() {
-        return Err(RuntimeError::InvalidInput(
-            "validate_finding requires candidate".to_string(),
-        ));
-    }
-    Ok(DelegateTaskRequest {
-        objective,
-        prompt,
-        candidate,
-    })
 }
 
 #[derive(Debug, Clone)]
