@@ -15,7 +15,6 @@ use crate::workspace::RepoSnapshot;
 pub struct SnapshotSpec {
     pub snapshot_id: Option<SnapshotId>,
     pub repo_root: PathBuf,
-    pub default_cwd: Option<PathBuf>,
     pub change: ChangeSpec,
     pub path_policy: SnapshotPathPolicy,
     pub capture_policy: SnapshotCapturePolicy,
@@ -26,16 +25,10 @@ impl SnapshotSpec {
         Self {
             snapshot_id: None,
             repo_root: repo_root.into(),
-            default_cwd: None,
             change,
             path_policy: SnapshotPathPolicy::default(),
             capture_policy: SnapshotCapturePolicy::default(),
         }
-    }
-
-    pub fn with_default_cwd(mut self, default_cwd: impl Into<PathBuf>) -> Self {
-        self.default_cwd = Some(default_cwd.into());
-        self
     }
 
     pub fn with_snapshot_id(mut self, snapshot_id: SnapshotId) -> Self {
