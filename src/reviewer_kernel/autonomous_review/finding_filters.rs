@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::diff_risk::parse_hunk_head_start;
-use super::CandidateFinding;
+use super::findings::CandidateFinding;
 
 pub(super) fn autonomous_candidate_rejection_reason(
     candidate: &CandidateFinding,
