@@ -57,10 +57,12 @@ impl ReviewModelRequest {
         }
     }
 
+    #[cfg(test)]
     pub fn transcript_item_count(&self) -> usize {
         self.transcript.len()
     }
 
+    #[cfg(test)]
     pub fn tool_result_count(&self) -> usize {
         self.transcript
             .iter()
@@ -68,6 +70,7 @@ impl ReviewModelRequest {
             .count()
     }
 
+    #[cfg(test)]
     pub fn tool_call_id(&self, suffix: impl AsRef<str>) -> String {
         format!("{}-{}-{}", self.session_id, self.turn, suffix.as_ref())
     }
