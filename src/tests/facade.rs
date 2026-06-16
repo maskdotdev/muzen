@@ -161,7 +161,7 @@ fn public_reviewer_facade_runs_mock_review() {
     let report = tokio.block_on(run.execute());
 
     assert_eq!(report.run_id, "public-run");
-    assert_eq!(report.summary.status, "completed");
+    assert_eq!(report.summary.completed_sessions, report.summary.sessions);
     assert_eq!(report.summary.snapshot_count, 1);
     let manifests = report.snapshot_manifests();
     assert_eq!(manifests.len(), 1);

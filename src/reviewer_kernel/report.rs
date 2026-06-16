@@ -8,8 +8,6 @@ use crate::reviewer_kernel::kernel_types::{
     ToolCallId, ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot,
     ToolProviderHealthState,
 };
-use crate::reviewer_kernel::review_contract::ToolCounts;
-
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
 
 use crate::reviewer_kernel::events::*;
@@ -168,12 +166,10 @@ fn merge_provider_health(
 
 #[derive(Debug, Clone)]
 pub struct ReviewRunSummary {
-    pub status: String,
     pub sessions: usize,
     pub completed_sessions: usize,
     pub model_calls: usize,
     pub tool_calls: usize,
-    pub tool_counts: ToolCounts,
     pub findings: usize,
     pub publishable_findings: usize,
     pub elapsed_ms: u64,
@@ -190,16 +186,10 @@ pub struct ReviewRunSummary {
 impl ReviewRunSummary {
     pub(crate) fn from_metrics(metrics: &ConcurrentRunReport) -> Self {
         Self {
-            status: if metrics.completed_sessions == metrics.sessions {
-                "completed".to_string()
-            } else {
-                "partial".to_string()
-            },
             sessions: metrics.sessions,
             completed_sessions: metrics.completed_sessions,
             model_calls: metrics.model_calls,
             tool_calls: metrics.tool_calls,
-            tool_counts: metrics.tool_counts,
             findings: metrics.findings,
             publishable_findings: metrics.publishable_findings,
             elapsed_ms: metrics.elapsed_ms,
