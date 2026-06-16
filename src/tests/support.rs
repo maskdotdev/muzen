@@ -308,13 +308,33 @@ pub fn register_test_custom_tool(
     effects: ToolEffects,
     handler: Arc<dyn CustomToolHandler>,
 ) -> ToolId {
+    register_test_custom_tool_with_parameters(
+        registry,
+        id,
+        description,
+        test_tool_parameters(),
+        provider_resources,
+        effects,
+        handler,
+    )
+}
+
+pub fn register_test_custom_tool_with_parameters(
+    registry: &mut ToolRegistry,
+    id: &str,
+    description: &str,
+    parameters: serde_json::Value,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+    handler: Arc<dyn CustomToolHandler>,
+) -> ToolId {
     let tool_id = ToolId::parse(id).unwrap();
     registry
         .register_custom_with_alias_and_effects(
             tool_id.clone(),
             tool_id.clone(),
             description,
-            test_tool_parameters(),
+            parameters,
             CustomToolOptions {
                 cacheable: false,
                 effects,
@@ -335,6 +355,28 @@ pub fn register_test_jsonrpc_tool(
     effects: ToolEffects,
     transport: Arc<dyn JsonRpcToolTransport>,
 ) -> ToolId {
+    register_test_jsonrpc_tool_with_parameters(
+        registry,
+        provider_id,
+        id,
+        description,
+        test_tool_parameters(),
+        provider_resources,
+        effects,
+        transport,
+    )
+}
+
+pub fn register_test_jsonrpc_tool_with_parameters(
+    registry: &mut ToolRegistry,
+    provider_id: ToolProviderId,
+    id: &str,
+    description: &str,
+    parameters: serde_json::Value,
+    provider_resources: Vec<ProviderResourceId>,
+    effects: ToolEffects,
+    transport: Arc<dyn JsonRpcToolTransport>,
+) -> ToolId {
     let tool_id = ToolId::parse(id).unwrap();
     registry
         .register_jsonrpc_tool_with_alias(JsonRpcToolRegistration {
@@ -342,7 +384,7 @@ pub fn register_test_jsonrpc_tool(
             id: tool_id.clone(),
             model_alias: tool_id.clone(),
             description: description.to_string(),
-            parameters: test_tool_parameters(),
+            parameters,
             options: CustomToolOptions {
                 cacheable: false,
                 effects,

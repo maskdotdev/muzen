@@ -42,25 +42,6 @@ impl ToolRegistry {
         Ok(registry)
     }
 
-    #[cfg(test)]
-    pub(crate) fn register_custom(
-        &mut self,
-        id: ToolId,
-        description: impl Into<String>,
-        parameters: Value,
-        cacheable: bool,
-        handler: Arc<dyn CustomToolHandler>,
-    ) -> RuntimeResult<()> {
-        self.register_custom_with_effects(
-            id,
-            description,
-            parameters,
-            cacheable,
-            ToolEffects::custom_read_only(),
-            handler,
-        )
-    }
-
     pub fn register_custom_with_effects(
         &mut self,
         id: ToolId,
@@ -108,27 +89,7 @@ impl ToolRegistry {
     }
 
     #[cfg(test)]
-    pub(crate) fn register_jsonrpc_tool(
-        &mut self,
-        provider_id: ToolProviderId,
-        id: ToolId,
-        description: impl Into<String>,
-        parameters: Value,
-        options: CustomToolOptions,
-        transport: Arc<dyn JsonRpcToolTransport>,
-    ) -> RuntimeResult<()> {
-        self.register_jsonrpc_tool_with_alias(JsonRpcToolRegistration {
-            provider_id,
-            id: id.clone(),
-            model_alias: id,
-            description: description.into(),
-            parameters,
-            options,
-            transport,
-        })
-    }
-
-    pub fn register_jsonrpc_tool_with_alias(
+    pub(crate) fn register_jsonrpc_tool_with_alias(
         &mut self,
         registration: JsonRpcToolRegistration,
     ) -> RuntimeResult<()> {
@@ -297,17 +258,6 @@ impl Default for CustomToolOptions {
     }
 }
 
-#[derive(Clone)]
-pub struct JsonRpcToolRegistration {
-    pub provider_id: ToolProviderId,
-    pub id: ToolId,
-    pub model_alias: ToolId,
-    pub description: String,
-    pub parameters: Value,
-    pub options: CustomToolOptions,
-    pub transport: Arc<dyn JsonRpcToolTransport>,
-}
-
 #[derive(Debug, Clone)]
 pub struct ToolAliasTable {
     by_tool: HashMap<ToolId, ToolId>,
@@ -359,6 +309,18 @@ pub trait JsonRpcToolTransport: Send + Sync {
         request: JsonRpcToolRequest,
         cancel: CancellationToken,
     ) -> RuntimeResult<JsonRpcToolResponse>;
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub struct JsonRpcToolRegistration {
+    pub provider_id: ToolProviderId,
+    pub id: ToolId,
+    pub model_alias: ToolId,
+    pub description: String,
+    pub parameters: Value,
+    pub options: CustomToolOptions,
+    pub transport: Arc<dyn JsonRpcToolTransport>,
 }
 
 #[cfg(test)]
