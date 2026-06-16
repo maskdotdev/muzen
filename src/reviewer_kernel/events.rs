@@ -449,6 +449,7 @@ impl InMemoryReviewEventSink {
             .clone()
     }
 
+    #[cfg(test)]
     pub fn events(&self) -> Vec<ReviewEvent> {
         self.records()
             .into_iter()
