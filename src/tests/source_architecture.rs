@@ -5,7 +5,6 @@ fn source_tree_uses_product_concept_modules() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
 
     for entry in [
-        "cli.rs",
         "context_engine",
         "remote_http",
         "review_sessions",
@@ -30,6 +29,7 @@ fn source_tree_uses_product_concept_modules() {
         "repo.rs",
         "util.rs",
         "service.rs",
+        "cli.rs",
     ] {
         assert!(
             !src.join(forbidden).exists(),
