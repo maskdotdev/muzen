@@ -1,12 +1,8 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-
-use async_trait::async_trait;
+use std::sync::Arc;
 
 use crate::reviewer_kernel::kernel_types::{
-    RepoPath, RuntimeError, RuntimeResult, SnapshotCaptureStatus, SnapshotId, SnapshotObjectStore,
-    SnapshotStorageMode, SnapshotStoragePolicy,
+    RepoPath, RuntimeError, RuntimeResult, SnapshotCapturePolicy, SnapshotCaptureStatus, SnapshotId,
 };
 
 use crate::reviewer_kernel::review_contract::{
@@ -14,16 +10,15 @@ use crate::reviewer_kernel::review_contract::{
     ChangedFileStatus as ContractChangedFileStatus, PathPolicyV1,
     RenameDetection as ContractRenameDetection, SnapshotMode as ContractSnapshotMode,
 };
-use crate::workspace::{remote_content_addressed_uri, RepoSnapshot};
+use crate::workspace::RepoSnapshot;
 
-use crate::reviewer_kernel::artifacts::*;
 pub struct SnapshotSpec {
     pub snapshot_id: Option<SnapshotId>,
     pub repo_root: PathBuf,
     pub default_cwd: Option<PathBuf>,
     pub change: ChangeSpec,
     pub path_policy: SnapshotPathPolicy,
-    pub storage_policy: SnapshotStoragePolicy,
+    pub capture_policy: SnapshotCapturePolicy,
 }
 
 impl SnapshotSpec {
@@ -34,7 +29,7 @@ impl SnapshotSpec {
             default_cwd: None,
             change,
             path_policy: SnapshotPathPolicy::default(),
-            storage_policy: SnapshotStoragePolicy::default(),
+            capture_policy: SnapshotCapturePolicy::default(),
         }
     }
 
@@ -53,38 +48,9 @@ impl SnapshotSpec {
         self
     }
 
-    pub fn with_storage_policy(mut self, storage_policy: SnapshotStoragePolicy) -> Self {
-        self.storage_policy = storage_policy;
+    pub fn with_capture_limit(mut self, max_captured_text_bytes: usize) -> Self {
+        self.capture_policy = SnapshotCapturePolicy::new(max_captured_text_bytes);
         self
-    }
-
-    pub fn with_memory_storage_limit(mut self, max_captured_text_bytes: usize) -> Self {
-        self.storage_policy = SnapshotStoragePolicy::memory(max_captured_text_bytes);
-        self
-    }
-
-    pub fn with_content_addressed_storage(
-        mut self,
-        root: impl Into<PathBuf>,
-        max_captured_text_bytes: usize,
-    ) -> Self {
-        self.storage_policy =
-            SnapshotStoragePolicy::content_addressed_directory(root, max_captured_text_bytes);
-        self
-    }
-
-    pub fn with_remote_object_storage(
-        mut self,
-        base_uri: impl Into<String>,
-        max_captured_text_bytes: usize,
-        object_store: Arc<dyn SnapshotObjectStore>,
-    ) -> RuntimeResult<Self> {
-        self.storage_policy = SnapshotStoragePolicy::remote_object_store(
-            base_uri,
-            max_captured_text_bytes,
-            object_store,
-        )?;
-        Ok(self)
     }
 }
 
@@ -477,8 +443,8 @@ pub struct SnapshotManifest {
     pub snapshot_id: SnapshotId,
     pub manifest_hash: String,
     pub path_policy_hash: String,
-    pub storage_policy_hash: String,
-    pub storage_policy: SnapshotStoragePolicy,
+    pub capture_policy_hash: String,
+    pub capture_policy: SnapshotCapturePolicy,
     pub file_count: usize,
     pub changed_file_count: usize,
     pub captured_text_file_count: usize,
@@ -490,22 +456,8 @@ pub struct SnapshotManifest {
 }
 
 impl SnapshotManifest {
-    pub fn uses_content_addressed_storage(&self) -> bool {
-        matches!(
-            self.storage_policy.mode,
-            SnapshotStorageMode::ContentAddressedDirectory { .. }
-        )
-    }
-
-    pub fn uses_remote_object_storage(&self) -> bool {
-        matches!(
-            self.storage_policy.mode,
-            SnapshotStorageMode::RemoteObjectStore { .. }
-        )
-    }
-
     pub fn max_captured_text_bytes(&self) -> usize {
-        self.storage_policy.max_captured_text_bytes
+        self.capture_policy.max_captured_text_bytes
     }
 
     fn from_snapshot(snapshot: &RepoSnapshot) -> Self {
@@ -544,8 +496,8 @@ impl SnapshotManifest {
             snapshot_id: snapshot.snapshot_id.clone(),
             manifest_hash: snapshot.manifest_hash.clone(),
             path_policy_hash: snapshot.path_policy_hash.clone(),
-            storage_policy_hash: snapshot.storage_policy_hash.clone(),
-            storage_policy: snapshot.storage_policy.clone(),
+            capture_policy_hash: snapshot.capture_policy_hash.clone(),
+            capture_policy: snapshot.capture_policy.clone(),
             file_count: files.len(),
             changed_file_count: snapshot.manifest.changed_files.len(),
             captured_text_file_count,
@@ -589,243 +541,4 @@ pub struct SnapshotTextFile {
     pub bytes: usize,
     pub truncated: bool,
     pub content: String,
-}
-
-#[async_trait]
-pub trait RemoteSnapshotObjectClient: Send + Sync {
-    fn put_remote_snapshot_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()>;
-
-    fn read_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>>;
-
-    fn remove_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<bool>;
-}
-
-pub struct RemoteSnapshotObjectStore {
-    base_uri: String,
-    client: Arc<dyn RemoteSnapshotObjectClient>,
-}
-
-impl RemoteSnapshotObjectStore {
-    pub fn new(
-        base_uri: impl Into<String>,
-        client: Arc<dyn RemoteSnapshotObjectClient>,
-    ) -> RuntimeResult<Self> {
-        Ok(Self {
-            base_uri: normalize_remote_store_base_uri(base_uri.into(), "snapshot")?,
-            client,
-        })
-    }
-}
-
-impl std::fmt::Debug for RemoteSnapshotObjectStore {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("RemoteSnapshotObjectStore")
-            .field("base_uri", &self.base_uri)
-            .finish_non_exhaustive()
-    }
-}
-
-impl SnapshotObjectStore for RemoteSnapshotObjectStore {
-    fn put_snapshot_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()> {
-        validate_remote_snapshot_object_uri(&self.base_uri, uri)?;
-        self.client.put_remote_snapshot_object(uri, bytes)
-    }
-
-    fn read_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
-        validate_remote_snapshot_object_uri(&self.base_uri, uri)?;
-        self.client.read_remote_snapshot_object(uri)
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct InMemoryRemoteSnapshotObjectClient {
-    objects: Mutex<BTreeMap<String, Vec<u8>>>,
-}
-
-impl InMemoryRemoteSnapshotObjectClient {
-    pub fn read(&self, uri: &str) -> Option<Vec<u8>> {
-        self.objects
-            .lock()
-            .expect("in-memory remote snapshot object client poisoned")
-            .get(uri)
-            .cloned()
-    }
-
-    pub fn write(&self, uri: impl Into<String>, bytes: Vec<u8>) {
-        self.objects
-            .lock()
-            .expect("in-memory remote snapshot object client poisoned")
-            .insert(uri.into(), bytes);
-    }
-
-    pub fn object_count(&self) -> usize {
-        self.objects
-            .lock()
-            .expect("in-memory remote snapshot object client poisoned")
-            .len()
-    }
-}
-
-impl RemoteSnapshotObjectClient for InMemoryRemoteSnapshotObjectClient {
-    fn put_remote_snapshot_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()> {
-        self.write(uri.to_string(), bytes);
-        Ok(())
-    }
-
-    fn read_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
-        Ok(self.read(uri))
-    }
-
-    fn remove_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<bool> {
-        let mut objects = self
-            .objects
-            .lock()
-            .expect("in-memory remote snapshot object client poisoned");
-        Ok(objects.remove(uri).is_some())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct HttpRemoteObjectClient {
-    http: reqwest::blocking::Client,
-    authorization_header: Option<String>,
-}
-
-impl HttpRemoteObjectClient {
-    pub fn new() -> RuntimeResult<Self> {
-        Self::with_authorization_header(None)
-    }
-
-    pub fn bearer_token(token: impl Into<String>) -> RuntimeResult<Self> {
-        let token = token.into();
-        if token.trim().is_empty() {
-            return Err(RuntimeError::InvalidInput(
-                "remote object-store bearer token must not be empty".to_string(),
-            ));
-        }
-        Self::with_authorization_header(Some(format!("Bearer {token}")))
-    }
-
-    pub fn with_authorization_header(authorization_header: Option<String>) -> RuntimeResult<Self> {
-        let http = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|error| {
-                RuntimeError::RepoUnavailable(format!(
-                    "failed to build remote object-store HTTP client: {error}"
-                ))
-            })?;
-        Ok(Self {
-            http,
-            authorization_header,
-        })
-    }
-
-    fn put_remote_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()> {
-        let response = self
-            .with_auth(self.http.put(uri).body(bytes))
-            .send()
-            .map_err(remote_object_http_error)?;
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(remote_object_http_status_error(
-                "put",
-                uri,
-                response.status(),
-            ))
-        }
-    }
-
-    fn read_remote_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
-        let response = self
-            .with_auth(self.http.get(uri))
-            .send()
-            .map_err(remote_object_http_error)?;
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
-        }
-        if !response.status().is_success() {
-            return Err(remote_object_http_status_error(
-                "read",
-                uri,
-                response.status(),
-            ));
-        }
-        let bytes = response.bytes().map_err(remote_object_http_error)?;
-        Ok(Some(bytes.to_vec()))
-    }
-
-    fn remove_remote_object(&self, uri: &str) -> RuntimeResult<bool> {
-        let response = self
-            .with_auth(self.http.delete(uri))
-            .send()
-            .map_err(remote_object_http_error)?;
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(false);
-        }
-        if response.status().is_success() {
-            Ok(true)
-        } else {
-            Err(remote_object_http_status_error(
-                "remove",
-                uri,
-                response.status(),
-            ))
-        }
-    }
-
-    fn with_auth(
-        &self,
-        request: reqwest::blocking::RequestBuilder,
-    ) -> reqwest::blocking::RequestBuilder {
-        match &self.authorization_header {
-            Some(header) => request.header(reqwest::header::AUTHORIZATION, header),
-            None => request,
-        }
-    }
-}
-
-impl RemoteSnapshotObjectClient for HttpRemoteObjectClient {
-    fn put_remote_snapshot_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()> {
-        self.put_remote_object(uri, bytes)
-    }
-
-    fn read_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
-        self.read_remote_object(uri)
-    }
-
-    fn remove_remote_snapshot_object(&self, uri: &str) -> RuntimeResult<bool> {
-        self.remove_remote_object(uri)
-    }
-}
-
-impl RemoteArtifactObjectClient for HttpRemoteObjectClient {
-    fn put_remote_artifact_object(&self, uri: &str, bytes: Vec<u8>) -> RuntimeResult<()> {
-        self.put_remote_object(uri, bytes)
-    }
-
-    fn read_remote_artifact_object(&self, uri: &str) -> RuntimeResult<Option<Vec<u8>>> {
-        self.read_remote_object(uri)
-    }
-
-    fn remove_remote_artifact_object(&self, uri: &str) -> RuntimeResult<bool> {
-        self.remove_remote_object(uri)
-    }
-}
-
-fn validate_remote_snapshot_object_uri(base_uri: &str, uri: &str) -> RuntimeResult<()> {
-    let prefix = format!("{}/snapshots/", base_uri.trim_end_matches('/'));
-    let Some(hash) = uri.strip_prefix(&prefix) else {
-        return Err(RuntimeError::RepoAccessDenied);
-    };
-    if remote_content_addressed_uri(base_uri, hash)? != uri {
-        return Err(RuntimeError::RepoAccessDenied);
-    }
-    Ok(())
-}
-
-pub(crate) fn snapshot_content_hash(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
 }

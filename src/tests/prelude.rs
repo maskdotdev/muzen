@@ -1,4 +1,3 @@
-pub(crate) use crate::operational_proof::{ProofManifestArgs, ProofVerifyArgs};
 pub(crate) use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, FsScope, LimitInfo, ModelToolCall, ProviderResourceId,
     ProviderResourceScope, RepoPath, RuntimeLimits, ToolCallId, ToolEffects, ToolErrorCode,

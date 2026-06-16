@@ -1065,11 +1065,11 @@ fn build_context_snapshot(args: &ContextSnapshotArgs) -> Result<Arc<RepoSnapshot
         rename_detection: RenameDetection::None,
         changed_files,
     };
-    RepoSnapshot::build_with_storage(
+    RepoSnapshot::build_with_capture_policy(
         &args.repo,
         &PathPolicyV1::bench(args.max_file_kb, args.max_search_matches),
         &change,
-        crate::reviewer_kernel::kernel_types::SnapshotStoragePolicy::default(),
+        crate::reviewer_kernel::kernel_types::SnapshotCapturePolicy::default(),
     )
     .map_err(|error| anyhow::anyhow!("{error}"))
 }

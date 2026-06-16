@@ -8,8 +8,7 @@ pub(crate) mod canaries;
 
 use self::canaries::{
     export_canary_evidence_manifest, load_canary_evidence_manifest,
-    load_model_provider_canary_evidence, load_remote_object_store_canary_evidence,
-    CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
+    load_model_provider_canary_evidence, CanaryEvidenceFreshnessPolicy, CanaryEvidenceManifest,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -33,10 +32,6 @@ pub(crate) struct ProofManifestArgs {
     /// Schema-versioned ModelProviderCanaryEvidence JSON.
     #[arg(long)]
     pub(crate) provider_evidence: PathBuf,
-
-    /// Schema-versioned RemoteObjectStoreCanaryEvidence JSON. Pass once for snapshot and once for artifact evidence.
-    #[arg(long = "remote-object-store-evidence", required = true)]
-    pub(crate) remote_object_store_evidence: Vec<PathBuf>,
 
     /// Write aggregate CanaryEvidenceManifest JSON to this path. Prints to stdout when omitted.
     #[arg(long)]
@@ -84,15 +79,8 @@ pub(crate) fn run_proof(args: ProofArgs) -> Result<i32> {
 pub(crate) fn run_manifest(args: ProofManifestArgs) -> Result<i32> {
     let provider = load_model_provider_canary_evidence(&args.provider_evidence)
         .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let mut remote_evidence = Vec::with_capacity(args.remote_object_store_evidence.len());
-    for path in &args.remote_object_store_evidence {
-        remote_evidence.push(
-            load_remote_object_store_canary_evidence(path)
-                .map_err(|error| anyhow::anyhow!("{error}"))?,
-        );
-    }
 
-    let manifest = CanaryEvidenceManifest::from_evidence(Some(provider), remote_evidence);
+    let manifest = CanaryEvidenceManifest::from_evidence(Some(provider));
     if let Some(path) = &args.output {
         let export = export_canary_evidence_manifest(path, &manifest)
             .map_err(|error| anyhow::anyhow!("{error}"))?;

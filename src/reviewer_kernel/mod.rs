@@ -1,5 +1,4 @@
 pub(crate) mod agent_loop;
-pub(crate) mod artifacts;
 pub(crate) mod assembly;
 pub(crate) mod autonomous_review;
 pub(crate) mod dispatch;

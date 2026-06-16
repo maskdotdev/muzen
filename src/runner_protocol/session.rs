@@ -28,7 +28,7 @@ use crate::context_engine::{
     ContextQuery, SnapshotContextEngine,
 };
 use crate::review_sessions::{Muzen, ReviewSessionError, WebhookHeaders};
-use crate::reviewer_kernel::kernel_types::{SnapshotId, SnapshotStoragePolicy};
+use crate::reviewer_kernel::kernel_types::{SnapshotCapturePolicy, SnapshotId};
 use crate::reviewer_kernel::review_contract::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
     RenameDetection, SnapshotMode,
@@ -876,11 +876,11 @@ fn build_context_snapshot(
         rename_detection: RenameDetection::None,
         changed_files,
     };
-    RepoSnapshot::build_with_storage(
+    RepoSnapshot::build_with_capture_policy(
         repo,
         &PathPolicyV1::bench(200, 120),
         &change,
-        SnapshotStoragePolicy::default(),
+        SnapshotCapturePolicy::default(),
     )
     .map_err(|error| JsonRpcError::runner_error(error.to_string()))
 }

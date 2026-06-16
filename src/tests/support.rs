@@ -1069,24 +1069,9 @@ pub fn passing_canary_manifest_at(
     generated_at_utc: &str,
 ) -> crate::operational_proof::canaries::CanaryEvidenceManifest {
     let model_provider = passing_model_provider_canary_evidence_at(generated_at_utc);
-    let snapshot_client =
-        Arc::new(crate::reviewer_kernel::snapshots::InMemoryRemoteSnapshotObjectClient::default());
-    let artifact_client =
-        Arc::new(crate::reviewer_kernel::artifacts::InMemoryRemoteArtifactObjectClient::default());
-    let mut snapshot = crate::operational_proof::canaries::run_remote_snapshot_object_store_canary(
-        "s3://muzen-test-snapshots/canary",
-        snapshot_client.as_ref(),
-    );
-    let mut artifact = crate::operational_proof::canaries::run_remote_artifact_object_store_canary(
-        "s3://muzen-test-artifacts/canary",
-        artifact_client.as_ref(),
-    );
-    snapshot.generated_at_utc = generated_at_utc.to_string();
-    artifact.generated_at_utc = generated_at_utc.to_string();
     crate::operational_proof::canaries::CanaryEvidenceManifest::with_generated_at(
         generated_at_utc,
         Some(model_provider),
-        vec![snapshot, artifact],
     )
 }
 

@@ -16,7 +16,7 @@ use crate::remote_http::{
     ReviewHttpRequest, ReviewHttpResponse, ReviewHttpRouteError, HTTP_STATUS_OK,
 };
 use crate::review_sources::ReviewSource;
-use crate::reviewer_kernel::kernel_types::{EvidenceId, RuntimeError, SnapshotStoragePolicy};
+use crate::reviewer_kernel::kernel_types::{EvidenceId, RuntimeError, SnapshotCapturePolicy};
 use crate::reviewer_kernel::review_contract::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
     RenameDetection, SnapshotMode,
@@ -440,11 +440,11 @@ fn build_snapshot_from_source(
         rename_detection: RenameDetection::None,
         changed_files,
     };
-    RepoSnapshot::build_with_storage(
+    RepoSnapshot::build_with_capture_policy(
         &root,
         &PathPolicyV1::bench(200, 120),
         &change,
-        SnapshotStoragePolicy::default(),
+        SnapshotCapturePolicy::default(),
     )
     .map_err(|error| ReviewHttpRouteError::BadRequest(error.to_string()))
 }

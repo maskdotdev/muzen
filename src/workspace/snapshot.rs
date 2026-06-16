@@ -18,8 +18,8 @@ pub(crate) struct RepoSnapshot {
     pub(crate) source_root: PathBuf,
     pub(crate) manifest_hash: String,
     pub(crate) path_policy_hash: String,
-    pub(crate) storage_policy_hash: String,
-    pub(crate) storage_policy: SnapshotStoragePolicy,
+    pub(crate) capture_policy_hash: String,
+    pub(crate) capture_policy: SnapshotCapturePolicy,
     pub(crate) capture_skipped_files: usize,
     pub(crate) capture_skipped_bytes: u64,
     pub(crate) manifest: Arc<FileManifest>,
@@ -41,68 +41,10 @@ pub(crate) struct FileMeta {
     pub(crate) size: u64,
     pub(crate) fingerprint: String,
     pub(crate) content_hash: Option<String>,
-    pub(crate) snapshot_content: Option<SnapshotContentRef>,
+    pub(crate) snapshot_content: Option<Arc<[u8]>>,
     pub(crate) capture_status: SnapshotCaptureStatus,
     pub(crate) is_changed: bool,
     pub(crate) is_text_candidate: bool,
-}
-
-#[derive(Clone)]
-pub(crate) enum SnapshotContentRef {
-    Memory(Arc<[u8]>),
-    ContentAddressedFile {
-        path: PathBuf,
-        bytes: usize,
-    },
-    RemoteObject {
-        uri: String,
-        bytes: usize,
-        store: Arc<dyn SnapshotObjectStore>,
-    },
-}
-
-impl std::fmt::Debug for SnapshotContentRef {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Memory(bytes) => formatter
-                .debug_struct("Memory")
-                .field("bytes", &bytes.len())
-                .finish(),
-            Self::ContentAddressedFile { path, bytes } => formatter
-                .debug_struct("ContentAddressedFile")
-                .field("path", path)
-                .field("bytes", bytes)
-                .finish(),
-            Self::RemoteObject { uri, bytes, .. } => formatter
-                .debug_struct("RemoteObject")
-                .field("uri", uri)
-                .field("bytes", bytes)
-                .finish_non_exhaustive(),
-        }
-    }
-}
-
-impl SnapshotContentRef {
-    pub(crate) fn len(&self) -> usize {
-        match self {
-            Self::Memory(bytes) => bytes.len(),
-            Self::ContentAddressedFile { bytes, .. } => *bytes,
-            Self::RemoteObject { bytes, .. } => *bytes,
-        }
-    }
-
-    fn read(&self) -> RuntimeResult<Vec<u8>> {
-        match self {
-            Self::Memory(bytes) => Ok(bytes.to_vec()),
-            Self::ContentAddressedFile { path, .. } => fs::read(path)
-                .map_err(|error| RuntimeError::RepoUnavailable(format!("read failed: {error}"))),
-            Self::RemoteObject { uri, store, .. } => {
-                store.read_snapshot_object(uri)?.ok_or_else(|| {
-                    RuntimeError::RepoUnavailable("remote snapshot object missing".to_string())
-                })
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,14 +72,14 @@ impl RepoSnapshot {
         policy: &PathPolicyV1,
         change: &ChangeScopeV1,
     ) -> RuntimeResult<Arc<Self>> {
-        Self::build_with_storage(root, policy, change, SnapshotStoragePolicy::default())
+        Self::build_with_capture_policy(root, policy, change, SnapshotCapturePolicy::default())
     }
 
-    pub(crate) fn build_with_storage(
+    pub(crate) fn build_with_capture_policy(
         root: &Path,
         policy: &PathPolicyV1,
         change: &ChangeScopeV1,
-        storage_policy: SnapshotStoragePolicy,
+        capture_policy: SnapshotCapturePolicy,
     ) -> RuntimeResult<Arc<Self>> {
         let root_path = fs::canonicalize(root).map_err(|error| {
             RuntimeError::RepoUnavailable(format!(
@@ -228,7 +170,7 @@ impl RepoSnapshot {
             let (captured, capture_status) = if can_read_text {
                 let budgeted_size = usize::try_from(size).unwrap_or(usize::MAX);
                 if captured_text_bytes.saturating_add(budgeted_size)
-                    > storage_policy.max_captured_text_bytes
+                    > capture_policy.max_captured_text_bytes
                 {
                     capture_skipped_files += 1;
                     capture_skipped_bytes += size;
@@ -247,9 +189,7 @@ impl RepoSnapshot {
                 (None, SnapshotCaptureStatus::NotTextCandidate)
             };
             let content_hash = captured.as_ref().map(|content| content.hash.clone());
-            let snapshot_content = captured
-                .map(|content| capture_snapshot_content(&storage_policy, content))
-                .transpose()?;
+            let snapshot_content = captured.map(capture_snapshot_content);
             let is_text_candidate = snapshot_content.is_some();
             let is_changed = changed_paths.contains(&repo_path.display());
             let file_id = FileId(files.len() as u32);
@@ -288,7 +228,7 @@ impl RepoSnapshot {
 
         let diff = Arc::new(build_diff(change));
         let path_policy_hash = path_policy_hash(policy);
-        let storage_policy_hash = storage_policy_hash(&storage_policy);
+        let capture_policy_hash = capture_policy_hash(&capture_policy);
         let manifest_hash = stable_id(
             &files
                 .iter()
@@ -312,7 +252,7 @@ impl RepoSnapshot {
             &diff.content_hash,
             &manifest_hash,
             &path_policy_hash,
-            &storage_policy_hash,
+            &capture_policy_hash,
             &CONCURRENT_CONTRACT_VERSION.to_string(),
             &REDACTION_POLICY_VERSION.to_string(),
         ]));
@@ -327,8 +267,8 @@ impl RepoSnapshot {
             source_root: root_path,
             manifest_hash,
             path_policy_hash,
-            storage_policy_hash,
-            storage_policy,
+            capture_policy_hash,
+            capture_policy,
             capture_skipped_files,
             capture_skipped_bytes,
             manifest,
@@ -389,7 +329,7 @@ impl RepoSnapshot {
         if content.len() > max_bytes {
             return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
         }
-        let bytes = content.read()?;
+        let bytes = content.to_vec();
         let expected_hash = file.content_hash.as_ref().ok_or(RuntimeError::Invariant(
             "text candidate missing snapshot content hash",
         ))?;
@@ -427,59 +367,8 @@ fn snapshot_file_content(path: &Path, max_bytes: usize) -> RuntimeResult<Capture
     })
 }
 
-fn capture_snapshot_content(
-    policy: &SnapshotStoragePolicy,
-    content: CapturedFileContent,
-) -> RuntimeResult<SnapshotContentRef> {
-    match &policy.mode {
-        SnapshotStorageMode::Memory => Ok(SnapshotContentRef::Memory(Arc::from(
-            content.bytes.into_boxed_slice(),
-        ))),
-        SnapshotStorageMode::ContentAddressedDirectory { root } => {
-            let path = content_addressed_path(root, &content.hash);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    RuntimeError::RepoUnavailable(format!(
-                        "failed to create snapshot content store: {error}"
-                    ))
-                })?;
-            }
-            fs::write(&path, &content.bytes).map_err(|error| {
-                RuntimeError::RepoUnavailable(format!(
-                    "failed to write snapshot content store: {error}"
-                ))
-            })?;
-            Ok(SnapshotContentRef::ContentAddressedFile {
-                path,
-                bytes: content.bytes.len(),
-            })
-        }
-        SnapshotStorageMode::RemoteObjectStore { base_uri } => {
-            let store = policy.remote_store().ok_or(RuntimeError::InvalidInput(
-                "remote snapshot storage requires a snapshot object store".to_string(),
-            ))?;
-            let uri = remote_content_addressed_uri(base_uri, &content.hash)?;
-            let bytes = content.bytes.len();
-            store.put_snapshot_object(&uri, content.bytes)?;
-            Ok(SnapshotContentRef::RemoteObject { uri, bytes, store })
-        }
-    }
-}
-
-fn content_addressed_path(root: &Path, hash: &str) -> PathBuf {
-    let prefix = hash.get(..2).unwrap_or("00");
-    root.join(prefix).join(hash)
-}
-
-pub(crate) fn remote_content_addressed_uri(base_uri: &str, hash: &str) -> RuntimeResult<String> {
-    if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(RuntimeError::RepoAccessDenied);
-    }
-    Ok(format!(
-        "{}/snapshots/{}",
-        base_uri.trim_end_matches('/'),
-        hash
-    ))
+fn capture_snapshot_content(content: CapturedFileContent) -> Arc<[u8]> {
+    Arc::from(content.bytes.into_boxed_slice())
 }
 
 fn content_hash(bytes: &[u8]) -> String {
@@ -520,22 +409,12 @@ fn path_policy_hash(policy: &PathPolicyV1) -> String {
     stable_id(&refs)
 }
 
-fn storage_policy_hash(policy: &SnapshotStoragePolicy) -> String {
+fn capture_policy_hash(policy: &SnapshotCapturePolicy) -> String {
     let mut parts = Vec::new();
     parts.push(format!(
         "max_captured_text_bytes={}",
         policy.max_captured_text_bytes
     ));
-    match &policy.mode {
-        SnapshotStorageMode::Memory => parts.push("mode=memory".to_string()),
-        SnapshotStorageMode::ContentAddressedDirectory { root } => parts.push(format!(
-            "mode=content_addressed_directory:{}",
-            root.to_string_lossy().replace('\\', "/")
-        )),
-        SnapshotStorageMode::RemoteObjectStore { base_uri } => {
-            parts.push(format!("mode=remote_object_store:{base_uri}"))
-        }
-    }
     let refs = parts.iter().map(String::as_str).collect::<Vec<_>>();
     stable_id(&refs)
 }
