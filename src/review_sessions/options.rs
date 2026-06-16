@@ -5,12 +5,6 @@ use serde_json::Value;
 
 use crate::context_engine::ContextEngineConfig;
 use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
-use crate::runner_protocol::{
-    RunAgentBudgetParams, RunChangeFileParams, RunChangeParams, RunInstructionParams,
-    RunLimitParams, RunModelParams, RunSessionParams, RunSourceProviderParams, RunToolParams,
-};
-#[cfg(not(test))]
-use crate::runner_protocol::{RunModelCredentialParams, RunModelProfileParams};
 
 use super::ReviewSource;
 
@@ -63,111 +57,8 @@ impl Default for ReviewOptions {
 }
 
 impl ReviewOptions {
-    pub(crate) fn runner_sessions(&self) -> Vec<RunSessionParams> {
-        self.sessions
-            .iter()
-            .map(|session| session.to_runner_session(self.model.as_deref()))
-            .collect()
-    }
-
-    pub(crate) fn runner_instructions(&self) -> Vec<RunInstructionParams> {
-        self.instructions
-            .iter()
-            .map(ReviewInstruction::to_runner_instruction)
-            .collect()
-    }
-
-    pub(crate) fn runner_tools(&self) -> Vec<RunToolParams> {
-        self.tools
-            .iter()
-            .map(ReviewToolOption::to_runner_tool)
-            .collect()
-    }
-
-    pub(crate) fn runner_change(&self) -> Option<RunChangeParams> {
-        self.change.as_ref().map(ReviewChangeSpec::to_runner_change)
-    }
-
-    pub(crate) fn runner_changed_files(&self, source: &ReviewSource) -> Vec<String> {
-        if !self.scope.files.is_empty() {
-            return self.scope.files.clone();
-        }
-        if let Some(change) = &self.change {
-            let changed_files = change.changed_file_paths();
-            if !changed_files.is_empty() {
-                return changed_files;
-            }
-        }
-        source.runner_changed_files(&self.scope)
-    }
-
-    pub(crate) fn runner_source_provider(&self) -> Option<RunSourceProviderParams> {
-        self.config_snapshot.as_ref().and_then(|snapshot| {
-            snapshot
-                .routing
-                .get("provider.baseUrl")
-                .map(|base_url| RunSourceProviderParams {
-                    base_url: Some(base_url.clone()),
-                    callback: false,
-                })
-        })
-    }
-
-    pub(crate) fn runner_model(&self) -> Option<RunModelParams> {
-        #[cfg(test)]
-        {
-            Some(RunModelParams {
-                callback: false,
-                default_model_profile_id: None,
-                model_profiles: Vec::new(),
-            })
-        }
-        #[cfg(not(test))]
-        {
-            self.hosted_runner_model()
-        }
-    }
-
-    #[cfg(not(test))]
-    pub(crate) fn hosted_runner_model(&self) -> Option<RunModelParams> {
-        let snapshot = self.config_snapshot.as_ref()?;
-        let profile = snapshot.model_profile.as_ref()?;
-        let provider = snapshot.routing.get("model.provider")?.clone();
-        let model = snapshot.routing.get("model.name")?.clone();
-        Some(RunModelParams {
-            callback: false,
-            default_model_profile_id: Some(profile.id.clone()),
-            model_profiles: vec![RunModelProfileParams {
-                id: profile.id.clone(),
-                provider,
-                model,
-                credential: profile.secret_ref.as_deref().map(model_credential_from_ref),
-                base_url: snapshot.routing.get("model.baseUrl").cloned(),
-                api_protocol: Some("responses".to_string()),
-                max_input_tokens: None,
-                max_output_tokens: None,
-                temperature: None,
-                top_p: None,
-            }],
-        })
-    }
-
     pub(crate) fn dedupe_key(&self, source: &ReviewSource) -> Option<String> {
         self.dedupe.key_for_source(source, &self.metadata)
-    }
-}
-
-#[cfg(not(test))]
-fn model_credential_from_ref(secret_ref: &str) -> RunModelCredentialParams {
-    if let Some(env) = secret_ref.strip_prefix("env:") {
-        return RunModelCredentialParams {
-            env: Some(env.to_string()),
-            secret_ref: None,
-        };
-    }
-    RunModelCredentialParams {
-        env: None,
-        secret_ref: Some(secret_ref.to_owned()),
     }
 }
 
@@ -232,47 +123,12 @@ pub struct ReviewChangeSpec {
     pub metadata: BTreeMap<String, Value>,
 }
 
-impl ReviewChangeSpec {
-    fn changed_file_paths(&self) -> Vec<String> {
-        self.changed_files
-            .iter()
-            .map(|file| file.path.clone())
-            .collect()
-    }
-
-    fn to_runner_change(&self) -> RunChangeParams {
-        RunChangeParams {
-            kind: self.kind.clone(),
-            base_revision: self.base_revision.clone(),
-            start_revision: self.start_revision.clone(),
-            head_revision: self.head_revision.clone(),
-            changed_files: self
-                .changed_files
-                .iter()
-                .map(ReviewChangedFile::to_runner_changed_file)
-                .collect(),
-            diff: self.diff.clone(),
-            review_target: self.review_target.clone(),
-            metadata: self.metadata.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewChangedFile {
     pub path: String,
     #[serde(default)]
     pub status: Option<String>,
-}
-
-impl ReviewChangedFile {
-    fn to_runner_changed_file(&self) -> RunChangeFileParams {
-        RunChangeFileParams {
-            path: self.path.clone(),
-            status: self.status.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,16 +138,6 @@ pub struct ReviewInstruction {
     pub text: String,
     #[serde(default)]
     pub trusted: bool,
-}
-
-impl ReviewInstruction {
-    fn to_runner_instruction(&self) -> RunInstructionParams {
-        RunInstructionParams {
-            kind: self.kind.clone(),
-            text: self.text.clone(),
-            trusted: self.trusted,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -306,19 +152,6 @@ pub struct ReviewToolOption {
     pub cacheable: bool,
     #[serde(default)]
     pub provider_resources: Vec<String>,
-}
-
-impl ReviewToolOption {
-    fn to_runner_tool(&self) -> RunToolParams {
-        RunToolParams {
-            id: self.id.clone(),
-            description: self.description.clone(),
-            parameters: self.parameters.clone(),
-            effects: self.effects.clone(),
-            cacheable: self.cacheable,
-            provider_resources: self.provider_resources.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,32 +192,6 @@ impl ReviewAgentSession {
             budget: None,
         }
     }
-
-    fn to_runner_session(&self, default_model: Option<&str>) -> RunSessionParams {
-        RunSessionParams {
-            id: self.id.clone(),
-            role: self.role,
-            objective: self.objective.clone(),
-            cwd: self.cwd.clone(),
-            model_profile_id: self
-                .model_profile_id
-                .clone()
-                .or_else(|| default_model.map(str::to_string)),
-            response_format: None,
-            instructions: self
-                .instructions
-                .iter()
-                .map(ReviewInstruction::to_runner_instruction)
-                .collect(),
-            tool_grants: self.tool_grants.clone(),
-            budget: self.budget.as_ref().map(|budget| RunAgentBudgetParams {
-                max_turns: budget.max_turns,
-                max_tool_calls: budget.max_tool_calls,
-                max_prompt_tokens: budget.max_prompt_tokens,
-                max_output_tokens: budget.max_output_tokens,
-            }),
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -396,21 +203,6 @@ pub struct ReviewLimits {
     pub max_file_bytes: Option<usize>,
     #[serde(default)]
     pub max_search_matches: Option<usize>,
-}
-
-impl ReviewLimits {
-    pub(crate) fn into_runner_limits(self) -> RunLimitParams {
-        RunLimitParams {
-            max_active_sessions: self.max_active_sessions,
-            max_child_sessions: None,
-            max_file_bytes: self.max_file_bytes,
-            max_search_matches: self.max_search_matches,
-            orchestrator_model_profile_id: None,
-            search_model_profile_id: None,
-            explore_model_profile_id: None,
-            validator_model_profile_id: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

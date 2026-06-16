@@ -19,6 +19,7 @@ mod config;
 mod options;
 mod outcome;
 mod profiles;
+mod runner_mapping;
 mod session;
 mod store;
 mod webhooks;

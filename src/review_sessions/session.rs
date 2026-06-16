@@ -1,20 +1,15 @@
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::reviewer_kernel::system::timestamp_utc;
-use crate::runner_protocol::{
-    execute_run_start, RunStartParams, RunnerArtifactView, RUNNER_PROTOCOL_VERSION,
-};
+use crate::runner_protocol::{execute_run_start, RunStartParams, RunnerArtifactView};
 
 use super::{
     EffectiveConfigSnapshot, ReviewArtifact, ReviewArtifactExport, ReviewArtifactExportOptions,
     ReviewArtifactReadOptions, ReviewArtifactView, ReviewCancelOptions, ReviewEvent,
-    ReviewEventType, ReviewLimits, ReviewOptions, ReviewResult, ReviewSessionError,
-    ReviewSessionId, ReviewSessionRecord, ReviewSessionSnapshot, ReviewSource, ReviewSourceLike,
-    ReviewStatus,
+    ReviewEventType, ReviewOptions, ReviewResult, ReviewSessionError, ReviewSessionId,
+    ReviewSessionRecord, ReviewSessionSnapshot, ReviewSource, ReviewSourceLike, ReviewStatus,
 };
 
 #[derive(Debug, Clone)]
@@ -333,25 +328,6 @@ impl CreateReviewSessionInput {
         self,
         review_id: &ReviewSessionId,
     ) -> Result<RunStartParams, ReviewSessionError> {
-        let changed_files = self.options.runner_changed_files(&self.source);
-        let repo = self.source.local_repo().map(Path::to_path_buf);
-        let source_provider = self.options.runner_source_provider();
-        Ok(RunStartParams {
-            protocol_version: Some(RUNNER_PROTOCOL_VERSION.to_string()),
-            run_id: Some(review_id.as_str().to_string()),
-            repo,
-            source: Some(self.source),
-            source_provider,
-            changed_files,
-            metadata: self.options.metadata.clone(),
-            change: self.options.runner_change(),
-            instructions: self.options.runner_instructions(),
-            sessions: self.options.runner_sessions(),
-            limits: self.options.limits.map(ReviewLimits::into_runner_limits),
-            model: self.options.runner_model(),
-            tools: self.options.runner_tools(),
-            heartbeat: None,
-            context_engine: self.options.context_engine,
-        })
+        super::runner_mapping::review_input_to_runner_start(self, review_id)
     }
 }
