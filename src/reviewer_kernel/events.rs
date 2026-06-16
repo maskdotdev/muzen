@@ -1,5 +1,3 @@
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -7,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::reviewer_kernel::kernel_types::{
-    ArtifactId, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeResult, SnapshotId,
-    ToolErrorCode,
+    ArtifactId, RuntimeEvent, RuntimeEventContext, SnapshotId, ToolErrorCode,
 };
 
 use crate::reviewer_kernel::system::timestamp_utc;
@@ -467,125 +464,4 @@ impl ReviewEventSink for InMemoryReviewEventSink {
             .expect("review event sink poisoned")
             .push(record);
     }
-}
-
-pub const REVIEW_EVENT_LOG_SCHEMA_VERSION: &str = "heimdaal.review-events.v1";
-
-#[derive(Debug, Clone)]
-pub struct ReviewEventJsonlManifest {
-    pub path: PathBuf,
-    pub schema_version: String,
-    pub record_count: usize,
-    pub bytes: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReviewEventJsonlLoad {
-    pub path: PathBuf,
-    pub schema_version: String,
-    pub record_count: usize,
-    pub records: Vec<ReviewEventRecord>,
-}
-
-pub fn export_review_event_records_jsonl(
-    path: impl AsRef<Path>,
-    records: &[ReviewEventRecord],
-) -> RuntimeResult<ReviewEventJsonlManifest> {
-    write_review_event_records_jsonl(path.as_ref(), records)
-}
-
-pub fn load_review_event_records_jsonl(
-    path: impl AsRef<Path>,
-) -> RuntimeResult<ReviewEventJsonlLoad> {
-    let path = path.as_ref();
-    let text = std::fs::read_to_string(path).map_err(|error| {
-        RuntimeError::RepoUnavailable(format!("failed to read review event log: {error}"))
-    })?;
-    let mut records = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: ReviewEventJsonlRecord = serde_json::from_str(line).map_err(|error| {
-            RuntimeError::InvalidInput(format!(
-                "invalid review event log record at line {}: {error}",
-                index + 1
-            ))
-        })?;
-        if record.schema_version != REVIEW_EVENT_LOG_SCHEMA_VERSION {
-            return Err(RuntimeError::InvalidInput(format!(
-                "unsupported review event log schemaVersion {} at line {}",
-                record.schema_version,
-                index + 1
-            )));
-        }
-        records.push(record.record);
-    }
-    Ok(ReviewEventJsonlLoad {
-        path: path.to_path_buf(),
-        schema_version: REVIEW_EVENT_LOG_SCHEMA_VERSION.to_string(),
-        record_count: records.len(),
-        records,
-    })
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BorrowedReviewEventJsonlRecord<'a> {
-    schema_version: &'static str,
-    #[serde(flatten)]
-    record: &'a ReviewEventRecord,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReviewEventJsonlRecord {
-    schema_version: String,
-    #[serde(flatten)]
-    record: ReviewEventRecord,
-}
-
-fn write_review_event_records_jsonl(
-    path: &Path,
-    records: &[ReviewEventRecord],
-) -> RuntimeResult<ReviewEventJsonlManifest> {
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            RuntimeError::RepoUnavailable(format!(
-                "failed to create review event log directory: {error}"
-            ))
-        })?;
-    }
-    let mut file = std::fs::File::create(path).map_err(|error| {
-        RuntimeError::RepoUnavailable(format!("failed to create review event log: {error}"))
-    })?;
-    let mut bytes = 0usize;
-    for record in records {
-        let line = serde_json::to_vec(&BorrowedReviewEventJsonlRecord {
-            schema_version: REVIEW_EVENT_LOG_SCHEMA_VERSION,
-            record,
-        })
-        .map_err(|error| {
-            RuntimeError::RepoUnavailable(format!("failed to serialize review event log: {error}"))
-        })?;
-        file.write_all(&line).map_err(|error| {
-            RuntimeError::RepoUnavailable(format!("failed to write review event log: {error}"))
-        })?;
-        file.write_all(b"\n").map_err(|error| {
-            RuntimeError::RepoUnavailable(format!("failed to write review event log: {error}"))
-        })?;
-        bytes += line.len() + 1;
-    }
-    file.flush().map_err(|error| {
-        RuntimeError::RepoUnavailable(format!("failed to flush review event log: {error}"))
-    })?;
-    Ok(ReviewEventJsonlManifest {
-        path: path.to_path_buf(),
-        schema_version: REVIEW_EVENT_LOG_SCHEMA_VERSION.to_string(),
-        record_count: records.len(),
-        bytes,
-    })
 }

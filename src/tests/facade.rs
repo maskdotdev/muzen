@@ -115,14 +115,14 @@ fn public_reviewer_facade_runs_mock_review() {
         assert_eq!(record.run_id.as_deref(), Some("public-run"));
     }
     let review_event_log_dir = tempfile::tempdir().unwrap();
-    let review_event_log = crate::reviewer_kernel::events::export_review_event_records_jsonl(
+    let review_event_log = export_test_review_event_records_jsonl(
         review_event_log_dir.path().join("review-events.jsonl"),
         &event_records,
     )
     .unwrap();
     assert_eq!(
         review_event_log.schema_version,
-        crate::reviewer_kernel::events::REVIEW_EVENT_LOG_SCHEMA_VERSION
+        TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION
     );
     assert_eq!(review_event_log.record_count, event_records.len());
     assert!(review_event_log.bytes > 0);
@@ -134,19 +134,18 @@ fn public_reviewer_facade_runs_mock_review() {
         .unwrap();
     assert_eq!(
         first_review_event_line["schemaVersion"].as_str(),
-        Some(crate::reviewer_kernel::events::REVIEW_EVENT_LOG_SCHEMA_VERSION)
+        Some(TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION)
     );
     assert_eq!(
         first_review_event_line["runId"].as_str(),
         Some("public-run")
     );
     let loaded_review_event_log =
-        crate::reviewer_kernel::events::load_review_event_records_jsonl(&review_event_log.path)
-            .unwrap();
+        load_test_review_event_records_jsonl(&review_event_log.path).unwrap();
     assert_eq!(loaded_review_event_log.path, review_event_log.path);
     assert_eq!(
         loaded_review_event_log.schema_version,
-        crate::reviewer_kernel::events::REVIEW_EVENT_LOG_SCHEMA_VERSION
+        TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION
     );
     assert_eq!(loaded_review_event_log.record_count, event_records.len());
     assert_eq!(loaded_review_event_log.records, event_records);
@@ -1229,7 +1228,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
 
 #[test]
 fn public_bounded_event_sink_drops_after_capacity() {
-    let sink = crate::reviewer_kernel::runtime_events::BoundedInMemoryEventSink::new(1);
+    let sink = TestBoundedRuntimeEventSink::new(1);
     crate::reviewer_kernel::runtime_events::EventSink::emit(
         &sink,
         crate::reviewer_kernel::runtime_events::RuntimeEvent::JobStarted {
@@ -1259,15 +1258,14 @@ fn public_bounded_event_sink_drops_after_capacity() {
         .unwrap();
     assert_eq!(event_log.record_count, 1);
     assert_eq!(event_log.dropped_count, 1);
+    assert!(event_log.bytes > 0);
     assert_eq!(
         fs::read_to_string(&event_log.path).unwrap().lines().count(),
         1
     );
 
-    let oldest = crate::reviewer_kernel::runtime_events::BoundedInMemoryEventSink::with_policy(
-        1,
-        crate::reviewer_kernel::runtime_events::EventBackpressurePolicy::DropOldest,
-    );
+    let oldest =
+        TestBoundedRuntimeEventSink::with_policy(1, TestEventBackpressurePolicy::DropOldest);
     crate::reviewer_kernel::runtime_events::EventSink::emit(
         &oldest,
         crate::reviewer_kernel::runtime_events::RuntimeEvent::JobStarted {

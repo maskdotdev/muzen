@@ -1,21 +1,280 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
+use crate::reviewer_kernel::events::ReviewEventRecord;
 use crate::reviewer_kernel::kernel_types::{
     ArtifactKey, CapabilitySet, ConversationItem, LimitInfo, ModelToolCall, ModelTurn,
-    ProviderResourceId, RuntimeError, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId,
-    ToolProviderId, TurnId,
+    ProviderResourceId, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
+    RuntimeEventSink, RuntimeResult, SessionId, SessionScope, ToolCallId, ToolId, ToolProviderId,
+    TurnId,
 };
 use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::*;
+use crate::reviewer_kernel::system::{timestamp_utc, SCHEMA_VERSION};
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, JsonRpcToolRequest,
     JsonRpcToolResponse, JsonRpcToolTransport,
 };
 use async_trait::async_trait;
+
+pub const TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION: &str = "heimdaal.review-events.v1";
+
+#[derive(Debug, Clone)]
+pub struct TestReviewEventJsonlManifest {
+    pub path: PathBuf,
+    pub schema_version: String,
+    pub record_count: usize,
+    pub bytes: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestReviewEventJsonlLoad {
+    pub path: PathBuf,
+    pub schema_version: String,
+    pub record_count: usize,
+    pub records: Vec<ReviewEventRecord>,
+}
+
+pub fn export_test_review_event_records_jsonl(
+    path: impl AsRef<Path>,
+    records: &[ReviewEventRecord],
+) -> RuntimeResult<TestReviewEventJsonlManifest> {
+    if let Some(parent) = path
+        .as_ref()
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            RuntimeError::RepoUnavailable(format!(
+                "failed to create review event log directory: {error}"
+            ))
+        })?;
+    }
+    let mut file = std::fs::File::create(path.as_ref()).map_err(|error| {
+        RuntimeError::RepoUnavailable(format!("failed to create review event log: {error}"))
+    })?;
+    let mut bytes = 0usize;
+    for record in records {
+        let line = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION,
+            "seq": record.seq,
+            "timestampUtc": record.timestamp_utc,
+            "runId": record.run_id,
+            "snapshotId": record.snapshot_id,
+            "sessionId": record.session_id,
+            "turn": record.turn,
+            "toolCallId": record.tool_call_id,
+            "artifactId": record.artifact_id,
+            "findingId": record.finding_id,
+            "event": record.event,
+        }))
+        .map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to serialize review event log: {error}"))
+        })?;
+        file.write_all(&line).map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to write review event log: {error}"))
+        })?;
+        file.write_all(b"\n").map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to write review event log: {error}"))
+        })?;
+        bytes += line.len() + 1;
+    }
+    file.flush().map_err(|error| {
+        RuntimeError::RepoUnavailable(format!("failed to flush review event log: {error}"))
+    })?;
+    Ok(TestReviewEventJsonlManifest {
+        path: path.as_ref().to_path_buf(),
+        schema_version: TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION.to_string(),
+        record_count: records.len(),
+        bytes,
+    })
+}
+
+pub fn load_test_review_event_records_jsonl(
+    path: impl AsRef<Path>,
+) -> RuntimeResult<TestReviewEventJsonlLoad> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        RuntimeError::RepoUnavailable(format!("failed to read review event log: {error}"))
+    })?;
+    let mut records = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: TestReviewEventJsonlRecord = serde_json::from_str(line).map_err(|error| {
+            RuntimeError::InvalidInput(format!(
+                "invalid review event log record at line {}: {error}",
+                index + 1
+            ))
+        })?;
+        if record.schema_version != TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION {
+            return Err(RuntimeError::InvalidInput(format!(
+                "unsupported review event log schemaVersion {} at line {}",
+                record.schema_version,
+                index + 1
+            )));
+        }
+        records.push(record.record);
+    }
+    Ok(TestReviewEventJsonlLoad {
+        path: path.to_path_buf(),
+        schema_version: TEST_REVIEW_EVENT_LOG_SCHEMA_VERSION.to_string(),
+        record_count: records.len(),
+        records,
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestReviewEventJsonlRecord {
+    schema_version: String,
+    #[serde(flatten)]
+    record: ReviewEventRecord,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TestEventBackpressurePolicy {
+    DropNewest,
+    DropOldest,
+}
+
+#[derive(Debug)]
+pub struct TestBoundedRuntimeEventSink {
+    capacity: usize,
+    policy: TestEventBackpressurePolicy,
+    next_seq: AtomicU64,
+    dropped: AtomicUsize,
+    records: Mutex<Vec<RuntimeEventRecord>>,
+}
+
+impl TestBoundedRuntimeEventSink {
+    pub fn new(capacity: usize) -> Self {
+        Self::with_policy(capacity, TestEventBackpressurePolicy::DropNewest)
+    }
+
+    pub fn with_policy(capacity: usize, policy: TestEventBackpressurePolicy) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            policy,
+            next_seq: AtomicU64::new(1),
+            dropped: AtomicUsize::new(0),
+            records: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn records(&self) -> Vec<RuntimeEventRecord> {
+        self.records
+            .lock()
+            .expect("bounded test event sink poisoned")
+            .clone()
+    }
+
+    pub fn dropped_count(&self) -> usize {
+        self.dropped.load(Ordering::Relaxed)
+    }
+
+    pub fn export_jsonl(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> RuntimeResult<TestRuntimeEventJsonlManifest> {
+        export_test_runtime_event_records_jsonl(path, &self.records(), self.dropped_count())
+    }
+
+    fn record(&self, context: RuntimeEventContext, event: RuntimeEvent) {
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+        let mut records = self
+            .records
+            .lock()
+            .expect("bounded test event sink poisoned");
+        if records.len() >= self.capacity {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            match self.policy {
+                TestEventBackpressurePolicy::DropNewest => return,
+                TestEventBackpressurePolicy::DropOldest => {
+                    records.remove(0);
+                }
+            }
+        }
+        records.push(RuntimeEventRecord {
+            seq,
+            timestamp_utc: timestamp_utc(),
+            context,
+            event,
+        });
+    }
+}
+
+impl RuntimeEventSink for TestBoundedRuntimeEventSink {
+    fn emit(&self, event: RuntimeEvent) {
+        let context = RuntimeEventContext::from_event(&event);
+        self.record(context, event);
+    }
+
+    fn emit_with_context(&self, context: RuntimeEventContext, event: RuntimeEvent) {
+        self.record(context, event);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TestRuntimeEventJsonlManifest {
+    pub path: PathBuf,
+    pub record_count: usize,
+    pub dropped_count: usize,
+    pub bytes: usize,
+}
+
+fn export_test_runtime_event_records_jsonl(
+    path: impl AsRef<Path>,
+    records: &[RuntimeEventRecord],
+    dropped_count: usize,
+) -> RuntimeResult<TestRuntimeEventJsonlManifest> {
+    if let Some(parent) = path
+        .as_ref()
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to create event log directory: {error}"))
+        })?;
+    }
+    let mut file = std::fs::File::create(path.as_ref()).map_err(|error| {
+        RuntimeError::RepoUnavailable(format!("failed to create event log: {error}"))
+    })?;
+    let mut bytes = 0usize;
+    for record in records {
+        let line = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": SCHEMA_VERSION,
+            "seq": record.seq,
+            "timestampUtc": record.timestamp_utc,
+            "context": &record.context,
+            "event": &record.event,
+        }))
+        .map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to serialize event log: {error}"))
+        })?;
+        file.write_all(&line).map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to write event log: {error}"))
+        })?;
+        file.write_all(b"\n").map_err(|error| {
+            RuntimeError::RepoUnavailable(format!("failed to write event log: {error}"))
+        })?;
+        bytes += line.len() + 1;
+    }
+    file.flush().map_err(|error| {
+        RuntimeError::RepoUnavailable(format!("failed to flush event log: {error}"))
+    })?;
+    Ok(TestRuntimeEventJsonlManifest {
+        path: path.as_ref().to_path_buf(),
+        record_count: records.len(),
+        dropped_count,
+        bytes,
+    })
+}
 
 #[derive(Debug)]
 pub struct EchoCustomTool;
