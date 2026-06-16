@@ -43,7 +43,6 @@ pub(crate) struct AgentLoopConfig {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AgentLoopReport {
-    pub(crate) session_id: String,
     pub(crate) completed: bool,
     pub(crate) status: String,
     pub(crate) output: Option<String>,
@@ -357,7 +356,6 @@ impl AgentLoopRuntime {
                 model_calls,
                 tool_counts,
             ),
-            session_id: scope.id.0,
             completed,
             status,
             output,
@@ -387,7 +385,6 @@ fn terminal_report(
     status: &str,
 ) -> AgentLoopReport {
     AgentLoopReport {
-        session_id: scope.id.0.clone(),
         completed: false,
         status: status.to_string(),
         output: None,
