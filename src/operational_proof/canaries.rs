@@ -1,26 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
-use crate::reviewer_kernel::kernel_types::{
-    CapabilitySet, ConversationItem, ModelTurn, RuntimeError, RuntimeResult, SessionId,
-    SessionScope, TurnId,
-};
-use crate::reviewer_kernel::model::{
-    ConcurrentModelRouter, CredentialResolver, ModelLimiter, ProfileModelRouter,
-};
-use crate::reviewer_kernel::policy::ReviewerPolicy;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
 
 #[cfg(test)]
 use crate::reviewer_kernel::kernel_types::stable_id;
-use crate::reviewer_kernel::review_contract::{
-    AgentBudget, BudgetSource, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role,
-};
+use crate::reviewer_kernel::review_contract::ModelApiProtocol;
 use crate::reviewer_kernel::system::timestamp_utc;
-use crate::reviewer_kernel::tool_engine::ToolRegistry;
 #[cfg(test)]
 use crate::workspace::remote_content_addressed_uri;
 
@@ -32,55 +20,7 @@ use crate::reviewer_kernel::artifacts::{
 #[cfg(test)]
 use crate::reviewer_kernel::snapshots::{snapshot_content_hash, RemoteSnapshotObjectClient};
 
-const OPENAI_PROVIDER_CANARY_PROMPT: &str = "Return the word ready.";
-const OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS: u32 = 4_096;
 pub const MODEL_PROVIDER_CANARY_EVIDENCE_SCHEMA_VERSION: &str = "muzen.model-provider-canary.v1";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpenAiProviderCanaryConfig {
-    pub enabled: bool,
-    pub base_url: String,
-    pub credential_ref: String,
-    pub model: String,
-    pub max_output_tokens: u32,
-    pub prompt: String,
-}
-
-impl OpenAiProviderCanaryConfig {
-    pub fn from_env(default_model: impl Into<String>) -> Self {
-        let default_model = default_model.into();
-        Self {
-            enabled: std::env::var("MUZEN_RUN_REAL_PROVIDER_CANARY")
-                .or_else(|_| std::env::var("MUZEN_RUN_REAL_PROVIDER_SMOKE"))
-                .ok()
-                .as_deref()
-                == Some("1"),
-            base_url: std::env::var("OPENAI_BASE_URL")
-                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
-            credential_ref: "env:OPENAI_API_KEY".to_string(),
-            model: std::env::var("MUZEN_REAL_PROVIDER_MODEL").unwrap_or(default_model),
-            max_output_tokens: 32,
-            prompt: OPENAI_PROVIDER_CANARY_PROMPT.to_string(),
-        }
-    }
-
-    fn profile_for_protocol(&self, protocol: ModelApiProtocol) -> ModelProfileRefV1 {
-        let protocol_slug = openai_provider_canary_protocol_slug(protocol);
-        ModelProfileRefV1 {
-            id: format!("real-provider-canary-{protocol_slug}"),
-            provider_kind: ProviderKind::OpenaiCompatible,
-            api_protocol: protocol,
-            provider_profile_id: format!("real-provider-canary-openai-{protocol_slug}"),
-            credential_ref: self.credential_ref.clone(),
-            model: self.model.clone(),
-            base_url: None,
-            max_input_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS,
-            max_output_tokens: self.max_output_tokens,
-            temperature: Some(0.0),
-            top_p: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelProviderCanaryReport {
@@ -89,50 +29,6 @@ pub struct ModelProviderCanaryReport {
     pub model: String,
     pub credential_ref: String,
     pub status: ModelProviderCanaryStatus,
-}
-
-impl ModelProviderCanaryReport {
-    fn skipped(
-        protocol: ModelApiProtocol,
-        config: &OpenAiProviderCanaryConfig,
-        reason: impl Into<String>,
-    ) -> Self {
-        Self {
-            protocol,
-            base_url: config.base_url.clone(),
-            model: config.model.clone(),
-            credential_ref: config.credential_ref.clone(),
-            status: ModelProviderCanaryStatus::Skipped {
-                reason: reason.into(),
-            },
-        }
-    }
-
-    fn passed(protocol: ModelApiProtocol, config: &OpenAiProviderCanaryConfig) -> Self {
-        Self {
-            protocol,
-            base_url: config.base_url.clone(),
-            model: config.model.clone(),
-            credential_ref: config.credential_ref.clone(),
-            status: ModelProviderCanaryStatus::Passed,
-        }
-    }
-
-    fn failed(
-        protocol: ModelApiProtocol,
-        config: &OpenAiProviderCanaryConfig,
-        error: impl Into<String>,
-    ) -> Self {
-        Self {
-            protocol,
-            base_url: config.base_url.clone(),
-            model: config.model.clone(),
-            credential_ref: config.credential_ref.clone(),
-            status: ModelProviderCanaryStatus::Failed {
-                error: error.into(),
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,160 +234,6 @@ fn provider_canary_evidence_temp_path(path: &Path) -> RuntimeResult<PathBuf> {
 pub fn openai_provider_canary_protocols() -> &'static [ModelApiProtocol] {
     const PROTOCOLS: &[ModelApiProtocol] = &[ModelApiProtocol::Responses];
     PROTOCOLS
-}
-
-pub(crate) fn openai_provider_canary_profiles(
-    config: &OpenAiProviderCanaryConfig,
-) -> Vec<ModelProfileRefV1> {
-    openai_provider_canary_protocols()
-        .iter()
-        .copied()
-        .map(|protocol| config.profile_for_protocol(protocol))
-        .collect()
-}
-
-pub async fn run_openai_provider_canaries(
-    config: OpenAiProviderCanaryConfig,
-    credential_resolver: Arc<dyn CredentialResolver>,
-) -> Vec<ModelProviderCanaryReport> {
-    let profiles = openai_provider_canary_profiles(&config);
-    if !config.enabled {
-        return profiles
-            .iter()
-            .map(|profile| {
-                ModelProviderCanaryReport::skipped(
-                    profile.api_protocol,
-                    &config,
-                    "disabled: set MUZEN_RUN_REAL_PROVIDER_CANARY=1 to run live provider canaries",
-                )
-            })
-            .collect();
-    }
-    if credential_resolver
-        .resolve_credential(&config.credential_ref)
-        .is_err()
-    {
-        return profiles
-            .iter()
-            .map(|profile| {
-                ModelProviderCanaryReport::skipped(
-                    profile.api_protocol,
-                    &config,
-                    "credential unavailable",
-                )
-            })
-            .collect();
-    }
-    let registry = match ToolRegistry::review_defaults() {
-        Ok(registry) => Arc::new(registry),
-        Err(error) => {
-            return profiles
-                .iter()
-                .map(|profile| {
-                    ModelProviderCanaryReport::failed(
-                        profile.api_protocol,
-                        &config,
-                        format!("failed to build tool registry: {error}"),
-                    )
-                })
-                .collect();
-        }
-    };
-    let limiter = Arc::new(ModelLimiter::new_with_buckets(
-        profiles.len().max(1),
-        profiles.len().max(1),
-        profiles.len().max(1),
-        profiles.len().max(1),
-        1,
-    ));
-    let reviewer_policy = Arc::new(ReviewerPolicy::new());
-    let default_profile_id = profiles
-        .first()
-        .map(|profile| profile.id.clone())
-        .unwrap_or_else(|| "real-provider-canary".to_string());
-    let router = match ProfileModelRouter::from_profiles(
-        &profiles,
-        default_profile_id,
-        config.base_url.clone(),
-        limiter,
-        registry,
-        reviewer_policy,
-        credential_resolver,
-    ) {
-        Ok(router) => router,
-        Err(error) => {
-            return profiles
-                .iter()
-                .map(|profile| {
-                    ModelProviderCanaryReport::failed(
-                        profile.api_protocol,
-                        &config,
-                        error.to_string(),
-                    )
-                })
-                .collect();
-        }
-    };
-    let mut reports = Vec::with_capacity(profiles.len());
-    for profile in profiles {
-        reports.push(run_openai_provider_canary(&router, profile, &config).await);
-    }
-    reports
-}
-
-async fn run_openai_provider_canary(
-    router: &ProfileModelRouter,
-    profile: ModelProfileRefV1,
-    config: &OpenAiProviderCanaryConfig,
-) -> ModelProviderCanaryReport {
-    let protocol = profile.api_protocol;
-    let scope = openai_provider_canary_scope(profile.id.clone(), config.max_output_tokens);
-    let client = match router.client_for(&scope).await {
-        Ok(client) => client,
-        Err(error) => {
-            return ModelProviderCanaryReport::failed(protocol, config, error.to_string());
-        }
-    };
-    let transcript = [ConversationItem::User {
-        content: config.prompt.clone(),
-    }];
-    match client
-        .complete(&scope, &transcript, TurnId(0), CancellationToken::new())
-        .await
-    {
-        Ok(turn) if model_turn_has_payload(&turn) => {
-            ModelProviderCanaryReport::passed(protocol, config)
-        }
-        Ok(_) => ModelProviderCanaryReport::failed(protocol, config, "empty model response"),
-        Err(error) => ModelProviderCanaryReport::failed(protocol, config, error.to_string()),
-    }
-}
-
-fn openai_provider_canary_scope(profile_id: String, max_output_tokens: u32) -> SessionScope {
-    SessionScope {
-        id: SessionId(format!("real-provider-canary-{profile_id}")),
-        role: Role::Generalist,
-        objective: "real-provider protocol canary".to_string(),
-        instructions: Vec::new(),
-        snapshot_id: None,
-        model_profile_id: Some(profile_id),
-        response_format: None,
-        capabilities: CapabilitySet::review_read_only(),
-        budget: AgentBudget {
-            max_turns: 1,
-            max_tool_calls: 1,
-            max_prompt_tokens: OPENAI_PROVIDER_CANARY_MAX_INPUT_TOKENS as u64,
-            max_output_tokens: max_output_tokens as u64,
-            budget_source: BudgetSource::RunReserve,
-        },
-    }
-}
-
-fn model_turn_has_payload(turn: &ModelTurn) -> bool {
-    match turn {
-        ModelTurn::Text { content, .. } => !content.trim().is_empty(),
-        ModelTurn::ToolCalls { calls, .. } => !calls.is_empty(),
-    }
 }
 
 fn openai_provider_canary_protocol_slug(protocol: ModelApiProtocol) -> &'static str {
