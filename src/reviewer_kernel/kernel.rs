@@ -214,6 +214,7 @@ impl Run {
         RunBuilder::new(spec)
     }
 
+    #[cfg(test)]
     pub async fn execute(self) -> RunReport {
         self.execute_with_cancel(Cancellation::new()).await
     }

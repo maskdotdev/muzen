@@ -69,11 +69,13 @@ impl SessionScope {
         }
     }
 
+    #[cfg(test)]
     pub fn with_snapshot_id(mut self, snapshot_id: SnapshotId) -> Self {
         self.snapshot_id = Some(snapshot_id);
         self
     }
 
+    #[cfg(test)]
     pub fn with_response_format(mut self, response_format: ModelResponseFormat) -> Self {
         self.response_format = Some(response_format);
         self

@@ -31,6 +31,7 @@ impl SnapshotSpec {
         }
     }
 
+    #[cfg(test)]
     pub fn with_snapshot_id(mut self, snapshot_id: SnapshotId) -> Self {
         self.snapshot_id = Some(snapshot_id);
         self
@@ -41,6 +42,7 @@ impl SnapshotSpec {
         self
     }
 
+    #[cfg(test)]
     pub fn with_capture_limit(mut self, max_captured_text_bytes: usize) -> Self {
         self.capture_policy = SnapshotCapturePolicy::new(max_captured_text_bytes);
         self
@@ -297,6 +299,7 @@ pub struct ChangedFileSpec {
 }
 
 impl ChangedFileSpec {
+    #[cfg(test)]
     pub fn modified(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         Self {
