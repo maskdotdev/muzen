@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 
 use crate::reviewer_kernel::kernel_types::ModelResponseFormat;
 
-use super::{session_kind_name, DelegateTaskKind, SessionKind};
+use super::sessions::{session_kind_name, SessionKind};
+use super::tasks::DelegateTaskKind;
 
 pub(super) fn orchestrator_response_format() -> ModelResponseFormat {
     ModelResponseFormat::json_schema(

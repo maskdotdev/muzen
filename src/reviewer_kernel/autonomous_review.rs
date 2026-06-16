@@ -13,28 +13,36 @@ use tokio_util::sync::CancellationToken;
 mod diff_risk;
 mod finding_filters;
 mod schemas;
+mod sessions;
 mod tasks;
 
 #[cfg(test)]
 use diff_risk::diff_risk_inventory;
 use diff_risk::{format_diff_risk_inventory, truncate_chars};
 use finding_filters::{autonomous_candidate_rejection_reason, changed_line_ranges_by_path};
+#[cfg(test)]
+use schemas::session_output_valid;
 use schemas::{
     child_final_instruction, child_response_format, orchestrator_final_instruction,
-    orchestrator_response_format, schema_repair_instruction, session_output_valid,
+    orchestrator_response_format,
 };
+use sessions::{autonomous_orchestrator_budget, run_session_loop, SessionKind, SessionRunConfig};
+#[cfg(test)]
+use sessions::{session_turn_guard, should_force_final_turn};
 use tasks::{
     parse_delegate_request, DelegateTaskKind, DelegateTaskRequest, EXPLORE_CODE_TOOL,
     SEARCH_CODE_TOOL, VALIDATE_FINDING_TOOL,
 };
 
-use crate::reviewer_kernel::agent_loop::{AgentLoopConfig, AgentLoopReport, AgentLoopRuntime};
+use crate::reviewer_kernel::agent_loop::{AgentLoopReport, AgentLoopRuntime};
 use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
 use crate::reviewer_kernel::policy::ReviewerPolicy;
+#[cfg(test)]
+use crate::reviewer_kernel::review_contract::BudgetSource;
 use crate::reviewer_kernel::review_contract::{
-    AgentBudget, ArtifactKind, BudgetSource, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
+    AgentBudget, ArtifactKind, ChallengeStatus, EvidenceLocationV1, EvidenceRefV1,
     EvidenceRevision, FileReviewV1, FindingPublishability, FindingSeverity, FindingV1, LineRangeV1,
     RedactionMetadataV1, RedactionState, ReportStatus, ReviewCoverage, ReviewVerdict, Role,
     TokenUsage, ToolCounts, ValidationStatus,
@@ -49,10 +57,7 @@ use crate::workspace::RepoSnapshot;
 
 const ORCHESTRATOR_SESSION_ID: &str = "review-orchestrator";
 const DEFAULT_MAX_CHILD_SESSIONS: usize = 32;
-const DEFAULT_SCHEMA_REPAIR_ATTEMPTS: usize = 1;
 const MAX_DIFF_RISK_ENTRIES: usize = 40;
-const MIN_ORCHESTRATOR_MODEL_TURN_GUARD: usize = 16;
-const MAX_ORCHESTRATOR_MODEL_TURN_GUARD: usize = 256;
 
 #[derive(Clone, Default)]
 pub(crate) struct AutonomousDelegateHost {
@@ -197,7 +202,7 @@ impl AutonomousDelegateState {
         self.child_reports.lock().clone()
     }
 
-    fn agent_loop_runtime(&self) -> AgentLoopRuntime {
+    pub(super) fn agent_loop_runtime(&self) -> AgentLoopRuntime {
         AgentLoopRuntime {
             model_router: Arc::clone(&self.model_router),
             tools: Arc::clone(&self.tools),
@@ -523,100 +528,6 @@ async fn run_child_delegate(
     Ok(packet)
 }
 
-#[derive(Clone)]
-struct SessionRunConfig {
-    scope: SessionScope,
-    kind: SessionKind,
-    task_packet: Option<String>,
-    response_format: ModelResponseFormat,
-    final_instruction: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SessionKind {
-    Orchestrator,
-    Child(DelegateTaskKind),
-}
-
-async fn run_session_loop(
-    state: Arc<AutonomousDelegateState>,
-    config: SessionRunConfig,
-    cancel: CancellationToken,
-) -> AgentLoopReport {
-    let kind = config.kind;
-    let turn_guard = session_turn_guard(kind, &config.scope.budget);
-    state
-        .agent_loop_runtime()
-        .run_session_loop(
-            AgentLoopConfig {
-                scope: config.scope,
-                task_packet: config.task_packet,
-                trace_kind: session_kind_name(kind),
-                completion_kind: "autonomous_review_session",
-                response_format: config.response_format,
-                final_instruction: config.final_instruction,
-                turn_guard,
-                should_force_final_turn: Box::new(move |turn_index, tool_calls_used, budget| {
-                    should_force_final_turn(kind, turn_index, turn_guard, tool_calls_used, budget)
-                }),
-                output_valid: Box::new(move |output| session_output_valid(kind, output)),
-                schema_repair_instruction: Box::new(move |attempt, max_attempts| {
-                    schema_repair_instruction(kind, attempt, max_attempts)
-                }),
-                schema_repair_attempts: DEFAULT_SCHEMA_REPAIR_ATTEMPTS,
-            },
-            cancel,
-        )
-        .await
-}
-
-fn session_kind_name(kind: SessionKind) -> &'static str {
-    match kind {
-        SessionKind::Orchestrator => "orchestrator",
-        SessionKind::Child(DelegateTaskKind::SearchCode) => "search_code",
-        SessionKind::Child(DelegateTaskKind::ExploreCode) => "explore_code",
-        SessionKind::Child(DelegateTaskKind::ValidateFinding) => "validate_finding",
-    }
-}
-
-fn session_turn_guard(kind: SessionKind, budget: &AgentBudget) -> usize {
-    match kind {
-        SessionKind::Orchestrator => budget
-            .max_turns
-            .max(
-                budget
-                    .max_tool_calls
-                    .saturating_add(1 + DEFAULT_SCHEMA_REPAIR_ATTEMPTS),
-            )
-            .clamp(
-                MIN_ORCHESTRATOR_MODEL_TURN_GUARD,
-                MAX_ORCHESTRATOR_MODEL_TURN_GUARD,
-            ),
-        SessionKind::Child(_) => budget.max_turns.max(1),
-    }
-}
-
-fn should_force_final_turn(
-    kind: SessionKind,
-    turn_index: usize,
-    turn_guard: usize,
-    tool_calls_used: usize,
-    budget: &AgentBudget,
-) -> bool {
-    if tool_calls_used >= budget.max_tool_calls {
-        return true;
-    }
-    match kind {
-        SessionKind::Orchestrator => turn_index >= turn_guard.saturating_sub(1),
-        SessionKind::Child(_) => {
-            let turn_limit = budget.max_turns.max(1);
-            let reserved_final_turns = (1 + DEFAULT_SCHEMA_REPAIR_ATTEMPTS).min(turn_limit);
-            let finalization_start = turn_limit.saturating_sub(reserved_final_turns);
-            turn_index >= finalization_start
-        }
-    }
-}
-
 fn neutral_starter_context(snapshot: &RepoSnapshot, instructions: &[SessionInstruction]) -> String {
     let changed_files = snapshot
         .manifest
@@ -648,20 +559,6 @@ fn neutral_starter_context(snapshot: &RepoSnapshot, instructions: &[SessionInstr
             &instruction_text
         }
     )
-}
-
-fn autonomous_orchestrator_budget(
-    mut budget: AgentBudget,
-    changed_file_count: usize,
-) -> AgentBudget {
-    if budget.budget_source == BudgetSource::CallerHardCap {
-        return budget;
-    }
-    let target_tool_calls = changed_file_count.saturating_mul(4).clamp(48, 96);
-    budget.max_tool_calls = budget.max_tool_calls.max(target_tool_calls);
-    budget.max_prompt_tokens = budget.max_prompt_tokens.max(96_000);
-    budget.budget_source = BudgetSource::AdaptiveReview;
-    budget
 }
 
 fn child_task_packet(
