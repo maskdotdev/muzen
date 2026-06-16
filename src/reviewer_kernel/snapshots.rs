@@ -460,7 +460,6 @@ impl SnapshotManifest {
             .iter()
             .map(|file| SnapshotFile {
                 path: file.rel_path.clone(),
-                size: file.size,
                 content_hash: file.content_hash.clone(),
                 is_changed: file.is_changed,
                 is_text_candidate: file.is_text_candidate,
@@ -482,7 +481,6 @@ impl SnapshotManifest {
             .iter()
             .map(|file| SnapshotChangedFile {
                 path: file.rel_path.clone(),
-                summary: file.summary.clone(),
             })
             .collect::<Vec<_>>();
         Self {
@@ -506,7 +504,6 @@ impl SnapshotManifest {
 #[derive(Debug, Clone)]
 pub struct SnapshotFile {
     pub path: RepoPath,
-    pub size: u64,
     pub content_hash: Option<String>,
     pub is_changed: bool,
     pub is_text_candidate: bool,
@@ -523,7 +520,6 @@ impl SnapshotFile {
 #[derive(Debug, Clone)]
 pub struct SnapshotChangedFile {
     pub path: RepoPath,
-    pub summary: String,
 }
 
 #[derive(Debug, Clone)]
