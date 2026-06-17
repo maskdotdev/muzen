@@ -284,61 +284,8 @@ impl RunnerStdioSession {
                     }
                 }
             }
-            "run.status" => {
-                let params = match parse_params::<RunLookupParams>(request.params) {
-                    Ok(params) => params,
-                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
-                };
-                let state = self.state.lock().expect("runner state poisoned");
-                if state.active_runs.contains_key(&params.run_id) {
-                    return Ok(JsonRpcResponse::success(
-                        request.id,
-                        json!(RunStatusResult {
-                            run_id: params.run_id,
-                            status: "running".to_string(),
-                        }),
-                    ));
-                }
-                let Some(stored) = state.reports.get(&params.run_id) else {
-                    return Ok(JsonRpcResponse::error(
-                        request.id,
-                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
-                    ));
-                };
-                Ok(JsonRpcResponse::success(
-                    request.id,
-                    json!(RunStatusResult {
-                        run_id: params.run_id,
-                        status: stored.status().to_string(),
-                    }),
-                ))
-            }
-            "run.result" => {
-                let params = match parse_params::<RunLookupParams>(request.params) {
-                    Ok(params) => params,
-                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
-                };
-                let state = self.state.lock().expect("runner state poisoned");
-                if state.active_runs.contains_key(&params.run_id) {
-                    return Ok(JsonRpcResponse::success(
-                        request.id,
-                        json!(RunStatusResult {
-                            run_id: params.run_id,
-                            status: "running".to_string(),
-                        }),
-                    ));
-                }
-                let Some(stored) = state.reports.get(&params.run_id) else {
-                    return Ok(JsonRpcResponse::error(
-                        request.id,
-                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
-                    ));
-                };
-                Ok(JsonRpcResponse::success(
-                    request.id,
-                    json!(stored.result().clone()),
-                ))
-            }
+            "run.status" => self.handle_run_status(request),
+            "run.result" => self.handle_run_result(request),
             "run.cancel" => self.handle_run_cancel(request),
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
@@ -433,61 +380,8 @@ impl RunnerStdioSession {
         request: JsonRpcRequest,
     ) -> Result<JsonRpcResponse> {
         match request.method.as_str() {
-            "run.status" => {
-                let params = match parse_params::<RunLookupParams>(request.params) {
-                    Ok(params) => params,
-                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
-                };
-                let state = self.state.lock().expect("runner state poisoned");
-                if state.active_runs.contains_key(&params.run_id) {
-                    return Ok(JsonRpcResponse::success(
-                        request.id,
-                        json!(RunStatusResult {
-                            run_id: params.run_id,
-                            status: "running".to_string(),
-                        }),
-                    ));
-                }
-                let Some(stored) = state.reports.get(&params.run_id) else {
-                    return Ok(JsonRpcResponse::error(
-                        request.id,
-                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
-                    ));
-                };
-                Ok(JsonRpcResponse::success(
-                    request.id,
-                    json!(RunStatusResult {
-                        run_id: params.run_id,
-                        status: stored.status().to_string(),
-                    }),
-                ))
-            }
-            "run.result" => {
-                let params = match parse_params::<RunLookupParams>(request.params) {
-                    Ok(params) => params,
-                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
-                };
-                let state = self.state.lock().expect("runner state poisoned");
-                if state.active_runs.contains_key(&params.run_id) {
-                    return Ok(JsonRpcResponse::error(
-                        request.id,
-                        JsonRpcError::invalid_params(format!(
-                            "runId {} is still active",
-                            params.run_id
-                        )),
-                    ));
-                }
-                let Some(stored) = state.reports.get(&params.run_id) else {
-                    return Ok(JsonRpcResponse::error(
-                        request.id,
-                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
-                    ));
-                };
-                Ok(JsonRpcResponse::success(
-                    request.id,
-                    json!(stored.result().clone()),
-                ))
-            }
+            "run.status" => self.handle_run_status(request),
+            "run.result" => self.handle_run_result(request),
             "run.cancel" => self.handle_run_cancel(request),
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
@@ -507,7 +401,61 @@ impl RunnerStdioSession {
         }
     }
 
-    fn handle_run_cancel(&mut self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+    fn handle_run_status(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<RunLookupParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let state = self.state.lock().expect("runner state poisoned");
+        if state.active_runs.contains_key(&params.run_id) {
+            return Ok(JsonRpcResponse::success(
+                request.id,
+                json!(RunStatusResult {
+                    run_id: params.run_id,
+                    status: "running".to_string(),
+                }),
+            ));
+        }
+        let Some(stored) = state.reports.get(&params.run_id) else {
+            return Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
+            ));
+        };
+        Ok(JsonRpcResponse::success(
+            request.id,
+            json!(RunStatusResult {
+                run_id: params.run_id,
+                status: stored.status().to_string(),
+            }),
+        ))
+    }
+
+    fn handle_run_result(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<RunLookupParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let state = self.state.lock().expect("runner state poisoned");
+        if state.active_runs.contains_key(&params.run_id) {
+            return Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_params(format!("runId {} is still active", params.run_id)),
+            ));
+        }
+        let Some(stored) = state.reports.get(&params.run_id) else {
+            return Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
+            ));
+        };
+        Ok(JsonRpcResponse::success(
+            request.id,
+            json!(stored.result().clone()),
+        ))
+    }
+
+    fn handle_run_cancel(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
         let params = match parse_params::<RunLookupParams>(request.params) {
             Ok(params) => params,
             Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
