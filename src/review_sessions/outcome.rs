@@ -6,10 +6,12 @@ use serde_json::{json, Value};
 use crate::reviewer_kernel::events::{
     ReviewEvent as InternalReviewEvent, ReviewEventRecord as InternalReviewEventRecord,
 };
-use crate::runner_protocol::{
-    RunnerArtifact, RunnerArtifactView as RunnerWireArtifactView, RunnerFinding,
-    RunnerFindingLocation, RunnerRunResult, RunnerSnapshotSummary,
+use crate::reviewer_kernel::kernel_types::ArtifactView as KernelArtifactView;
+use crate::reviewer_kernel::report::{
+    EvidenceView, FindingLocationView, FindingView, ReviewRunSummary, RunReport,
 };
+use crate::reviewer_kernel::snapshots::SnapshotSummary;
+use crate::runner_protocol::RunnerArtifactView as RunnerWireArtifactView;
 
 use super::{ReviewSessionError, ReviewSource};
 
@@ -154,9 +156,9 @@ pub struct ReviewArtifact {
 }
 
 impl ReviewArtifact {
-    pub(super) fn from_runner_artifact(artifact: &RunnerArtifact) -> Self {
+    pub(super) fn from_artifact_view(artifact: &KernelArtifactView) -> Self {
         Self {
-            artifact_id: artifact.artifact_id.clone(),
+            artifact_id: artifact.artifact_id.0.clone(),
             bytes: artifact.bytes,
             content_hash: artifact.content_hash.clone(),
             content: artifact.content.clone(),
@@ -188,28 +190,31 @@ pub struct ReviewResult {
 }
 
 impl ReviewResult {
-    pub fn from_runner_result(
+    pub(super) fn from_run_report(
         review_id: ReviewSessionId,
         source: &ReviewSource,
-        result: RunnerRunResult,
+        report: &RunReport,
+        mut metadata: BTreeMap<String, Value>,
     ) -> Self {
-        let findings = result
-            .findings
+        let findings = report
+            .findings()
             .iter()
-            .map(ReviewFinding::from_runner_finding)
+            .map(ReviewFinding::from_finding_view)
             .collect::<Vec<_>>();
         let conclusion = ReviewConclusion::from_findings(&findings);
-        let coverage = ReviewCoverage::from_runner_snapshots(&result.snapshots);
-        let status = ReviewStatus::from_runner_status(&result.status);
-        let mut metadata = result.metadata.clone();
-        metadata.insert("runnerRunId".to_string(), json!(result.run_id));
-        metadata.insert("runnerStatus".to_string(), json!(result.status));
+        let coverage = ReviewCoverage::from_snapshot_summaries(&report.snapshot_summaries());
+        let status = review_status_from_run_summary(&report.summary);
+        metadata.insert("runnerRunId".to_string(), json!(report.run_id));
+        metadata.insert(
+            "runnerStatus".to_string(),
+            json!(run_summary_status(&report.summary)),
+        );
         metadata.insert("source".to_string(), json!(source.source_key()));
         Self {
             review_id,
             status,
             conclusion,
-            summary: review_summary(&result.summary, findings.len()),
+            summary: review_summary_from_kernel(&report.summary, findings.len()),
             findings,
             coverage,
             metadata,
@@ -268,24 +273,24 @@ pub struct ReviewFinding {
 }
 
 impl ReviewFinding {
-    fn from_runner_finding(finding: &RunnerFinding) -> Self {
+    fn from_finding_view(finding: &FindingView) -> Self {
         Self {
             id: finding.id.clone(),
-            severity: review_severity_from_runner(finding),
+            severity: review_severity_from_finding_view(finding),
             category: ReviewFindingCategory::Other,
             title: finding.title.clone(),
             message: finding.claim.clone(),
             location: finding
                 .location
                 .as_ref()
-                .map(ReviewFindingLocation::from_runner_location),
+                .map(ReviewFindingLocation::from_finding_location_view),
             suggested_fix: None,
-            confidence: finding.confidence,
-            validation_status: finding.validation_status.clone(),
+            confidence: Some(finding.confidence),
+            validation_status: Some(finding.validation_status.clone()),
             evidence: finding
                 .evidence
                 .iter()
-                .map(ReviewFindingEvidence::from_runner_evidence)
+                .map(ReviewFindingEvidence::from_evidence_view)
                 .collect(),
             discovered_by: finding.discovered_by.clone(),
             validated_by: finding.validated_by.clone(),
@@ -294,11 +299,11 @@ impl ReviewFinding {
     }
 }
 
-fn review_severity_from_runner(finding: &RunnerFinding) -> ReviewFindingSeverity {
-    match finding.severity.as_deref() {
-        Some("blocker" | "high") => ReviewFindingSeverity::Error,
-        Some("medium" | "low") => ReviewFindingSeverity::Warning,
-        Some("nit") => ReviewFindingSeverity::Info,
+fn review_severity_from_finding_view(finding: &FindingView) -> ReviewFindingSeverity {
+    match finding.severity.as_str() {
+        "blocker" | "high" => ReviewFindingSeverity::Error,
+        "medium" | "low" => ReviewFindingSeverity::Warning,
+        "nit" => ReviewFindingSeverity::Info,
         _ if finding.publishable => ReviewFindingSeverity::Error,
         _ => ReviewFindingSeverity::Info,
     }
@@ -315,28 +320,28 @@ pub struct ReviewFindingEvidence {
 }
 
 impl ReviewFindingEvidence {
-    fn from_runner_evidence(evidence: &crate::runner_protocol::RunnerFindingEvidence) -> Self {
+    fn from_evidence_view(evidence: &EvidenceView) -> Self {
         Self {
             evidence_id: evidence.evidence_id.clone(),
-            artifact_id: evidence.artifact_id.clone(),
+            artifact_id: evidence.artifact_id.0.clone(),
             kind: evidence.kind.clone(),
             content_hash: evidence.content_hash.clone(),
-            producing_tool_call_id: evidence.producing_tool_call_id.clone(),
+            producing_tool_call_id: evidence.producing_tool_call_id.0.clone(),
         }
     }
 }
 
 impl ReviewFindingLocation {
-    fn from_runner_location(location: &RunnerFindingLocation) -> Self {
+    fn from_finding_location_view(location: &FindingLocationView) -> Self {
         Self {
             path: location.path.clone(),
-            revision: location.revision.clone(),
+            revision: None,
             start_line: location.start_line,
             end_line: location.end_line,
-            start_column: location.start_column,
-            end_column: location.end_column,
-            side: location.side.clone(),
-            provider_anchor: location.provider_anchor.clone(),
+            start_column: None,
+            end_column: None,
+            side: None,
+            provider_anchor: None,
         }
     }
 }
@@ -400,7 +405,7 @@ pub struct ReviewCoverage {
 }
 
 impl ReviewCoverage {
-    fn from_runner_snapshots(snapshots: &[RunnerSnapshotSummary]) -> Self {
+    fn from_snapshot_summaries(snapshots: &[SnapshotSummary]) -> Self {
         let files_considered = snapshots.iter().map(|snapshot| snapshot.files).sum();
         let files_reviewed = snapshots
             .iter()
@@ -547,7 +552,7 @@ impl ReviewEventType {
     }
 }
 
-fn review_summary(summary: &crate::runner_protocol::RunnerRunSummary, findings: usize) -> String {
+fn review_summary_from_kernel(summary: &ReviewRunSummary, findings: usize) -> String {
     format!(
         "Review completed {}/{} session(s), produced {} finding(s), used {} model call(s), {} tool call(s), and {} total token(s).",
         summary.completed_sessions,
@@ -557,4 +562,16 @@ fn review_summary(summary: &crate::runner_protocol::RunnerRunSummary, findings: 
         summary.tool_calls,
         summary.total_tokens
     )
+}
+
+fn review_status_from_run_summary(summary: &ReviewRunSummary) -> ReviewStatus {
+    ReviewStatus::from_runner_status(&run_summary_status(summary))
+}
+
+fn run_summary_status(summary: &ReviewRunSummary) -> String {
+    if summary.completed_sessions == summary.sessions {
+        "completed".to_string()
+    } else {
+        "partial".to_string()
+    }
 }

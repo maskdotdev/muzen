@@ -16,10 +16,10 @@ use crate::review_sources::{ReviewSource, ReviewSourceLike};
 pub(crate) use crate::review_sources::{ReviewSource, ReviewSourceLike};
 
 mod config;
+mod execution;
 mod options;
 mod outcome;
 mod profiles;
-mod runner_mapping;
 mod session;
 mod store;
 mod webhooks;

@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 use crate::reviewer_kernel::system::timestamp_utc;
-use crate::runner_protocol::{execute_run_start, RunStartParams, RunnerArtifactView};
 
 use super::{
     EffectiveConfigSnapshot, ReviewArtifact, ReviewArtifactExport, ReviewArtifactExportOptions,
@@ -44,38 +42,19 @@ impl ReviewSession {
         let options = input.options.clone();
         let config_snapshot = input.options.config_snapshot.clone();
         let user_id = input.options.user_id.clone();
-        let start = input.into_runner_start(&id)?;
-        let executed = execute_run_start(start, None, CancellationToken::new())
-            .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
-        let result = ReviewResult::from_runner_result(id.clone(), &source, executed.result);
+        let executed = super::execution::execute_local_review(&id, &source, &options)?;
+        let result = executed.result;
         let status = result.status;
-        let events = executed
-            .events
-            .into_iter()
-            .map(ReviewEvent::from_internal_record)
-            .collect();
-        let redacted_artifacts = executed
-            .stored
-            .artifacts(RunnerArtifactView::Redacted)
-            .iter()
-            .map(ReviewArtifact::from_runner_artifact)
-            .collect();
-        let raw_artifacts = executed
-            .stored
-            .artifacts(RunnerArtifactView::Raw)
-            .iter()
-            .map(ReviewArtifact::from_runner_artifact)
-            .collect();
         Ok(Self {
             id,
             status,
             source,
             options,
             user_id,
-            events,
+            events: executed.events,
             result: Some(result),
-            redacted_artifacts,
-            raw_artifacts,
+            redacted_artifacts: executed.redacted_artifacts,
+            raw_artifacts: executed.raw_artifacts,
             config_snapshot,
         })
     }
@@ -321,12 +300,5 @@ impl CreateReviewSessionInput {
             source: source.into().resolve()?,
             options,
         })
-    }
-
-    pub fn into_runner_start(
-        self,
-        review_id: &ReviewSessionId,
-    ) -> Result<RunStartParams, ReviewSessionError> {
-        super::runner_mapping::review_input_to_runner_start(self, review_id)
     }
 }
