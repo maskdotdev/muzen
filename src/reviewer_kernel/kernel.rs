@@ -10,7 +10,10 @@ use crate::reviewer_kernel::kernel_types::{
     stable_id, ArtifactKey, RuntimeError, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
     RuntimeLimits, RuntimeResult, SessionInstruction, SessionScope, SnapshotId, ToolGrant,
 };
-use crate::reviewer_kernel::model::ConcurrentModelRouter as RuntimeModelRouter;
+use crate::reviewer_kernel::model::{
+    ConcurrentModelClient as RuntimeModelClient, ConcurrentModelRouter as RuntimeModelRouter,
+    StaticModelRouter,
+};
 use crate::reviewer_kernel::system::peak_rss_bytes;
 use crate::reviewer_kernel::tool_engine::{
     ConcurrentArtifactStore as RuntimeArtifactStore, ToolRegistry as RuntimeToolRegistry,
@@ -29,7 +32,6 @@ use crate::workspace::RepoSnapshot;
 
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::report::*;
-use crate::reviewer_kernel::review_model::*;
 use crate::reviewer_kernel::runtime_events;
 use crate::reviewer_kernel::snapshots::*;
 use crate::reviewer_kernel::spec::*;
@@ -60,8 +62,8 @@ impl RunBuilder {
         self
     }
 
-    pub fn review_model(mut self, model: Arc<dyn ReviewModel>) -> Self {
-        self.model_router = Some(review_model_router(model));
+    pub(crate) fn model_client(mut self, model: Arc<dyn RuntimeModelClient>) -> Self {
+        self.model_router = Some(Arc::new(StaticModelRouter::new(model)));
         self
     }
 

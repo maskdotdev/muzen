@@ -146,7 +146,7 @@ fn public_reviewer_facade_runs_mock_review() {
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicFacadeModel {
+        .model_client(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
         }))
@@ -369,7 +369,7 @@ fn public_reviewer_facade_emits_tool_denial_events() {
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicFacadeModel {
+        .model_client(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
         }))
@@ -433,7 +433,7 @@ fn public_reviewer_facade_cancelled_run_emits_review_events() {
     let cancel = tokio_util::sync::CancellationToken::new();
     let model_calls = Arc::new(AtomicUsize::new(0));
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(CancellingModel {
+        .model_client(Arc::new(CancellingModel {
             parent_cancel: cancel.clone(),
             calls: Arc::clone(&model_calls),
         }))
@@ -543,7 +543,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
     };
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicFacadeModel {
+        .model_client(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
         }))
@@ -649,7 +649,7 @@ fn public_reviewer_facade_runs_custom_tool_and_exports_metrics() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(custom_tool_id.clone())))
+        .model_client(Arc::new(PublicCustomToolModel(custom_tool_id.clone())))
         .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
@@ -746,7 +746,7 @@ fn public_reviewer_facade_passes_provider_resources_to_scoped_host_tool() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
+        .model_client(Arc::new(PublicCustomToolModel(custom_tool_id)))
         .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
@@ -809,7 +809,7 @@ fn public_reviewer_facade_denies_host_tool_outside_provider_resource_scope() {
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(custom_tool_id)))
+        .model_client(Arc::new(PublicCustomToolModel(custom_tool_id)))
         .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()
@@ -892,7 +892,7 @@ fn public_reviewer_facade_runs_scoped_jsonrpc_provider_tool() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
+        .model_client(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
@@ -978,7 +978,7 @@ fn public_reviewer_facade_runs_jsonrpc_network_read_tool_with_authority() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
+        .model_client(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .shared_tool_registry(Arc::new(registry))
         .build()
         .unwrap();
@@ -1057,7 +1057,7 @@ fn public_reviewer_facade_denies_jsonrpc_network_read_without_authority() {
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
+        .model_client(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()
@@ -1151,7 +1151,7 @@ fn public_reviewer_facade_denies_jsonrpc_provider_resource_outside_scope() {
     );
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicCustomToolModel(tool_id.clone())))
+        .model_client(Arc::new(PublicCustomToolModel(tool_id.clone())))
         .shared_tool_registry(Arc::new(registry))
         .review_event_sink(events.clone())
         .build()

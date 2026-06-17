@@ -52,7 +52,7 @@ impl RunnerWiring {
         if model.callback {
             let transport = transport
                 .ok_or_else(|| anyhow::anyhow!("callback model requires interactive stdio"))?;
-            builder = builder.review_model(Arc::new(CallbackReviewModel::new(
+            builder = builder.model_client(Arc::new(CallbackReviewModel::new(
                 run_id.to_string(),
                 transport,
             )));
@@ -69,7 +69,7 @@ impl RunnerWiring {
         } else {
             #[cfg(test)]
             {
-                builder = builder.review_model(Arc::new(TestRunnerModel::new(
+                builder = builder.model_client(Arc::new(TestRunnerModel::new(
                     target_path,
                     "TODO|fn|class|export|pub".to_string(),
                 )));

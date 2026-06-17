@@ -6,13 +6,15 @@ use tokio_util::sync::CancellationToken;
 use crate::context_engine::*;
 use crate::reviewer_kernel::events::{InMemoryReviewEventSink, ReviewEvent};
 use crate::reviewer_kernel::kernel::Run;
-use crate::reviewer_kernel::kernel_types::RuntimeLimits;
+use crate::reviewer_kernel::kernel_types::{
+    ConversationItem, ModelTurn, RuntimeLimits, SessionScope, TurnId,
+};
 use crate::reviewer_kernel::kernel_types::{RuntimeError, SessionInstruction};
+use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::{
     AgentBudget, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1, Role,
     TokenUsage,
 };
-use crate::reviewer_kernel::review_model::{ReviewModel, ReviewModelRequest, ReviewModelTurn};
 use crate::reviewer_kernel::snapshots::{ChangeSpec, ChangedFileSpec, SnapshotSpec};
 use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunSpec};
 use crate::workspace::RepoSnapshot;
@@ -1952,7 +1954,7 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
         vec![session],
         RuntimeLimits::standard(1, 200 * 1024, 20),
     ))
-    .review_model(Arc::new(CleanModel))
+    .model_client(Arc::new(CleanModel))
     .context_engine(Arc::new(SnapshotContextEngine::new(
         ContextEngineConfig::snapshot_v0(),
     )))
@@ -1991,13 +1993,15 @@ async fn enabled_context_engine_emits_index_and_pack_events_for_run() {
 struct CleanModel;
 
 #[async_trait]
-impl ReviewModel for CleanModel {
-    async fn complete_review(
+impl ConcurrentModelClient for CleanModel {
+    async fn complete(
         &self,
-        _request: ReviewModelRequest,
+        _scope: &SessionScope,
+        _transcript: &[ConversationItem],
+        _turn_id: TurnId,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<ReviewModelTurn> {
-        Ok(ReviewModelTurn::Text {
+    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<ModelTurn> {
+        Ok(ModelTurn::Text {
             usage: TokenUsage {
                 input_tokens: 10,
                 output_tokens: 5,

@@ -425,22 +425,6 @@ pub struct CancelAfterToolResultModel {
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::review_model::ReviewModel for CancellingModel {
-    async fn complete_review(
-        &self,
-        _request: crate::reviewer_kernel::review_model::ReviewModelRequest,
-        cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::review_model::ReviewModelTurn,
-    > {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        self.parent_cancel.cancel();
-        cancel.cancelled().await;
-        Err(RuntimeError::Cancelled)
-    }
-}
-
-#[async_trait]
 impl ConcurrentModelClient for CancellingModel {
     async fn complete(
         &self,
@@ -511,45 +495,54 @@ impl ConcurrentModelClient for CancelAfterToolResultModel {
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::review_model::ReviewModel for PublicFacadeModel {
-    async fn complete_review(
+impl ConcurrentModelClient for PublicFacadeModel {
+    async fn complete(
         &self,
-        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::review_model::ReviewModelTurn,
-    > {
+    ) -> RuntimeResult<ModelTurn> {
         let usage = TokenUsage {
-            input_tokens: request.transcript_item_count() as u64,
+            input_tokens: transcript.len() as u64,
             output_tokens: 1,
-            total_tokens: request.transcript_item_count() as u64 + 1,
+            total_tokens: transcript.len() as u64 + 1,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() == 0 && !review_request_is_final_turn(&request) {
-            return Ok(
-                crate::reviewer_kernel::review_model::ReviewModelTurn::ToolCalls {
-                    usage,
-                    calls: vec![
-                        reviewer_call(&request, "diff", "read_diff", serde_json::json!({})),
-                        reviewer_call(
-                            &request,
-                            "file",
-                            "read_file",
-                            serde_json::json!({ "path": self.path }),
-                        ),
-                        reviewer_call(
-                            &request,
-                            "search",
-                            "search_text",
-                            serde_json::json!({ "query": self.query }),
-                        ),
-                    ],
-                },
-            );
+        if tool_result_count(transcript) == 0 && !review_request_is_final_turn(transcript) {
+            return Ok(ModelTurn::ToolCalls {
+                usage,
+                calls: vec![
+                    reviewer_call(
+                        scope,
+                        turn_id,
+                        0,
+                        "diff",
+                        "read_diff",
+                        serde_json::json!({}),
+                    )?,
+                    reviewer_call(
+                        scope,
+                        turn_id,
+                        1,
+                        "file",
+                        "read_file",
+                        serde_json::json!({ "path": self.path }),
+                    )?,
+                    reviewer_call(
+                        scope,
+                        turn_id,
+                        2,
+                        "search",
+                        "search_text",
+                        serde_json::json!({ "query": self.query }),
+                    )?,
+                ],
+            });
         }
-        let content = if request.session_id.contains('/') {
+        let content = if scope.id.0.contains('/') {
             serde_json::json!({
-                "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                "status": if scope.id.0.contains("/validate-") { "supported" } else { "insufficient" },
                 "summary": "public facade structured child packet complete",
                 "checkedPaths": [self.path],
                 "evidence": [],
@@ -585,34 +578,32 @@ impl crate::reviewer_kernel::review_model::ReviewModel for PublicFacadeModel {
                 }
             })
         };
-        Ok(
-            crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
-                usage,
-                content: content.to_string(),
-            },
-        )
+        Ok(ModelTurn::Text {
+            usage,
+            content: content.to_string(),
+        })
     }
 }
 
 #[async_trait]
-impl crate::reviewer_kernel::review_model::ReviewModel for PublicCustomToolModel {
-    async fn complete_review(
+impl ConcurrentModelClient for PublicCustomToolModel {
+    async fn complete(
         &self,
-        request: crate::reviewer_kernel::review_model::ReviewModelRequest,
+        scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
         _cancel: tokio_util::sync::CancellationToken,
-    ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<
-        crate::reviewer_kernel::review_model::ReviewModelTurn,
-    > {
+    ) -> RuntimeResult<ModelTurn> {
         let usage = TokenUsage {
-            input_tokens: request.transcript_item_count() as u64,
+            input_tokens: transcript.len() as u64,
             output_tokens: 1,
-            total_tokens: request.transcript_item_count() as u64 + 1,
+            total_tokens: transcript.len() as u64 + 1,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() > 0 || review_request_is_final_turn(&request) {
-            let content = if request.session_id.contains('/') {
+        if tool_result_count(transcript) > 0 || review_request_is_final_turn(transcript) {
+            let content = if scope.id.0.contains('/') {
                 serde_json::json!({
-                    "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                    "status": if scope.id.0.contains("/validate-") { "supported" } else { "insufficient" },
                     "summary": "custom tool child packet complete",
                     "checkedPaths": [],
                     "evidence": [],
@@ -636,34 +627,52 @@ impl crate::reviewer_kernel::review_model::ReviewModel for PublicCustomToolModel
                     }
                 })
             };
-            return Ok(
-                crate::reviewer_kernel::review_model::ReviewModelTurn::Text {
-                    content: content.to_string(),
-                    usage,
-                },
-            );
-        }
-        Ok(
-            crate::reviewer_kernel::review_model::ReviewModelTurn::ToolCalls {
+            return Ok(ModelTurn::Text {
+                content: content.to_string(),
                 usage,
-                calls: vec![crate::reviewer_kernel::review_model::ReviewToolCall::new(
-                    self.0.as_str(),
-                    serde_json::json!({ "value": "ok" }),
-                )
-                .with_call_id(request.tool_call_id("custom"))],
-            },
-        )
+            });
+        }
+        Ok(ModelTurn::ToolCalls {
+            usage,
+            calls: vec![reviewer_call(
+                scope,
+                turn_id,
+                0,
+                "custom",
+                self.0.as_str(),
+                serde_json::json!({ "value": "ok" }),
+            )?],
+        })
     }
 }
 
-fn review_request_is_final_turn(
-    request: &crate::reviewer_kernel::review_model::ReviewModelRequest,
-) -> bool {
-    request.transcript.iter().any(|item| match item {
-        crate::reviewer_kernel::review_model::ReviewTranscriptItem::User { content } => {
-            content.starts_with("Return the final ")
-        }
+fn tool_result_count(transcript: &[ConversationItem]) -> usize {
+    transcript
+        .iter()
+        .filter(|item| matches!(item, ConversationItem::ToolResult { .. }))
+        .count()
+}
+
+fn review_request_is_final_turn(transcript: &[ConversationItem]) -> bool {
+    transcript.iter().any(|item| match item {
+        ConversationItem::User { content } => content.starts_with("Return the final "),
         _ => false,
+    })
+}
+
+pub fn reviewer_call(
+    scope: &SessionScope,
+    turn_id: TurnId,
+    index: usize,
+    suffix: &str,
+    tool_id: &str,
+    arguments: serde_json::Value,
+) -> RuntimeResult<ModelToolCall> {
+    Ok(ModelToolCall {
+        call_id: ToolCallId(format!("{}-{}-{suffix}", scope.id.0, turn_id.0)),
+        index,
+        name: ToolId::parse(tool_id)?,
+        raw_arguments: arguments.to_string(),
     })
 }
 
@@ -933,16 +942,6 @@ impl CustomToolHandler for PanicCustomTool {
     ) -> crate::reviewer_kernel::kernel_types::RuntimeResult<CustomToolOutput> {
         panic!("intentional custom tool panic")
     }
-}
-
-pub fn reviewer_call(
-    request: &crate::reviewer_kernel::review_model::ReviewModelRequest,
-    suffix: &str,
-    tool_id: &str,
-    arguments: serde_json::Value,
-) -> crate::reviewer_kernel::review_model::ReviewToolCall {
-    crate::reviewer_kernel::review_model::ReviewToolCall::new(tool_id, arguments)
-        .with_call_id(request.tool_call_id(suffix))
 }
 
 pub fn public_budget() -> crate::reviewer_kernel::review_contract::AgentBudget {

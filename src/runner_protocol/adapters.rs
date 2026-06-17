@@ -6,12 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::reviewer_kernel::events::{ReviewEvent, ReviewEventRecord};
-use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{
+    ConversationItem, ModelToolCall, ModelTurn, RuntimeError, RuntimeResult, SessionScope,
+    ToolCallId, ToolId, TurnId,
+};
+use crate::reviewer_kernel::model::ConcurrentModelClient;
 use crate::reviewer_kernel::review_contract::Role;
 use crate::reviewer_kernel::review_contract::TokenUsage;
-use crate::reviewer_kernel::review_model::{
-    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewToolCall, ReviewTranscriptItem,
-};
 use crate::reviewer_kernel::runtime_events::{
     EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
 };
@@ -42,34 +43,51 @@ impl TestRunnerModel {
 
 #[cfg(test)]
 #[async_trait]
-impl ReviewModel for TestRunnerModel {
-    async fn complete_review(
+impl ConcurrentModelClient for TestRunnerModel {
+    async fn complete(
         &self,
-        request: ReviewModelRequest,
+        scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
         _cancel: Cancellation,
-    ) -> RuntimeResult<ReviewModelTurn> {
+    ) -> RuntimeResult<ModelTurn> {
         let usage = TokenUsage {
-            input_tokens: request.transcript_item_count() as u64 * 64,
+            input_tokens: transcript.len() as u64 * 64,
             output_tokens: 32,
-            total_tokens: request.transcript_item_count() as u64 * 64 + 32,
+            total_tokens: transcript.len() as u64 * 64 + 32,
             cached_input_tokens: 0,
         };
-        if request.tool_result_count() == 0 {
-            return Ok(ReviewModelTurn::ToolCalls {
+        let tool_result_count = transcript
+            .iter()
+            .filter(|item| matches!(item, ConversationItem::ToolResult { .. }))
+            .count();
+        if tool_result_count == 0 {
+            return Ok(ModelTurn::ToolCalls {
                 usage,
                 calls: vec![
-                    ReviewToolCall::new("read_diff", json!({}))
-                        .with_call_id(request.tool_call_id("read-diff")),
-                    ReviewToolCall::new("read_file", json!({ "path": self.target_path }))
-                        .with_call_id(request.tool_call_id("read-file")),
-                    ReviewToolCall::new("search_text", json!({ "query": self.search_query }))
-                        .with_call_id(request.tool_call_id("search")),
+                    model_tool_call(scope, turn_id, 0, "read-diff", "read_diff", json!({}))?,
+                    model_tool_call(
+                        scope,
+                        turn_id,
+                        1,
+                        "read-file",
+                        "read_file",
+                        json!({ "path": self.target_path }),
+                    )?,
+                    model_tool_call(
+                        scope,
+                        turn_id,
+                        2,
+                        "search",
+                        "search_text",
+                        json!({ "query": self.search_query }),
+                    )?,
                 ],
             });
         }
-        let content = if request.session_id.contains('/') {
+        let content = if scope.id.0.contains('/') {
             json!({
-                "status": if request.session_id.contains("/validate-") { "supported" } else { "insufficient" },
+                "status": if scope.id.0.contains("/validate-") { "supported" } else { "insufficient" },
                 "summary": "deterministic SDK smoke child packet completed",
                 "checkedPaths": [self.target_path],
                 "evidence": [],
@@ -89,7 +107,7 @@ impl ReviewModel for TestRunnerModel {
                 }
             })
         };
-        Ok(ReviewModelTurn::Text {
+        Ok(ModelTurn::Text {
             usage,
             content: content.to_string(),
         })
@@ -108,13 +126,16 @@ impl CallbackReviewModel {
 }
 
 #[async_trait]
-impl ReviewModel for CallbackReviewModel {
-    async fn complete_review(
+impl ConcurrentModelClient for CallbackReviewModel {
+    async fn complete(
         &self,
-        request: ReviewModelRequest,
+        scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
         _cancel: Cancellation,
-    ) -> RuntimeResult<ReviewModelTurn> {
-        let params = RunnerModelCompleteParams::from_request(&self.run_id, request);
+    ) -> RuntimeResult<ModelTurn> {
+        let params =
+            RunnerModelCompleteParams::from_runtime(&self.run_id, scope, transcript, turn_id);
         let value = self
             .transport
             .request("model.complete", json!(params))
@@ -128,21 +149,43 @@ impl ReviewModel for CallbackReviewModel {
             let calls = result
                 .tool_calls
                 .into_iter()
-                .map(|call| {
-                    let mut tool_call = ReviewToolCall::new(call.tool_id, call.arguments);
-                    if let Some(call_id) = call.call_id {
-                        tool_call = tool_call.with_call_id(call_id);
-                    }
-                    tool_call
+                .enumerate()
+                .map(|(index, call)| {
+                    Ok(ModelToolCall {
+                        call_id: ToolCallId(
+                            call.call_id
+                                .unwrap_or_else(|| format!("{}-{}-{index}", scope.id.0, turn_id.0)),
+                        ),
+                        index,
+                        name: ToolId::parse(&call.tool_id)?,
+                        raw_arguments: call.arguments.to_string(),
+                    })
                 })
-                .collect();
-            return Ok(ReviewModelTurn::ToolCalls { calls, usage });
+                .collect::<RuntimeResult<Vec<_>>>()?;
+            return Ok(ModelTurn::ToolCalls { calls, usage });
         }
-        Ok(ReviewModelTurn::Text {
+        Ok(ModelTurn::Text {
             content: result.content.unwrap_or_default(),
             usage,
         })
     }
+}
+
+#[cfg(test)]
+fn model_tool_call(
+    scope: &SessionScope,
+    turn_id: TurnId,
+    index: usize,
+    suffix: &str,
+    tool_id: &str,
+    arguments: serde_json::Value,
+) -> RuntimeResult<ModelToolCall> {
+    Ok(ModelToolCall {
+        call_id: ToolCallId(format!("{}-{}-{suffix}", scope.id.0, turn_id.0)),
+        index,
+        name: ToolId::parse(tool_id)?,
+        raw_arguments: arguments.to_string(),
+    })
 }
 
 pub(crate) struct CallbackReviewTool {
@@ -258,59 +301,61 @@ struct RunnerModelCompleteParams {
 }
 
 impl RunnerModelCompleteParams {
-    fn from_request(run_id: &str, request: ReviewModelRequest) -> Self {
+    fn from_runtime(
+        run_id: &str,
+        scope: &SessionScope,
+        transcript: &[ConversationItem],
+        turn_id: TurnId,
+    ) -> Self {
         Self {
             protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
             run_id: run_id.to_string(),
-            session_id: request.session_id,
-            role: request.role,
-            objective: request.objective,
-            snapshot_id: request.snapshot_id.map(|snapshot_id| snapshot_id.0),
-            model_profile_id: request.model_profile_id,
-            turn: request.turn,
-            transcript: request
-                .transcript
-                .into_iter()
-                .map(runner_transcript_item)
-                .collect(),
+            session_id: scope.id.0.clone(),
+            role: scope.role,
+            objective: scope.objective.clone(),
+            snapshot_id: scope
+                .snapshot_id
+                .as_ref()
+                .map(|snapshot_id| snapshot_id.0.clone()),
+            model_profile_id: scope.model_profile_id.clone(),
+            turn: turn_id.0,
+            transcript: transcript.iter().map(runner_transcript_item).collect(),
         }
     }
 }
 
-fn runner_transcript_item(item: ReviewTranscriptItem) -> Value {
+fn runner_transcript_item(item: &ConversationItem) -> Value {
     match item {
-        ReviewTranscriptItem::System { content } => {
+        ConversationItem::System { content } => {
             json!({"kind": "system", "content": content})
         }
-        ReviewTranscriptItem::User { content } => {
+        ConversationItem::User { content } => {
             json!({"kind": "user", "content": content})
         }
-        ReviewTranscriptItem::AssistantText { content } => {
+        ConversationItem::AssistantText { content } => {
             json!({"kind": "assistant_text", "content": content})
         }
-        ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
+        ConversationItem::AssistantToolCalls { calls } => json!({
             "kind": "assistant_tool_calls",
-            "calls": calls.into_iter().map(|call| json!({
-                "callId": call.call_id,
-                "toolId": call.tool_id,
-                "arguments": call.arguments,
+            "calls": calls.iter().map(|call| json!({
+                "callId": call.call_id.0,
+                "toolId": call.name.as_str(),
+                "arguments": serde_json::from_str::<Value>(&call.raw_arguments)
+                    .unwrap_or_else(|_| Value::String(call.raw_arguments.clone())),
             })).collect::<Vec<_>>()
         }),
-        ReviewTranscriptItem::ToolResult {
+        ConversationItem::ToolResult {
             call_id,
-            tool_id,
-            ok,
-            artifact_id,
-            data,
-            error_code,
+            name,
+            content,
         } => json!({
             "kind": "tool_result",
-            "callId": call_id,
-            "toolId": tool_id,
-            "ok": ok,
-            "artifactId": artifact_id,
-            "data": data,
-            "errorCode": error_code,
+            "callId": call_id.0,
+            "toolId": name.as_str(),
+            "ok": content.ok,
+            "artifactId": content.artifact_id,
+            "data": content.data,
+            "errorCode": content.error.as_ref().map(|error| error.code),
         }),
     }
 }

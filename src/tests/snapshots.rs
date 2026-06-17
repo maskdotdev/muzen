@@ -24,7 +24,7 @@ fn public_snapshot_capture_policy_reports_memory_envelope_skips() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicFacadeModel {
+        .model_client(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
         }))
@@ -85,7 +85,7 @@ fn public_snapshot_capture_serves_stable_evidence() {
         crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(1, 64 * 1024, 20),
     );
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)
-        .review_model(Arc::new(PublicFacadeModel {
+        .model_client(Arc::new(PublicFacadeModel {
             path: "README.md".to_string(),
             query: "needle".to_string(),
         }))
