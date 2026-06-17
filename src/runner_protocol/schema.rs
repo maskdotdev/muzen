@@ -11,35 +11,7 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
         runner_name: RUNNER_NAME.to_string(),
         runner_version: env!("CARGO_PKG_VERSION").to_string(),
         capabilities: RunnerCapabilities {
-            supported_methods: vec![
-                "runner.handshake".to_string(),
-                "runner.check".to_string(),
-                "runner.schema.export".to_string(),
-                "run.start".to_string(),
-                "run.cancel".to_string(),
-                "run.status".to_string(),
-                "run.result".to_string(),
-                "artifact.read".to_string(),
-                "artifact.export".to_string(),
-                "snapshot.readText".to_string(),
-                "context.index".to_string(),
-                "context.pack".to_string(),
-                "context.query".to_string(),
-                "context.feedback".to_string(),
-                "context.learning.approve".to_string(),
-                "webhook.github.handle".to_string(),
-                "webhook.gitlab.handle".to_string(),
-                "worker.runOnce".to_string(),
-                "source.materialize".to_string(),
-                "run.heartbeat".to_string(),
-                "model.complete".to_string(),
-                "secret.resolve".to_string(),
-                "tool.execute".to_string(),
-                "event.review".to_string(),
-                "event.runtime".to_string(),
-                "run.finished".to_string(),
-                "run.failed".to_string(),
-            ],
+            supported_methods: supported_methods(),
             planned_methods: Vec::new(),
             transports: vec!["stdio-jsonl".to_string()],
         },
@@ -60,169 +32,271 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
     RunnerProtocolSchema {
         schema_version: RUNNER_PROTOCOL_VERSION.to_string(),
         transport: "newline-delimited JSON-RPC 2.0 over stdio".to_string(),
-        requests: vec![
-            implemented(
-                "runner.handshake",
-                "Negotiate protocol version and capabilities.",
-            ),
-            implemented("runner.check", "Return local runner diagnostics."),
-            implemented(
-                "runner.schema.export",
-                "Return protocol method metadata for SDK validation.",
-            ),
-            implemented("run.start", "Start a review run."),
-            implemented("run.cancel", "Cancel an active review run."),
-            implemented("run.status", "Read active run status."),
-            implemented("run.result", "Read final run report."),
-            implemented("artifact.read", "Read one redacted or raw artifact."),
-            implemented("artifact.export", "Export artifacts using a policy."),
-            implemented("snapshot.readText", "Read captured snapshot text."),
-            implemented(
-                "webhook.github.handle",
-                "Verify and schedule a GitHub webhook delivery.",
-            ),
-            implemented(
-                "webhook.gitlab.handle",
-                "Verify and schedule a GitLab webhook delivery.",
-            ),
-            implemented(
-                "worker.runOnce",
-                "Claim and execute ready durable review sessions through the Rust worker.",
-            ),
-            implemented(
-                "context.index",
-                "Index a repository snapshot outside a review run.",
-            ),
-            implemented(
-                "context.pack",
-                "Build a role-scoped context pack from a previously indexed snapshot.",
-            ),
-            implemented(
-                "context.query",
-                "Query an indexed snapshot or context pack outside agent execution.",
-            ),
-            implemented(
-                "context.feedback",
-                "Record feedback as a proposed context learning for an indexed snapshot.",
-            ),
-            implemented(
-                "context.learning.approve",
-                "Approve or reject a proposed context learning for an indexed snapshot.",
-            ),
-        ],
-        callbacks: vec![
-            implemented_runner_to_sdk(
-                "source.materialize",
-                "Ask the SDK source provider to materialize a review source.",
-            ),
-            implemented_runner_to_sdk(
-                "run.heartbeat",
-                "Ask the SDK host to renew an active run lease.",
-            ),
-            implemented_runner_to_sdk(
-                "model.complete",
-                "Ask the SDK model adapter for one model turn.",
-            ),
-            implemented_runner_to_sdk(
-                "secret.resolve",
-                "Ask the SDK host to resolve one secret reference.",
-            ),
-            implemented_runner_to_sdk("tool.execute", "Ask the SDK to execute a host custom tool."),
-        ],
-        notifications: vec![
-            implemented_runner_to_sdk("event.review", "Emit one host-facing review event."),
-            implemented_runner_to_sdk("event.runtime", "Emit one advanced runtime event."),
-            implemented_runner_to_sdk(
-                "run.finished",
-                "Notify that a run reached a terminal state.",
-            ),
-            implemented_runner_to_sdk(
-                "run.failed",
-                "Notify that a run failed before producing a report.",
-            ),
-        ],
+        requests: method_schemas(SDK_TO_RUNNER_METHODS),
+        callbacks: method_schemas(RUNNER_TO_SDK_CALLBACKS),
+        notifications: method_schemas(RUNNER_TO_SDK_NOTIFICATIONS),
         definitions: payload_definitions(),
     }
 }
 
-fn implemented(method: &'static str, summary: &'static str) -> RunnerMethodSchema {
-    RunnerMethodSchema {
-        method: method.to_string(),
+#[derive(Debug, Copy, Clone)]
+struct MethodSpec {
+    method: &'static str,
+    direction: RunnerMessageDirection,
+    summary: &'static str,
+    params: Option<&'static str>,
+    result: Option<&'static str>,
+}
+
+const SDK_TO_RUNNER_METHODS: &[MethodSpec] = &[
+    sdk_to_runner(
+        "runner.handshake",
+        "Negotiate protocol version and capabilities.",
+        Some("RunnerHandshakeParams"),
+        Some("RunnerHandshakeResult"),
+    ),
+    sdk_to_runner(
+        "runner.check",
+        "Return local runner diagnostics.",
+        None,
+        Some("RunnerCheckResult"),
+    ),
+    sdk_to_runner(
+        "runner.schema.export",
+        "Return protocol method metadata for SDK validation.",
+        None,
+        Some("RunnerProtocolSchema"),
+    ),
+    sdk_to_runner(
+        "run.start",
+        "Start a review run.",
+        Some("RunStartParams"),
+        Some("RunnerRunResult"),
+    ),
+    sdk_to_runner(
+        "run.cancel",
+        "Cancel an active review run.",
+        Some("RunLookupParams"),
+        Some("RunCancelResult"),
+    ),
+    sdk_to_runner(
+        "run.status",
+        "Read active run status.",
+        Some("RunLookupParams"),
+        Some("RunStatusResult"),
+    ),
+    sdk_to_runner(
+        "run.result",
+        "Read final run report.",
+        Some("RunLookupParams"),
+        Some("RunnerRunResult"),
+    ),
+    sdk_to_runner(
+        "artifact.read",
+        "Read one redacted or raw artifact.",
+        Some("ArtifactReadParams"),
+        Some("RunnerArtifactReadResult"),
+    ),
+    sdk_to_runner(
+        "artifact.export",
+        "Export artifacts using a policy.",
+        Some("ArtifactExportParams"),
+        Some("RunnerArtifactExportResult"),
+    ),
+    sdk_to_runner(
+        "snapshot.readText",
+        "Read captured snapshot text.",
+        Some("SnapshotReadTextParams"),
+        Some("RunnerSnapshotTextResult"),
+    ),
+    sdk_to_runner(
+        "webhook.github.handle",
+        "Verify and schedule a GitHub webhook delivery.",
+        Some("WebhookHandleParams"),
+        Some("ReviewHttpResponse"),
+    ),
+    sdk_to_runner(
+        "webhook.gitlab.handle",
+        "Verify and schedule a GitLab webhook delivery.",
+        Some("WebhookHandleParams"),
+        Some("ReviewHttpResponse"),
+    ),
+    sdk_to_runner(
+        "worker.runOnce",
+        "Claim and execute ready durable review sessions through the Rust worker.",
+        Some("WorkerRunOnceParams"),
+        Some("WorkerRunOnceResult"),
+    ),
+    sdk_to_runner(
+        "context.index",
+        "Index a repository snapshot outside a review run.",
+        Some("ContextIndexParams"),
+        Some("ContextManifest"),
+    ),
+    sdk_to_runner(
+        "context.pack",
+        "Build a role-scoped context pack from a previously indexed snapshot.",
+        Some("ContextPackRequest"),
+        Some("ContextPack"),
+    ),
+    sdk_to_runner(
+        "context.query",
+        "Query an indexed snapshot or context pack outside agent execution.",
+        Some("ContextQuery"),
+        Some("ContextQueryResult"),
+    ),
+    sdk_to_runner(
+        "context.feedback",
+        "Record feedback as a proposed context learning for an indexed snapshot.",
+        Some("ContextFeedback"),
+        Some("ContextFeedbackReceipt"),
+    ),
+    sdk_to_runner(
+        "context.learning.approve",
+        "Approve or reject a proposed context learning for an indexed snapshot.",
+        Some("ContextLearningApprovalParams"),
+        Some("ContextLearningApprovalReceipt"),
+    ),
+];
+
+const RUNNER_TO_SDK_CALLBACKS: &[MethodSpec] = &[
+    runner_to_sdk(
+        "source.materialize",
+        "Ask the SDK source provider to materialize a review source.",
+        Some("SourceMaterializeParams"),
+        Some("SourceMaterializeResult"),
+    ),
+    runner_to_sdk(
+        "run.heartbeat",
+        "Ask the SDK host to renew an active run lease.",
+        Some("RunHeartbeatParams"),
+        Some("RunHeartbeatResult"),
+    ),
+    runner_to_sdk(
+        "model.complete",
+        "Ask the SDK model adapter for one model turn.",
+        Some("RunnerModelCompleteParams"),
+        Some("RunnerModelCompleteResult"),
+    ),
+    runner_to_sdk(
+        "secret.resolve",
+        "Ask the SDK host to resolve one secret reference.",
+        Some("RunnerSecretResolveParams"),
+        Some("RunnerSecretResolveResult"),
+    ),
+    runner_to_sdk(
+        "tool.execute",
+        "Ask the SDK to execute a host custom tool.",
+        Some("RunnerToolExecuteParams"),
+        Some("RunnerToolExecuteResult"),
+    ),
+];
+
+const RUNNER_TO_SDK_NOTIFICATIONS: &[MethodSpec] = &[
+    runner_to_sdk(
+        "event.review",
+        "Emit one host-facing review event.",
+        Some("ReviewEventRecord"),
+        None,
+    ),
+    runner_to_sdk(
+        "event.runtime",
+        "Emit one advanced runtime event.",
+        Some("RuntimeEventRecord"),
+        None,
+    ),
+    runner_to_sdk(
+        "run.finished",
+        "Notify that a run reached a terminal state.",
+        Some("RunnerRunResult"),
+        None,
+    ),
+    runner_to_sdk(
+        "run.failed",
+        "Notify that a run failed before producing a report.",
+        Some("RunFailedNotification"),
+        None,
+    ),
+];
+
+const fn sdk_to_runner(
+    method: &'static str,
+    summary: &'static str,
+    params: Option<&'static str>,
+    result: Option<&'static str>,
+) -> MethodSpec {
+    MethodSpec {
+        method,
         direction: RunnerMessageDirection::SdkToRunner,
-        status: RunnerMethodStatus::Implemented,
-        summary: summary.to_string(),
-        params: method_params(method),
-        result: method_result(method),
+        summary,
+        params,
+        result,
     }
 }
 
-fn implemented_runner_to_sdk(method: &'static str, summary: &'static str) -> RunnerMethodSchema {
-    RunnerMethodSchema {
-        method: method.to_string(),
+const fn runner_to_sdk(
+    method: &'static str,
+    summary: &'static str,
+    params: Option<&'static str>,
+    result: Option<&'static str>,
+) -> MethodSpec {
+    MethodSpec {
+        method,
         direction: RunnerMessageDirection::RunnerToSdk,
+        summary,
+        params,
+        result,
+    }
+}
+
+fn supported_methods() -> Vec<String> {
+    base_sdk_methods()
+        .chain(context_sdk_methods())
+        .chain(host_sdk_methods())
+        .chain(RUNNER_TO_SDK_CALLBACKS.iter())
+        .chain(RUNNER_TO_SDK_NOTIFICATIONS.iter())
+        .map(|spec| spec.method.to_string())
+        .collect()
+}
+
+fn base_sdk_methods() -> impl Iterator<Item = &'static MethodSpec> {
+    SDK_TO_RUNNER_METHODS
+        .iter()
+        .filter(|spec| !is_context_method(spec.method) && !is_host_method(spec.method))
+}
+
+fn context_sdk_methods() -> impl Iterator<Item = &'static MethodSpec> {
+    SDK_TO_RUNNER_METHODS
+        .iter()
+        .filter(|spec| is_context_method(spec.method))
+}
+
+fn host_sdk_methods() -> impl Iterator<Item = &'static MethodSpec> {
+    SDK_TO_RUNNER_METHODS
+        .iter()
+        .filter(|spec| is_host_method(spec.method))
+}
+
+fn is_context_method(method: &str) -> bool {
+    method.starts_with("context.")
+}
+
+fn is_host_method(method: &str) -> bool {
+    method.starts_with("webhook.") || method == "worker.runOnce"
+}
+
+fn method_schemas(specs: &[MethodSpec]) -> Vec<RunnerMethodSchema> {
+    specs.iter().map(method_schema).collect()
+}
+
+fn method_schema(spec: &MethodSpec) -> RunnerMethodSchema {
+    RunnerMethodSchema {
+        method: spec.method.to_string(),
+        direction: spec.direction,
         status: RunnerMethodStatus::Implemented,
-        summary: summary.to_string(),
-        params: method_params(method),
-        result: method_result(method),
-    }
-}
-
-fn method_params(method: &str) -> Option<RunnerPayloadRef> {
-    match method {
-        "runner.handshake" => Some(payload_ref("RunnerHandshakeParams")),
-        "run.start" => Some(payload_ref("RunStartParams")),
-        "run.cancel" | "run.status" | "run.result" => Some(payload_ref("RunLookupParams")),
-        "artifact.read" => Some(payload_ref("ArtifactReadParams")),
-        "artifact.export" => Some(payload_ref("ArtifactExportParams")),
-        "snapshot.readText" => Some(payload_ref("SnapshotReadTextParams")),
-        "webhook.github.handle" | "webhook.gitlab.handle" => {
-            Some(payload_ref("WebhookHandleParams"))
-        }
-        "worker.runOnce" => Some(payload_ref("WorkerRunOnceParams")),
-        "context.index" => Some(payload_ref("ContextIndexParams")),
-        "context.pack" => Some(payload_ref("ContextPackRequest")),
-        "context.query" => Some(payload_ref("ContextQuery")),
-        "context.feedback" => Some(payload_ref("ContextFeedback")),
-        "context.learning.approve" => Some(payload_ref("ContextLearningApprovalParams")),
-        "source.materialize" => Some(payload_ref("SourceMaterializeParams")),
-        "run.heartbeat" => Some(payload_ref("RunHeartbeatParams")),
-        "model.complete" => Some(payload_ref("RunnerModelCompleteParams")),
-        "secret.resolve" => Some(payload_ref("RunnerSecretResolveParams")),
-        "tool.execute" => Some(payload_ref("RunnerToolExecuteParams")),
-        "event.review" => Some(payload_ref("ReviewEventRecord")),
-        "event.runtime" => Some(payload_ref("RuntimeEventRecord")),
-        "run.finished" => Some(payload_ref("RunnerRunResult")),
-        "run.failed" => Some(payload_ref("RunFailedNotification")),
-        _ => None,
-    }
-}
-
-fn method_result(method: &str) -> Option<RunnerPayloadRef> {
-    match method {
-        "runner.handshake" => Some(payload_ref("RunnerHandshakeResult")),
-        "runner.check" => Some(payload_ref("RunnerCheckResult")),
-        "runner.schema.export" => Some(payload_ref("RunnerProtocolSchema")),
-        "run.start" | "run.result" => Some(payload_ref("RunnerRunResult")),
-        "run.cancel" => Some(payload_ref("RunCancelResult")),
-        "run.status" => Some(payload_ref("RunStatusResult")),
-        "artifact.read" => Some(payload_ref("RunnerArtifactReadResult")),
-        "artifact.export" => Some(payload_ref("RunnerArtifactExportResult")),
-        "snapshot.readText" => Some(payload_ref("RunnerSnapshotTextResult")),
-        "webhook.github.handle" | "webhook.gitlab.handle" => {
-            Some(payload_ref("ReviewHttpResponse"))
-        }
-        "worker.runOnce" => Some(payload_ref("WorkerRunOnceResult")),
-        "context.index" => Some(payload_ref("ContextManifest")),
-        "context.pack" => Some(payload_ref("ContextPack")),
-        "context.query" => Some(payload_ref("ContextQueryResult")),
-        "context.feedback" => Some(payload_ref("ContextFeedbackReceipt")),
-        "context.learning.approve" => Some(payload_ref("ContextLearningApprovalReceipt")),
-        "source.materialize" => Some(payload_ref("SourceMaterializeResult")),
-        "run.heartbeat" => Some(payload_ref("RunHeartbeatResult")),
-        "model.complete" => Some(payload_ref("RunnerModelCompleteResult")),
-        "secret.resolve" => Some(payload_ref("RunnerSecretResolveResult")),
-        "tool.execute" => Some(payload_ref("RunnerToolExecuteResult")),
-        _ => None,
+        summary: spec.summary.to_string(),
+        params: spec.params.map(payload_ref),
+        result: spec.result.map(payload_ref),
     }
 }
 
