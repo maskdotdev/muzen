@@ -135,7 +135,6 @@ impl ReviewSession {
             options: self.options.clone(),
             result: self.result.clone(),
             events: self.events.clone(),
-            logs: Vec::new(),
             redacted_artifacts: self.redacted_artifacts.clone(),
             raw_artifacts: self.raw_artifacts.clone(),
             config_snapshot: self.config_snapshot.clone(),

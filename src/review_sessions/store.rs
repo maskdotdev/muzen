@@ -4,7 +4,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use super::{
     ReviewArtifact, ReviewCancelOptions, ReviewEvent, ReviewEventType, ReviewResult,
@@ -14,12 +13,12 @@ use super::{
 mod libsql;
 mod memory;
 
-pub use libsql::{LibsqlProjectProfileStore, LibsqlReviewSessionStore};
-pub use memory::InMemoryReviewSessionStore;
+pub(crate) use libsql::{LibsqlProjectProfileStore, LibsqlReviewSessionStore};
+pub(crate) use memory::InMemoryReviewSessionStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewSessionRecord {
+pub(crate) struct ReviewSessionRecord {
     pub id: ReviewSessionId,
     pub project_id: Option<String>,
     pub user_id: Option<String>,
@@ -28,8 +27,6 @@ pub struct ReviewSessionRecord {
     pub options: super::ReviewOptions,
     pub result: Option<ReviewResult>,
     pub events: Vec<ReviewEvent>,
-    #[serde(default)]
-    pub logs: Vec<ReviewLogEntry>,
     pub redacted_artifacts: Vec<ReviewArtifact>,
     pub raw_artifacts: Vec<ReviewArtifact>,
     pub config_snapshot: Option<super::EffectiveConfigSnapshot>,
@@ -45,7 +42,7 @@ pub struct ReviewSessionRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewWorkerLease {
+pub(crate) struct ReviewWorkerLease {
     pub worker_id: String,
     pub attempt: u32,
     pub acquired_at_utc: String,
@@ -55,150 +52,14 @@ pub struct ReviewWorkerLease {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewCancellationRecord {
+pub(crate) struct ReviewCancellationRecord {
     #[serde(default)]
     pub reason: Option<String>,
     pub cancelled_at_utc: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewLogEntry {
-    pub cursor: String,
-    pub review_id: ReviewSessionId,
-    pub timestamp_utc: String,
-    pub stream: ReviewLogStream,
-    pub message: String,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
-}
-
-impl ReviewLogEntry {
-    pub fn new(
-        review_id: ReviewSessionId,
-        stream: ReviewLogStream,
-        message: impl Into<String>,
-    ) -> Self {
-        Self {
-            cursor: String::new(),
-            review_id,
-            timestamp_utc: crate::reviewer_kernel::system::timestamp_utc(),
-            stream,
-            message: message.into(),
-            metadata: BTreeMap::new(),
-        }
-    }
-
-    pub fn with_metadata(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.metadata.insert(key.into(), value);
-        self
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReviewLogStream {
-    System,
-    Worker,
-    Agent,
-    ToolStdout,
-    ToolStderr,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewLogRedactionPolicy {
-    pub secrets: Vec<String>,
-    pub sensitive_keys: Vec<String>,
-}
-
-impl ReviewLogRedactionPolicy {
-    pub fn new(secrets: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        Self {
-            secrets: secrets
-                .into_iter()
-                .map(Into::into)
-                .filter(|secret: &String| !secret.is_empty())
-                .collect(),
-            ..Self::default()
-        }
-    }
-
-    pub fn redact_entry(&self, mut entry: ReviewLogEntry) -> ReviewLogEntry {
-        entry.message = self.redact_string(&entry.message);
-        entry.metadata = entry
-            .metadata
-            .into_iter()
-            .map(|(key, value)| {
-                let redacted = if self.is_sensitive_key(&key) {
-                    Value::String("[redacted]".to_string())
-                } else {
-                    self.redact_value(value)
-                };
-                (key, redacted)
-            })
-            .collect();
-        entry
-    }
-
-    fn redact_value(&self, value: Value) -> Value {
-        match value {
-            Value::String(value) => Value::String(self.redact_string(&value)),
-            Value::Array(values) => Value::Array(
-                values
-                    .into_iter()
-                    .map(|value| self.redact_value(value))
-                    .collect(),
-            ),
-            Value::Object(values) => {
-                let mut redacted = Map::new();
-                for (key, value) in values {
-                    let value = if self.is_sensitive_key(&key) {
-                        Value::String("[redacted]".to_string())
-                    } else {
-                        self.redact_value(value)
-                    };
-                    redacted.insert(key, value);
-                }
-                Value::Object(redacted)
-            }
-            value => value,
-        }
-    }
-
-    fn redact_string(&self, value: &str) -> String {
-        let mut redacted = value.to_string();
-        for secret in &self.secrets {
-            redacted = redacted.replace(secret, "[redacted]");
-        }
-        redacted
-    }
-
-    fn is_sensitive_key(&self, key: &str) -> bool {
-        let normalized = normalize_sensitive_key(key);
-        self.sensitive_keys
-            .iter()
-            .any(|sensitive| normalize_sensitive_key(sensitive) == normalized)
-    }
-}
-
-impl Default for ReviewLogRedactionPolicy {
-    fn default() -> Self {
-        Self {
-            secrets: Vec::new(),
-            sensitive_keys: vec![
-                "apiKey".to_string(),
-                "api_key".to_string(),
-                "token".to_string(),
-                "accessToken".to_string(),
-                "authorization".to_string(),
-                "secret".to_string(),
-            ],
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewWorkerClaim {
+pub(crate) struct ReviewWorkerClaim {
     pub review_id: ReviewSessionId,
     pub worker_id: String,
     pub attempt: u32,
@@ -206,7 +67,7 @@ pub struct ReviewWorkerClaim {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewWorkerClaimOptions {
+pub(crate) struct ReviewWorkerClaimOptions {
     pub worker_id: String,
     pub max_sessions: usize,
     pub lease_seconds: u64,
@@ -215,16 +76,6 @@ pub struct ReviewWorkerClaimOptions {
 }
 
 impl ReviewWorkerClaimOptions {
-    pub fn new(worker_id: impl Into<String>) -> Self {
-        Self {
-            worker_id: worker_id.into(),
-            max_sessions: 1,
-            lease_seconds: 60,
-            now_unix_seconds: None,
-            concurrency: ReviewWorkerConcurrencyLimits::default(),
-        }
-    }
-
     fn now_unix_seconds(&self) -> u64 {
         self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
     }
@@ -238,27 +89,6 @@ pub struct ReviewWorkerConcurrencyLimits {
     pub max_running_per_user: Option<usize>,
     pub max_running_per_model_profile: Option<usize>,
     pub max_running_per_provider_profile: Option<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewLeaseExtension {
-    pub worker_id: String,
-    pub lease_seconds: u64,
-    pub now_unix_seconds: Option<u64>,
-}
-
-impl ReviewLeaseExtension {
-    pub fn new(worker_id: impl Into<String>) -> Self {
-        Self {
-            worker_id: worker_id.into(),
-            lease_seconds: 60,
-            now_unix_seconds: None,
-        }
-    }
-
-    fn now_unix_seconds(&self) -> u64 {
-        self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,28 +110,20 @@ impl Default for ReviewRetryPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewAttemptFailure {
+pub(crate) struct ReviewAttemptFailure {
     pub error: String,
     pub retry_policy: ReviewRetryPolicy,
     pub now_unix_seconds: Option<u64>,
 }
 
 impl ReviewAttemptFailure {
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-            retry_policy: ReviewRetryPolicy::default(),
-            now_unix_seconds: None,
-        }
-    }
-
     fn now_unix_seconds(&self) -> u64 {
         self.now_unix_seconds.unwrap_or_else(current_unix_seconds)
     }
 }
 
 #[async_trait]
-pub trait ReviewSessionStore: Send + Sync {
+pub(crate) trait ReviewSessionStore: Send + Sync {
     async fn insert(&self, record: ReviewSessionRecord) -> Result<(), ReviewSessionError>;
 
     async fn get(
@@ -314,37 +136,11 @@ pub trait ReviewSessionStore: Send + Sync {
         dedupe_key: &str,
     ) -> Result<Option<ReviewSessionRecord>, ReviewSessionError>;
 
-    async fn append_events(
-        &self,
-        id: &ReviewSessionId,
-        events: Vec<ReviewEvent>,
-    ) -> Result<(), ReviewSessionError>;
-
     async fn events_after(
         &self,
         id: &ReviewSessionId,
         after: Option<&str>,
     ) -> Result<Vec<ReviewEvent>, ReviewSessionError>;
-
-    async fn append_logs(
-        &self,
-        id: &ReviewSessionId,
-        logs: Vec<ReviewLogEntry>,
-        redaction: ReviewLogRedactionPolicy,
-    ) -> Result<(), ReviewSessionError>;
-
-    async fn logs_after(
-        &self,
-        id: &ReviewSessionId,
-        after: Option<&str>,
-    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError>;
-
-    async fn write_result(
-        &self,
-        id: &ReviewSessionId,
-        status: ReviewStatus,
-        result: ReviewResult,
-    ) -> Result<(), ReviewSessionError>;
 
     async fn write_execution_result(
         &self,
@@ -367,12 +163,6 @@ pub trait ReviewSessionStore: Send + Sync {
         options: ReviewWorkerClaimOptions,
     ) -> Result<Vec<ReviewWorkerClaim>, ReviewSessionError>;
 
-    async fn extend_lease(
-        &self,
-        id: &ReviewSessionId,
-        options: ReviewLeaseExtension,
-    ) -> Result<ReviewWorkerLease, ReviewSessionError>;
-
     async fn record_attempt_failure(
         &self,
         id: &ReviewSessionId,
@@ -383,7 +173,7 @@ pub trait ReviewSessionStore: Send + Sync {
 pub const DEFAULT_MUZEN_STORE_URL: &str = "sqlite://.muzen/muzen.db";
 pub const MUZEN_STORE_URL_ENV: &str = "MUZEN_STORE_URL";
 
-pub struct MuzenStoreBundle {
+pub(crate) struct MuzenStoreBundle {
     pub session_store: std::sync::Arc<dyn ReviewSessionStore>,
     pub profile_store: std::sync::Arc<dyn super::ProjectProfileStore>,
 }
@@ -396,7 +186,9 @@ impl std::fmt::Debug for MuzenStoreBundle {
     }
 }
 
-pub async fn stores_from_url(store_url: &str) -> Result<MuzenStoreBundle, ReviewSessionError> {
+pub(crate) async fn stores_from_url(
+    store_url: &str,
+) -> Result<MuzenStoreBundle, ReviewSessionError> {
     let store_url = store_url.trim();
     if store_url == "memory://" {
         return Ok(MuzenStoreBundle {
@@ -416,7 +208,7 @@ pub async fn stores_from_url(store_url: &str) -> Result<MuzenStoreBundle, Review
     )))
 }
 
-pub fn sqlite_path_from_url(store_url: &str) -> Option<Result<PathBuf, ReviewSessionError>> {
+pub(crate) fn sqlite_path_from_url(store_url: &str) -> Option<Result<PathBuf, ReviewSessionError>> {
     let raw_path = store_url.strip_prefix("sqlite://")?;
     if raw_path.trim().is_empty() {
         return Some(Err(ReviewSessionError::Store(
@@ -601,13 +393,6 @@ fn retry_backoff_seconds(policy: ReviewRetryPolicy, attempt: u32) -> u64 {
     let shift = attempt.saturating_sub(1).min(31);
     let multiplier = 1_u64.checked_shl(shift).unwrap_or(u64::MAX);
     initial.saturating_mul(multiplier).min(max)
-}
-
-fn normalize_sensitive_key(key: &str) -> String {
-    key.chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
 }
 
 fn current_unix_seconds() -> u64 {

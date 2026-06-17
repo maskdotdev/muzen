@@ -177,17 +177,6 @@ class RunnerMappingTests(unittest.TestCase):
             source,
             ReviewOptions(
                 metadata={"hostRunId": "flow-1"},
-                context_engine=ContextEngineConfig(
-                    mode="snapshot_v0",
-                    max_indexed_files=20_000,
-                    max_indexed_bytes=67_108_864,
-                    max_evidence_items=5_000,
-                    max_pack_tokens=12_000,
-                    max_query_results=120,
-                    include_repository_guidance=True,
-                    include_host_context=False,
-                    strict_evidence_required=True,
-                ),
                 change=ReviewChangeSpec(
                     kind="revision_range",
                     base_revision="base",
@@ -233,8 +222,7 @@ class RunnerMappingTests(unittest.TestCase):
 
         self.assertEqual(params["changedFiles"], ["src/auth.py"])
         self.assertEqual(params["metadata"], {"hostRunId": "flow-1"})
-        self.assertEqual(params["contextEngine"]["mode"], "snapshot_v0")
-        self.assertEqual(params["contextEngine"]["strictEvidenceRequired"], True)
+        self.assertNotIn("contextEngine", params)
         self.assertEqual(params["change"]["headRevision"], "head")
         self.assertEqual(params["instructions"][0]["kind"], "host_policy")
         self.assertEqual(params["tools"][0]["effects"], ["read_host"])
@@ -311,7 +299,7 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(profiles[0]["provider"], "anthropic")
         self.assertEqual(profiles[0]["apiProtocol"], "messages")
         self.assertEqual(profiles[0]["credential"], {"env": "ANTHROPIC_API_KEY"})
-        self.assertEqual(profiles[1]["provider"], "openai")
+        self.assertEqual(profiles[1]["provider"], "openai_compatible")
         self.assertEqual(profiles[1]["baseUrl"], "http://127.0.0.1:8000/v1")
         self.assertEqual(params["sessions"][1]["modelProfileId"], "session:local")
 

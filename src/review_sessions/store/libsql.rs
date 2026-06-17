@@ -17,12 +17,11 @@ use super::super::{
 use super::{
     append_record_event, claim_limit_reached, is_claimable, rebase_events, retry_backoff_seconds,
     timestamp_from_unix_seconds, validate_worker_id, worker_lease, ReviewAttemptFailure,
-    ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy,
-    ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim, ReviewWorkerClaimOptions,
-    ReviewWorkerLease, RunningCounts,
+    ReviewCancellationRecord, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
+    ReviewWorkerClaimOptions, RunningCounts,
 };
 
-const REVIEW_SESSION_SCHEMA_VERSION: i64 = 1;
+const REVIEW_SESSION_SCHEMA_VERSION: i64 = 2;
 const PROJECT_PROFILE_SCHEMA_VERSION: i64 = 1;
 
 pub struct LibsqlReviewSessionStore {
@@ -123,24 +122,6 @@ impl ReviewSessionStore for LibsqlReviewSessionStore {
             .transpose()
     }
 
-    async fn append_events(
-        &self,
-        id: &ReviewSessionId,
-        events: Vec<ReviewEvent>,
-    ) -> Result<(), ReviewSessionError> {
-        let connection = self.connection.lock().await;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(libsql_review_error)?;
-        let mut record = libsql_record_required(&transaction, id).await?;
-        record.events.extend(events);
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        upsert_libsql_record(&transaction, &record).await?;
-        transaction.commit().await.map_err(libsql_review_error)?;
-        Ok(())
-    }
-
     async fn events_after(
         &self,
         id: &ReviewSessionId,
@@ -160,77 +141,6 @@ impl ReviewSessionStore for LibsqlReviewSessionStore {
                     .unwrap_or(false)
             })
             .collect())
-    }
-
-    async fn append_logs(
-        &self,
-        id: &ReviewSessionId,
-        logs: Vec<ReviewLogEntry>,
-        redaction: ReviewLogRedactionPolicy,
-    ) -> Result<(), ReviewSessionError> {
-        let connection = self.connection.lock().await;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(libsql_review_error)?;
-        let mut record = libsql_record_required(&transaction, id).await?;
-        let start = record.logs.len();
-        let review_id = record.id.clone();
-        record
-            .logs
-            .extend(logs.into_iter().enumerate().map(|(index, mut log)| {
-                log.cursor = (start + index + 1).to_string();
-                log.review_id = review_id.clone();
-                if log.timestamp_utc.trim().is_empty() {
-                    log.timestamp_utc = crate::reviewer_kernel::system::timestamp_utc();
-                }
-                redaction.redact_entry(log)
-            }));
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        upsert_libsql_record(&transaction, &record).await?;
-        transaction.commit().await.map_err(libsql_review_error)?;
-        Ok(())
-    }
-
-    async fn logs_after(
-        &self,
-        id: &ReviewSessionId,
-        after: Option<&str>,
-    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
-        let connection = self.connection.lock().await;
-        let record = libsql_record_required(&connection, id).await?;
-        let after_cursor = cursor_after(after)?;
-        Ok(record
-            .logs
-            .into_iter()
-            .filter(|log| {
-                log.cursor
-                    .parse::<i64>()
-                    .map(|cursor| cursor > after_cursor)
-                    .unwrap_or(false)
-            })
-            .collect())
-    }
-
-    async fn write_result(
-        &self,
-        id: &ReviewSessionId,
-        status: ReviewStatus,
-        result: ReviewResult,
-    ) -> Result<(), ReviewSessionError> {
-        let connection = self.connection.lock().await;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(libsql_review_error)?;
-        let mut record = libsql_record_required(&transaction, id).await?;
-        record.status = status;
-        record.result = Some(result);
-        record.lease = None;
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        upsert_libsql_record(&transaction, &record).await?;
-        transaction.commit().await.map_err(libsql_review_error)?;
-        Ok(())
     }
 
     async fn write_execution_result(
@@ -378,47 +288,6 @@ impl ReviewSessionStore for LibsqlReviewSessionStore {
         }
         transaction.commit().await.map_err(libsql_review_error)?;
         Ok(claims)
-    }
-
-    async fn extend_lease(
-        &self,
-        id: &ReviewSessionId,
-        options: ReviewLeaseExtension,
-    ) -> Result<ReviewWorkerLease, ReviewSessionError> {
-        validate_worker_id(&options.worker_id)?;
-        let connection = self.connection.lock().await;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(libsql_review_error)?;
-        let mut record = libsql_record_required(&transaction, id).await?;
-        let Some(existing) = &record.lease else {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} does not have an active lease"
-            )));
-        };
-        if existing.worker_id != options.worker_id {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} is leased by another worker"
-            )));
-        }
-        if record.status != ReviewStatus::Running {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} is not running"
-            )));
-        }
-        let now = options.now_unix_seconds();
-        let lease = worker_lease(
-            &options.worker_id,
-            existing.attempt,
-            now,
-            options.lease_seconds.max(1),
-        );
-        record.lease = Some(lease.clone());
-        record.updated_at_utc = lease.acquired_at_utc.clone();
-        upsert_libsql_record(&transaction, &record).await?;
-        transaction.commit().await.map_err(libsql_review_error)?;
-        Ok(lease)
     }
 
     async fn record_attempt_failure(
@@ -713,9 +582,8 @@ impl ProjectProfileStore for LibsqlProjectProfileStore {
 }
 
 const REVIEW_SESSION_COLUMNS: &str = "id, project_id, user_id, status, source, options, result,
-events, logs, redacted_artifacts, raw_artifacts, config_snapshot, attempt,
-run_after_unix_seconds, lease, cancellation, last_error, dedupe_key,
-created_at_utc, updated_at_utc";
+events, redacted_artifacts, raw_artifacts, config_snapshot, attempt, run_after_unix_seconds,
+lease, cancellation, last_error, dedupe_key, created_at_utc, updated_at_utc";
 
 const REVIEW_SESSION_SCHEMA_BOOTSTRAP_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS muzen_schema_versions (
@@ -736,7 +604,6 @@ CREATE TABLE IF NOT EXISTS muzen_review_sessions (
     options TEXT NOT NULL,
     result TEXT,
     events TEXT NOT NULL,
-    logs TEXT NOT NULL,
     redacted_artifacts TEXT NOT NULL,
     raw_artifacts TEXT NOT NULL,
     config_snapshot TEXT,
@@ -817,7 +684,6 @@ async fn upsert_libsql_record(
     let options = serialize_json_string(&record.options, "options")?;
     let result = serialize_optional_json_string(&record.result, "result")?;
     let events = serialize_json_string(&record.events, "events")?;
-    let logs = serialize_json_string(&record.logs, "logs")?;
     let redacted_artifacts =
         serialize_json_string(&record.redacted_artifacts, "redacted_artifacts")?;
     let raw_artifacts = serialize_json_string(&record.raw_artifacts, "raw_artifacts")?;
@@ -841,13 +707,13 @@ async fn upsert_libsql_record(
     connection
         .execute(
             "INSERT INTO muzen_review_sessions (
-                id, project_id, user_id, status, source, options, result, events, logs,
-                redacted_artifacts, raw_artifacts, config_snapshot, attempt,
-                run_after_unix_seconds, lease, lease_expires_at_unix_seconds, cancellation,
-                last_error, dedupe_key, created_at_utc, updated_at_utc
+                id, project_id, user_id, status, source, options, result, events,
+                redacted_artifacts, raw_artifacts, config_snapshot, attempt, run_after_unix_seconds,
+                lease, lease_expires_at_unix_seconds, cancellation, last_error, dedupe_key,
+                created_at_utc, updated_at_utc
              ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                ?16, ?17, ?18, ?19, ?20, ?21
+                ?16, ?17, ?18, ?19, ?20
              )
              ON CONFLICT (id) DO UPDATE SET
                 project_id = excluded.project_id,
@@ -857,7 +723,6 @@ async fn upsert_libsql_record(
                 options = excluded.options,
                 result = excluded.result,
                 events = excluded.events,
-                logs = excluded.logs,
                 redacted_artifacts = excluded.redacted_artifacts,
                 raw_artifacts = excluded.raw_artifacts,
                 config_snapshot = excluded.config_snapshot,
@@ -878,7 +743,6 @@ async fn upsert_libsql_record(
                 options.as_str(),
                 result.as_deref(),
                 events.as_str(),
-                logs.as_str(),
                 redacted_artifacts.as_str(),
                 raw_artifacts.as_str(),
                 config_snapshot.as_deref(),
@@ -902,8 +766,8 @@ fn libsql_row_to_record(row: &Row) -> Result<ReviewSessionRecord, ReviewSessionE
     let id: String = row_text(row, 0)?;
     let review_id = ReviewSessionId::new(id)?;
     let status: String = row_text(row, 3)?;
-    let attempt: i64 = row_i64(row, 12)?;
-    let run_after: i64 = row_i64(row, 13)?;
+    let attempt: i64 = row_i64(row, 11)?;
+    let run_after: i64 = row_i64(row, 12)?;
     Ok(ReviewSessionRecord {
         id: review_id,
         project_id: row_optional_text(row, 1)?,
@@ -913,24 +777,23 @@ fn libsql_row_to_record(row: &Row) -> Result<ReviewSessionRecord, ReviewSessionE
         options: deserialize_json_string(row_text(row, 5)?, "options")?,
         result: deserialize_optional_json_string(row_optional_text(row, 6)?, "result")?,
         events: deserialize_json_string(row_text(row, 7)?, "events")?,
-        logs: deserialize_json_string(row_text(row, 8)?, "logs")?,
-        redacted_artifacts: deserialize_json_string(row_text(row, 9)?, "redacted_artifacts")?,
-        raw_artifacts: deserialize_json_string(row_text(row, 10)?, "raw_artifacts")?,
+        redacted_artifacts: deserialize_json_string(row_text(row, 8)?, "redacted_artifacts")?,
+        raw_artifacts: deserialize_json_string(row_text(row, 9)?, "raw_artifacts")?,
         config_snapshot: deserialize_optional_json_string(
-            row_optional_text(row, 11)?,
+            row_optional_text(row, 10)?,
             "config_snapshot",
         )?,
         attempt: i64_to_u32(attempt, "attempt")?,
         run_after_unix_seconds: i64_to_u64(run_after, "run_after_unix_seconds")?,
-        lease: deserialize_optional_json_string(row_optional_text(row, 14)?, "lease")?,
+        lease: deserialize_optional_json_string(row_optional_text(row, 13)?, "lease")?,
         cancellation: deserialize_optional_json_string(
-            row_optional_text(row, 15)?,
+            row_optional_text(row, 14)?,
             "cancellation",
         )?,
-        last_error: row_optional_text(row, 16)?,
-        dedupe_key: row_optional_text(row, 17)?,
-        created_at_utc: row_text(row, 18)?,
-        updated_at_utc: row_text(row, 19)?,
+        last_error: row_optional_text(row, 15)?,
+        dedupe_key: row_optional_text(row, 16)?,
+        created_at_utc: row_text(row, 17)?,
+        updated_at_utc: row_text(row, 18)?,
     })
 }
 

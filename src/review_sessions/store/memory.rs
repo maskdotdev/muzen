@@ -11,9 +11,8 @@ use super::super::{
 use super::{
     append_record_event, claim_limit_reached, has_valid_lease, is_claimable, rebase_events,
     retry_backoff_seconds, timestamp_from_unix_seconds, validate_worker_id, worker_lease,
-    ReviewAttemptFailure, ReviewCancellationRecord, ReviewLeaseExtension, ReviewLogEntry,
-    ReviewLogRedactionPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
-    ReviewWorkerClaimOptions, ReviewWorkerLease, RunningCounts,
+    ReviewAttemptFailure, ReviewCancellationRecord, ReviewSessionRecord, ReviewSessionStore,
+    ReviewWorkerClaim, ReviewWorkerClaimOptions, RunningCounts,
 };
 
 #[derive(Debug, Default)]
@@ -58,21 +57,6 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         Ok(state.sessions.get(id).cloned())
     }
 
-    async fn append_events(
-        &self,
-        id: &ReviewSessionId,
-        events: Vec<ReviewEvent>,
-    ) -> Result<(), ReviewSessionError> {
-        let mut state = self.lock_state()?;
-        let record = state
-            .sessions
-            .get_mut(id.as_str())
-            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
-        record.events.extend(events);
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        Ok(())
-    }
-
     async fn events_after(
         &self,
         id: &ReviewSessionId,
@@ -92,70 +76,6 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
             })
             .map_or(0, |index| index + 1);
         Ok(record.events[start..].to_vec())
-    }
-
-    async fn append_logs(
-        &self,
-        id: &ReviewSessionId,
-        logs: Vec<ReviewLogEntry>,
-        redaction: ReviewLogRedactionPolicy,
-    ) -> Result<(), ReviewSessionError> {
-        let mut state = self.lock_state()?;
-        let record = state
-            .sessions
-            .get_mut(id.as_str())
-            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
-        let start = record.logs.len();
-        let review_id = record.id.clone();
-        let rebased = logs
-            .into_iter()
-            .enumerate()
-            .map(|(index, mut log)| {
-                log.cursor = (start + index + 1).to_string();
-                log.review_id = review_id.clone();
-                if log.timestamp_utc.trim().is_empty() {
-                    log.timestamp_utc = crate::reviewer_kernel::system::timestamp_utc();
-                }
-                redaction.redact_entry(log)
-            })
-            .collect::<Vec<_>>();
-        record.logs.extend(rebased);
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        Ok(())
-    }
-
-    async fn logs_after(
-        &self,
-        id: &ReviewSessionId,
-        after: Option<&str>,
-    ) -> Result<Vec<ReviewLogEntry>, ReviewSessionError> {
-        let state = self.lock_state()?;
-        let record = state
-            .sessions
-            .get(id.as_str())
-            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
-        let start = after
-            .and_then(|cursor| record.logs.iter().position(|log| log.cursor == cursor))
-            .map_or(0, |index| index + 1);
-        Ok(record.logs[start..].to_vec())
-    }
-
-    async fn write_result(
-        &self,
-        id: &ReviewSessionId,
-        status: ReviewStatus,
-        result: ReviewResult,
-    ) -> Result<(), ReviewSessionError> {
-        let mut state = self.lock_state()?;
-        let record = state
-            .sessions
-            .get_mut(id.as_str())
-            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
-        record.status = status;
-        record.result = Some(result);
-        record.lease = None;
-        record.updated_at_utc = crate::reviewer_kernel::system::timestamp_utc();
-        Ok(())
     }
 
     async fn write_execution_result(
@@ -267,44 +187,6 @@ impl ReviewSessionStore for InMemoryReviewSessionStore {
         }
 
         Ok(claims)
-    }
-
-    async fn extend_lease(
-        &self,
-        id: &ReviewSessionId,
-        options: ReviewLeaseExtension,
-    ) -> Result<ReviewWorkerLease, ReviewSessionError> {
-        validate_worker_id(&options.worker_id)?;
-        let mut state = self.lock_state()?;
-        let record = state
-            .sessions
-            .get_mut(id.as_str())
-            .ok_or_else(|| ReviewSessionError::Store(format!("unknown review session {id}")))?;
-        let Some(existing) = &record.lease else {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} does not have an active lease"
-            )));
-        };
-        if existing.worker_id != options.worker_id {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} is leased by another worker"
-            )));
-        }
-        if record.status != ReviewStatus::Running {
-            return Err(ReviewSessionError::Store(format!(
-                "review session {id} is not running"
-            )));
-        }
-        let now = options.now_unix_seconds();
-        let lease = worker_lease(
-            &options.worker_id,
-            existing.attempt,
-            now,
-            options.lease_seconds.max(1),
-        );
-        record.lease = Some(lease.clone());
-        record.updated_at_utc = lease.acquired_at_utc.clone();
-        Ok(lease)
     }
 
     async fn record_attempt_failure(

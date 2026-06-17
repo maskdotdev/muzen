@@ -37,42 +37,6 @@ async fn review_store_persists_result_events_and_artifacts() {
 }
 
 #[tokio::test]
-async fn review_store_can_append_events_and_update_result() {
-    let repo = tempfile::tempdir().unwrap();
-    std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
-    let store = Arc::new(InMemoryReviewSessionStore::default());
-    let review = Muzen::with_store(store.clone())
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
-        .await
-        .unwrap();
-    let result = review.wait().unwrap();
-    let extra_event = ReviewEvent {
-        cursor: "manual-extra".to_string(),
-        event_type: ReviewEventType::RunnerEvent,
-        review_id: review.id().clone(),
-        timestamp_utc: timestamp_utc(),
-        payload: json!({"test": true}),
-    };
-
-    store
-        .append_events(review.id(), vec![extra_event.clone()])
-        .await
-        .unwrap();
-    store
-        .write_result(review.id(), ReviewStatus::Completed, result)
-        .await
-        .unwrap();
-    let record = store.get(review.id()).await.unwrap().unwrap();
-
-    assert_eq!(record.events.last(), Some(&extra_event));
-    assert_eq!(record.status, ReviewStatus::Completed);
-    assert!(record.result.is_some());
-}
-
-#[tokio::test]
 async fn review_store_claims_ready_sessions_with_project_concurrency() {
     let store = InMemoryReviewSessionStore::default();
     store
@@ -130,7 +94,7 @@ async fn review_store_claims_ready_sessions_with_project_concurrency() {
 }
 
 #[tokio::test]
-async fn review_store_extends_and_reclaims_leases() {
+async fn review_store_reclaims_expired_leases() {
     let store = InMemoryReviewSessionStore::default();
     let review_id = ReviewSessionId::new("review-1").unwrap();
     store
@@ -158,30 +122,18 @@ async fn review_store_extends_and_reclaims_leases() {
         })
         .await
         .unwrap();
-    let extended = store
-        .extend_lease(
-            &review_id,
-            ReviewLeaseExtension {
-                worker_id: "worker-a".to_string(),
-                lease_seconds: 20,
-                now_unix_seconds: Some(106),
-            },
-        )
-        .await
-        .unwrap();
     let reclaimed = store
         .claim_ready(ReviewWorkerClaimOptions {
             worker_id: "worker-b".to_string(),
             max_sessions: 1,
             lease_seconds: 10,
-            now_unix_seconds: Some(127),
+            now_unix_seconds: Some(111),
             concurrency: ReviewWorkerConcurrencyLimits::default(),
         })
         .await
         .unwrap();
 
     assert!(blocked.is_empty());
-    assert_eq!(extended.expires_at_unix_seconds, 126);
     assert_eq!(reclaimed.len(), 1);
     assert_eq!(reclaimed[0].attempt, 2);
     assert_eq!(reclaimed[0].worker_id, "worker-b");
@@ -508,57 +460,6 @@ async fn review_store_enforces_user_model_and_provider_running_limits() {
 }
 
 #[tokio::test]
-async fn review_session_logs_are_redacted_before_persistence() {
-    let raw_secret = "sk-live-raw-secret";
-    let store = Arc::new(InMemoryReviewSessionStore::default());
-    let project = Muzen::with_store(store.clone()).project("acme");
-    let review = project
-        .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
-        .await
-        .unwrap();
-
-    store
-        .append_logs(
-            review.id(),
-            vec![ReviewLogEntry::new(
-                review.id().clone(),
-                ReviewLogStream::Worker,
-                format!("resolved credential {raw_secret} for model call"),
-            )
-            .with_metadata("apiKey", json!(raw_secret))
-            .with_metadata(
-                "nested",
-                json!({
-                    "authorization": format!("Bearer {raw_secret}"),
-                    "safe": format!("prefix-{raw_secret}-suffix")
-                }),
-            )],
-            ReviewLogRedactionPolicy::new([raw_secret]),
-        )
-        .await
-        .unwrap();
-    let logs = store.logs_after(review.id(), None).await.unwrap();
-    let record = store.get(review.id()).await.unwrap().unwrap();
-    let logs_json = serde_json::to_string(&logs).unwrap();
-    let record_json = serde_json::to_string(&record).unwrap();
-
-    assert_eq!(logs[0].cursor, "1");
-    assert_eq!(logs[0].review_id, review.id().clone());
-    assert!(logs_json.contains("[redacted]"));
-    assert!(!logs_json.contains(raw_secret));
-    assert!(!record_json.contains(raw_secret));
-    assert_eq!(logs[0].metadata["apiKey"], json!("[redacted]"));
-    assert_eq!(
-        logs[0].metadata["nested"]["authorization"],
-        json!("[redacted]")
-    );
-    assert_eq!(
-        logs[0].metadata["nested"]["safe"],
-        json!("prefix-[redacted]-suffix")
-    );
-}
-
-#[tokio::test]
 async fn review_session_store_conformance_memory() {
     assert_review_session_store_conformance(Arc::new(InMemoryReviewSessionStore::default())).await;
 }
@@ -612,16 +513,6 @@ async fn libsql_review_store_reopens_persisted_review() {
         timestamp_utc: timestamp_utc(),
         payload: json!({}),
     });
-    record.logs.push(ReviewLogEntry::new(
-        review_id.clone(),
-        ReviewLogStream::System,
-        "queued",
-    ));
-    record.logs.push(ReviewLogEntry::new(
-        review_id.clone(),
-        ReviewLogStream::ToolStdout,
-        "running",
-    ));
     record.redacted_artifacts.push(ReviewArtifact {
         artifact_id: "artifact-1".to_string(),
         bytes: 2,
@@ -656,14 +547,6 @@ async fn libsql_review_store_reopens_persisted_review() {
         .unwrap_err();
 
     assert_eq!(loaded.events.len(), 1);
-    assert_eq!(
-        loaded
-            .logs
-            .iter()
-            .map(|log| log.message.as_str())
-            .collect::<Vec<_>>(),
-        vec!["queued", "running"]
-    );
     assert_eq!(
         loaded
             .redacted_artifacts
@@ -735,6 +618,22 @@ async fn assert_review_session_store_conformance(store: Arc<dyn ReviewSessionSto
     let review_id = ReviewSessionId::new("conformance-basic").unwrap();
     let mut record = queued_record(review_id.as_str(), Some("acme"), 0);
     record.dedupe_key = Some("source:conformance-basic".to_string());
+    record.events = vec![
+        ReviewEvent {
+            cursor: "1".to_string(),
+            event_type: ReviewEventType::SessionQueued,
+            review_id: review_id.clone(),
+            timestamp_utc: timestamp_utc(),
+            payload: json!({"step": 1}),
+        },
+        ReviewEvent {
+            cursor: "2".to_string(),
+            event_type: ReviewEventType::RunnerEvent,
+            review_id: review_id.clone(),
+            timestamp_utc: timestamp_utc(),
+            payload: json!({"step": 2}),
+        },
+    ];
     store.insert(record).await.unwrap();
 
     let loaded = store.get(&review_id).await.unwrap().unwrap();
@@ -746,28 +645,6 @@ async fn assert_review_session_store_conformance(store: Arc<dyn ReviewSessionSto
     assert_eq!(loaded.id, review_id);
     assert_eq!(deduped.id, review_id);
 
-    store
-        .append_events(
-            &review_id,
-            vec![
-                ReviewEvent {
-                    cursor: "1".to_string(),
-                    event_type: ReviewEventType::SessionQueued,
-                    review_id: review_id.clone(),
-                    timestamp_utc: timestamp_utc(),
-                    payload: json!({"step": 1}),
-                },
-                ReviewEvent {
-                    cursor: "2".to_string(),
-                    event_type: ReviewEventType::RunnerEvent,
-                    review_id: review_id.clone(),
-                    timestamp_utc: timestamp_utc(),
-                    payload: json!({"step": 2}),
-                },
-            ],
-        )
-        .await
-        .unwrap();
     let events = store.events_after(&review_id, None).await.unwrap();
     let events_after_first = store.events_after(&review_id, Some("1")).await.unwrap();
     assert_eq!(
@@ -780,31 +657,19 @@ async fn assert_review_session_store_conformance(store: Arc<dyn ReviewSessionSto
     assert_eq!(events_after_first[0].cursor, "2");
 
     store
-        .append_logs(
-            &review_id,
-            vec![
-                ReviewLogEntry::new(review_id.clone(), ReviewLogStream::System, "first"),
-                ReviewLogEntry::new(review_id.clone(), ReviewLogStream::ToolStdout, "second"),
-            ],
-            ReviewLogRedactionPolicy::default(),
-        )
-        .await
-        .unwrap();
-    let logs = store.logs_after(&review_id, None).await.unwrap();
-    let logs_after_first = store.logs_after(&review_id, Some("1")).await.unwrap();
-    assert_eq!(
-        logs.iter()
-            .map(|log| (log.cursor.as_str(), log.message.as_str()))
-            .collect::<Vec<_>>(),
-        vec![("1", "first"), ("2", "second")]
-    );
-    assert_eq!(logs_after_first[0].message, "second");
-
-    store
-        .write_result(
+        .write_execution_result(
             &review_id,
             ReviewStatus::Completed,
             completed_result(&review_id, "conformance complete"),
+            vec![ReviewEvent {
+                cursor: String::new(),
+                event_type: ReviewEventType::SessionCompleted,
+                review_id: review_id.clone(),
+                timestamp_utc: timestamp_utc(),
+                payload: json!({}),
+            }],
+            Vec::new(),
+            Vec::new(),
         )
         .await
         .unwrap();
@@ -816,6 +681,10 @@ async fn assert_review_session_store_conformance(store: Arc<dyn ReviewSessionSto
             .as_ref()
             .map(|result| result.summary.as_str()),
         Some("conformance complete")
+    );
+    assert_eq!(
+        completed.events.last().map(|event| event.event_type),
+        Some(ReviewEventType::SessionCompleted)
     );
 
     let lease_id = ReviewSessionId::new("conformance-lease").unwrap();

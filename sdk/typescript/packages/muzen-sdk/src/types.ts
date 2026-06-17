@@ -80,7 +80,6 @@ export interface ReviewOptions {
   sourceProvider?: ReviewSourceProvider;
   hooks?: ReviewHooks;
   heartbeat?: ReviewHeartbeatOptions;
-  contextEngine?: ContextEngineConfig;
   signal?: AbortSignal;
   change?: ReviewChangeSpec;
   scope?: ReviewScope;

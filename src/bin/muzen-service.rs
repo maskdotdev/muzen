@@ -7,9 +7,7 @@ use clap::Parser;
 use muzen::remote_http::{
     serve, ContextHttpRouterOptions, MuzenHttpService, ReviewHttpRouter, ReviewHttpRouterOptions,
 };
-use muzen::review_sessions::{
-    stores_from_url, Muzen, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
-};
+use muzen::review_sessions::{Muzen, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV};
 
 #[derive(Debug, Parser)]
 #[command(name = "muzen-service")]
@@ -74,8 +72,7 @@ async fn run() -> Result<()> {
         .store_url
         .or_else(|| env::var(cli.store_url_env).ok())
         .unwrap_or_else(|| DEFAULT_MUZEN_STORE_URL.to_string());
-    let stores = stores_from_url(&store_url).await?;
-    let muzen = Muzen::with_stores(stores.session_store, stores.profile_store);
+    let muzen = Muzen::from_store_url(&store_url).await?;
     let service = MuzenHttpService::new(ReviewHttpRouter::with_options(muzen, router_options));
     serve(cli.bind, service).await
 }

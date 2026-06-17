@@ -32,17 +32,6 @@ describe("runner mapping", () => {
           intervalMs: 250,
           leaseSeconds: 30,
         },
-        contextEngine: {
-          mode: "snapshot_v0",
-          maxIndexedFiles: 20_000,
-          maxIndexedBytes: 67_108_864,
-          maxEvidenceItems: 5_000,
-          maxPackTokens: 12_000,
-          maxQueryResults: 120,
-          includeRepositoryGuidance: true,
-          includeHostContext: false,
-          strictEvidenceRequired: true,
-        },
         metadata: {
           hostRunId: "flow-1",
         },
@@ -100,17 +89,7 @@ describe("runner mapping", () => {
       intervalMs: 250,
       leaseSeconds: 30,
     });
-    assert.deepEqual(params.contextEngine, {
-      mode: "snapshot_v0",
-      maxIndexedFiles: 20_000,
-      maxIndexedBytes: 67_108_864,
-      maxEvidenceItems: 5_000,
-      maxPackTokens: 12_000,
-      maxQueryResults: 120,
-      includeRepositoryGuidance: true,
-      includeHostContext: false,
-      strictEvidenceRequired: true,
-    });
+    assert.equal("contextEngine" in params, false);
     assert.deepEqual(params.instructions, [
       {
         kind: "host_policy",
@@ -278,7 +257,7 @@ describe("runner mapping", () => {
     assert.deepEqual(params.model.modelProfiles, [
       {
         id: "default",
-        provider: "openai",
+        provider: "openai_compatible",
         model: "gpt-5.4-mini",
         credential: { env: "OPENAI_API_KEY" },
         baseUrl: undefined,
@@ -290,7 +269,7 @@ describe("runner mapping", () => {
       },
       {
         id: "session:security",
-        provider: "openai",
+        provider: "openai_compatible",
         model: "gpt-5.4",
         credential: { secretRef: "tenant:acme/openai" },
         baseUrl: undefined,
@@ -350,7 +329,7 @@ describe("runner mapping", () => {
       temperature: undefined,
       topP: undefined,
     });
-    assert.equal(params.model.modelProfiles[1].provider, "openai");
+    assert.equal(params.model.modelProfiles[1].provider, "openai_compatible");
     assert.equal(
       params.model.modelProfiles[1].baseUrl,
       "http://127.0.0.1:8000/v1",

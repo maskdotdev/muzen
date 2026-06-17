@@ -120,7 +120,7 @@ impl WebhookReviewDelivery {
 }
 
 impl MuzenProject {
-    pub async fn handle_github_webhook(
+    pub(crate) async fn handle_github_webhook(
         &self,
         headers: &WebhookHeaders,
         body: &[u8],
@@ -161,7 +161,7 @@ impl MuzenProject {
         .await
     }
 
-    pub async fn handle_gitlab_webhook(
+    pub(crate) async fn handle_gitlab_webhook(
         &self,
         headers: &WebhookHeaders,
         body: &[u8],

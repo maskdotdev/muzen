@@ -52,7 +52,6 @@ pub(super) fn queued_record(
         options: ReviewOptions::default(),
         result: None,
         events: Vec::new(),
-        logs: Vec::new(),
         redacted_artifacts: Vec::new(),
         raw_artifacts: Vec::new(),
         config_snapshot: None,

@@ -39,24 +39,26 @@ pub use outcome::{
     ReviewSuggestedFix,
 };
 pub use profiles::{
-    InMemoryProjectProfileStore, ModelProfile, ModelProfileInput, ModelProviderKind,
-    ProjectProfileStore, ProviderProfile, ProviderProfileInput, SourceProviderKind,
+    ModelProfile, ModelProfileInput, ModelProviderKind, ProviderProfile, ProviderProfileInput,
+    SourceProviderKind,
 };
 pub use session::{CreateReviewSessionInput, ReviewSession};
 pub use store::{
-    stores_from_url, InMemoryReviewSessionStore, LibsqlProjectProfileStore,
-    LibsqlReviewSessionStore, MuzenStoreBundle, ReviewAttemptFailure, ReviewCancellationRecord,
-    ReviewLeaseExtension, ReviewLogEntry, ReviewLogRedactionPolicy, ReviewLogStream,
-    ReviewRetryPolicy, ReviewSessionRecord, ReviewSessionStore, ReviewWorkerClaim,
-    ReviewWorkerClaimOptions, ReviewWorkerConcurrencyLimits, ReviewWorkerLease,
-    DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
-};
-pub use webhooks::{
-    github_webhook_signature, map_github_webhook_source, map_gitlab_webhook_source,
-    verify_github_webhook_signature, verify_gitlab_webhook_token, WebhookHeaders,
-    WebhookMappedSource, WebhookReviewDelivery, WebhookReviewOptions,
+    ReviewRetryPolicy, ReviewWorkerConcurrencyLimits, DEFAULT_MUZEN_STORE_URL, MUZEN_STORE_URL_ENV,
 };
 pub use worker::{ReviewWorker, ReviewWorkerRun};
+
+pub(crate) use profiles::{InMemoryProjectProfileStore, ProjectProfileStore};
+pub(crate) use store::{
+    stores_from_url, InMemoryReviewSessionStore, ReviewAttemptFailure, ReviewSessionRecord,
+    ReviewSessionStore, ReviewWorkerClaimOptions,
+};
+pub(crate) use webhooks::{WebhookHeaders, WebhookReviewDelivery, WebhookReviewOptions};
+
+#[cfg(test)]
+pub(crate) use store::{LibsqlProjectProfileStore, LibsqlReviewSessionStore};
+#[cfg(test)]
+pub(crate) use webhooks::github_webhook_signature;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReviewSessionError {
@@ -112,11 +114,12 @@ impl Muzen {
         )
     }
 
-    pub fn with_store(store: Arc<dyn ReviewSessionStore>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_store(store: Arc<dyn ReviewSessionStore>) -> Self {
         Self::with_stores(store, Arc::new(InMemoryProjectProfileStore::default()))
     }
 
-    pub fn with_stores(
+    pub(crate) fn with_stores(
         store: Arc<dyn ReviewSessionStore>,
         profile_store: Arc<dyn ProjectProfileStore>,
     ) -> Self {
@@ -125,6 +128,14 @@ impl Muzen {
             store,
             profile_store,
         }
+    }
+
+    pub async fn from_store_url(store_url: &str) -> Result<Self, ReviewSessionError> {
+        let stores = stores_from_url(store_url).await?;
+        Ok(Self::with_stores(
+            stores.session_store,
+            stores.profile_store,
+        ))
     }
 
     pub async fn review(

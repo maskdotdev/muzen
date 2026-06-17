@@ -34,7 +34,7 @@ impl Default for HostSchedulingConfiguration {
 }
 
 impl HostSchedulingConfiguration {
-    pub fn claim_options(
+    pub(crate) fn claim_options(
         &self,
         worker_id: impl Into<String>,
         max_sessions: usize,

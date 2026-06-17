@@ -25,7 +25,7 @@ impl std::fmt::Debug for ReviewWorker {
 }
 
 impl ReviewWorker {
-    pub fn new(
+    pub(crate) fn new(
         worker_id: impl Into<String>,
         store: Arc<dyn ReviewSessionStore>,
         host_config: HostConfiguration,

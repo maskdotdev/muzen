@@ -36,7 +36,7 @@ pub(super) fn review_input_to_runner_start(
         model: runner_model(&input.options),
         tools: runner_tools(&input.options),
         heartbeat: None,
-        context_engine: input.options.context_engine,
+        context_engine: None,
     })
 }
 

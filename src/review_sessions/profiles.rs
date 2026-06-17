@@ -119,7 +119,7 @@ impl ProviderProfile {
 }
 
 #[async_trait]
-pub trait ProjectProfileStore: Send + Sync {
+pub(crate) trait ProjectProfileStore: Send + Sync {
     async fn set_model_profile(
         &self,
         project_id: &str,
@@ -158,7 +158,7 @@ pub trait ProjectProfileStore: Send + Sync {
 }
 
 #[derive(Debug, Default)]
-pub struct InMemoryProjectProfileStore {
+pub(crate) struct InMemoryProjectProfileStore {
     state: Mutex<ProfileStoreState>,
 }
 

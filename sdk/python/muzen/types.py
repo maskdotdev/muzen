@@ -529,7 +529,6 @@ class ReviewOptions:
     tools: List["ReviewTool"] = field(default_factory=list)
     sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
-    context_engine: Optional[ContextEngineConfig] = None
 
 
 @dataclass(frozen=True)
