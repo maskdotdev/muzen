@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken as Cancellation;
 
@@ -10,6 +9,7 @@ use crate::reviewer_kernel::tool_engine::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput,
 };
 
+use super::callback_types::{RunnerToolExecuteParams, RunnerToolExecuteResult};
 use super::transport::RunnerCallbackTransport;
 use super::RUNNER_PROTOCOL_VERSION;
 
@@ -63,36 +63,6 @@ impl CustomToolHandler for CallbackReviewTool {
             limits: crate::reviewer_kernel::kernel_types::LimitInfo::default(),
         })
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerToolExecuteParams {
-    protocol_version: String,
-    run_id: String,
-    session_id: String,
-    turn: u32,
-    call_id: String,
-    tool_id: String,
-    snapshot_id: String,
-    provider_resources: Vec<String>,
-    arguments: Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerToolExecuteResult {
-    #[serde(default)]
-    data: Option<Value>,
-    #[serde(default)]
-    artifact: Option<RunnerToolArtifactResult>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerToolArtifactResult {
-    key: String,
-    content: String,
 }
 
 fn runtime_error(error: anyhow::Error) -> RuntimeError {

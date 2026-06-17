@@ -3,6 +3,7 @@ pub const RUNNER_NAME: &str = "muzen-runner";
 
 mod callback_model;
 mod callback_tools;
+mod callback_types;
 mod cli;
 mod event_stream;
 mod execution;

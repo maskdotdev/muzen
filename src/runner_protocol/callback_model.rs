@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio_util::sync::CancellationToken as Cancellation;
 
 use crate::reviewer_kernel::kernel_types::{
@@ -10,10 +9,11 @@ use crate::reviewer_kernel::kernel_types::{
     ToolCallId, ToolId, TurnId,
 };
 use crate::reviewer_kernel::model::ConcurrentModelClient;
-use crate::reviewer_kernel::review_contract::{Role, TokenUsage};
+#[cfg(test)]
+use crate::reviewer_kernel::review_contract::TokenUsage;
 
+use super::callback_types::{RunnerModelCompleteParams, RunnerModelCompleteResult};
 use super::transport::RunnerCallbackTransport;
-use super::RUNNER_PROTOCOL_VERSION;
 
 #[cfg(test)]
 pub(crate) struct TestRunnerModel {
@@ -176,122 +176,6 @@ fn model_tool_call(
         name: ToolId::parse(tool_id)?,
         raw_arguments: arguments.to_string(),
     })
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerModelCompleteParams {
-    protocol_version: String,
-    run_id: String,
-    session_id: String,
-    role: Role,
-    objective: String,
-    snapshot_id: Option<String>,
-    model_profile_id: Option<String>,
-    turn: u32,
-    transcript: Vec<Value>,
-}
-
-impl RunnerModelCompleteParams {
-    fn from_runtime(
-        run_id: &str,
-        scope: &SessionScope,
-        transcript: &[ConversationItem],
-        turn_id: TurnId,
-    ) -> Self {
-        Self {
-            protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
-            run_id: run_id.to_string(),
-            session_id: scope.id.0.clone(),
-            role: scope.role,
-            objective: scope.objective.clone(),
-            snapshot_id: scope
-                .snapshot_id
-                .as_ref()
-                .map(|snapshot_id| snapshot_id.0.clone()),
-            model_profile_id: scope.model_profile_id.clone(),
-            turn: turn_id.0,
-            transcript: transcript.iter().map(runner_transcript_item).collect(),
-        }
-    }
-}
-
-fn runner_transcript_item(item: &ConversationItem) -> Value {
-    match item {
-        ConversationItem::System { content } => {
-            json!({"kind": "system", "content": content})
-        }
-        ConversationItem::User { content } => {
-            json!({"kind": "user", "content": content})
-        }
-        ConversationItem::AssistantText { content } => {
-            json!({"kind": "assistant_text", "content": content})
-        }
-        ConversationItem::AssistantToolCalls { calls } => json!({
-            "kind": "assistant_tool_calls",
-            "calls": calls.iter().map(|call| json!({
-                "callId": call.call_id.0,
-                "toolId": call.name.as_str(),
-                "arguments": serde_json::from_str::<Value>(&call.raw_arguments)
-                    .unwrap_or_else(|_| Value::String(call.raw_arguments.clone())),
-            })).collect::<Vec<_>>()
-        }),
-        ConversationItem::ToolResult {
-            call_id,
-            name,
-            content,
-        } => json!({
-            "kind": "tool_result",
-            "callId": call_id.0,
-            "toolId": name.as_str(),
-            "ok": content.ok,
-            "artifactId": content.artifact_id,
-            "data": content.data,
-            "errorCode": content.error.as_ref().map(|error| error.code),
-        }),
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerModelCompleteResult {
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    tool_calls: Vec<RunnerModelToolCallResult>,
-    #[serde(default)]
-    usage: Option<RunnerTokenUsage>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerModelToolCallResult {
-    #[serde(default)]
-    call_id: Option<String>,
-    tool_id: String,
-    #[serde(default)]
-    arguments: Value,
-}
-
-#[derive(Debug, Copy, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunnerTokenUsage {
-    input_tokens: u64,
-    output_tokens: u64,
-    total_tokens: u64,
-    #[serde(default)]
-    cached_input_tokens: u64,
-}
-
-impl RunnerTokenUsage {
-    fn into_token_usage(self) -> TokenUsage {
-        TokenUsage {
-            input_tokens: self.input_tokens,
-            output_tokens: self.output_tokens,
-            total_tokens: self.total_tokens,
-            cached_input_tokens: self.cached_input_tokens,
-        }
-    }
 }
 
 fn runtime_error(error: anyhow::Error) -> RuntimeError {
