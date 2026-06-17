@@ -5,6 +5,7 @@ mod callback_model;
 mod callback_tools;
 mod callback_types;
 mod cli;
+mod context_session;
 mod event_stream;
 mod execution;
 mod planning;
