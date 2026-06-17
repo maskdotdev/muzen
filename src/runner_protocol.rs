@@ -11,6 +11,7 @@ mod execution;
 mod failures;
 mod planning;
 mod protocol;
+mod resources;
 mod results;
 mod schema;
 mod schema_types;
