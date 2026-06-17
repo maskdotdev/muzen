@@ -1,8 +1,10 @@
 pub const RUNNER_PROTOCOL_VERSION: &str = "muzen.runner.v1";
 pub const RUNNER_NAME: &str = "muzen-runner";
 
-mod adapters;
+mod callback_model;
+mod callback_tools;
 mod cli;
+mod event_stream;
 mod execution;
 mod planning;
 mod protocol;

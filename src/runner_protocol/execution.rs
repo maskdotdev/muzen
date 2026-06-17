@@ -14,7 +14,7 @@ use crate::reviewer_kernel::kernel::Run;
 use crate::reviewer_kernel::report::{ReviewRunSummary, RunReport};
 use crate::reviewer_kernel::runtime_events::EventSink as RuntimeEventSink;
 
-use super::adapters::StreamingRunnerEventSink;
+use super::event_stream::StreamingRunnerEventSink;
 use super::planning::plan_run_start;
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;

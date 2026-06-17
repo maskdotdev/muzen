@@ -12,9 +12,10 @@ use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
 use crate::reviewer_kernel::tool_engine::{CustomToolOptions, ToolRegistry as RuntimeToolRegistry};
 
+use super::callback_model::CallbackReviewModel;
 #[cfg(test)]
-use super::adapters::TestRunnerModel;
-use super::adapters::{CallbackReviewModel, CallbackReviewTool};
+use super::callback_model::TestRunnerModel;
+use super::callback_tools::CallbackReviewTool;
 use super::planning::{parse_provider_resources, parse_tool_effects};
 use super::transport::RunnerCallbackTransport;
 use super::types::{
