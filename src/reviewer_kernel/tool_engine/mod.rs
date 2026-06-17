@@ -12,11 +12,11 @@ mod search;
 mod store;
 mod validation;
 
-pub use registry::{
+pub(crate) use registry::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
     ToolRegistry,
 };
-pub use store::ConcurrentArtifactStore;
+pub(crate) use store::ConcurrentArtifactStore;
 
 pub(crate) use engine::ToolEngine;
 pub(crate) use validation::count_tool_result;

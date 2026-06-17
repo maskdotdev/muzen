@@ -16,7 +16,7 @@ use crate::reviewer_kernel::review_contract::ToolName;
 use super::catalog::{review_builtin_specs, BuiltinToolSpec};
 
 #[derive(Clone)]
-pub struct ToolRegistry {
+pub(crate) struct ToolRegistry {
     definitions: HashMap<ToolId, ToolDefinition>,
     aliases: HashMap<ToolId, ToolId>,
     jsonrpc_transports: HashMap<ToolProviderId, Arc<dyn JsonRpcToolTransport>>,
@@ -33,7 +33,7 @@ impl fmt::Debug for ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn review_defaults() -> RuntimeResult<Self> {
+    pub(crate) fn review_defaults() -> RuntimeResult<Self> {
         let mut registry = Self {
             definitions: HashMap::new(),
             aliases: HashMap::new(),
@@ -45,7 +45,7 @@ impl ToolRegistry {
         Ok(registry)
     }
 
-    pub fn register_custom_with_effects(
+    pub(crate) fn register_custom_with_effects(
         &mut self,
         id: ToolId,
         description: impl Into<String>,
@@ -67,7 +67,7 @@ impl ToolRegistry {
         )
     }
 
-    pub fn register_custom_with_options(
+    pub(crate) fn register_custom_with_options(
         &mut self,
         id: ToolId,
         description: impl Into<String>,
@@ -167,7 +167,7 @@ impl ToolRegistry {
         })
     }
 
-    pub fn definition(&self, id: &ToolId) -> Option<&ToolDefinition> {
+    pub(crate) fn definition(&self, id: &ToolId) -> Option<&ToolDefinition> {
         self.definitions.get(id)
     }
 
@@ -226,16 +226,16 @@ impl ToolRegistry {
 }
 
 #[derive(Clone)]
-pub struct ToolDefinition {
-    pub id: ToolId,
-    pub model_alias: ToolId,
-    pub description: String,
-    pub parameters: Value,
+pub(crate) struct ToolDefinition {
+    pub(crate) id: ToolId,
+    pub(crate) model_alias: ToolId,
+    pub(crate) description: String,
+    pub(crate) parameters: Value,
     pub(crate) builtin: Option<ToolName>,
-    pub cacheable: bool,
-    pub effects: ToolEffects,
-    pub provider_resources: Vec<ProviderResourceId>,
-    pub provider_id: ToolProviderId,
+    pub(crate) cacheable: bool,
+    pub(crate) effects: ToolEffects,
+    pub(crate) provider_resources: Vec<ProviderResourceId>,
+    pub(crate) provider_id: ToolProviderId,
     pub(crate) handler: Option<Arc<dyn CustomToolHandler>>,
 }
 
@@ -256,10 +256,10 @@ impl fmt::Debug for ToolDefinition {
 }
 
 #[derive(Debug, Clone)]
-pub struct CustomToolOptions {
-    pub cacheable: bool,
-    pub effects: ToolEffects,
-    pub provider_resources: Vec<ProviderResourceId>,
+pub(crate) struct CustomToolOptions {
+    pub(crate) cacheable: bool,
+    pub(crate) effects: ToolEffects,
+    pub(crate) provider_resources: Vec<ProviderResourceId>,
 }
 
 impl Default for CustomToolOptions {
@@ -273,7 +273,7 @@ impl Default for CustomToolOptions {
 }
 
 #[async_trait]
-pub trait CustomToolHandler: Send + Sync {
+pub(crate) trait CustomToolHandler: Send + Sync {
     async fn execute(
         &self,
         context: CustomToolContext,
@@ -283,7 +283,7 @@ pub trait CustomToolHandler: Send + Sync {
 }
 
 #[async_trait]
-pub trait JsonRpcToolTransport: Send + Sync {
+pub(crate) trait JsonRpcToolTransport: Send + Sync {
     async fn call(
         &self,
         request: JsonRpcToolRequest,
@@ -293,14 +293,14 @@ pub trait JsonRpcToolTransport: Send + Sync {
 
 #[cfg(test)]
 #[derive(Clone)]
-pub struct JsonRpcToolRegistration {
-    pub provider_id: ToolProviderId,
-    pub id: ToolId,
-    pub model_alias: ToolId,
-    pub description: String,
-    pub parameters: Value,
-    pub options: CustomToolOptions,
-    pub transport: Arc<dyn JsonRpcToolTransport>,
+pub(crate) struct JsonRpcToolRegistration {
+    pub(crate) provider_id: ToolProviderId,
+    pub(crate) id: ToolId,
+    pub(crate) model_alias: ToolId,
+    pub(crate) description: String,
+    pub(crate) parameters: Value,
+    pub(crate) options: CustomToolOptions,
+    pub(crate) transport: Arc<dyn JsonRpcToolTransport>,
 }
 
 #[cfg(test)]
@@ -308,43 +308,43 @@ mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonRpcToolRequest {
-    pub provider_id: ToolProviderId,
-    pub session_id: SessionId,
-    pub turn_id: TurnId,
-    pub call_id: ToolCallId,
-    pub tool_id: ToolId,
-    pub snapshot_id: SnapshotId,
+pub(crate) struct JsonRpcToolRequest {
+    pub(crate) provider_id: ToolProviderId,
+    pub(crate) session_id: SessionId,
+    pub(crate) turn_id: TurnId,
+    pub(crate) call_id: ToolCallId,
+    pub(crate) tool_id: ToolId,
+    pub(crate) snapshot_id: SnapshotId,
     #[serde(default)]
-    pub provider_resources: Vec<ProviderResourceId>,
-    pub arguments: Value,
+    pub(crate) provider_resources: Vec<ProviderResourceId>,
+    pub(crate) arguments: Value,
 }
 
 #[derive(Debug, Clone)]
-pub struct CustomToolContext {
-    pub session_id: SessionId,
-    pub turn_id: TurnId,
-    pub call_id: ToolCallId,
-    pub tool_id: ToolId,
-    pub snapshot_id: SnapshotId,
-    pub provider_resources: Vec<ProviderResourceId>,
+pub(crate) struct CustomToolContext {
+    pub(crate) session_id: SessionId,
+    pub(crate) turn_id: TurnId,
+    pub(crate) call_id: ToolCallId,
+    pub(crate) tool_id: ToolId,
+    pub(crate) snapshot_id: SnapshotId,
+    pub(crate) provider_resources: Vec<ProviderResourceId>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonRpcToolResponse {
-    pub data: Option<Value>,
-    pub artifact: Option<CustomToolArtifact>,
-    pub limits: LimitInfo,
+pub(crate) struct JsonRpcToolResponse {
+    pub(crate) data: Option<Value>,
+    pub(crate) artifact: Option<CustomToolArtifact>,
+    pub(crate) limits: LimitInfo,
 }
 
-pub type CustomToolOutput = JsonRpcToolResponse;
+pub(crate) type CustomToolOutput = JsonRpcToolResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CustomToolArtifact {
-    pub key: ArtifactKey,
-    pub content: String,
+pub(crate) struct CustomToolArtifact {
+    pub(crate) key: ArtifactKey,
+    pub(crate) content: String,
 }
 
 fn validate_parameters(parameters: Value) -> RuntimeResult<Value> {
