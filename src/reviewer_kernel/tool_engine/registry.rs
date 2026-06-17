@@ -54,8 +54,7 @@ impl ToolRegistry {
         effects: ToolEffects,
         handler: Arc<dyn CustomToolHandler>,
     ) -> RuntimeResult<()> {
-        self.register_custom_with_alias_and_effects(
-            id.clone(),
+        self.register_custom_with_options(
             id,
             description,
             parameters,
@@ -68,7 +67,45 @@ impl ToolRegistry {
         )
     }
 
-    pub fn register_custom_with_alias_and_effects(
+    pub fn register_custom_with_options(
+        &mut self,
+        id: ToolId,
+        description: impl Into<String>,
+        parameters: Value,
+        options: CustomToolOptions,
+        handler: Arc<dyn CustomToolHandler>,
+    ) -> RuntimeResult<()> {
+        self.register_custom_with_model_alias(
+            id.clone(),
+            id,
+            description,
+            parameters,
+            options,
+            handler,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn register_custom_with_alias_for_test(
+        &mut self,
+        id: ToolId,
+        model_alias: ToolId,
+        description: impl Into<String>,
+        parameters: Value,
+        options: CustomToolOptions,
+        handler: Arc<dyn CustomToolHandler>,
+    ) -> RuntimeResult<()> {
+        self.register_custom_with_model_alias(
+            id,
+            model_alias,
+            description,
+            parameters,
+            options,
+            handler,
+        )
+    }
+
+    fn register_custom_with_model_alias(
         &mut self,
         id: ToolId,
         model_alias: ToolId,
@@ -175,10 +212,7 @@ impl ToolRegistry {
                 definition.id.as_str()
             )));
         }
-        if self
-            .aliases
-            .contains_key(&definition.model_alias)
-        {
+        if self.aliases.contains_key(&definition.model_alias) {
             return Err(RuntimeError::InvalidInput(format!(
                 "duplicate tool alias {}",
                 definition.model_alias.as_str()

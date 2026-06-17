@@ -1524,7 +1524,7 @@ fn concurrent_tool_registry_rejects_alias_collisions() {
     let alias = ToolId::parse("provider_visible_name").unwrap();
     let first = ToolId::parse("first_custom_alias_check").unwrap();
     registry
-        .register_custom_with_alias_and_effects(
+        .register_custom_with_alias_for_test(
             first.clone(),
             alias.clone(),
             "First custom check.",
@@ -1545,7 +1545,7 @@ fn concurrent_tool_registry_rejects_alias_collisions() {
     assert_eq!(registry.model_alias_for_tool(&first), Some(&alias));
     assert_eq!(registry.tool_id_for_model_alias(&alias), Some(first));
 
-    let duplicate = registry.register_custom_with_alias_and_effects(
+    let duplicate = registry.register_custom_with_alias_for_test(
         ToolId::parse("second_custom_alias_check").unwrap(),
         alias,
         "Second custom check.",

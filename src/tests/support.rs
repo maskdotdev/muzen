@@ -330,8 +330,7 @@ pub fn register_test_custom_tool_with_parameters(
 ) -> ToolId {
     let tool_id = ToolId::parse(id).unwrap();
     registry
-        .register_custom_with_alias_and_effects(
-            tool_id.clone(),
+        .register_custom_with_options(
             tool_id.clone(),
             description,
             parameters,

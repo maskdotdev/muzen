@@ -101,8 +101,7 @@ fn runner_tool_registry(
                     anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
                 })?;
             registry
-                .register_custom_with_alias_and_effects(
-                    id.clone(),
+                .register_custom_with_options(
                     id,
                     tool.description.clone(),
                     tool.parameters.clone(),

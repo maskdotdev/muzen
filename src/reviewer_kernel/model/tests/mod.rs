@@ -245,7 +245,7 @@ fn aliased_registry() -> (ToolRegistry, ToolId, ToolId) {
     let internal_tool = ToolId::parse("internal_review_tool").unwrap();
     let model_alias = ToolId::parse("provider_review_tool").unwrap();
     registry
-        .register_custom_with_alias_and_effects(
+        .register_custom_with_alias_for_test(
             internal_tool.clone(),
             model_alias.clone(),
             "provider-visible alias test tool",
