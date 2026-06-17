@@ -150,9 +150,6 @@ Source providers
 
 Important Muzen context:
 
-- `docs/10-out-of-10-architecture-plan.md` already frames Muzen as a reusable
-  repository-review execution kernel with shared snapshots, run specs, session
-  specs, dynamic tools, and capability grants.
 - `docs/sdk-runner-implementation-plan.md` already points toward an SDK to
   runner protocol with model callbacks, tool callbacks, events, and artifacts.
 - `sdk/typescript/packages/muzen-sdk/src/types.ts` exposes provider-neutral
