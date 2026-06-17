@@ -13,13 +13,21 @@ use crate::review_planning::{
 };
 use crate::review_sources::materialize::{materialize_run_source, SourceProviderConfig};
 use crate::reviewer_kernel::events::InMemoryReviewEventSink;
-use crate::reviewer_kernel::kernel::Run;
+use crate::reviewer_kernel::kernel::{Run, RunBuilder};
+#[cfg(test)]
 use crate::reviewer_kernel::kernel_types::RuntimeLimits;
+#[cfg(not(test))]
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeLimits, RuntimeResult};
+#[cfg(not(test))]
+use crate::reviewer_kernel::model::{EnvCredentialResolver, ModelLimiter, ProfileModelRouter};
+use crate::reviewer_kernel::policy::ReviewerPolicy;
+#[cfg(not(test))]
+use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
 use crate::reviewer_kernel::snapshots::{SnapshotPathPolicy, SnapshotSpec};
 use crate::reviewer_kernel::spec::RunSpec;
-#[cfg(not(test))]
-use crate::runner_protocol::{RunModelCredentialParams, RunModelProfileParams};
-use crate::runner_protocol::{RunModelParams, RunToolParams, RunnerWiring};
+#[cfg(test)]
+use crate::reviewer_kernel::test_model::DeterministicReviewModel;
+use crate::reviewer_kernel::tool_engine::ToolRegistry;
 
 use super::{
     ReviewArtifact, ReviewChangeSpec, ReviewEvent, ReviewInstruction, ReviewOptions, ReviewResult,
@@ -34,11 +42,12 @@ pub(super) struct LocalReviewExecution {
 }
 
 struct LocalReviewPlan {
-    run_id: String,
     metadata: BTreeMap<String, Value>,
     spec: RunSpec,
+    #[cfg(not(test))]
     max_active_sessions: usize,
-    model: RunModelParams,
+    #[cfg(not(test))]
+    model_profile: ModelProfileRefV1,
     #[cfg(test)]
     target_path: String,
 }
@@ -51,22 +60,24 @@ pub(super) fn execute_local_review(
     let plan = plan_local_review(review_id, source, options)
         .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
     let event_sink = Arc::new(InMemoryReviewEventSink::default());
-    let tools = Vec::<RunToolParams>::new();
-    let wiring = RunnerWiring::new(&plan.run_id, &tools, None)
-        .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
+    #[cfg(not(test))]
+    let max_active_sessions = plan.max_active_sessions;
+    #[cfg(test)]
+    let target_path = plan.target_path.clone();
+    #[cfg(not(test))]
+    let model_profile = plan.model_profile.clone();
     let builder = Run::builder(plan.spec);
-    let builder = wiring
-        .wire_model(
-            builder,
-            &plan.run_id,
-            &plan.model,
-            plan.max_active_sessions,
-            None,
-            #[cfg(test)]
-            plan.target_path,
-        )
-        .map_err(|error| ReviewSessionError::Runner(error.to_string()))?
-        .review_event_sink(event_sink.clone());
+    let builder = wire_local_review_runtime(
+        builder,
+        #[cfg(not(test))]
+        max_active_sessions,
+        #[cfg(test)]
+        target_path,
+        #[cfg(not(test))]
+        model_profile,
+    )
+    .map_err(|error| ReviewSessionError::Runner(error.to_string()))?
+    .review_event_sink(event_sink.clone());
     let run = builder
         .build()
         .map_err(|error| ReviewSessionError::Runner(error.to_string()))?;
@@ -154,17 +165,47 @@ fn plan_local_review(
     let session = default_review_orchestrator_session(review_instructions(&options.instructions));
     let runtime_limits =
         RuntimeLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
-    let model = review_model(options)
+    #[cfg(not(test))]
+    let model_profile = review_model_profile(options)
         .ok_or_else(|| anyhow::anyhow!("run requires model; configure a hosted provider model"))?;
     Ok(LocalReviewPlan {
-        run_id: run_id.clone(),
         metadata: options.metadata.clone(),
         spec: RunSpec::single_snapshot(run_id, snapshot, vec![session], runtime_limits),
+        #[cfg(not(test))]
         max_active_sessions,
-        model,
+        #[cfg(not(test))]
+        model_profile,
         #[cfg(test)]
         target_path,
     })
+}
+
+fn wire_local_review_runtime(
+    builder: RunBuilder,
+    #[cfg(not(test))] max_active_sessions: usize,
+    #[cfg(test)] target_path: String,
+    #[cfg(not(test))] model_profile: ModelProfileRefV1,
+) -> Result<RunBuilder> {
+    let tool_registry = Arc::new(
+        ToolRegistry::review_defaults()
+            .map_err(|error| anyhow::anyhow!("failed to create review tool registry: {error}"))?,
+    );
+    let reviewer_policy = Arc::new(ReviewerPolicy::new());
+    #[cfg(test)]
+    let builder = builder.model_client(Arc::new(DeterministicReviewModel::new(
+        target_path,
+        "TODO|fn|class|export|pub".to_string(),
+    )));
+    #[cfg(not(test))]
+    let builder = builder.model_router(Arc::new(hosted_review_model_router(
+        &model_profile,
+        max_active_sessions,
+        Arc::clone(&tool_registry),
+        Arc::clone(&reviewer_policy),
+    )?));
+    Ok(builder
+        .shared_tool_registry(tool_registry)
+        .reviewer_policy(reviewer_policy))
 }
 
 fn source_provider(options: &ReviewOptions) -> Option<SourceProviderConfig> {
@@ -179,56 +220,89 @@ fn source_provider(options: &ReviewOptions) -> Option<SourceProviderConfig> {
     })
 }
 
-fn review_model(_options: &ReviewOptions) -> Option<RunModelParams> {
-    #[cfg(test)]
-    {
-        Some(RunModelParams {
-            callback: false,
-            default_model_profile_id: None,
-            model_profiles: Vec::new(),
-        })
-    }
-    #[cfg(not(test))]
-    {
-        hosted_review_model(_options)
-    }
-}
-
 #[cfg(not(test))]
-fn hosted_review_model(options: &ReviewOptions) -> Option<RunModelParams> {
+fn review_model_profile(options: &ReviewOptions) -> Option<ModelProfileRefV1> {
     let snapshot = options.config_snapshot.as_ref()?;
     let profile = snapshot.model_profile.as_ref()?;
-    let provider = snapshot.routing.get("model.provider")?.clone();
-    let model = snapshot.routing.get("model.name")?.clone();
-    Some(RunModelParams {
-        callback: false,
-        default_model_profile_id: Some(profile.id.clone()),
-        model_profiles: vec![RunModelProfileParams {
-            id: profile.id.clone(),
-            provider,
-            model,
-            credential: profile.secret_ref.as_deref().map(model_credential_from_ref),
-            base_url: snapshot.routing.get("model.baseUrl").cloned(),
-            api_protocol: Some("responses".to_string()),
-            max_input_tokens: None,
-            max_output_tokens: None,
-            temperature: None,
-            top_p: None,
-        }],
+    let provider = snapshot.routing.get("model.provider")?;
+    let provider_kind = review_provider_kind(provider)?;
+    let api_protocol = match provider_kind {
+        ProviderKind::OpenaiCompatible => ModelApiProtocol::Responses,
+        ProviderKind::Anthropic => ModelApiProtocol::Messages,
+    };
+    Some(ModelProfileRefV1 {
+        id: profile.id.clone(),
+        provider_kind,
+        api_protocol,
+        provider_profile_id: provider.clone(),
+        credential_ref: model_credential_ref(provider_kind, profile.secret_ref.as_deref()),
+        model: snapshot.routing.get("model.name")?.clone(),
+        base_url: snapshot.routing.get("model.baseUrl").cloned(),
+        max_input_tokens: 128_000,
+        max_output_tokens: 8_000,
+        temperature: None,
+        top_p: None,
     })
 }
 
 #[cfg(not(test))]
-fn model_credential_from_ref(secret_ref: &str) -> RunModelCredentialParams {
-    if let Some(env) = secret_ref.strip_prefix("env:") {
-        return RunModelCredentialParams {
-            env: Some(env.to_string()),
-            secret_ref: None,
-        };
+fn hosted_review_model_router(
+    profile: &ModelProfileRefV1,
+    max_active_sessions: usize,
+    tool_registry: Arc<ToolRegistry>,
+    reviewer_policy: Arc<ReviewerPolicy>,
+) -> RuntimeResult<ProfileModelRouter> {
+    ProfileModelRouter::from_profiles(
+        std::slice::from_ref(profile),
+        profile.id.clone(),
+        std::env::var("OPENAI_BASE_URL")
+            .ok()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+        Arc::new(ModelLimiter::new_with_per_key(
+            max_active_sessions.max(1),
+            max_active_sessions.max(1),
+        )),
+        tool_registry,
+        reviewer_policy,
+        Arc::new(ReviewSessionCredentialResolver),
+    )
+}
+
+#[cfg(not(test))]
+fn review_provider_kind(provider: &str) -> Option<ProviderKind> {
+    match provider {
+        "openai" | "openai_compatible" => Some(ProviderKind::OpenaiCompatible),
+        "anthropic" => Some(ProviderKind::Anthropic),
+        _ => None,
     }
-    RunModelCredentialParams {
-        env: None,
-        secret_ref: Some(secret_ref.to_owned()),
+}
+
+#[cfg(not(test))]
+fn model_credential_ref(provider_kind: ProviderKind, secret_ref: Option<&str>) -> String {
+    if let Some(secret_ref) = secret_ref.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(env) = secret_ref.strip_prefix("env:") {
+            return format!("env:{}", env.trim());
+        }
+        return format!("secret:{secret_ref}");
+    }
+    match provider_kind {
+        ProviderKind::OpenaiCompatible => "env:OPENAI_API_KEY".to_string(),
+        ProviderKind::Anthropic => "env:ANTHROPIC_API_KEY".to_string(),
+    }
+}
+
+#[cfg(not(test))]
+struct ReviewSessionCredentialResolver;
+
+#[cfg(not(test))]
+impl crate::reviewer_kernel::model::CredentialResolver for ReviewSessionCredentialResolver {
+    fn resolve_credential(&self, credential_ref: &str) -> RuntimeResult<String> {
+        if credential_ref.starts_with("secret:") {
+            return Err(RuntimeError::InvalidInput(
+                "model credential secretRef requires a configured secret resolver".to_string(),
+            ));
+        }
+        EnvCredentialResolver.resolve_credential(credential_ref)
     }
 }
 

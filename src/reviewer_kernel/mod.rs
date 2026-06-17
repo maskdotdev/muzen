@@ -18,6 +18,8 @@ pub(crate) mod session_metrics;
 pub(crate) mod snapshots;
 pub(crate) mod spec;
 pub(crate) mod system;
+#[cfg(test)]
+pub(crate) mod test_model;
 pub(crate) mod tool_batch;
 pub(crate) mod tool_engine;
 pub(crate) mod transcript;

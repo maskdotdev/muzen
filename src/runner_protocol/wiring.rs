@@ -10,11 +10,11 @@ use crate::reviewer_kernel::model::{
 };
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
+#[cfg(test)]
+use crate::reviewer_kernel::test_model::DeterministicReviewModel;
 use crate::reviewer_kernel::tool_engine::{CustomToolOptions, ToolRegistry as RuntimeToolRegistry};
 
 use super::callback_model::CallbackReviewModel;
-#[cfg(test)]
-use super::callback_model::TestRunnerModel;
 use super::callback_tools::CallbackReviewTool;
 use super::planning::{parse_provider_resources, parse_tool_effects};
 use super::transport::RunnerCallbackTransport;
@@ -70,7 +70,7 @@ impl RunnerWiring {
         } else {
             #[cfg(test)]
             {
-                builder = builder.model_client(Arc::new(TestRunnerModel::new(
+                builder = builder.model_client(Arc::new(DeterministicReviewModel::new(
                     target_path,
                     "TODO|fn|class|export|pub".to_string(),
                 )));
