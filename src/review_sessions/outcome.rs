@@ -11,7 +11,6 @@ use crate::reviewer_kernel::report::{
     EvidenceView, FindingLocationView, FindingView, ReviewRunSummary, RunReport,
 };
 use crate::reviewer_kernel::snapshots::SnapshotSummary;
-use crate::runner_protocol::RunnerArtifactView as RunnerWireArtifactView;
 
 use super::{ReviewSessionError, ReviewSource};
 
@@ -51,7 +50,7 @@ pub enum ReviewStatus {
 }
 
 impl ReviewStatus {
-    pub fn from_runner_status(status: &str) -> Self {
+    pub fn from_run_status(status: &str) -> Self {
         match status {
             "completed" => Self::Completed,
             "cancelled" => Self::Cancelled,
@@ -105,15 +104,6 @@ pub enum ReviewArtifactView {
 impl Default for ReviewArtifactView {
     fn default() -> Self {
         Self::Redacted
-    }
-}
-
-impl From<ReviewArtifactView> for RunnerWireArtifactView {
-    fn from(value: ReviewArtifactView) -> Self {
-        match value {
-            ReviewArtifactView::Redacted => Self::Redacted,
-            ReviewArtifactView::Raw => Self::Raw,
-        }
     }
 }
 
@@ -204,11 +194,6 @@ impl ReviewResult {
         let conclusion = ReviewConclusion::from_findings(&findings);
         let coverage = ReviewCoverage::from_snapshot_summaries(&report.snapshot_summaries());
         let status = review_status_from_run_summary(&report.summary);
-        metadata.insert("runnerRunId".to_string(), json!(report.run_id));
-        metadata.insert(
-            "runnerStatus".to_string(),
-            json!(run_summary_status(&report.summary)),
-        );
         metadata.insert("source".to_string(), json!(source.source_key()));
         Self {
             review_id,
@@ -565,7 +550,7 @@ fn review_summary_from_kernel(summary: &ReviewRunSummary, findings: usize) -> St
 }
 
 fn review_status_from_run_summary(summary: &ReviewRunSummary) -> ReviewStatus {
-    ReviewStatus::from_runner_status(&run_summary_status(summary))
+    ReviewStatus::from_run_status(&run_summary_status(summary))
 }
 
 fn run_summary_status(summary: &ReviewRunSummary) -> String {

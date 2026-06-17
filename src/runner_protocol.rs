@@ -24,7 +24,6 @@ pub(crate) use schema::{protocol_schema, runner_handshake};
 #[cfg(test)]
 pub(crate) use session::{handle_jsonrpc_line, run_stdio, run_stdio_interactive};
 pub(crate) use transport::RunnerCallbackTransport;
-pub(crate) use types::*;
 
 #[cfg(test)]
 pub(crate) use session::RunnerStdioSession;

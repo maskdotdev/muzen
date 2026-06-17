@@ -4,6 +4,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use super::types::{
+    RunFailedNotification, RunnerFailureKind, RunnerMethodSchema, RunnerMethodStatus,
+    RunnerRetryHint,
+};
 use super::*;
 
 struct SharedWriter(Arc<Mutex<Vec<u8>>>);
