@@ -28,6 +28,7 @@ use super::RUNNER_PROTOCOL_VERSION;
 
 pub(crate) struct ExecutedRun {
     pub(crate) result: RunnerRunResult,
+    #[cfg(test)]
     pub(crate) events: Vec<ReviewEventRecord>,
     pub(crate) stored: RunnerStoredRun,
 }
@@ -90,6 +91,7 @@ pub(crate) fn execute_run_start(
     let stored = RunnerStoredRun::from_report(&report, result.clone());
     Ok(ExecutedRun {
         result,
+        #[cfg(test)]
         events: event_sink.records(),
         stored,
     })
@@ -465,6 +467,7 @@ struct RecordingReviewEventSink {
 }
 
 impl RecordingReviewEventSink {
+    #[cfg(test)]
     fn records(&self) -> Vec<ReviewEventRecord> {
         self.records
             .lock()

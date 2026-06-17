@@ -209,7 +209,6 @@ def _change_to_runner(options: ReviewOptions) -> Optional[Dict[str, Any]]:
         ],
         "diff": change.diff,
         "reviewTarget": change.review_target,
-        "metadata": change.metadata,
     }
 
 

@@ -990,12 +990,6 @@
           "type": "string",
           "required": false,
           "default": "null"
-        },
-        {
-          "name": "metadata",
-          "type": "json",
-          "required": false,
-          "default": "{}"
         }
       ]
     },

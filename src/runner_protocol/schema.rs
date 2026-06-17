@@ -430,7 +430,6 @@ fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 defaulted("changedFiles", "RunChangeFileParams[]", "[]"),
                 optional("diff", "string"),
                 optional("reviewTarget", "string"),
-                defaulted("metadata", "json", "{}"),
             ],
         ),
         object(

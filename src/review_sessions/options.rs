@@ -107,8 +107,6 @@ pub struct ReviewChangeSpec {
     pub diff: Option<String>,
     #[serde(default)]
     pub review_target: Option<String>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

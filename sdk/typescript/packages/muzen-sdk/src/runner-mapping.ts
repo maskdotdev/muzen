@@ -349,7 +349,6 @@ function mapReviewChange(change: ReviewChangeSpec | undefined): unknown {
     changedFiles: change.changedFiles ?? [],
     diff: change.diff,
     reviewTarget: change.reviewTarget,
-    metadata: change.metadata ?? {},
   };
 }
 

@@ -552,7 +552,6 @@ class ReviewChangeSpec:
     changed_files: List[ReviewChangedFile] = field(default_factory=list)
     diff: Optional[str] = None
     review_target: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

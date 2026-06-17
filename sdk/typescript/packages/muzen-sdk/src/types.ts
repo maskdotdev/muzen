@@ -213,7 +213,6 @@ export interface ReviewChangeSpec {
   changedFiles?: ReviewChangedFile[];
   diff?: string | null;
   reviewTarget?: string | null;
-  metadata?: Record<string, unknown>;
 }
 
 export interface ReviewChangedFile {

@@ -101,8 +101,6 @@ pub struct RunChangeParams {
     pub diff: Option<String>,
     #[serde(default)]
     pub review_target: Option<String>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
