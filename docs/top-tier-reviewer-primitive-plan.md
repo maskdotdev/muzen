@@ -388,7 +388,8 @@ Required:
 
 8. Responses adapter parity.
    - Provider-neutral transcript remains unchanged.
-   - Both Chat Completions and Responses consume the same registry/alias table.
+   - Both Chat Completions and Responses consume the same registry-owned model
+     alias lookup.
 
 9. Multi-snapshot run hardening.
    - Multiple snapshots per run.

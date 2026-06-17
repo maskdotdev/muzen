@@ -3,18 +3,17 @@ use super::*;
 #[test]
 fn review_defaults_expose_familiar_model_aliases() {
     let registry = ToolRegistry::review_defaults().expect("registry");
-    let table = registry.alias_table().expect("alias table");
 
     assert_eq!(
-        table.alias_for(&ToolId::from(ToolName::ReadFile)),
+        registry.model_alias_for_tool(&ToolId::from(ToolName::ReadFile)),
         Some(&ToolId::parse("read").unwrap())
     );
     assert_eq!(
-        table.alias_for(&ToolId::from(ToolName::SearchText)),
+        registry.model_alias_for_tool(&ToolId::from(ToolName::SearchText)),
         Some(&ToolId::parse("grep").unwrap())
     );
     assert_eq!(
-        table.alias_for(&ToolId::from(ToolName::ListFiles)),
+        registry.model_alias_for_tool(&ToolId::from(ToolName::ListFiles)),
         Some(&ToolId::parse("glob").unwrap())
     );
     assert_eq!(
@@ -30,5 +29,8 @@ fn review_defaults_expose_familiar_model_aliases() {
         Some(ToolId::from(ToolName::FindTestsForFile))
     );
 
-    assert!(registry.alias_table().is_ok());
+    assert_eq!(
+        registry.model_alias_for_tool(&ToolId::parse("missing_tool").unwrap()),
+        None
+    );
 }

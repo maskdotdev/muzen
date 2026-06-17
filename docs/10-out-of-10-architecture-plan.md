@@ -679,13 +679,13 @@ Current implementation:
   exposure result into Chat or Responses wire shape, so tool exposure does not
   fork by provider protocol.
 - Chat and Responses request builders replay previous assistant tool calls
-  through `ToolAliasTable`, so provider-visible aliases are used when the
-  transcript is sent back to the model.
+  through registry-owned model alias lookup, so provider-visible aliases are
+  used when the transcript is sent back to the model.
 - Chat and Responses response parsers map provider-visible function names back
-  through the same alias table before returning internal `ToolId`s to the
+  through the same registry lookup before returning internal `ToolId`s to the
   runtime.
 - Focused model-protocol tests prove Chat and Responses parse tool calls
-  through the same alias table, replay prior tool calls with model aliases, and
+  through the same alias lookup, replay prior tool calls with model aliases, and
   expose the same tool schemas under protocol-specific wire shapes.
 
 Hard invariant:
@@ -701,7 +701,7 @@ Interface responsibilities:
 
 - Register built-in and custom tools.
 - Assign stable `ToolId`.
-- Assign provider-visible aliases through `ToolAliasTable`.
+- Assign provider-visible aliases through `ToolRegistry`.
 - Reject alias collisions.
 - Expose schemas by provider adapter.
 - Route calls to a `ToolProvider`.
@@ -1051,7 +1051,7 @@ Work:
 - Track latency, queue wait, input bytes, output bytes, artifacts created,
   cache hits, dedupe waiters, cancellations, and timeouts.
 - Add provider-level timeout and concurrency controls.
-- Add provider alias table for model-visible function names.
+- Add registry-owned model alias lookup for model-visible function names.
 
 Exit gates:
 
@@ -1340,7 +1340,7 @@ cargo build --release -p muzen
 
 Unit tests:
 
-- `ToolId` parsing and alias table compilation.
+- `ToolId` parsing and registry model alias lookup.
 - `CapabilitySet` grants, max calls, effects, and output policy.
 - `ReviewerPolicy` exposure, evidence readiness, terminal handling, and retry.
 - `SnapshotManifest` hashing and stale-read detection.
@@ -1465,7 +1465,7 @@ Implemented in this workspace:
     tool registry, reviewer policy, and model-turn interface as the Chat
     Completions client.
   - Chat and Responses request shaping consume one reviewer-policy tool
-    exposure result and one alias table.
+    exposure result and one registry-owned model alias lookup.
   - Chat and Responses parsers map provider-visible function names back to
     internal `ToolId`s before runtime consumption.
   - Focused tests prove alias parsing, alias replay, Responses credential

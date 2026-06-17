@@ -340,7 +340,7 @@ fn response_parses_text_turn_with_usage_total() {
 }
 
 #[test]
-fn response_parses_tool_use_through_alias_table_and_rejects_duplicates() {
+fn response_parses_tool_use_through_model_alias_lookup_and_rejects_duplicates() {
     let (registry, internal_tool, model_alias) = aliased_registry();
     let tool_use = json!({
         "type": "tool_use",

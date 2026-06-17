@@ -86,7 +86,7 @@ impl<'a> ToolBatchRunner<'a> {
             .map(|denied| denied.call_id.clone())
             .collect::<HashSet<_>>();
         for denied in &plan.denied_calls {
-            self.emit_tool_call_repair_trace(
+            self.emit_tool_call_rejection_trace(
                 &scope,
                 turn_id,
                 denied.call_id.clone(),
@@ -167,9 +167,9 @@ impl<'a> ToolBatchRunner<'a> {
             if let Some(error) = result
                 .error
                 .as_ref()
-                .filter(|error| trace_tool_call_repair(error.code))
+                .filter(|error| trace_tool_call_rejection(error.code))
             {
-                self.emit_tool_call_repair_trace(
+                self.emit_tool_call_rejection_trace(
                     &scope,
                     turn_id,
                     result.tool_call_id.clone(),
@@ -187,7 +187,7 @@ impl<'a> ToolBatchRunner<'a> {
             .collect()
     }
 
-    fn emit_tool_call_repair_trace(
+    fn emit_tool_call_rejection_trace(
         &self,
         scope: &SessionScope,
         turn_id: TurnId,
@@ -212,8 +212,8 @@ impl<'a> ToolBatchRunner<'a> {
             .emit_planned_runtime(self.policy.plan_agent_trace_event(
                 scope,
                 Some(turn_id),
-                "tool_call_repair",
-                format!("tool call {} was not repaired: {reason}", call_id.0),
+                "tool_call_rejected",
+                format!("tool call {} was rejected: {reason}", call_id.0),
                 json!({
                     "callId": call_id.0,
                     "index": index,
@@ -221,19 +221,15 @@ impl<'a> ToolBatchRunner<'a> {
                     "originalToolId": requested_tool_id.as_str(),
                     "errorCode": error_code,
                     "reason": reason,
-                    "repairAttempted": false,
-                    "repairAccepted": false,
-                    "repairKinds": [],
                     "argumentBytes": argument_bytes,
                     "argumentHash": argument_hash,
                     "argumentSummary": argument_summary,
-                    "acceptedRepair": null,
                 }),
             ));
     }
 }
 
-fn trace_tool_call_repair(error_code: ToolErrorCode) -> bool {
+fn trace_tool_call_rejection(error_code: ToolErrorCode) -> bool {
     matches!(
         error_code,
         ToolErrorCode::InvalidArgs

@@ -80,7 +80,7 @@ fn insufficient_quota_provider_error_is_not_retryable() {
 }
 
 #[test]
-fn responses_parse_tool_calls_through_model_alias_table() {
+fn responses_parse_tool_calls_through_model_alias_lookup() {
     let (registry, internal_tool, model_alias) = aliased_registry();
     let responses_turn = parse_responses_response(
         ResponsesResponse {

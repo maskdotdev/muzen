@@ -632,8 +632,7 @@ pub(crate) fn model_alias_for_tool(
     tool_id: &ToolId,
 ) -> RuntimeResult<ToolId> {
     tool_registry
-        .alias_table()?
-        .alias_for(tool_id)
+        .model_alias_for_tool(tool_id)
         .cloned()
         .ok_or(RuntimeError::Invariant("missing model alias for tool"))
 }

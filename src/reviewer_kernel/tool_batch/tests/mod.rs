@@ -73,26 +73,28 @@ async fn tool_batch_runner_applies_policy_denials_and_preserves_model_order() {
             && context.turn_id == Some(TurnId(3))
             && matches!(event, RuntimeEvent::ToolBatchStarted { count: 2, .. })
     }));
-    let denied_repair_trace = records
+    let denied_rejection_trace = records
         .iter()
         .find_map(|(_, event)| match event {
             RuntimeEvent::AgentTrace {
                 trace_kind,
                 details,
                 ..
-            } if trace_kind == "tool_call_repair" && details["callId"] == "changed" => {
+            } if trace_kind == "tool_call_rejected" && details["callId"] == "changed" => {
                 Some(details)
             }
             _ => None,
         })
-        .expect("budget-denied no-repair trace");
-    assert_eq!(denied_repair_trace["errorCode"], "budget_exceeded");
-    assert_eq!(denied_repair_trace["repairAttempted"], false);
-    assert_eq!(denied_repair_trace["repairAccepted"], false);
+        .expect("budget-denied rejection trace");
+    assert_eq!(denied_rejection_trace["errorCode"], "budget_exceeded");
+    assert_eq!(
+        denied_rejection_trace["reason"],
+        "session tool-call budget exhausted"
+    );
 }
 
 #[tokio::test]
-async fn tool_batch_runner_traces_unrepaired_invalid_tool_calls() {
+async fn tool_batch_runner_traces_rejected_invalid_tool_calls() {
     let temp = tempfile::tempdir().expect("tempdir");
     std::fs::write(temp.path().join("README.md"), "needle\n").expect("write readme");
     let change = test_change_with_file("README.md");
@@ -105,7 +107,7 @@ async fn tool_batch_runner_traces_unrepaired_invalid_tool_calls() {
     let sink: Arc<dyn RuntimeEventSink> = runtime_sink.clone();
     let dispatcher = RuntimeEventDispatcher::new(Some(sink));
     let runner = ToolBatchRunner::new(&policy, &tools, &dispatcher);
-    let scope = test_scope("tool-repair-trace");
+    let scope = test_scope("tool-rejection-trace");
 
     let results = runner
         .execute(
@@ -151,48 +153,38 @@ async fn tool_batch_runner_traces_unrepaired_invalid_tool_calls() {
         ToolErrorCode::InvalidArgs
     );
     let records = runtime_sink.records.lock().expect("sink lock");
-    let repair_traces = records
+    let rejection_traces = records
         .iter()
         .filter_map(|(_, event)| match event {
             RuntimeEvent::AgentTrace {
                 trace_kind,
                 details,
                 ..
-            } if trace_kind == "tool_call_repair" => Some(details),
+            } if trace_kind == "tool_call_rejected" => Some(details),
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(repair_traces.len(), 3);
-    assert!(repair_traces.iter().any(|details| {
+    assert_eq!(rejection_traces.len(), 3);
+    assert!(rejection_traces.iter().any(|details| {
         details["callId"] == "bad-json"
             && details["errorCode"] == "invalid_args"
-            && details["repairAttempted"] == false
-            && details["repairAccepted"] == false
+            && details["reason"] == "invalid tool invocation"
     }));
-    assert!(repair_traces.iter().any(|details| {
+    assert!(rejection_traces.iter().any(|details| {
         details["callId"] == "unknown-tool"
             && details["errorCode"] == "unknown_tool"
-            && details["repairAttempted"] == false
-            && details["repairAccepted"] == false
+            && details["reason"] == "tool is not registered"
     }));
-    let rejected_path_trace = repair_traces
+    let rejected_path_trace = rejection_traces
         .iter()
         .find(|details| details["callId"] == "bad-path-shape")
         .expect("invalid args trace");
     assert_eq!(rejected_path_trace["errorCode"], "invalid_args");
-    assert_eq!(rejected_path_trace["repairAttempted"], false);
-    assert_eq!(rejected_path_trace["repairAccepted"], false);
-    assert_eq!(
-        rejected_path_trace["repairKinds"]
-            .as_array()
-            .expect("repair kinds")
-            .len(),
-        0
-    );
+    assert_eq!(rejected_path_trace["reason"], "invalid tool invocation");
 }
 
 #[tokio::test]
-async fn tool_batch_runner_rejects_aliases_without_repair() {
+async fn tool_batch_runner_rejects_model_aliases_at_execution() {
     let temp = tempfile::tempdir().expect("tempdir");
     std::fs::write(temp.path().join("README.md"), "first\nneedle\nthird\n").expect("write readme");
     let change = test_change_with_file("README.md");
@@ -242,42 +234,36 @@ async fn tool_batch_runner_rejects_aliases_without_repair() {
     assert_eq!(results[1].tool_name, ToolId::parse("grep").unwrap());
 
     let records = runtime_sink.records.lock().expect("sink lock");
-    let repair_traces = records
+    let rejection_traces = records
         .iter()
         .filter_map(|(_, event)| match event {
             RuntimeEvent::AgentTrace {
                 trace_kind,
                 details,
                 ..
-            } if trace_kind == "tool_call_repair" => Some(details),
+            } if trace_kind == "tool_call_rejected" => Some(details),
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(repair_traces.len(), 2);
+    assert_eq!(rejection_traces.len(), 2);
 
-    let read_trace = repair_traces
+    let read_trace = rejection_traces
         .iter()
         .find(|details| details["callId"] == "read-alias")
         .expect("read rejection trace");
     assert_eq!(read_trace["originalToolId"], "read");
     assert_eq!(read_trace["toolId"], "read");
-    assert_eq!(read_trace["repairAttempted"], false);
-    assert_eq!(read_trace["repairAccepted"], false);
     assert_eq!(read_trace["argumentSummary"]["parseable"], true);
     assert_eq!(read_trace["argumentSummary"]["keys"], json!(["path"]));
-    assert!(read_trace["acceptedRepair"].is_null());
 
-    let grep_trace = repair_traces
+    let grep_trace = rejection_traces
         .iter()
         .find(|details| details["callId"] == "grep-alias")
         .expect("grep rejection trace");
     assert_eq!(grep_trace["originalToolId"], "grep");
     assert_eq!(grep_trace["toolId"], "grep");
-    assert_eq!(grep_trace["repairAttempted"], false);
-    assert_eq!(grep_trace["repairAccepted"], false);
     assert_eq!(grep_trace["argumentSummary"]["parseable"], true);
     assert_eq!(grep_trace["argumentSummary"]["keys"], json!(["query"]));
-    assert!(grep_trace["acceptedRepair"].is_null());
 }
 
 fn model_call(id: &str, index: usize, tool: ToolName, raw_arguments: &str) -> ModelToolCall {

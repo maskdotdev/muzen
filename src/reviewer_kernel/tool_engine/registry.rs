@@ -18,6 +18,7 @@ use super::catalog::{review_builtin_specs, BuiltinToolSpec};
 #[derive(Clone)]
 pub struct ToolRegistry {
     definitions: HashMap<ToolId, ToolDefinition>,
+    aliases: HashMap<ToolId, ToolId>,
     jsonrpc_transports: HashMap<ToolProviderId, Arc<dyn JsonRpcToolTransport>>,
 }
 
@@ -25,6 +26,7 @@ impl fmt::Debug for ToolRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ToolRegistry")
             .field("definitions", &self.definitions.len())
+            .field("aliases", &self.aliases.len())
             .field("jsonrpc_transports", &self.jsonrpc_transports.len())
             .finish()
     }
@@ -34,6 +36,7 @@ impl ToolRegistry {
     pub fn review_defaults() -> RuntimeResult<Self> {
         let mut registry = Self {
             definitions: HashMap::new(),
+            aliases: HashMap::new(),
             jsonrpc_transports: HashMap::new(),
         };
         for spec in review_builtin_specs() {
@@ -131,15 +134,14 @@ impl ToolRegistry {
         self.definitions.get(id)
     }
 
-    pub fn alias_table(&self) -> RuntimeResult<ToolAliasTable> {
-        ToolAliasTable::from_registry(self)
+    pub(crate) fn model_alias_for_tool(&self, id: &ToolId) -> Option<&ToolId> {
+        self.definitions
+            .get(id)
+            .map(|definition| &definition.model_alias)
     }
 
     pub(crate) fn tool_id_for_model_alias(&self, alias: &ToolId) -> Option<ToolId> {
-        self.definitions
-            .values()
-            .find(|definition| &definition.model_alias == alias)
-            .map(|definition| definition.id.clone())
+        self.aliases.get(alias).cloned()
     }
 
     pub(crate) fn jsonrpc_transports(
@@ -174,15 +176,16 @@ impl ToolRegistry {
             )));
         }
         if self
-            .definitions
-            .values()
-            .any(|existing| existing.model_alias == definition.model_alias)
+            .aliases
+            .contains_key(&definition.model_alias)
         {
             return Err(RuntimeError::InvalidInput(format!(
                 "duplicate tool alias {}",
                 definition.model_alias.as_str()
             )));
         }
+        self.aliases
+            .insert(definition.model_alias.clone(), definition.id.clone());
         self.definitions.insert(definition.id.clone(), definition);
         Ok(())
     }
@@ -232,32 +235,6 @@ impl Default for CustomToolOptions {
             effects: ToolEffects::custom_read_only(),
             provider_resources: Vec::new(),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ToolAliasTable {
-    by_tool: HashMap<ToolId, ToolId>,
-}
-
-impl ToolAliasTable {
-    pub fn from_registry(registry: &ToolRegistry) -> RuntimeResult<Self> {
-        let mut by_tool = HashMap::new();
-        let mut aliases = std::collections::HashSet::new();
-        for definition in registry.definitions.values() {
-            if !aliases.insert(definition.model_alias.clone()) {
-                return Err(RuntimeError::InvalidInput(format!(
-                    "duplicate tool alias {}",
-                    definition.model_alias.as_str()
-                )));
-            }
-            by_tool.insert(definition.id.clone(), definition.model_alias.clone());
-        }
-        Ok(Self { by_tool })
-    }
-
-    pub fn alias_for(&self, tool_id: &ToolId) -> Option<&ToolId> {
-        self.by_tool.get(tool_id)
     }
 }
 
