@@ -177,46 +177,7 @@ impl AgentBudget {
         }
     }
 
-    pub fn planned_high_risk() -> Self {
-        Self {
-            max_turns: 14,
-            max_tool_calls: 64,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-            budget_source: BudgetSource::AdaptiveReview,
-        }
-    }
-
-    pub fn planned_secondary_lens() -> Self {
-        Self {
-            max_turns: 6,
-            max_tool_calls: 20,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-            budget_source: BudgetSource::AdaptiveReview,
-        }
-    }
-
-    pub fn planned_high_value_secondary_lens() -> Self {
-        Self {
-            max_turns: 8,
-            max_tool_calls: 32,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-            budget_source: BudgetSource::AdaptiveReview,
-        }
-    }
-
-    pub fn planned_challenge() -> Self {
-        Self {
-            max_turns: 4,
-            max_tool_calls: 16,
-            max_prompt_tokens: 64_000,
-            max_output_tokens: 8_000,
-            budget_source: BudgetSource::RunReserve,
-        }
-    }
-
+    #[cfg(test)]
     pub fn caller_hard_cap(
         max_turns: usize,
         max_tool_calls: usize,
