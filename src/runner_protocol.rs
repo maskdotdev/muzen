@@ -8,6 +8,7 @@ mod cli;
 mod context_session;
 mod event_stream;
 mod execution;
+mod failures;
 mod planning;
 mod protocol;
 mod schema;

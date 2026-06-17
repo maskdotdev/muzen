@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::execution::execute_run_start;
+use super::failures::RunFailedNotification;
 use super::protocol::{
     parse_params, stateful_method, JsonRpcError, JsonRpcFrame, JsonRpcRequest, JsonRpcResponse,
 };
@@ -18,10 +19,10 @@ use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
 use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportEvent};
 use super::types::{
-    ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunFailedNotification,
-    RunLookupParams, RunStartParams, RunStatusResult, RunnerArtifactExportResult,
-    RunnerArtifactReadResult, RunnerHandshakeParams, RunnerSnapshotTextResult,
-    SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams, WorkerRunOnceResult,
+    ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunLookupParams, RunStartParams,
+    RunStatusResult, RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerHandshakeParams,
+    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams,
+    WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::context_engine::SnapshotContextEngine;
