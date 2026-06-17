@@ -1,7 +1,7 @@
 use crate::reviewer_kernel::snapshots::SnapshotReader;
 
 use super::protocol::JsonRpcError;
-use super::types::{RunnerArtifact, RunnerArtifactView, RunnerRunResult};
+use super::results::{RunnerArtifact, RunnerArtifactView, RunnerRunResult};
 
 #[derive(Debug, Clone)]
 pub(crate) struct RunnerStoredRun {

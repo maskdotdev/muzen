@@ -16,12 +16,14 @@ use crate::reviewer_kernel::runtime_events::EventSink as RuntimeEventSink;
 
 use super::event_stream::StreamingRunnerEventSink;
 use super::planning::plan_run_start;
+use super::results::{
+    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
+    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
+};
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunHeartbeatConfigParams, RunHeartbeatParams, RunHeartbeatResult, RunStartParams,
-    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
-    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
 };
 use super::wiring::RunnerWiring;
 use super::RUNNER_PROTOCOL_VERSION;

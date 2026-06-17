@@ -15,14 +15,16 @@ use super::protocol::{
 };
 #[cfg(test)]
 use super::protocol::{write_notification, write_response};
+use super::results::{
+    RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerSnapshotTextResult,
+};
 use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
 use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportEvent};
 use super::types::{
     ArtifactExportParams, ArtifactReadParams, RunCancelResult, RunLookupParams, RunStartParams,
-    RunStatusResult, RunnerArtifactExportResult, RunnerArtifactReadResult, RunnerHandshakeParams,
-    RunnerSnapshotTextResult, SnapshotReadTextParams, WebhookHandleParams, WorkerRunOnceParams,
-    WorkerRunOnceResult,
+    RunStatusResult, RunnerHandshakeParams, SnapshotReadTextParams, WebhookHandleParams,
+    WorkerRunOnceParams, WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::context_engine::SnapshotContextEngine;
