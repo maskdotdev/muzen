@@ -1,18 +1,21 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::review_sources::ReviewSource;
+#[cfg(test)]
+use crate::review_planning::select_target_path;
+use crate::review_planning::{
+    changed_file_specs, default_max_active_sessions, default_review_orchestrator_session,
+    review_change_spec, session_instruction, ReviewChangeDescriptor, ReviewChangedFileDescriptor,
+};
 use crate::reviewer_kernel::kernel_types::{
-    CapabilitySet, FsScope, ProviderResourceId, RepoPath, SessionInstruction, ToolEffects, ToolId,
+    CapabilitySet, FsScope, ProviderResourceId, RepoPath, ToolEffects, ToolId,
 };
-use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
-use crate::reviewer_kernel::snapshots::{
-    ChangeKind, ChangeSpec, ChangedFileSpec, ChangedFileStatus, RenameDetection, SnapshotMode,
-    SnapshotPathPolicy, SnapshotSpec,
-};
+use crate::reviewer_kernel::review_contract::AgentBudget;
+#[cfg(test)]
+use crate::reviewer_kernel::review_contract::Role;
+use crate::reviewer_kernel::snapshots::{SnapshotPathPolicy, SnapshotSpec};
 use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunSpec};
 
 use super::transport::RunnerCallbackTransport;
@@ -21,9 +24,6 @@ use super::types::{
 };
 use crate::review_sources::materialize::materialize_run_source;
 use std::sync::Arc;
-
-const LARGE_REVIEW_BATCH_THRESHOLD: usize = 8;
-const LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS: usize = 8;
 
 pub(crate) struct RunnerPlan {
     pub(crate) run_id: String,
@@ -43,8 +43,7 @@ pub(crate) fn plan_run_start(
         .take()
         .unwrap_or_else(|| "muzen-run".to_string());
     let metadata = params.metadata.clone();
-    let requested_changed_files =
-        runner_changed_files(&params.changed_files, params.change.as_ref());
+    let requested_changed_files = params.changed_files.clone();
     let materialized = materialize_run_source(
         params.repo.as_deref(),
         params.source.as_ref(),
@@ -55,14 +54,15 @@ pub(crate) fn plan_run_start(
     let repo_root = materialized.repo_root().to_path_buf();
     #[cfg(test)]
     let target_path = select_target_path(&repo_root, materialized.changed_files())?;
+    let change_descriptor = params.change.as_ref().map(runner_change_descriptor);
     let changed_files = changed_file_specs(
         &repo_root,
         materialized.changed_files(),
-        params.change.as_ref(),
+        change_descriptor.as_ref(),
     );
-    let change = runner_change_spec(
+    let change = review_change_spec(
         params.source.as_ref(),
-        params.change.as_ref(),
+        change_descriptor.as_ref(),
         changed_files,
         materialized.inline_diff(),
         &run_id,
@@ -85,11 +85,6 @@ pub(crate) fn plan_run_start(
             .as_ref()
             .and_then(|limits| limits.max_active_sessions),
     );
-    let sessions = if params.sessions.is_empty() {
-        default_review_orchestrator_session()
-    } else {
-        params.sessions
-    };
     let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
         SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
     );
@@ -98,10 +93,21 @@ pub(crate) fn plan_run_start(
         .iter()
         .map(CallbackToolGrant::from_tool_params)
         .collect::<Result<Vec<_>>>()?;
-    let session_specs = sessions
-        .into_iter()
-        .map(|session| run_session_spec(session, &callback_tools, &params.instructions))
-        .collect::<Result<Vec<_>>>()?;
+    let session_specs = if params.sessions.is_empty() {
+        let spec = default_review_orchestrator_session(runner_instructions(&params.instructions));
+        vec![grant_callback_tools(
+            spec,
+            "review-orchestrator",
+            &callback_tools,
+            &[],
+        )?]
+    } else {
+        params
+            .sessions
+            .into_iter()
+            .map(|session| run_session_spec(session, &callback_tools, &params.instructions))
+            .collect::<Result<Vec<_>>>()?
+    };
     let mut runtime_limits = crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(
         max_active_sessions,
         max_file_bytes,
@@ -123,37 +129,6 @@ pub(crate) fn plan_run_start(
         #[cfg(test)]
         target_path,
     })
-}
-
-fn default_max_active_sessions(
-    requested_session_count: usize,
-    changed_file_count: usize,
-    explicit: Option<usize>,
-) -> usize {
-    if let Some(explicit) = explicit {
-        return explicit.max(1);
-    }
-    if changed_file_count > LARGE_REVIEW_BATCH_THRESHOLD {
-        return LARGE_REVIEW_DEFAULT_MAX_ACTIVE_SESSIONS;
-    }
-    if requested_session_count == 0 {
-        return 4;
-    }
-    requested_session_count.max(1)
-}
-
-fn default_review_orchestrator_session() -> Vec<RunSessionParams> {
-    vec![RunSessionParams {
-        id: "review-orchestrator".to_string(),
-        role: Role::Generalist,
-        objective: "Autonomously review the changed code.".to_string(),
-        cwd: None,
-        model_profile_id: None,
-        response_format: None,
-        instructions: Vec::new(),
-        tool_grants: Vec::new(),
-        budget: None,
-    }]
 }
 
 fn run_session_spec(
@@ -184,19 +159,25 @@ fn run_session_spec(
     if let Some(response_format) = params.response_format {
         spec = spec.with_response_format(response_format);
     }
-    let mut instructions = global_instructions
-        .iter()
-        .map(runner_instruction)
-        .collect::<Vec<_>>();
+    let mut instructions = runner_instructions(global_instructions);
     instructions.extend(params.instructions.iter().map(runner_instruction));
     if !instructions.is_empty() {
         spec = spec.with_instructions(instructions);
     }
-    let granted_tools = if params.tool_grants.is_empty() {
+    grant_callback_tools(spec, &session_id, callback_tools, &params.tool_grants)
+}
+
+fn grant_callback_tools(
+    mut spec: ReviewSessionSpec,
+    session_id: &str,
+    callback_tools: &[CallbackToolGrant],
+    tool_grants: &[String],
+) -> Result<ReviewSessionSpec> {
+    let granted_tools = if tool_grants.is_empty() {
         callback_tools.iter().collect::<Vec<_>>()
     } else {
         let mut granted_tools = Vec::new();
-        for grant in &params.tool_grants {
+        for grant in tool_grants {
             let grant_id = ToolId::parse(grant)?;
             let tool = callback_tools
                 .iter()
@@ -268,156 +249,39 @@ pub(crate) fn parse_provider_resources(resources: &[String]) -> Result<Vec<Provi
         .collect()
 }
 
-fn runner_instruction(instruction: &RunInstructionParams) -> SessionInstruction {
-    SessionInstruction {
-        text: instruction.text.clone(),
-        trusted: instruction.trusted,
-        kind: instruction.kind.clone(),
+fn runner_instructions(
+    instructions: &[RunInstructionParams],
+) -> Vec<crate::reviewer_kernel::kernel_types::SessionInstruction> {
+    instructions.iter().map(runner_instruction).collect()
+}
+
+fn runner_instruction(
+    instruction: &RunInstructionParams,
+) -> crate::reviewer_kernel::kernel_types::SessionInstruction {
+    session_instruction(
+        instruction.kind.clone(),
+        instruction.text.clone(),
+        instruction.trusted,
+    )
+}
+
+fn runner_change_descriptor(change: &RunChangeParams) -> ReviewChangeDescriptor<'_> {
+    ReviewChangeDescriptor {
+        kind: &change.kind,
+        base_revision: change.base_revision.as_deref(),
+        start_revision: change.start_revision.as_deref(),
+        head_revision: change.head_revision.as_deref(),
+        changed_files: change
+            .changed_files
+            .iter()
+            .map(|file| ReviewChangedFileDescriptor {
+                path: &file.path,
+                status: file.status.as_deref(),
+            })
+            .collect(),
+        diff: change.diff.as_deref(),
+        review_target: change.review_target.as_deref(),
     }
-}
-
-fn runner_changed_files(changed_files: &[String], change: Option<&RunChangeParams>) -> Vec<String> {
-    let _ = change;
-    changed_files.to_vec()
-}
-
-fn changed_file_specs(
-    repo_root: &Path,
-    changed_files: &[String],
-    change: Option<&RunChangeParams>,
-) -> Vec<ChangedFileSpec> {
-    let status_by_path = change
-        .map(|change| {
-            change
-                .changed_files
-                .iter()
-                .filter_map(|file| file.status.as_ref().map(|status| (&file.path, status)))
-                .collect::<std::collections::BTreeMap<_, _>>()
-        })
-        .unwrap_or_default();
-    changed_files
-        .iter()
-        .filter(|path| repo_root.join(path).is_file())
-        .cloned()
-        .map(|path| {
-            changed_file_spec(
-                &path,
-                status_by_path.get(&path).map(|status| status.as_str()),
-            )
-        })
-        .collect()
-}
-
-fn runner_change_spec(
-    source: Option<&ReviewSource>,
-    change: Option<&RunChangeParams>,
-    changed_files: Vec<ChangedFileSpec>,
-    materialized_inline_diff: Option<&str>,
-    run_id: &str,
-) -> ChangeSpec {
-    let Some(change) = change else {
-        let mut spec = ChangeSpec::local("sdk-run", "head", changed_files);
-        spec.inline_diff = materialized_inline_diff.map(ToOwned::to_owned);
-        return spec;
-    };
-    ChangeSpec {
-        kind: runner_change_kind(source),
-        change_id: change
-            .review_target
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| format!("{}:{run_id}", change.kind)),
-        source_ref: change
-            .head_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "head".to_string()),
-        target_ref: change
-            .base_revision
-            .clone()
-            .or_else(|| change.start_revision.clone())
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "base".to_string()),
-        base_revision_id: change
-            .base_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "base".to_string()),
-        head_revision_id: change
-            .head_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "head".to_string()),
-        merge_base_revision_id: change
-            .start_revision
-            .clone()
-            .filter(|value| !value.trim().is_empty()),
-        inline_diff: change
-            .diff
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| materialized_inline_diff.map(ToOwned::to_owned)),
-        snapshot_mode: SnapshotMode::WorktreeHead,
-        rename_detection: RenameDetection::None,
-        changed_files,
-    }
-}
-
-fn runner_change_kind(source: Option<&ReviewSource>) -> ChangeKind {
-    match source {
-        Some(ReviewSource::GithubPullRequest { .. }) => ChangeKind::PullRequest,
-        Some(ReviewSource::GitlabMergeRequest { .. }) => ChangeKind::MergeRequest,
-        _ => ChangeKind::LocalDiff,
-    }
-}
-
-fn changed_file_spec(path: &str, status: Option<&str>) -> ChangedFileSpec {
-    let status = match status.map(|status| status.to_ascii_lowercase()) {
-        Some(status) if matches!(status.as_str(), "added" | "add" | "a") => {
-            ChangedFileStatus::Added
-        }
-        Some(status) if matches!(status.as_str(), "deleted" | "delete" | "removed" | "d") => {
-            ChangedFileStatus::Deleted
-        }
-        Some(status) if matches!(status.as_str(), "renamed" | "rename" | "r") => {
-            ChangedFileStatus::Renamed
-        }
-        Some(status) if matches!(status.as_str(), "copied" | "copy" | "c") => {
-            ChangedFileStatus::Copied
-        }
-        Some(status) if matches!(status.as_str(), "type_changed" | "typechanged" | "t") => {
-            ChangedFileStatus::TypeChanged
-        }
-        _ => ChangedFileStatus::Modified,
-    };
-    let path = std::path::PathBuf::from(path);
-    ChangedFileSpec {
-        old_path: if status == ChangedFileStatus::Added {
-            None
-        } else {
-            Some(path.clone())
-        },
-        new_path: if status == ChangedFileStatus::Deleted {
-            None
-        } else {
-            Some(path)
-        },
-        status,
-        old_content_hash: None,
-        new_content_hash: None,
-        is_binary: false,
-        is_generated: false,
-    }
-}
-
-#[cfg(test)]
-fn select_target_path(repo_root: &Path, changed_files: &[String]) -> Result<String> {
-    for path in changed_files {
-        if repo_root.join(path).is_file() {
-            return Ok(path.clone());
-        }
-    }
-    anyhow::bail!("run requires at least one changed file that exists in the materialized worktree")
 }
 
 #[cfg(test)]

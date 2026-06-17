@@ -2,40 +2,11 @@ use super::*;
 
 #[test]
 fn default_review_uses_one_orchestrator() {
-    let sessions = default_review_orchestrator_session();
+    let session = crate::review_planning::default_review_orchestrator_session(Vec::new());
+    let scope = session.into_session_scope();
 
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].id, "review-orchestrator");
-    assert_eq!(sessions[0].role, Role::Generalist);
-}
-
-#[test]
-fn defaults_large_reviews_to_eight_active_sessions() {
-    assert_eq!(
-        default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, None),
-        8
-    );
-}
-
-#[test]
-fn keeps_small_review_default_session_parallelism() {
-    assert_eq!(
-        default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD, None),
-        2
-    );
-    assert_eq!(default_max_active_sessions(0, 1, None), 4);
-}
-
-#[test]
-fn explicit_max_active_sessions_overrides_large_review_default() {
-    assert_eq!(
-        default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(3)),
-        3
-    );
-    assert_eq!(
-        default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(0)),
-        1
-    );
+    assert_eq!(scope.id.0, "review-orchestrator");
+    assert_eq!(scope.role, Role::Generalist);
 }
 
 #[test]
