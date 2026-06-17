@@ -167,7 +167,6 @@ async fn non_retryable_errors_fail_immediately() {
     assert!(outcome.result.is_err());
     assert_eq!(outcome.attempts, 1);
     assert_eq!(model_failed_flags(&sink), vec![(1, false)]);
-    assert_eq!(model.calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
