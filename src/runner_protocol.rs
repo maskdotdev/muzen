@@ -13,6 +13,7 @@ mod planning;
 mod protocol;
 mod results;
 mod schema;
+mod schema_types;
 mod session;
 mod stored;
 mod transport;

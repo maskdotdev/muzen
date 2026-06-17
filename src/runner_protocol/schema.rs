@@ -1,4 +1,4 @@
-use super::types::{
+use super::schema_types::{
     RunnerCapabilities, RunnerCheckResult, RunnerHandshakeResult, RunnerMessageDirection,
     RunnerMethodSchema, RunnerMethodStatus, RunnerPayloadFieldSchema, RunnerPayloadRef,
     RunnerPayloadSchema, RunnerPayloadShape, RunnerProtocolSchema,
