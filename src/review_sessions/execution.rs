@@ -11,7 +11,7 @@ use crate::review_planning::{
     changed_file_specs, default_max_active_sessions, default_review_orchestrator_session,
     review_change_spec, session_instruction, ReviewChangeDescriptor, ReviewChangedFileDescriptor,
 };
-use crate::review_sources::materialize::materialize_run_source;
+use crate::review_sources::materialize::{materialize_run_source, SourceProviderConfig};
 use crate::reviewer_kernel::events::InMemoryReviewEventSink;
 use crate::reviewer_kernel::kernel::Run;
 use crate::reviewer_kernel::kernel_types::RuntimeLimits;
@@ -19,9 +19,7 @@ use crate::reviewer_kernel::snapshots::{SnapshotPathPolicy, SnapshotSpec};
 use crate::reviewer_kernel::spec::RunSpec;
 #[cfg(not(test))]
 use crate::runner_protocol::{RunModelCredentialParams, RunModelProfileParams};
-use crate::runner_protocol::{
-    RunModelParams, RunSourceProviderParams, RunToolParams, RunnerWiring,
-};
+use crate::runner_protocol::{RunModelParams, RunToolParams, RunnerWiring};
 
 use super::{
     ReviewArtifact, ReviewChangeSpec, ReviewEvent, ReviewInstruction, ReviewOptions, ReviewResult,
@@ -169,12 +167,12 @@ fn plan_local_review(
     })
 }
 
-fn source_provider(options: &ReviewOptions) -> Option<RunSourceProviderParams> {
+fn source_provider(options: &ReviewOptions) -> Option<SourceProviderConfig> {
     options.config_snapshot.as_ref().and_then(|snapshot| {
         snapshot
             .routing
             .get("provider.baseUrl")
-            .map(|base_url| RunSourceProviderParams {
+            .map(|base_url| SourceProviderConfig {
                 base_url: Some(base_url.clone()),
                 callback: false,
             })

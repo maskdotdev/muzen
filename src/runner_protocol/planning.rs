@@ -22,7 +22,7 @@ use super::transport::RunnerCallbackTransport;
 use super::types::{
     RunChangeParams, RunInstructionParams, RunSessionParams, RunStartParams, RunToolParams,
 };
-use crate::review_sources::materialize::materialize_run_source;
+use crate::review_sources::materialize::{materialize_run_source, SourceProviderConfig};
 use std::sync::Arc;
 
 pub(crate) struct RunnerPlan {
@@ -44,11 +44,18 @@ pub(crate) fn plan_run_start(
         .unwrap_or_else(|| "muzen-run".to_string());
     let metadata = params.metadata.clone();
     let requested_changed_files = params.changed_files.clone();
+    let source_provider = params
+        .source_provider
+        .as_ref()
+        .map(|provider| SourceProviderConfig {
+            base_url: provider.base_url.clone(),
+            callback: provider.callback,
+        });
     let materialized = materialize_run_source(
         params.repo.as_deref(),
         params.source.as_ref(),
         &requested_changed_files,
-        params.source_provider.as_ref(),
+        source_provider.as_ref(),
         transport,
     )?;
     let repo_root = materialized.repo_root().to_path_buf();

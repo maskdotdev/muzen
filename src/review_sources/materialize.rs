@@ -9,9 +9,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use crate::review_sources::ReviewSource;
-use crate::runner_protocol::{
-    RunSourceProviderParams, RunnerCallbackTransport, RUNNER_PROTOCOL_VERSION,
-};
+use crate::runner_protocol::{RunnerCallbackTransport, RUNNER_PROTOCOL_VERSION};
 
 const GITHUB_BASE_URL: &str = "https://github.com";
 const GITHUB_API_BASE_URL: &str = "https://api.github.com";
@@ -42,6 +40,12 @@ impl MaterializedRunSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SourceProviderConfig {
+    pub(crate) base_url: Option<String>,
+    pub(crate) callback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderCheckoutPlan {
     pub(crate) source_key: String,
     pub(crate) remote_url: String,
@@ -57,7 +61,7 @@ pub(crate) fn materialize_run_source(
     repo: Option<&Path>,
     source: Option<&ReviewSource>,
     changed_files: &[String],
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
     transport: Option<&Arc<dyn RunnerCallbackTransport>>,
 ) -> Result<MaterializedRunSource> {
     if let Some(repo) = repo {
@@ -143,7 +147,7 @@ struct SourceMaterializeResult {
 
 pub(crate) fn provider_checkout_plan(
     source: &ReviewSource,
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
 ) -> Result<ProviderCheckoutPlan> {
     match source {
         ReviewSource::GithubPullRequest {
@@ -195,7 +199,7 @@ pub(crate) fn provider_checkout_plan(
 fn materialize_provider_source(
     source: &ReviewSource,
     changed_files: &[String],
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
 ) -> Result<MaterializedRunSource> {
     let mut plan = provider_checkout_plan(source, provider)?;
     let provider_changed_files = resolve_provider_pr_checkout(source, provider, &mut plan)?;
@@ -242,7 +246,7 @@ fn materialize_provider_source(
 
 fn resolve_provider_pr_checkout(
     source: &ReviewSource,
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
     plan: &mut ProviderCheckoutPlan,
 ) -> Result<Vec<String>> {
     match source {
@@ -287,7 +291,7 @@ fn fetch_github_pull_request_metadata(
     owner: &str,
     repo: &str,
     number: u64,
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
 ) -> Result<GithubPullRequestMetadata> {
     github_get_json(&format!("/repos/{owner}/{repo}/pulls/{number}"), provider)
         .with_context(|| format!("failed to resolve GitHub pull request {owner}/{repo}#{number}"))
@@ -297,7 +301,7 @@ fn fetch_github_pull_request_files(
     owner: &str,
     repo: &str,
     number: u64,
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
 ) -> Result<Vec<String>> {
     let mut files = Vec::new();
     for page in 1.. {
@@ -320,7 +324,7 @@ fn fetch_github_pull_request_files(
 
 fn github_get_json<T: for<'de> Deserialize<'de>>(
     path_and_query: &str,
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
 ) -> Result<T> {
     let base_url = provider_api_base_url(provider, GITHUB_API_BASE_URL);
     let url = format!("{base_url}{path_and_query}");
@@ -394,7 +398,7 @@ fn parse_nul_delimited_paths(output: &[u8]) -> Vec<String> {
         .collect()
 }
 
-fn provider_base_url(provider: Option<&RunSourceProviderParams>, default_base_url: &str) -> String {
+fn provider_base_url(provider: Option<&SourceProviderConfig>, default_base_url: &str) -> String {
     provider
         .and_then(|provider| provider.base_url.as_deref())
         .map(str::trim)
@@ -405,7 +409,7 @@ fn provider_base_url(provider: Option<&RunSourceProviderParams>, default_base_ur
 }
 
 fn provider_api_base_url(
-    provider: Option<&RunSourceProviderParams>,
+    provider: Option<&SourceProviderConfig>,
     default_base_url: &str,
 ) -> String {
     provider

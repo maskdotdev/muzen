@@ -56,7 +56,7 @@ fn plans_github_pull_request_checkout() {
 #[test]
 fn plans_gitlab_merge_request_checkout_with_nested_namespace() {
     let source = ReviewSource::gitlab_merge_request("platform/tools", "heimdaal", 77).unwrap();
-    let provider = RunSourceProviderParams {
+    let provider = SourceProviderConfig {
         base_url: Some("https://gitlab.example.test/".to_string()),
         callback: false,
     };
@@ -95,7 +95,7 @@ fn materializes_custom_source_through_callback_provider() {
     fs::create_dir_all(bundle.path().join("src")).expect("src dir");
     fs::write(bundle.path().join("src/lib.rs"), "pub fn fixture() {}\n").expect("snapshot file");
     let source = ReviewSource::custom("acme", "review-123").unwrap();
-    let provider = RunSourceProviderParams {
+    let provider = SourceProviderConfig {
         base_url: None,
         callback: true,
     };
@@ -172,7 +172,7 @@ fn materializes_provider_source_from_local_git_remote() {
     git(&work, &["push", "origin", "HEAD:refs/pull/123/head"]);
 
     let source = ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap();
-    let provider = RunSourceProviderParams {
+    let provider = SourceProviderConfig {
         base_url: Some(format!("file://{}", root.path().display())),
         callback: false,
     };
