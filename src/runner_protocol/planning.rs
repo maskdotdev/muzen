@@ -277,18 +277,8 @@ fn runner_instruction(instruction: &RunInstructionParams) -> SessionInstruction 
 }
 
 fn runner_changed_files(changed_files: &[String], change: Option<&RunChangeParams>) -> Vec<String> {
-    if !changed_files.is_empty() {
-        return changed_files.to_vec();
-    }
-    change
-        .map(|change| {
-            change
-                .changed_files
-                .iter()
-                .map(|file| file.path.clone())
-                .collect()
-        })
-        .unwrap_or_default()
+    let _ = change;
+    changed_files.to_vec()
 }
 
 fn changed_file_specs(
@@ -296,21 +286,25 @@ fn changed_file_specs(
     changed_files: &[String],
     change: Option<&RunChangeParams>,
 ) -> Vec<ChangedFileSpec> {
-    if let Some(change) = change {
-        let files = change
-            .changed_files
-            .iter()
-            .map(|file| changed_file_spec(&file.path, file.status.as_deref()))
-            .collect::<Vec<_>>();
-        if !files.is_empty() {
-            return files;
-        }
-    }
+    let status_by_path = change
+        .map(|change| {
+            change
+                .changed_files
+                .iter()
+                .filter_map(|file| file.status.as_ref().map(|status| (&file.path, status)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
     changed_files
         .iter()
         .filter(|path| repo_root.join(path).is_file())
         .cloned()
-        .map(|path| changed_file_spec(&path, None))
+        .map(|path| {
+            changed_file_spec(
+                &path,
+                status_by_path.get(&path).map(|status| status.as_str()),
+            )
+        })
         .collect()
 }
 

@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 
-from muzen import Client, local
+from muzen import Client, ReviewOptions, local
 
 
 async def main() -> None:
@@ -13,7 +13,8 @@ async def main() -> None:
     )
     try:
         review = await client.review(
-            local(repo, changed_files=changed_files),
+            local(repo),
+            ReviewOptions(scope_files=changed_files),
         )
 
         async for event in review.events():

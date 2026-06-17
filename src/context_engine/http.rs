@@ -387,15 +387,9 @@ fn build_snapshot_from_source(
     source: ReviewSource,
     changed_files_override: Vec<String>,
 ) -> Result<Arc<RepoSnapshot>, ReviewHttpRouteError> {
-    let (root, source_changed_files) = match source {
-        ReviewSource::Local {
-            repo,
-            changed_files,
-        } => (repo, changed_files),
-        ReviewSource::RawSnapshot {
-            root,
-            changed_files,
-        } => (root, changed_files),
+    let root = match source {
+        ReviewSource::Local { repo } => repo,
+        ReviewSource::RawSnapshot { root } => root,
         other => {
             return Err(ReviewHttpRouteError::BadRequest(format!(
                 "context HTTP routes require local or raw_snapshot source, got {}",
@@ -403,11 +397,7 @@ fn build_snapshot_from_source(
             )))
         }
     };
-    let changed_files = if changed_files_override.is_empty() {
-        source_changed_files
-    } else {
-        changed_files_override
-    };
+    let changed_files = changed_files_override;
     if changed_files.is_empty() {
         return Err(ReviewHttpRouteError::BadRequest(
             "context request requires at least one changed file".to_string(),

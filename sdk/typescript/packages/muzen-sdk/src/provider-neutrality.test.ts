@@ -19,8 +19,8 @@ const repoRoot = join(process.cwd(), "../../../..");
 describe("provider-neutral review contracts", () => {
   it("maps provider examples through the same runner start envelope", () => {
     const sources: ReviewSource[] = [
-      local("/repo", { changedFiles: ["src/lib.rs"] }),
-      rawSnapshot("/bundle", { changedFiles: ["src/lib.rs"] }),
+      local("/repo"),
+      rawSnapshot("/bundle"),
       github.pullRequest({ owner: "maskdotdev", repo: "heimdaal", number: 123 }),
       gitlab.mergeRequest({ owner: "maskdotdev", repo: "heimdaal", number: 123 }),
       perforce.changelist({
@@ -35,6 +35,7 @@ describe("provider-neutral review contracts", () => {
     for (const source of sources) {
       const params = toRunnerStartParams("review-1", source, {
         metadata: { host: "contract-test" },
+        scope: { files: ["src/lib.rs"] },
         change: {
           kind: "provider_review",
           reviewTarget: "review-123",

@@ -1,4 +1,5 @@
 use super::super::*;
+use super::common::options_for_files;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -8,10 +9,10 @@ async fn review_worker_executes_claimed_local_review_and_persists_result() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let project = Muzen::with_store(store.clone()).project("acme");
     let review = project
-        .schedule_review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .schedule_review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
     let worker = ReviewWorker::new("worker-a", store.clone(), HostConfiguration::default());

@@ -10,7 +10,6 @@ from muzen import (
     ContextQueryLimits,
     ModelProfileInput,
     ProviderProfileInput,
-    ReviewAgentSession,
     ReviewChangeSpec,
     ReviewChangedFile,
     ReviewInstruction,
@@ -107,20 +106,24 @@ class RunnerMappingTests(unittest.TestCase):
             workspace = Client(runner).workspace("local")
 
             manifest = await workspace.context.index(
-                source=local("/repo", changed_files=["src/auth.py"])
+                source=local("/repo"),
+                changed_files=["src/auth.py"],
             )
             pack = await workspace.context.build_pack(
-                source=local("/repo", changed_files=["src/auth.py"]),
+                source=local("/repo"),
+                changed_files=["src/auth.py"],
                 purpose="security",
                 max_tokens=4000,
             )
             query = await workspace.context.query(
-                source=local("/repo", changed_files=["src/auth.py"]),
+                source=local("/repo"),
+                changed_files=["src/auth.py"],
                 kind="related_tests",
                 arguments={"path": "src/auth.py"},
             )
             feedback = await workspace.context.record_feedback(
-                source=local("/repo", changed_files=["src/auth.py"]),
+                source=local("/repo"),
+                changed_files=["src/auth.py"],
                 feedback="Suppress duplicate warning.",
             )
             approval = await workspace.context.approve_learning(
@@ -170,12 +173,13 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(params["changedFiles"], [])
 
     def test_provider_neutral_options_are_forwarded_to_rust_runner(self) -> None:
-        source = local("/repo", changed_files=["fallback.py"])
+        source = local("/repo")
 
         params = _to_runner_start_params(
             "review-1",
             source,
             ReviewOptions(
+                scope_files=["src/auth.py"],
                 metadata={"hostRunId": "flow-1"},
                 change=ReviewChangeSpec(
                     kind="revision_range",
@@ -192,31 +196,6 @@ class RunnerMappingTests(unittest.TestCase):
                         trusted=True,
                     )
                 ],
-                tools=[
-                    ReviewTool(
-                        id="host.issue_context",
-                        description="Fetch issue context.",
-                        parameters={"type": "object", "properties": {}},
-                        effects=["read_host"],
-                        cacheable=True,
-                        provider_resources=["issue:123"],
-                    )
-                ],
-                sessions=[
-                    ReviewAgentSession(
-                        id="security",
-                        role="security",
-                        objective="Find auth regressions.",
-                        instructions=[
-                            ReviewInstruction(
-                                kind="session_objective",
-                                text="Focus on token boundaries.",
-                                trusted=True,
-                            )
-                        ],
-                        tool_grants=["host.issue_context"],
-                    )
-                ],
             ),
         )
 
@@ -225,72 +204,36 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertNotIn("contextEngine", params)
         self.assertEqual(params["change"]["headRevision"], "head")
         self.assertEqual(params["instructions"][0]["kind"], "host_policy")
-        self.assertEqual(params["tools"][0]["effects"], ["read_host"])
-        self.assertEqual(params["tools"][0]["providerResources"], ["issue:123"])
-        self.assertEqual(params["sessions"][0]["toolGrants"], ["host.issue_context"])
+        self.assertEqual(params["tools"], [])
+        self.assertEqual(params["sessions"], [])
 
     def test_openai_models_are_mapped_to_runner_profiles(self) -> None:
         params = _to_runner_start_params(
             "review-1",
-            local("/repo", changed_files=["src/auth.py"]),
+            local("/repo"),
             ReviewOptions(
+                scope_files=["src/auth.py"],
                 model=openai(
                     "gpt-5.4-mini",
                     credential={"env": "OPENAI_API_KEY"},
                     max_output_tokens=4096,
                 ),
-                sessions=[
-                    ReviewAgentSession(
-                        id="generalist",
-                        role="generalist",
-                        objective="Review the change.",
-                    ),
-                    ReviewAgentSession(
-                        id="security",
-                        role="security",
-                        objective="Review security risk.",
-                        model=openai(
-                            "gpt-5.4",
-                            credential={"secretRef": "tenant:acme/openai"},
-                        ),
-                    ),
-                ],
             ),
         )
 
         self.assertEqual(params["model"]["defaultModelProfileId"], "default")
-        self.assertEqual(len(params["model"]["modelProfiles"]), 2)
+        self.assertEqual(len(params["model"]["modelProfiles"]), 1)
         self.assertEqual(params["model"]["modelProfiles"][0]["provider"], "openai_compatible")
         self.assertEqual(params["model"]["modelProfiles"][0]["model"], "gpt-5.4-mini")
-        self.assertEqual(
-            params["model"]["modelProfiles"][1]["credential"],
-            {"secretRef": "tenant:acme/openai"},
-        )
-        self.assertEqual(params["sessions"][1]["modelProfileId"], "session:security")
+        self.assertEqual(params["sessions"], [])
 
     def test_anthropic_models_are_mapped_to_messages_profiles(self) -> None:
         params = _to_runner_start_params(
             "review-1",
-            local("/repo", changed_files=["src/auth.py"]),
+            local("/repo"),
             ReviewOptions(
+                scope_files=["src/auth.py"],
                 model=anthropic("claude-opus-4-8"),
-                sessions=[
-                    ReviewAgentSession(
-                        id="generalist",
-                        role="generalist",
-                        objective="Review the change.",
-                    ),
-                    ReviewAgentSession(
-                        id="local",
-                        role="generalist",
-                        objective="Review on the local endpoint.",
-                        model=openai(
-                            "qwen3-coder",
-                            base_url="http://127.0.0.1:8000/v1",
-                            credential={"env": "VLLM_API_KEY"},
-                        ),
-                    ),
-                ],
             ),
         )
 
@@ -299,9 +242,8 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(profiles[0]["provider"], "anthropic")
         self.assertEqual(profiles[0]["apiProtocol"], "messages")
         self.assertEqual(profiles[0]["credential"], {"env": "ANTHROPIC_API_KEY"})
-        self.assertEqual(profiles[1]["provider"], "openai_compatible")
-        self.assertEqual(profiles[1]["baseUrl"], "http://127.0.0.1:8000/v1")
-        self.assertEqual(params["sessions"][1]["modelProfileId"], "session:local")
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(params["sessions"], [])
 
     def test_runner_result_preserves_finding_provenance(self) -> None:
         result = _map_runner_result(
@@ -359,6 +301,14 @@ class RunnerMappingTests(unittest.TestCase):
                 files=["src/auth.py"],
                 model=openai("gpt-5.4-mini"),
                 metadata={"hostRunId": "swarm-host-1"},
+                tools=[
+                    ReviewTool(
+                        id="host.lookup",
+                        description="Look up host context.",
+                        parameters={"type": "object", "properties": {}},
+                        effects=["read_host"],
+                    )
+                ],
                 agents=[
                     SwarmAgent(
                         id="planner",
@@ -381,7 +331,7 @@ class RunnerMappingTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(params["mode"], "direct_sessions")
+        self.assertNotIn("mode", params)
         self.assertEqual(params["repo"], "/repo")
         self.assertEqual(params["changedFiles"], ["src/auth.py"])
         self.assertEqual(params["metadata"], {"hostRunId": "swarm-host-1"})
@@ -389,6 +339,8 @@ class RunnerMappingTests(unittest.TestCase):
         self.assertEqual(params["sessions"][0]["objective"], "Plan the migration.")
         self.assertEqual(params["sessions"][0]["toolGrants"], ["read_file"])
         self.assertEqual(params["sessions"][1]["modelProfileId"], "session:implementer")
+        self.assertEqual(params["tools"][0]["id"], "host.lookup")
+        self.assertEqual(params["tools"][0]["effects"], ["read_host"])
         self.assertEqual(params["model"]["defaultModelProfileId"], "default")
         self.assertEqual(len(params["model"]["modelProfiles"]), 2)
 
@@ -460,15 +412,9 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             )
 
             review = await self.client.review(
-                local(repo, changed_files=["Cargo.toml"]),
+                local(repo),
                 ReviewOptions(
-                    sessions=[
-                        ReviewAgentSession(
-                            id="security",
-                            role="security",
-                            objective="Find security regressions",
-                        )
-                    ]
+                    scope_files=["Cargo.toml"],
                 ),
             )
             result = await review.wait()
@@ -676,21 +622,25 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         manifest = await workspace.context.index(
-            source=local("/repo", changed_files=["src/auth.py"])
+            source=local("/repo"),
+            changed_files=["src/auth.py"],
         )
         pack = await workspace.context.build_pack(
-            source=local("/repo", changed_files=["src/auth.py"]),
+            source=local("/repo"),
+            changed_files=["src/auth.py"],
             purpose="security",
             max_tokens=4000,
         )
         query = await workspace.context.query(
-            source=local("/repo", changed_files=["src/auth.py"]),
+            source=local("/repo"),
+            changed_files=["src/auth.py"],
             kind="related_tests",
             arguments={"path": "src/auth.py"},
             limits=ContextQueryLimits(max_results=10, max_tokens=1000),
         )
         feedback = await workspace.context.record_feedback(
-            source=local("/repo", changed_files=["src/auth.py"]),
+            source=local("/repo"),
+            changed_files=["src/auth.py"],
             feedback="Suppress duplicate warning.",
         )
         approval = await workspace.context.approve_learning(

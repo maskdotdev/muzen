@@ -240,15 +240,10 @@ const result = await runMuzenReview({
     startRevision: sourceStartSha,
     headRevision: sourceHeadSha,
   },
-  sessions: mapArgusPersonaModeToSessions(personaMode, personaTemplates),
   instructions: [
     hostInstructions(argusReviewPolicy),
     repositoryInstructionsProvider(),
-  ],
-  tools: [
-    argusIssueContextTool,
-    argusCodeSearchTool,
-    argusTraceSymbolTool,
+    personaModeInstructions(personaMode, personaTemplates),
   ],
   model: openAiCompatibleModel({ apiUrl, model, token: tokenRef }),
   metadata: {

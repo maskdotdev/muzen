@@ -61,31 +61,23 @@ export const perforce = {
   },
 };
 
-export function local(
-  repo: string,
-  options: { changedFiles?: string[] } = {},
-): LocalReviewSource {
+export function local(repo: string): LocalReviewSource {
   if (repo.trim().length === 0) {
     throw new MuzenSourceError("local source path is empty");
   }
   return {
     type: "local",
     repo,
-    changedFiles: options.changedFiles ?? [],
   };
 }
 
-export function rawSnapshot(
-  root: string,
-  options: { changedFiles?: string[] } = {},
-): RawSnapshotReviewSource {
+export function rawSnapshot(root: string): RawSnapshotReviewSource {
   if (root.trim().length === 0) {
     throw new MuzenSourceError("raw snapshot path is empty");
   }
   return {
     type: "raw_snapshot",
     root,
-    changedFiles: options.changedFiles ?? [],
   };
 }
 

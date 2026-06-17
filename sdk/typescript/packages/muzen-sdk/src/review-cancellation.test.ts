@@ -102,27 +102,12 @@ describe("review cancellation", () => {
         baseUrl: "https://source.example",
         handler: () => ({ root: "/bundle" }),
       },
-      tools: [
-        {
-          id: "host.issue_context",
-          description: "Issue context",
-          parameters: { type: "object", properties: {} },
-          handler: () => ({ data: { ok: true } }),
-        },
-      ],
     });
 
     const body = requests[0].body as { options: Record<string, unknown> };
     assert.equal(requests[0].signal, controller.signal);
     assert.deepEqual(body.options, {
       sourceProvider: { baseUrl: "https://source.example" },
-      tools: [
-        {
-          id: "host.issue_context",
-          description: "Issue context",
-          parameters: { type: "object", properties: {} },
-        },
-      ],
     });
   });
 });

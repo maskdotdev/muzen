@@ -156,37 +156,9 @@ fn hosted_model_router(
     )
 }
 
-/// Default base URL for OpenAI-compatible profiles that do not configure
-/// their own. Profiles with an explicit baseUrl always use it (mixed
-/// endpoints per run are supported); when every configured OpenAI-compatible
-/// profile agrees on one URL it becomes the fallback default for unqualified
-/// OpenAI-compatible profiles. Anthropic profiles have their own default and
-/// never participate here.
-fn hosted_model_default_base_url(model: &RunModelParams) -> String {
-    let mut configured: Option<&str> = None;
-    let mut mixed = false;
-    for profile in &model.model_profiles {
-        if profile.provider == "anthropic" {
-            continue;
-        }
-        let Some(base_url) = profile
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-        match configured {
-            Some(existing) if existing != base_url => mixed = true,
-            _ => configured = Some(base_url),
-        }
-    }
-    if !mixed {
-        if let Some(base_url) = configured {
-            return base_url.to_string();
-        }
-    }
+/// Process default base URL for OpenAI-compatible profiles that do not
+/// configure their own. Per-profile `baseUrl` never changes another profile.
+fn hosted_model_default_base_url(_model: &RunModelParams) -> String {
     std::env::var("OPENAI_BASE_URL")
         .ok()
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string())

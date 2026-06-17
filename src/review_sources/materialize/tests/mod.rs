@@ -79,9 +79,11 @@ fn materializes_raw_snapshot_source_from_host_bundle() {
     let bundle = tempfile::tempdir().expect("snapshot bundle");
     fs::create_dir_all(bundle.path().join("src")).expect("src dir");
     fs::write(bundle.path().join("src/lib.rs"), "pub fn fixture() {}\n").expect("snapshot file");
-    let source = ReviewSource::raw_snapshot_with_changed_files(bundle.path(), ["src/lib.rs"]);
+    let source = ReviewSource::raw_snapshot(bundle.path());
 
-    let materialized = materialize_run_source(None, Some(&source), &[], None, None).unwrap();
+    let materialized =
+        materialize_run_source(None, Some(&source), &["src/lib.rs".to_string()], None, None)
+            .unwrap();
 
     assert_eq!(materialized.repo_root(), bundle.path());
     assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);

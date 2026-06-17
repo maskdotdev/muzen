@@ -106,23 +106,31 @@ Target public API:
 ```ts
 const client = await Muzen.create();
 
-const run = await client.review({
-  repo: ".",
-  sessions: [
-    session("security", "Find security regressions"),
-    session("tests", "Find missing test coverage"),
-  ],
+const review = await client.review(local("."), {
+  scope: { files: ["src/auth.ts"] },
   model: openai({ model: "gpt-5" }),
+  instructions: [
+    { kind: "host_policy", text: "Find concrete regressions.", trusted: true },
+  ],
+});
+
+const swarm = await client.runSwarm({
+  repo: ".",
+  files: ["src/auth.ts"],
+  agents: [
+    { id: "security", objective: "Find security regressions" },
+    { id: "tests", objective: "Find missing test coverage" },
+  ],
   tools: [
     tool("jira_context", schema, async (ctx) => ({ data: await loadJira(ctx.args) })),
   ],
 });
 
-for await (const event of run.events()) {
+for await (const event of review.events()) {
   console.log(event);
 }
 
-const report = await run.result();
+const report = await review.result();
 const artifacts = await report.exportArtifacts();
 ```
 

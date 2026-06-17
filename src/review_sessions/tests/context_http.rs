@@ -20,14 +20,14 @@ async fn review_http_router_serves_project_context_routes() {
     let router = ReviewHttpRouter::new(Muzen::new());
     let source = json!({
         "type": "local",
-        "repo": repo.path(),
-        "changed_files": ["src/auth/token.rs"]
+        "repo": repo.path()
     });
+    let changed_files = ["src/auth/token.rs"];
 
     let index_response = router
         .handle(
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/index")
-                .json(&json!({ "source": source }))
+                .json(&json!({ "source": source, "changedFiles": changed_files }))
                 .unwrap(),
         )
         .await;
@@ -36,6 +36,7 @@ async fn review_http_router_serves_project_context_routes() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/packs")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "purpose": "tests"
                 }))
                 .unwrap(),
@@ -46,6 +47,7 @@ async fn review_http_router_serves_project_context_routes() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/query")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "kind": "related_tests",
                     "arguments": { "path": "src/auth/token.rs" },
                     "limits": { "maxResults": 10, "maxTokens": 1000 }
@@ -58,6 +60,7 @@ async fn review_http_router_serves_project_context_routes() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/feedback")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "feedback": "Suppress duplicate generated auth wrapper warning."
                 }))
                 .unwrap(),
@@ -129,14 +132,14 @@ async fn review_http_router_persists_project_context_learnings() {
     );
     let source = json!({
         "type": "local",
-        "repo": repo.path(),
-        "changed_files": ["lib.rs"]
+        "repo": repo.path()
     });
+    let changed_files = ["lib.rs"];
 
     let index_response = router
         .handle(
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/index")
-                .json(&json!({ "source": source }))
+                .json(&json!({ "source": source, "changedFiles": changed_files }))
                 .unwrap(),
         )
         .await;
@@ -145,6 +148,7 @@ async fn review_http_router_persists_project_context_learnings() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/feedback")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "feedback": "Remember generated wrappers in this repository are intentional."
                 }))
                 .unwrap(),
@@ -185,6 +189,7 @@ async fn review_http_router_persists_project_context_learnings() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/query")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "kind": "history_similar",
                     "arguments": { "query": "generated wrappers" },
                     "limits": { "maxResults": 10, "maxTokens": 1000 }
@@ -216,9 +221,9 @@ async fn review_http_router_context_cross_repo_contracts_require_grants() {
     let router = ReviewHttpRouter::new(Muzen::new());
     let source = json!({
         "type": "local",
-        "repo": repo.path(),
-        "changed_files": ["lib.rs"]
+        "repo": repo.path()
     });
+    let changed_files = ["lib.rs"];
     let candidate = json!({
         "resourceId": "github/acme/mobile",
         "repository": "acme/mobile",
@@ -231,6 +236,7 @@ async fn review_http_router_context_cross_repo_contracts_require_grants() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/query")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "kind": "cross_repo_contracts",
                     "arguments": { "query": "expires_at" },
                     "crossRepoContracts": [candidate],
@@ -255,6 +261,7 @@ async fn review_http_router_context_cross_repo_contracts_require_grants() {
             ReviewHttpRequest::new("POST", "/v1/projects/acme/context/query")
                 .json(&json!({
                     "source": source,
+                    "changedFiles": changed_files,
                     "kind": "cross_repo_contracts",
                     "arguments": { "query": "expires_at" },
                     "crossRepoContracts": [candidate],

@@ -78,21 +78,15 @@ pub(crate) fn materialize_run_source(
     }
 
     match source {
-        ReviewSource::Local {
-            repo,
-            changed_files: source_changed_files,
-        } => Ok(MaterializedRunSource {
+        ReviewSource::Local { repo } => Ok(MaterializedRunSource {
             repo_root: repo.clone(),
-            changed_files: override_or_source_changed_files(changed_files, source_changed_files),
+            changed_files: changed_files.to_vec(),
             inline_diff: None,
             _temp_dir: None,
         }),
-        ReviewSource::RawSnapshot {
-            root,
-            changed_files: source_changed_files,
-        } => Ok(MaterializedRunSource {
+        ReviewSource::RawSnapshot { root } => Ok(MaterializedRunSource {
             repo_root: root.clone(),
-            changed_files: override_or_source_changed_files(changed_files, source_changed_files),
+            changed_files: changed_files.to_vec(),
             inline_diff: None,
             _temp_dir: None,
         }),
@@ -125,11 +119,7 @@ fn materialize_callback_source(
         .context("invalid source.materialize result")?;
     Ok(MaterializedRunSource {
         repo_root: result.root,
-        changed_files: if result.changed_files.is_empty() {
-            changed_files.to_vec()
-        } else {
-            result.changed_files
-        },
+        changed_files: result.changed_files,
         inline_diff: None,
         _temp_dir: None,
     })
@@ -402,17 +392,6 @@ fn parse_nul_delimited_paths(output: &[u8]) -> Vec<String> {
         .filter(|path| !path.is_empty())
         .filter_map(|path| String::from_utf8(path.to_vec()).ok())
         .collect()
-}
-
-fn override_or_source_changed_files(
-    changed_files: &[String],
-    source_changed_files: &[String],
-) -> Vec<String> {
-    if changed_files.is_empty() {
-        source_changed_files.to_vec()
-    } else {
-        changed_files.to_vec()
-    }
 }
 
 fn provider_base_url(provider: Option<&RunSourceProviderParams>, default_base_url: &str) -> String {

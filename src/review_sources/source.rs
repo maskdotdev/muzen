@@ -3,20 +3,16 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::review_sessions::{ReviewScope, ReviewSessionError};
+use crate::review_sessions::ReviewSessionError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ReviewSource {
     Local {
         repo: PathBuf,
-        #[serde(default)]
-        changed_files: Vec<String>,
     },
     RawSnapshot {
         root: PathBuf,
-        #[serde(default)]
-        changed_files: Vec<String>,
     },
     GithubPullRequest {
         owner: String,
@@ -44,37 +40,11 @@ pub enum ReviewSource {
 
 impl ReviewSource {
     pub fn local(repo: impl Into<PathBuf>) -> Self {
-        Self::Local {
-            repo: repo.into(),
-            changed_files: Vec::new(),
-        }
-    }
-
-    pub fn local_with_changed_files(
-        repo: impl Into<PathBuf>,
-        changed_files: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        Self::Local {
-            repo: repo.into(),
-            changed_files: changed_files.into_iter().map(Into::into).collect(),
-        }
+        Self::Local { repo: repo.into() }
     }
 
     pub fn raw_snapshot(root: impl Into<PathBuf>) -> Self {
-        Self::RawSnapshot {
-            root: root.into(),
-            changed_files: Vec::new(),
-        }
-    }
-
-    pub fn raw_snapshot_with_changed_files(
-        root: impl Into<PathBuf>,
-        changed_files: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        Self::RawSnapshot {
-            root: root.into(),
-            changed_files: changed_files.into_iter().map(Into::into).collect(),
-        }
+        Self::RawSnapshot { root: root.into() }
     }
 
     pub fn github_pull_request(
@@ -136,8 +106,8 @@ impl ReviewSource {
 
     pub fn source_key(&self) -> String {
         match self {
-            Self::Local { repo, .. } => format!("local:{}", repo.display()),
-            Self::RawSnapshot { root, .. } => format!("raw_snapshot:{}", root.display()),
+            Self::Local { repo } => format!("local:{}", repo.display()),
+            Self::RawSnapshot { root } => format!("raw_snapshot:{}", root.display()),
             Self::GithubPullRequest {
                 owner,
                 repo,
@@ -157,26 +127,12 @@ impl ReviewSource {
 
     pub(crate) fn local_repo(&self) -> Option<&Path> {
         match self {
-            Self::Local { repo, .. } => Some(repo.as_path()),
-            Self::RawSnapshot { root, .. } => Some(root.as_path()),
+            Self::Local { repo } => Some(repo.as_path()),
+            Self::RawSnapshot { root } => Some(root.as_path()),
             Self::GithubPullRequest { .. }
             | Self::GitlabMergeRequest { .. }
             | Self::PerforceChangelist { .. }
             | Self::Custom { .. } => None,
-        }
-    }
-
-    pub(crate) fn runner_changed_files(&self, scope: &ReviewScope) -> Vec<String> {
-        if !scope.files.is_empty() {
-            return scope.files.clone();
-        }
-        match self {
-            Self::Local { changed_files, .. } => changed_files.clone(),
-            Self::RawSnapshot { changed_files, .. } => changed_files.clone(),
-            Self::GithubPullRequest { .. }
-            | Self::GitlabMergeRequest { .. }
-            | Self::PerforceChangelist { .. }
-            | Self::Custom { .. } => Vec::new(),
         }
     }
 }

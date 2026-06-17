@@ -132,7 +132,6 @@ export type {
   PerforceChangelistSource,
   RawSnapshotReviewSource,
   ReviewAgentBudget,
-  ReviewAgentSession,
   ReviewArtifact,
   ReviewArtifactExport,
   ReviewArtifactExportOptions,

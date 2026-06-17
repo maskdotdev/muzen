@@ -3,8 +3,6 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
-
 use super::ReviewSource;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,10 +23,6 @@ pub struct ReviewOptions {
     #[serde(default)]
     pub instructions: Vec<ReviewInstruction>,
     #[serde(default)]
-    pub tools: Vec<ReviewToolOption>,
-    #[serde(default)]
-    pub sessions: Vec<ReviewAgentSession>,
-    #[serde(default)]
     pub limits: Option<ReviewLimits>,
     #[serde(default)]
     pub config_snapshot: Option<EffectiveConfigSnapshot>,
@@ -44,8 +38,6 @@ impl Default for ReviewOptions {
             scope: ReviewScope::default(),
             metadata: BTreeMap::new(),
             instructions: Vec::new(),
-            tools: Vec::new(),
-            sessions: Vec::new(),
             limits: None,
             config_snapshot: None,
         }
@@ -136,58 +128,11 @@ pub struct ReviewInstruction {
     pub trusted: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewToolOption {
-    pub id: String,
-    pub description: String,
-    pub parameters: Value,
-    #[serde(default)]
-    pub effects: Vec<String>,
-    #[serde(default)]
-    pub cacheable: bool,
-    #[serde(default)]
-    pub provider_resources: Vec<String>,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewScope {
     #[serde(default)]
     pub files: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewAgentSession {
-    pub id: String,
-    pub role: Role,
-    pub objective: String,
-    #[serde(default)]
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub model_profile_id: Option<String>,
-    #[serde(default)]
-    pub instructions: Vec<ReviewInstruction>,
-    #[serde(default)]
-    pub tool_grants: Vec<String>,
-    #[serde(default)]
-    pub budget: Option<AgentBudget>,
-}
-
-impl ReviewAgentSession {
-    pub fn new(id: impl Into<String>, role: Role, objective: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            role,
-            objective: objective.into(),
-            cwd: None,
-            model_profile_id: None,
-            instructions: Vec::new(),
-            tool_grants: Vec::new(),
-            budget: None,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

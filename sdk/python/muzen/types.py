@@ -399,7 +399,6 @@ class ReviewSource:
     depot_paths: List[str] = field(default_factory=list)
     provider: Optional[str] = None
     id: Optional[str] = None
-    changed_files: List[str] = field(default_factory=list)
 
 
 ReviewSourceLike = Union[ReviewSource, str]
@@ -411,18 +410,6 @@ class ReviewAgentBudget:
     max_tool_calls: int
     max_prompt_tokens: int
     max_output_tokens: int
-
-
-@dataclass(frozen=True)
-class ReviewAgentSession:
-    id: str
-    role: ReviewRole
-    objective: str
-    cwd: Optional[str] = None
-    model: Optional["ReviewModelSpec"] = None
-    instructions: List["ReviewInstruction"] = field(default_factory=list)
-    tool_grants: List[str] = field(default_factory=list)
-    budget: Optional[ReviewAgentBudget] = None
 
 
 @dataclass(frozen=True)
@@ -526,8 +513,6 @@ class ReviewOptions:
     scope_exclude: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     instructions: List["ReviewInstruction"] = field(default_factory=list)
-    tools: List["ReviewTool"] = field(default_factory=list)
-    sessions: List[ReviewAgentSession] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None
 
 

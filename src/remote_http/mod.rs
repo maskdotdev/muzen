@@ -135,11 +135,13 @@ mod tests {
                 json!({
                     "source": {
                         "type": "local",
-                        "repo": ".",
-                        "changed_files": ["Cargo.toml"]
+                        "repo": "."
                     },
                     "options": {
-                        "dedupe": "source"
+                        "dedupe": "source",
+                        "scope": {
+                            "files": ["Cargo.toml"]
+                        }
                     }
                 })
                 .to_string(),

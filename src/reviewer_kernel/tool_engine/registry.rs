@@ -259,7 +259,6 @@ impl ToolAliasTable {
     pub fn alias_for(&self, tool_id: &ToolId) -> Option<&ToolId> {
         self.by_tool.get(tool_id)
     }
-
 }
 
 #[async_trait]

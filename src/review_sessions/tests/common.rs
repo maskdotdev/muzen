@@ -28,6 +28,17 @@ pub(super) fn model_profile_input(model: &str) -> ModelProfileInput {
     }
 }
 
+pub(super) fn options_for_files(
+    files: impl IntoIterator<Item = impl Into<String>>,
+) -> ReviewOptions {
+    ReviewOptions {
+        scope: ReviewScope {
+            files: files.into_iter().map(Into::into).collect(),
+        },
+        ..ReviewOptions::default()
+    }
+}
+
 pub(super) fn provider_profile_input(installation: &str) -> ProviderProfileInput {
     ProviderProfileInput {
         provider: SourceProviderKind::Github,

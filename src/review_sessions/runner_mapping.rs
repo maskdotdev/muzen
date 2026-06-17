@@ -1,17 +1,16 @@
 use std::path::Path;
 
 use crate::runner_protocol::{
-    RunAgentBudgetParams, RunChangeFileParams, RunChangeParams, RunInstructionParams,
-    RunLimitParams, RunModelParams, RunSessionParams, RunSourceProviderParams, RunStartParams,
-    RunToolParams, RUNNER_PROTOCOL_VERSION,
+    RunChangeFileParams, RunChangeParams, RunInstructionParams, RunLimitParams, RunModelParams,
+    RunSourceProviderParams, RunStartParams, RUNNER_PROTOCOL_VERSION,
 };
 #[cfg(not(test))]
 use crate::runner_protocol::{RunModelCredentialParams, RunModelProfileParams};
 
 use super::session::CreateReviewSessionInput;
 use super::{
-    ReviewAgentSession, ReviewChangeSpec, ReviewChangedFile, ReviewInstruction, ReviewLimits,
-    ReviewOptions, ReviewSessionError, ReviewSessionId, ReviewSource, ReviewToolOption,
+    ReviewChangeSpec, ReviewChangedFile, ReviewInstruction, ReviewLimits, ReviewOptions,
+    ReviewSessionError, ReviewSessionId, ReviewSource,
 };
 
 pub(super) fn review_input_to_runner_start(
@@ -31,21 +30,13 @@ pub(super) fn review_input_to_runner_start(
         metadata: input.options.metadata.clone(),
         change: runner_change(&input.options),
         instructions: runner_instructions(&input.options),
-        sessions: runner_sessions(&input.options),
+        sessions: Vec::new(),
         limits: input.options.limits.map(runner_limits),
         model: runner_model(&input.options),
-        tools: runner_tools(&input.options),
+        tools: Vec::new(),
         heartbeat: None,
         context_engine: None,
     })
-}
-
-fn runner_sessions(options: &ReviewOptions) -> Vec<RunSessionParams> {
-    options
-        .sessions
-        .iter()
-        .map(|session| runner_session(session, options.model.as_deref()))
-        .collect()
 }
 
 fn runner_instructions(options: &ReviewOptions) -> Vec<RunInstructionParams> {
@@ -56,29 +47,12 @@ fn runner_instructions(options: &ReviewOptions) -> Vec<RunInstructionParams> {
         .collect()
 }
 
-fn runner_tools(options: &ReviewOptions) -> Vec<RunToolParams> {
-    options.tools.iter().map(runner_tool).collect()
-}
-
 fn runner_change(options: &ReviewOptions) -> Option<RunChangeParams> {
     options.change.as_ref().map(runner_change_spec)
 }
 
-fn runner_changed_files(options: &ReviewOptions, source: &ReviewSource) -> Vec<String> {
-    if !options.scope.files.is_empty() {
-        return options.scope.files.clone();
-    }
-    if let Some(change) = &options.change {
-        let changed_files = change
-            .changed_files
-            .iter()
-            .map(|file| file.path.clone())
-            .collect::<Vec<_>>();
-        if !changed_files.is_empty() {
-            return changed_files;
-        }
-    }
-    source.runner_changed_files(&options.scope)
+fn runner_changed_files(options: &ReviewOptions, _source: &ReviewSource) -> Vec<String> {
+    options.scope.files.clone()
 }
 
 fn runner_source_provider(options: &ReviewOptions) -> Option<RunSourceProviderParams> {
@@ -175,43 +149,6 @@ fn runner_instruction(instruction: &ReviewInstruction) -> RunInstructionParams {
         kind: instruction.kind.clone(),
         text: instruction.text.clone(),
         trusted: instruction.trusted,
-    }
-}
-
-fn runner_tool(tool: &ReviewToolOption) -> RunToolParams {
-    RunToolParams {
-        id: tool.id.clone(),
-        description: tool.description.clone(),
-        parameters: tool.parameters.clone(),
-        effects: tool.effects.clone(),
-        cacheable: tool.cacheable,
-        provider_resources: tool.provider_resources.clone(),
-    }
-}
-
-fn runner_session(session: &ReviewAgentSession, default_model: Option<&str>) -> RunSessionParams {
-    RunSessionParams {
-        id: session.id.clone(),
-        role: session.role,
-        objective: session.objective.clone(),
-        cwd: session.cwd.clone(),
-        model_profile_id: session
-            .model_profile_id
-            .clone()
-            .or_else(|| default_model.map(str::to_string)),
-        response_format: None,
-        instructions: session
-            .instructions
-            .iter()
-            .map(runner_instruction)
-            .collect(),
-        tool_grants: session.tool_grants.clone(),
-        budget: session.budget.as_ref().map(|budget| RunAgentBudgetParams {
-            max_turns: budget.max_turns,
-            max_tool_calls: budget.max_tool_calls,
-            max_prompt_tokens: budget.max_prompt_tokens,
-            max_output_tokens: budget.max_output_tokens,
-        }),
     }
 }
 

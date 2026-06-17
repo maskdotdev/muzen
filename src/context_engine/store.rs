@@ -50,7 +50,6 @@ impl ContextIndexStore for InMemoryContextIndexStore {
             .get(snapshot_id)
             .cloned()
     }
-
 }
 
 #[derive(Debug, Default)]

@@ -21,12 +21,14 @@ import {
   mapRunnerResult,
   mapRunnerStatus,
   mapSwarmResult,
-  swarmReviewOptions,
   toRunnerStartParams,
   toSwarmStartParams,
 } from "./runner-mapping.js";
 import { registerReviewCallbacks } from "./runner-callbacks.js";
-import { reviewOptionsRequireSecretResolver } from "./models.js";
+import {
+  reviewOptionsRequireSecretResolver,
+  swarmOptionsRequireSecretResolver,
+} from "./models.js";
 import { parseReviewSource } from "./sources.js";
 import { UnsupportedWorkspaceProfileCollection } from "./unsupported.js";
 import {
@@ -189,9 +191,8 @@ export class RunnerBackedMuzen implements Muzen {
 
   async runSwarm(options: SwarmOptions): Promise<SwarmResult> {
     throwIfAborted(options.signal);
-    const reviewOptions = swarmReviewOptions(options);
     if (
-      reviewOptionsRequireSecretResolver(reviewOptions) &&
+      swarmOptionsRequireSecretResolver(options) &&
       !this.options.secrets?.resolve
     ) {
       throw new Error(
@@ -212,8 +213,17 @@ export class RunnerBackedMuzen implements Muzen {
     });
     const unsubscribeCallbacks = registerReviewCallbacks(
       this.runner,
-      reviewOptions,
-      this.options,
+      {
+        model: options.model,
+        hooks: options.hooks,
+        metadata: options.metadata,
+        signal: options.signal,
+        limits: options.limits,
+      },
+      {
+        ...this.options,
+        tools: options.tools,
+      },
     );
     let startSent = false;
     let startSettled = false;
@@ -365,11 +375,7 @@ function contextIndexParams(options: ContextIndexOptions): {
   }
   return {
     repo: source.type === "local" ? source.repo : source.root,
-    changedFiles:
-      options.changedFiles ??
-      (source.type === "local"
-        ? source.changedFiles ?? []
-    : source.changedFiles ?? []),
+    changedFiles: options.changedFiles ?? [],
     hostMetadata: options.hostMetadata,
     crossRepoContracts: options.crossRepoContracts,
     allowedCrossRepoResources: options.allowedCrossRepoResources,

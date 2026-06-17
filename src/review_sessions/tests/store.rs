@@ -15,10 +15,10 @@ async fn review_store_persists_result_events_and_artifacts() {
     .unwrap();
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let review = Muzen::with_store(store.clone())
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["Cargo.toml"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["Cargo.toml"]),
+        )
         .await
         .unwrap();
     let first_cursor = review.event_records()[0].cursor.clone();

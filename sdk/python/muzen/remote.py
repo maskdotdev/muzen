@@ -12,9 +12,7 @@ from .runner_mapping import (
     _change_to_runner,
     _instruction_to_runner,
     _limits_to_runner,
-    _session_to_runner,
     _source_to_remote,
-    _tool_to_runner,
 )
 from .sources import parse_review_source
 from .errors import MuzenUnsupportedFeatureError
@@ -500,17 +498,8 @@ def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
         "metadata": options.metadata,
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],
-        "tools": [_tool_to_runner(tool) for tool in options.tools],
-        "sessions": [_session_to_remote(session) for session in options.sessions],
         "limits": _limits_to_runner(options.limits),
     }
-
-
-def _session_to_remote(session: Any) -> Dict[str, Any]:
-    payload = _session_to_runner(session, {})
-    if session.model is not None:
-        payload["model"] = _model_to_remote(session.model)
-    return payload
 
 
 def _model_to_remote(model: Any) -> Any:

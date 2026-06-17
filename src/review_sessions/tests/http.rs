@@ -1,4 +1,5 @@
 use super::super::*;
+use super::common::options_for_files;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ async fn review_events_response_replays_json_from_store() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let project = Muzen::with_store(store).project("acme");
     let review = project
-        .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        .schedule_review_with_options(ReviewSource::local("."), options_for_files(["Cargo.toml"]))
         .await
         .unwrap();
 
@@ -41,7 +42,7 @@ async fn review_events_sse_response_renders_service_side_event_stream() {
     let store = Arc::new(InMemoryReviewSessionStore::default());
     let project = Muzen::with_store(store).project("acme");
     let review = project
-        .schedule_review(ReviewSource::local_with_changed_files(".", ["Cargo.toml"]))
+        .schedule_review_with_options(ReviewSource::local("."), options_for_files(["Cargo.toml"]))
         .await
         .unwrap();
 
@@ -73,11 +74,13 @@ async fn review_http_router_schedules_root_review_and_replays_events() {
         .json(&json!({
             "source": {
                 "type": "local",
-                "repo": ".",
-                "changed_files": ["Cargo.toml"]
+                "repo": "."
             },
             "options": {
-                "dedupe": "source"
+                "dedupe": "source",
+                "scope": {
+                    "files": ["Cargo.toml"]
+                }
             }
         }))
         .unwrap();
@@ -125,10 +128,10 @@ async fn review_http_router_serves_results_and_artifacts_from_store() {
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let muzen = Muzen::new();
     let review = muzen
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
     let router = ReviewHttpRouter::new(muzen);

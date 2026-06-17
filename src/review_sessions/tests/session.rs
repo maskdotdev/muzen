@@ -1,4 +1,5 @@
 use super::super::*;
+use super::common::options_for_files;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -12,10 +13,10 @@ async fn muzen_executes_local_review_session_and_waits_for_result() {
     let muzen = Muzen::new();
 
     let review = muzen
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["Cargo.toml"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["Cargo.toml"]),
+        )
         .await
         .unwrap();
     let result = review.wait().unwrap();
@@ -37,10 +38,10 @@ async fn review_subscribe_replays_recorded_events() {
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let muzen = Muzen::new();
     let review = muzen
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
     let mut replayed = Vec::new();
@@ -56,10 +57,10 @@ async fn review_refresh_returns_snapshot_without_runner_details() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let review = Muzen::new()
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
 
@@ -79,10 +80,10 @@ async fn review_exports_and_reads_redacted_artifacts() {
     )
     .unwrap();
     let review = Muzen::new()
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["Cargo.toml"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["Cargo.toml"]),
+        )
         .await
         .unwrap();
 
@@ -106,10 +107,10 @@ async fn review_artifact_export_enforces_limits() {
     let repo = tempfile::tempdir().unwrap();
     std::fs::write(repo.path().join("README.md"), "fixture repo").unwrap();
     let review = Muzen::new()
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
 
@@ -139,15 +140,21 @@ async fn muzen_reuses_existing_session_for_source_dedupe() {
 
     let first = muzen
         .review_with_options(
-            ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
-            options.clone(),
+            ReviewSource::local(repo.path()),
+            ReviewOptions {
+                scope: options_for_files(["README.md"]).scope,
+                ..options.clone()
+            },
         )
         .await
         .unwrap();
     let second = muzen
         .review_with_options(
-            ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
-            options,
+            ReviewSource::local(repo.path()),
+            ReviewOptions {
+                scope: options_for_files(["README.md"]).scope,
+                ..options
+            },
         )
         .await
         .unwrap();
@@ -170,10 +177,11 @@ async fn project_schedule_review_persists_queued_record_with_options() {
 
     let review = project
         .schedule_review_with_options(
-            ReviewSource::local_with_changed_files(repo.path(), ["README.md"]),
+            ReviewSource::local(repo.path()),
             ReviewOptions {
                 user_id: Some("user-a".to_string()),
                 dedupe: DedupePolicy::Source,
+                scope: options_for_files(["README.md"]).scope,
                 ..ReviewOptions::default()
             },
         )

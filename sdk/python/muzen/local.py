@@ -310,17 +310,15 @@ def _context_index_params(
     source = parse_review_source(source_like)
     if source.type == "local":
         repo = source.repo
-        default_changed_files = source.changed_files or []
     elif source.type == "raw_snapshot":
         repo = source.root
-        default_changed_files = source.changed_files or []
     else:
         raise MuzenUnsupportedFeatureError(
             "local context methods require a local or raw_snapshot source"
         )
     payload: Dict[str, Any] = {
         "repo": repo,
-        "changedFiles": changed_files if changed_files is not None else default_changed_files,
+        "changedFiles": changed_files or [],
     }
     if host_metadata is not None:
         payload["hostMetadata"] = host_metadata

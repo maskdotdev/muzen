@@ -109,20 +109,24 @@ describe("runner-backed Muzen preview", () => {
     const workspace = muzen.workspace("local");
 
     const manifest = await workspace.context.index({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
     });
     const pack = await workspace.context.buildPack({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       purpose: "security",
       maxTokens: 4000,
     });
     const query = await workspace.context.query({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       kind: "related_tests",
       arguments: { path: "src/auth.ts" },
     });
     const feedback = await workspace.context.recordFeedback({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       feedback: "Suppress duplicate warning.",
     });
     const approval = await workspace.context.approveLearning({
@@ -161,16 +165,10 @@ describe("runner-backed Muzen preview", () => {
       muzen = await createMuzen({ runnerPath });
 
       const review = await muzen.review(
-        local(repo, { changedFiles: ["Cargo.toml"] }),
+        local(repo),
         {
+          scope: { files: ["Cargo.toml"] },
           model: smokeReviewModel("Cargo.toml"),
-          sessions: [
-            {
-              id: "security",
-              role: "security",
-              objective: "Find security regressions",
-            },
-          ],
         },
       );
       const result = await review.wait();
@@ -716,21 +714,25 @@ describe("remote Muzen client", () => {
       }),
     });
     const manifest = await workspace.context.index({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
     });
     const pack = await workspace.context.buildPack({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       purpose: "security",
       maxTokens: 4000,
     });
     const query = await workspace.context.query({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       kind: "related_tests",
       arguments: { path: "src/auth.ts" },
       limits: { maxResults: 10, maxTokens: 1000 },
     });
     const feedback = await workspace.context.recordFeedback({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       feedback: "Suppress duplicate warning.",
     });
     const approval = await workspace.context.approveLearning({

@@ -7,15 +7,16 @@ import {
   toRunnerStartParams,
   toSwarmStartParams,
 } from "./runner-mapping.js";
-import { anthropic, openai } from "./models.js";
+import { openai } from "./models.js";
 import { local } from "./sources.js";
 
 describe("runner mapping", () => {
   it("maps provider-neutral review options into runner start params", () => {
     const params = toRunnerStartParams(
       "review-1",
-      local("/repo", { changedFiles: ["fallback.ts"] }),
+      local("/repo"),
       {
+        scope: { files: ["src/auth.ts"] },
         model: {
           kind: "callback",
           handler: () => ({ content: "done" }),
@@ -48,32 +49,6 @@ describe("runner mapping", () => {
             trusted: true,
           },
         ],
-        tools: [
-          {
-            id: "argus.issue_context",
-            description: "Fetch linked issue context.",
-            parameters: { type: "object", properties: {} },
-            effects: ["read_host", "write_artifact"],
-            cacheable: true,
-            providerResources: ["issue:123"],
-            handler: () => ({ data: { ok: true } }),
-          },
-        ],
-        sessions: [
-          {
-            id: "security",
-            role: "security",
-            objective: "Find auth regressions.",
-            instructions: [
-              {
-                kind: "session_objective",
-                text: "Focus on token boundaries.",
-                trusted: true,
-              },
-            ],
-            toolGrants: ["argus.issue_context"],
-          },
-        ],
       },
     ) as Record<string, unknown>;
 
@@ -97,32 +72,8 @@ describe("runner mapping", () => {
         trusted: true,
       },
     ]);
-    assert.deepEqual(params.tools, [
-      {
-        id: "argus.issue_context",
-        description: "Fetch linked issue context.",
-        parameters: { type: "object", properties: {} },
-        effects: ["read_host", "write_artifact"],
-        cacheable: true,
-        providerResources: ["issue:123"],
-      },
-    ]);
-    assert.deepEqual((params.sessions as unknown[])[0], {
-      id: "security",
-      role: "security",
-      objective: "Find auth regressions.",
-      cwd: undefined,
-      modelProfileId: undefined,
-      instructions: [
-        {
-          kind: "session_objective",
-          text: "Focus on token boundaries.",
-          trusted: true,
-        },
-      ],
-      toolGrants: ["argus.issue_context"],
-      budget: undefined,
-    });
+    assert.deepEqual(params.tools, []);
+    assert.deepEqual(params.sessions, []);
     assert.equal("hooks" in params, false);
   });
 
@@ -221,29 +172,14 @@ describe("runner mapping", () => {
   it("maps OpenAI hosted models into runner model profiles", () => {
     const params = toRunnerStartParams(
       "review-1",
-      local("/repo", { changedFiles: ["src/auth.ts"] }),
+      local("/repo"),
       {
+        scope: { files: ["src/auth.ts"] },
         model: openai({
           model: "gpt-5.4-mini",
           credential: { env: "OPENAI_API_KEY" },
           maxOutputTokens: 4096,
         }),
-        sessions: [
-          {
-            id: "generalist",
-            role: "generalist",
-            objective: "Review the change.",
-          },
-          {
-            id: "security",
-            role: "security",
-            objective: "Review security risk.",
-            model: openai({
-              model: "gpt-5.4",
-              credential: { secretRef: "tenant:acme/openai" },
-            }),
-          },
-        ],
       },
     ) as {
       model: {
@@ -267,100 +203,25 @@ describe("runner mapping", () => {
         temperature: undefined,
         topP: undefined,
       },
-      {
-        id: "session:security",
-        provider: "openai_compatible",
-        model: "gpt-5.4",
-        credential: { secretRef: "tenant:acme/openai" },
-        baseUrl: undefined,
-        apiProtocol: "responses",
-        maxInputTokens: undefined,
-        maxOutputTokens: undefined,
-        temperature: undefined,
-        topP: undefined,
-      },
     ]);
-    assert.equal(params.sessions[0].modelProfileId, undefined);
-    assert.equal(params.sessions[1].modelProfileId, "session:security");
+    assert.deepEqual(params.sessions, []);
   });
 
-  it("maps mixed Anthropic and OpenAI models into one profile set", () => {
-    const params = toRunnerStartParams(
-      "review-1",
-      local("/repo", { changedFiles: ["src/auth.ts"] }),
-      {
-        model: anthropic({ model: "claude-opus-4-8" }),
-        sessions: [
-          {
-            id: "generalist",
-            role: "generalist",
-            objective: "Review the change.",
-          },
-          {
-            id: "security",
-            role: "security",
-            objective: "Review security risk.",
-            model: openai({
-              model: "qwen3-coder",
-              baseUrl: "http://127.0.0.1:8000/v1",
-              credential: { env: "VLLM_API_KEY" },
-            }),
-          },
-        ],
-      },
-    ) as {
-      model: {
-        defaultModelProfileId: string;
-        modelProfiles: Array<Record<string, unknown>>;
-      };
-      sessions: Array<Record<string, unknown>>;
-    };
-
-    assert.equal(params.model.defaultModelProfileId, "default");
-    assert.deepEqual(params.model.modelProfiles[0], {
-      id: "default",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      credential: { env: "ANTHROPIC_API_KEY" },
-      baseUrl: undefined,
-      apiProtocol: "messages",
-      maxInputTokens: undefined,
-      maxOutputTokens: undefined,
-      temperature: undefined,
-      topP: undefined,
-    });
-    assert.equal(params.model.modelProfiles[1].provider, "openai_compatible");
-    assert.equal(
-      params.model.modelProfiles[1].baseUrl,
-      "http://127.0.0.1:8000/v1",
-    );
-    assert.equal(params.sessions[1].modelProfileId, "session:security");
-  });
-
-  it("rejects hosted session overrides with callback run models", () => {
-    assert.throws(
-      () =>
-        toRunnerStartParams("review-1", local("/repo"), {
-          model: { kind: "callback", handler: () => ({ content: "done" }) },
-          sessions: [
-            {
-              id: "security",
-              role: "security",
-              objective: "Review security risk.",
-              model: openai({ model: "gpt-5.4-mini" }),
-            },
-          ],
-        }),
-      /hosted session model overrides cannot be mixed/,
-    );
-  });
-
-  it("maps swarm options to direct-sessions runner params", () => {
+  it("maps swarm options to multi-agent runner params", () => {
     const params = toSwarmStartParams("swarm-1", {
       repo: "/repo",
       files: ["src/auth.ts"],
       model: openai({ model: "gpt-5.4-mini" }),
       metadata: { hostRunId: "swarm-host-1" },
+      tools: [
+        {
+          id: "host.lookup",
+          description: "Look up host context.",
+          parameters: { type: "object", properties: {} },
+          effects: ["read_host"],
+          handler: () => ({ data: { ok: true } }),
+        },
+      ],
       agents: [
         {
           id: "planner",
@@ -381,18 +242,18 @@ describe("runner mapping", () => {
         },
       ],
     }) as {
-      mode: string;
       repo: string;
       changedFiles: string[];
       metadata: Record<string, unknown>;
       sessions: Array<Record<string, unknown>>;
+      tools: Array<Record<string, unknown>>;
       model: {
         defaultModelProfileId: string;
         modelProfiles: Array<Record<string, unknown>>;
       };
     };
 
-    assert.equal(params.mode, "direct_sessions");
+    assert.equal("mode" in params, false);
     assert.equal(params.repo, "/repo");
     assert.deepEqual(params.changedFiles, ["src/auth.ts"]);
     assert.deepEqual(params.metadata, { hostRunId: "swarm-host-1" });
@@ -413,6 +274,16 @@ describe("runner mapping", () => {
       budget: undefined,
     });
     assert.equal(params.sessions[1].modelProfileId, "session:implementer");
+    assert.deepEqual(params.tools, [
+      {
+        id: "host.lookup",
+        description: "Look up host context.",
+        parameters: { type: "object", properties: {} },
+        effects: ["read_host"],
+        cacheable: false,
+        providerResources: [],
+      },
+    ]);
     assert.equal(params.model.defaultModelProfileId, "default");
     assert.equal(params.model.modelProfiles.length, 2);
   });

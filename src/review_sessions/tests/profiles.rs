@@ -85,10 +85,10 @@ async fn project_review_captures_model_config_snapshot_without_raw_secret() {
         .unwrap();
 
     let review = project
-        .review(ReviewSource::local_with_changed_files(
-            repo.path(),
-            ["README.md"],
-        ))
+        .review_with_options(
+            ReviewSource::local(repo.path()),
+            options_for_files(["README.md"]),
+        )
         .await
         .unwrap();
     let record = session_store.get(review.id()).await.unwrap().unwrap();

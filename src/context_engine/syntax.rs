@@ -30,7 +30,6 @@ impl ContextSymbolGraph {
             self.imports_by_file.insert(path, parsed.imports.clone());
         }
     }
-
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

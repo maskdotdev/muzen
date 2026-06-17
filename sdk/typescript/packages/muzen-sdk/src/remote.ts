@@ -587,26 +587,14 @@ function remoteReviewOptions(options: ReviewOptions): ReviewOptions {
     heartbeat: _heartbeat,
     sourceProvider,
     model,
-    tools,
     ...serializable
   } = options;
   return {
     ...serializable,
     model: remoteModel(model),
-    sessions: serializable.sessions?.map(remoteSession),
     sourceProvider: sourceProvider?.baseUrl
       ? { baseUrl: sourceProvider.baseUrl }
       : undefined,
-    tools: tools?.map(({ handler: _handler, ...tool }) => tool),
-  };
-}
-
-function remoteSession(
-  session: NonNullable<ReviewOptions["sessions"]>[number],
-): NonNullable<ReviewOptions["sessions"]>[number] {
-  return {
-    ...session,
-    model: remoteModel(session.model),
   };
 }
 

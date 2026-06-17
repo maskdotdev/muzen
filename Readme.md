@@ -77,9 +77,10 @@ const muzen = await createMuzen({
 
 try {
   const review = await muzen.review(
-    local(".", {
-      changedFiles: ["Cargo.toml"],
-    }),
+    local("."),
+    {
+      scope: { files: ["Cargo.toml"] },
+    },
   );
 
   review.subscribe((event) => {
@@ -172,7 +173,7 @@ Python shares the same runner protocol as TypeScript:
 import asyncio
 import os
 
-from muzen import Client, local
+from muzen import Client, ReviewOptions, local
 
 
 async def main() -> None:
@@ -181,7 +182,8 @@ async def main() -> None:
     )
     try:
         review = await client.review(
-            local(".", changed_files=["Cargo.toml"]),
+            local("."),
+            ReviewOptions(scope_files=["Cargo.toml"]),
         )
 
         async for event in review.events():

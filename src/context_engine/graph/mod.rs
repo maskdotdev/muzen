@@ -29,6 +29,6 @@ pub(crate) use expand::{
     ContextGraphCandidate, ContextGraphExpansion, ContextGraphExpansionPurpose,
     ContextGraphExpansionRequest, ContextGraphOmission, ContextGraphOmissionReason,
 };
-pub(crate) use model::{ContextEdgeKind, ContextGraph, ContextNodeId, ContextNodeKind};
 #[cfg(test)]
 pub(crate) use model::{ContextEdge, ContextEdgeId, ContextGraphSource};
+pub(crate) use model::{ContextEdgeKind, ContextGraph, ContextNodeId, ContextNodeKind};

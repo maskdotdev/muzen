@@ -8,7 +8,7 @@ import { DurableReviewStore } from "./store.js";
 test("surfaces model provider failures as review errors", () => {
   const store = new DurableReviewStore();
   const review = store.create(
-    { type: "local", repo: ".", changedFiles: ["src/app.ts"] },
+    { type: "local", repo: "." },
     reviewOptions(),
   );
 
@@ -26,7 +26,7 @@ test("surfaces model provider failures as review errors", () => {
 test("prefers final non-retryable model failures over retry noise", () => {
   const store = new DurableReviewStore();
   const review = store.create(
-    { type: "local", repo: ".", changedFiles: ["src/app.ts"] },
+    { type: "local", repo: "." },
     reviewOptions(),
   );
 
@@ -63,11 +63,11 @@ function reviewOptions(): ReviewOptions {
       reviewTarget: "local:.",
     },
     scope: { files: ["src/app.ts"] },
-    sessions: [
+    instructions: [
       {
-        id: "correctness",
-        role: "correctness",
-        objective: "Review the change.",
+        kind: "host_policy",
+        text: "Review the change from the correctness perspective.",
+        trusted: true,
       },
     ],
   };
