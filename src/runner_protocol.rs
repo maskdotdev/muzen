@@ -14,6 +14,7 @@ mod protocol;
 mod resources;
 mod results;
 mod schema;
+mod schema_catalog;
 mod schema_types;
 mod session;
 mod stored;
