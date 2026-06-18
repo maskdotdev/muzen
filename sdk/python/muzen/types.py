@@ -508,9 +508,6 @@ class ReviewOptions:
     cancel_superseded: bool = False
     model: Optional[ReviewModelSpec] = None
     change: Optional["ReviewChangeSpec"] = None
-    scope_files: List[str] = field(default_factory=list)
-    scope_include: List[str] = field(default_factory=list)
-    scope_exclude: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     instructions: List["ReviewInstruction"] = field(default_factory=list)
     limits: Optional[ReviewLimits] = None

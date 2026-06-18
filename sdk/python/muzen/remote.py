@@ -490,11 +490,6 @@ def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
         "dedupe": options.dedupe,
         "cancelSuperseded": options.cancel_superseded,
         "model": _model_to_remote(options.model),
-        "scope": {
-            "files": options.scope_files,
-            "include": options.scope_include,
-            "exclude": options.scope_exclude,
-        },
         "metadata": options.metadata,
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],

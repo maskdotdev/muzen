@@ -80,7 +80,6 @@ export interface ReviewOptions {
   heartbeat?: ReviewHeartbeatOptions;
   signal?: AbortSignal;
   change?: ReviewChangeSpec;
-  scope?: ReviewScope;
   metadata?: Record<string, unknown>;
   instructions?: ReviewInstruction[];
   limits?: ReviewLimits;
@@ -278,12 +277,6 @@ export interface ReviewToolResult {
 export interface ReviewToolArtifact {
   key: string;
   content: string;
-}
-
-export interface ReviewScope {
-  files?: string[];
-  include?: string[];
-  exclude?: string[];
 }
 
 export interface ReviewAgentBudget {

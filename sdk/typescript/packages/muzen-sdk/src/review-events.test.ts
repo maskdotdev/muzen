@@ -34,7 +34,10 @@ describe("review event hooks", () => {
     const review = await muzen.review(
       local("/repo"),
       {
-        scope: { files: ["src/lib.ts"] },
+        change: {
+          kind: "revision_range",
+          changedFiles: [{ path: "src/lib.ts", status: "modified" }],
+        },
         hooks: {
           onEvent: (event) => observed.push(event),
         },

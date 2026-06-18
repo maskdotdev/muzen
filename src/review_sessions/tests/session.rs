@@ -142,7 +142,7 @@ async fn muzen_reuses_existing_session_for_source_dedupe() {
         .review_with_options(
             ReviewSource::local(repo.path()),
             ReviewOptions {
-                scope: options_for_files(["README.md"]).scope,
+                change: options_for_files(["README.md"]).change,
                 ..options.clone()
             },
         )
@@ -152,7 +152,7 @@ async fn muzen_reuses_existing_session_for_source_dedupe() {
         .review_with_options(
             ReviewSource::local(repo.path()),
             ReviewOptions {
-                scope: options_for_files(["README.md"]).scope,
+                change: options_for_files(["README.md"]).change,
                 ..options
             },
         )
@@ -181,7 +181,7 @@ async fn project_schedule_review_persists_queued_record_with_options() {
             ReviewOptions {
                 user_id: Some("user-a".to_string()),
                 dedupe: DedupePolicy::Source,
-                scope: options_for_files(["README.md"]).scope,
+                change: options_for_files(["README.md"]).change,
                 ..ReviewOptions::default()
             },
         )

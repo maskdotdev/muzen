@@ -35,7 +35,6 @@ describe("provider-neutral review contracts", () => {
     for (const source of sources) {
       const params = toRunnerStartParams("review-1", source, {
         metadata: { host: "contract-test" },
-        scope: { files: ["src/lib.rs"] },
         change: {
           kind: "provider_review",
           reviewTarget: "review-123",
@@ -45,7 +44,10 @@ describe("provider-neutral review contracts", () => {
 
       assert.equal(params.runId, "review-1");
       assert.deepEqual(params.metadata, { host: "contract-test" });
-      assert.deepEqual(params.changedFiles, ["src/lib.rs"]);
+      assert.deepEqual(params.changedFiles, []);
+      assert.deepEqual((params.change as { changedFiles: unknown }).changedFiles, [
+        { path: "src/lib.rs", status: "modified" },
+      ]);
       assert.equal((params.source as ReviewSource).type, source.type);
       assert.equal("mergeRequestIid" in params, false);
       assert.equal("sourceBaseSha" in params, false);

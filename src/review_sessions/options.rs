@@ -17,8 +17,6 @@ pub struct ReviewOptions {
     #[serde(default)]
     pub change: Option<ReviewChangeSpec>,
     #[serde(default)]
-    pub scope: ReviewScope,
-    #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
     #[serde(default)]
     pub instructions: Vec<ReviewInstruction>,
@@ -35,7 +33,6 @@ impl Default for ReviewOptions {
             user_id: None,
             model: None,
             change: None,
-            scope: ReviewScope::default(),
             metadata: BTreeMap::new(),
             instructions: Vec::new(),
             limits: None,
@@ -124,13 +121,6 @@ pub struct ReviewInstruction {
     pub text: String,
     #[serde(default)]
     pub trusted: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewScope {
-    #[serde(default)]
-    pub files: Vec<String>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -16,7 +16,6 @@ describe("runner mapping", () => {
       "review-1",
       local("/repo"),
       {
-        scope: { files: ["src/auth.ts"] },
         model: {
           kind: "callback",
           handler: () => ({ content: "done" }),
@@ -52,7 +51,10 @@ describe("runner mapping", () => {
       },
     ) as Record<string, unknown>;
 
-    assert.deepEqual(params.changedFiles, ["src/auth.ts"]);
+    assert.deepEqual(params.changedFiles, []);
+    assert.deepEqual((params.change as { changedFiles: unknown }).changedFiles, [
+      { path: "src/auth.ts", status: "modified" },
+    ]);
     assert.deepEqual(params.metadata, { hostRunId: "flow-1" });
     assert.deepEqual(params.model, { callback: true });
     assert.deepEqual(params.sourceProvider, {
@@ -174,7 +176,10 @@ describe("runner mapping", () => {
       "review-1",
       local("/repo"),
       {
-        scope: { files: ["src/auth.ts"] },
+        change: {
+          kind: "revision_range",
+          changedFiles: [{ path: "src/auth.ts", status: "modified" }],
+        },
         model: openai({
           model: "gpt-5.4-mini",
           credential: { env: "OPENAI_API_KEY" },

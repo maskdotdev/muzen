@@ -28,7 +28,7 @@ mod worker;
 pub use config::{HostConfiguration, HostSchedulingConfiguration, SchedulingFairnessStrategy};
 pub use options::{
     DedupePolicy, EffectiveConfigSnapshot, ProfileVersionRef, ReviewChangeSpec, ReviewChangedFile,
-    ReviewInstruction, ReviewLimits, ReviewOptions, ReviewScope,
+    ReviewInstruction, ReviewLimits, ReviewOptions,
 };
 pub use outcome::{
     ReviewArtifact, ReviewArtifactExport, ReviewArtifactExportOptions, ReviewArtifactReadOptions,

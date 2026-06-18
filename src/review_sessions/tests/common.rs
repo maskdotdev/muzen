@@ -32,9 +32,21 @@ pub(super) fn options_for_files(
     files: impl IntoIterator<Item = impl Into<String>>,
 ) -> ReviewOptions {
     ReviewOptions {
-        scope: ReviewScope {
-            files: files.into_iter().map(Into::into).collect(),
-        },
+        change: Some(ReviewChangeSpec {
+            kind: "revision_range".to_string(),
+            base_revision: Some("base".to_string()),
+            start_revision: None,
+            head_revision: Some("head".to_string()),
+            changed_files: files
+                .into_iter()
+                .map(|path| ReviewChangedFile {
+                    path: path.into(),
+                    status: Some("modified".to_string()),
+                })
+                .collect(),
+            diff: None,
+            review_target: None,
+        }),
         ..ReviewOptions::default()
     }
 }

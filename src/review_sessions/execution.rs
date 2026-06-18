@@ -8,8 +8,9 @@ use tokio_util::sync::CancellationToken;
 #[cfg(test)]
 use crate::review_planning::select_target_path;
 use crate::review_planning::{
-    changed_file_specs, default_max_active_sessions, default_review_orchestrator_session,
-    review_change_spec, session_instruction, ReviewChangeDescriptor, ReviewChangedFileDescriptor,
+    changed_file_paths, changed_file_specs, default_max_active_sessions,
+    default_review_orchestrator_session, review_change_spec, session_instruction,
+    ReviewChangeDescriptor, ReviewChangedFileDescriptor,
 };
 use crate::review_sources::materialize::{materialize_run_source, SourceProviderConfig};
 use crate::reviewer_kernel::events::InMemoryReviewEventSink;
@@ -115,25 +116,23 @@ fn plan_local_review(
 ) -> Result<LocalReviewPlan> {
     let run_id = review_id.as_str().to_string();
     let source_provider = source_provider(options);
+    let change_descriptor = options.change.as_ref().map(review_change_descriptor);
+    let requested_changed_files = changed_file_paths(change_descriptor.as_ref());
     let materialized = materialize_run_source(
         source
             .local_repo()
             .map(|path| path.to_path_buf())
             .as_deref(),
         Some(source),
-        &options.scope.files,
+        &requested_changed_files,
         source_provider.as_ref(),
         None,
     )?;
     let repo_root = materialized.repo_root().to_path_buf();
     #[cfg(test)]
     let target_path = select_target_path(&repo_root, materialized.changed_files())?;
-    let change_descriptor = options.change.as_ref().map(review_change_descriptor);
-    let changed_files = changed_file_specs(
-        &repo_root,
-        materialized.changed_files(),
-        change_descriptor.as_ref(),
-    );
+    let changed_files =
+        changed_file_specs(materialized.changed_files(), change_descriptor.as_ref());
     let change = review_change_spec(
         Some(source),
         change_descriptor.as_ref(),

@@ -179,7 +179,6 @@ class RunnerMappingTests(unittest.TestCase):
             "review-1",
             source,
             ReviewOptions(
-                scope_files=["src/auth.py"],
                 metadata={"hostRunId": "flow-1"},
                 change=ReviewChangeSpec(
                     kind="revision_range",
@@ -199,10 +198,14 @@ class RunnerMappingTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(params["changedFiles"], ["src/auth.py"])
+        self.assertEqual(params["changedFiles"], [])
         self.assertEqual(params["metadata"], {"hostRunId": "flow-1"})
         self.assertNotIn("contextEngine", params)
         self.assertEqual(params["change"]["headRevision"], "head")
+        self.assertEqual(
+            params["change"]["changedFiles"],
+            [{"path": "src/auth.py", "status": "modified"}],
+        )
         self.assertEqual(params["instructions"][0]["kind"], "host_policy")
         self.assertEqual(params["tools"], [])
         self.assertEqual(params["sessions"], [])
@@ -212,7 +215,12 @@ class RunnerMappingTests(unittest.TestCase):
             "review-1",
             local("/repo"),
             ReviewOptions(
-                scope_files=["src/auth.py"],
+                change=ReviewChangeSpec(
+                    kind="revision_range",
+                    changed_files=[
+                        ReviewChangedFile(path="src/auth.py", status="modified")
+                    ],
+                ),
                 model=openai(
                     "gpt-5.4-mini",
                     credential={"env": "OPENAI_API_KEY"},
@@ -232,7 +240,12 @@ class RunnerMappingTests(unittest.TestCase):
             "review-1",
             local("/repo"),
             ReviewOptions(
-                scope_files=["src/auth.py"],
+                change=ReviewChangeSpec(
+                    kind="revision_range",
+                    changed_files=[
+                        ReviewChangedFile(path="src/auth.py", status="modified")
+                    ],
+                ),
                 model=anthropic("claude-opus-4-8"),
             ),
         )
@@ -414,7 +427,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             review = await self.client.review(
                 local(repo),
                 ReviewOptions(
-                    scope_files=["Cargo.toml"],
+                    change=ReviewChangeSpec(
+                        kind="revision_range",
+                        changed_files=[
+                            ReviewChangedFile(path="Cargo.toml", status="modified")
+                        ],
+                    ),
                 ),
             )
             result = await review.wait()

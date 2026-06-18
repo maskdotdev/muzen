@@ -6,8 +6,9 @@ use serde_json::Value;
 #[cfg(test)]
 use crate::review_planning::select_target_path;
 use crate::review_planning::{
-    changed_file_specs, default_max_active_sessions, default_review_orchestrator_session,
-    review_change_spec, session_instruction, ReviewChangeDescriptor, ReviewChangedFileDescriptor,
+    changed_file_paths, changed_file_specs, default_max_active_sessions,
+    default_review_orchestrator_session, review_change_spec, session_instruction,
+    ReviewChangeDescriptor, ReviewChangedFileDescriptor,
 };
 use crate::reviewer_kernel::kernel_types::{
     CapabilitySet, FsScope, ProviderResourceId, RepoPath, ToolEffects, ToolId,
@@ -43,7 +44,12 @@ pub(crate) fn plan_run_start(
         .take()
         .unwrap_or_else(|| "muzen-run".to_string());
     let metadata = params.metadata.clone();
-    let requested_changed_files = params.changed_files.clone();
+    let change_descriptor = params.change.as_ref().map(runner_change_descriptor);
+    let requested_changed_files = if params.changed_files.is_empty() {
+        changed_file_paths(change_descriptor.as_ref())
+    } else {
+        params.changed_files.clone()
+    };
     let source_provider = params
         .source_provider
         .as_ref()
@@ -61,12 +67,8 @@ pub(crate) fn plan_run_start(
     let repo_root = materialized.repo_root().to_path_buf();
     #[cfg(test)]
     let target_path = select_target_path(&repo_root, materialized.changed_files())?;
-    let change_descriptor = params.change.as_ref().map(runner_change_descriptor);
-    let changed_files = changed_file_specs(
-        &repo_root,
-        materialized.changed_files(),
-        change_descriptor.as_ref(),
-    );
+    let changed_files =
+        changed_file_specs(materialized.changed_files(), change_descriptor.as_ref());
     let change = review_change_spec(
         params.source.as_ref(),
         change_descriptor.as_ref(),

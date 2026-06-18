@@ -78,8 +78,16 @@ async fn review_http_router_schedules_root_review_and_replays_events() {
             },
             "options": {
                 "dedupe": "source",
-                "scope": {
-                    "files": ["Cargo.toml"]
+                "change": {
+                    "kind": "revision_range",
+                    "baseRevision": "base",
+                    "headRevision": "head",
+                    "changedFiles": [
+                        {
+                            "path": "Cargo.toml",
+                            "status": "modified"
+                        }
+                    ]
                 }
             }
         }))

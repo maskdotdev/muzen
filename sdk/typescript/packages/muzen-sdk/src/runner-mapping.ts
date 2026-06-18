@@ -31,14 +31,13 @@ export function toRunnerStartParams(
   source: ReviewSource,
   options: ReviewOptions,
 ): unknown {
-  const changedFiles = options.scope?.files ?? [];
   const modelPlan = mapReviewModels(options);
   const params: Record<string, unknown> = {
     protocolVersion: "muzen.runner.v1",
     runId: reviewId,
     source,
     sourceProvider: mapReviewSourceProvider(options.sourceProvider),
-    changedFiles,
+    changedFiles: [],
     metadata: options.metadata ?? {},
     change: mapReviewChange(options.change),
     instructions: (options.instructions ?? []).map((instruction) => ({

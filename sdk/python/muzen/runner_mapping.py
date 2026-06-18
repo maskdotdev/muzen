@@ -30,13 +30,12 @@ def _to_runner_start_params(
     source: ReviewSource,
     options: ReviewOptions,
 ) -> Dict[str, Any]:
-    changed_files = options.scope_files
     model_plan = _model_plan(options.model, [])
     payload = {
         "protocolVersion": "muzen.runner.v1",
         "runId": review_id,
         "source": _source_to_remote(source),
-        "changedFiles": changed_files,
+        "changedFiles": [],
         "metadata": options.metadata,
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],

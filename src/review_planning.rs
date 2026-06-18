@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::review_sources::ReviewSource;
 use crate::reviewer_kernel::kernel_types::SessionInstruction;
@@ -72,30 +73,33 @@ pub(crate) fn session_instruction(
     }
 }
 
-pub(crate) fn changed_file_specs(
-    repo_root: &Path,
-    changed_files: &[String],
-    change: Option<&ReviewChangeDescriptor<'_>>,
-) -> Vec<ChangedFileSpec> {
-    let status_by_path = change
+pub(crate) fn changed_file_paths(change: Option<&ReviewChangeDescriptor<'_>>) -> Vec<String> {
+    change
         .map(|change| {
             change
                 .changed_files
                 .iter()
-                .filter_map(|file| file.status.map(|status| (file.path, status)))
-                .collect::<BTreeMap<_, _>>()
+                .map(|file| file.path.to_string())
+                .collect()
         })
-        .unwrap_or_default();
-    changed_files
+        .unwrap_or_default()
+}
+
+pub(crate) fn changed_file_specs(
+    fallback_changed_files: &[String],
+    change: Option<&ReviewChangeDescriptor<'_>>,
+) -> Vec<ChangedFileSpec> {
+    if let Some(change) = change.filter(|change| !change.changed_files.is_empty()) {
+        return change
+            .changed_files
+            .iter()
+            .map(|file| changed_file_spec(file.path, file.status))
+            .collect();
+    }
+
+    fallback_changed_files
         .iter()
-        .filter(|path| repo_root.join(path).is_file())
-        .cloned()
-        .map(|path| {
-            changed_file_spec(
-                &path,
-                status_by_path.get(path.as_str()).map(|status| *status),
-            )
-        })
+        .map(|path| changed_file_spec(path, None))
         .collect()
 }
 
@@ -237,6 +241,54 @@ mod tests {
         assert_eq!(
             default_max_active_sessions(2, LARGE_REVIEW_BATCH_THRESHOLD + 1, Some(0)),
             1
+        );
+    }
+
+    #[test]
+    fn change_changed_files_are_authoritative_and_preserve_deleted_paths() {
+        let change = ReviewChangeDescriptor {
+            kind: "revision_range",
+            base_revision: Some("base"),
+            start_revision: None,
+            head_revision: Some("head"),
+            changed_files: vec![ReviewChangedFileDescriptor {
+                path: "src/removed.rs",
+                status: Some("deleted"),
+            }],
+            diff: None,
+            review_target: None,
+        };
+
+        let files = changed_file_specs(&["src/fallback.rs".to_string()], Some(&change));
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, ChangedFileStatus::Deleted);
+        assert_eq!(
+            files[0].old_path.as_deref(),
+            Some(Path::new("src/removed.rs"))
+        );
+        assert_eq!(files[0].new_path, None);
+    }
+
+    #[test]
+    fn fallback_changed_files_are_used_only_without_typed_change_files() {
+        let change = ReviewChangeDescriptor {
+            kind: "revision_range",
+            base_revision: Some("base"),
+            start_revision: None,
+            head_revision: Some("head"),
+            changed_files: Vec::new(),
+            diff: None,
+            review_target: None,
+        };
+
+        let files = changed_file_specs(&["src/fallback.rs".to_string()], Some(&change));
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, ChangedFileStatus::Modified);
+        assert_eq!(
+            files[0].new_path.as_deref(),
+            Some(Path::new("src/fallback.rs"))
         );
     }
 }

@@ -167,7 +167,10 @@ describe("runner-backed Muzen preview", () => {
       const review = await muzen.review(
         local(repo),
         {
-          scope: { files: ["Cargo.toml"] },
+          change: {
+            kind: "revision_range",
+            changedFiles: [{ path: "Cargo.toml", status: "modified" }],
+          },
           model: smokeReviewModel("Cargo.toml"),
         },
       );
