@@ -4,8 +4,10 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::contracts::{LimitInfo, RuntimeError, RuntimeResult, ToolEffects, ToolId};
-use crate::runtime::tools::registry::{
+use crate::reviewer_kernel::kernel_types::{
+    LimitInfo, RuntimeError, RuntimeResult, ToolEffects, ToolId,
+};
+use crate::reviewer_kernel::tool_engine::registry::{
     CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
 };
 
@@ -278,7 +280,7 @@ impl CustomToolHandler for ContextToolHandler {
                 items
                     .iter()
                     .filter_map(Value::as_str)
-                    .map(|id| crate::runtime::contracts::EvidenceId(id.to_string()))
+                    .map(|id| crate::reviewer_kernel::kernel_types::EvidenceId(id.to_string()))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();

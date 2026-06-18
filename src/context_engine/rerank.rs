@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::{RuntimeError, RuntimeResult};
-use crate::util::resolve_credential_ref;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::system::resolve_credential_ref;
 
 use super::{ContextRerankConfig, ContextSensitivity};
 

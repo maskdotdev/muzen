@@ -52,7 +52,6 @@ import type {
   ReviewArtifactReadOptions,
   ReviewCancelOptions,
   ReviewEvent,
-  ReviewModelSpec,
   ReviewOptions,
   ReviewResult,
   ReviewSession,
@@ -200,7 +199,7 @@ class RemoteMuzenWebhookHandler implements MuzenWebhookHandler {
     }
     const body = await request.arrayBuffer();
     const path = options.workspaceId
-      ? `/v1/workspaces/${encodeURIComponent(options.workspaceId)}/webhooks/${this.provider}`
+      ? `/v1/projects/${encodeURIComponent(options.workspaceId)}/webhooks/${this.provider}`
       : `/v1/webhooks/${this.provider}`;
     return this.client.rawRequest(path, {
       method: "POST",
@@ -246,7 +245,7 @@ class RemoteWorkspace implements MuzenWorkspace {
   ): Promise<ReviewSession> {
     const source = parseReviewSource(sourceLike);
     const response = await this.client.requestJson(
-      `/v1/workspaces/${encodeURIComponent(this.id)}/reviews`,
+      `/v1/projects/${encodeURIComponent(this.id)}/reviews`,
       {
         method: "POST",
         body: {
@@ -336,7 +335,7 @@ class RemoteContextWorkspace implements MuzenContextWorkspace {
   }
 
   private contextPath(kind: string): string {
-    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/context/${kind}`;
+    return `/v1/projects/${encodeURIComponent(this.workspaceId)}/context/${kind}`;
   }
 }
 
@@ -385,7 +384,7 @@ class RemoteWorkspaceProfileCollection<Input, Profile>
   }
 
   private collectionPath(): string {
-    return `/v1/workspaces/${encodeURIComponent(this.workspaceId)}/${this.kind}`;
+    return `/v1/projects/${encodeURIComponent(this.workspaceId)}/${this.kind}`;
   }
 
   private profilePath(name: string): string {
@@ -587,37 +586,30 @@ function remoteReviewOptions(options: ReviewOptions): ReviewOptions {
     heartbeat: _heartbeat,
     sourceProvider,
     model,
-    tools,
     ...serializable
   } = options;
   return {
     ...serializable,
     model: remoteModel(model),
-    sessions: serializable.sessions?.map(remoteSession),
     sourceProvider: sourceProvider?.baseUrl
       ? { baseUrl: sourceProvider.baseUrl }
       : undefined,
-    tools: tools?.map(({ handler: _handler, ...tool }) => tool),
-  };
-}
-
-function remoteSession(
-  session: NonNullable<ReviewOptions["sessions"]>[number],
-): NonNullable<ReviewOptions["sessions"]>[number] {
-  return {
-    ...session,
-    model: remoteModel(session.model),
   };
 }
 
 function remoteModel(
   model: ReviewOptions["model"],
-): ReviewModelSpec | undefined {
-  if (isHostedReviewModelSpec(model)) {
+): string | undefined {
+  if (model === undefined) {
+    return undefined;
+  }
+  if (typeof model === "string") {
     return model;
   }
-  if (isCallbackReviewModelSpec(model)) {
-    return undefined;
+  if (isHostedReviewModelSpec(model) || isCallbackReviewModelSpec(model)) {
+    throw new Error(
+      "remote reviews use stored project model profile names; pass model: \"default\" or another profile id",
+    );
   }
   return undefined;
 }

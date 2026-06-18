@@ -35,16 +35,16 @@ github = _GithubBuilder()
 gitlab = _GitlabBuilder()
 
 
-def local(repo: str, *, changed_files: Optional[List[str]] = None) -> ReviewSource:
+def local(repo: str) -> ReviewSource:
     if not repo.strip():
         raise MuzenSourceError("local source path is empty")
-    return ReviewSource(type="local", repo=repo, changed_files=changed_files or [])
+    return ReviewSource(type="local", repo=repo)
 
 
-def raw_snapshot(root: str, *, changed_files: Optional[List[str]] = None) -> ReviewSource:
+def raw_snapshot(root: str) -> ReviewSource:
     if not root.strip():
         raise MuzenSourceError("raw snapshot root is empty")
-    return ReviewSource(type="raw_snapshot", root=root, changed_files=changed_files or [])
+    return ReviewSource(type="raw_snapshot", root=root)
 
 
 def perforce(

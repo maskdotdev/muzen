@@ -4,10 +4,6 @@ mod prelude;
 pub(crate) mod support;
 
 #[cfg(test)]
-mod artifacts;
-#[cfg(test)]
-mod canary;
-#[cfg(test)]
 mod concurrent;
 #[cfg(test)]
 mod facade;
@@ -15,3 +11,5 @@ mod facade;
 mod path_policy;
 #[cfg(test)]
 mod snapshots;
+#[cfg(test)]
+mod source_architecture;

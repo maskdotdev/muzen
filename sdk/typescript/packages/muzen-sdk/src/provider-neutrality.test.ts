@@ -19,8 +19,8 @@ const repoRoot = join(process.cwd(), "../../../..");
 describe("provider-neutral review contracts", () => {
   it("maps provider examples through the same runner start envelope", () => {
     const sources: ReviewSource[] = [
-      local("/repo", { changedFiles: ["src/lib.rs"] }),
-      rawSnapshot("/bundle", { changedFiles: ["src/lib.rs"] }),
+      local("/repo"),
+      rawSnapshot("/bundle"),
       github.pullRequest({ owner: "maskdotdev", repo: "heimdaal", number: 123 }),
       gitlab.mergeRequest({ owner: "maskdotdev", repo: "heimdaal", number: 123 }),
       perforce.changelist({
@@ -44,7 +44,10 @@ describe("provider-neutral review contracts", () => {
 
       assert.equal(params.runId, "review-1");
       assert.deepEqual(params.metadata, { host: "contract-test" });
-      assert.deepEqual(params.changedFiles, ["src/lib.rs"]);
+      assert.deepEqual(params.changedFiles, []);
+      assert.deepEqual((params.change as { changedFiles: unknown }).changedFiles, [
+        { path: "src/lib.rs", status: "modified" },
+      ]);
       assert.equal((params.source as ReviewSource).type, source.type);
       assert.equal("mergeRequestIid" in params, false);
       assert.equal("sourceBaseSha" in params, false);
@@ -77,15 +80,17 @@ const providerNeutralContractFiles = [
   "sdk/typescript/packages/muzen-sdk/src/runner-mapping.ts",
   "sdk/typescript/packages/muzen-sdk/src/progress.ts",
   "sdk/typescript/packages/muzen-sdk/src/projections.ts",
-  "src/review_session/options.rs",
-  "src/review_session/source.rs",
-  "src/review_session/outcome.rs",
-  "src/review_session/session.rs",
-  "src/runner/types.rs",
-  "src/runner/schema.rs",
-  "src/runner/execution.rs",
-  "src/runtime/contracts.rs",
-  "src/runtime/policy/mod.rs",
+  "src/review_sessions/options.rs",
+  "src/review_sessions/outcome.rs",
+  "src/review_sessions/session.rs",
+  "src/review_sources/mod.rs",
+  "src/review_sources/source.rs",
+  "src/review_sources/materialize.rs",
+  "src/runner_protocol/types.rs",
+  "src/runner_protocol/schema.rs",
+  "src/runner_protocol/execution.rs",
+  "src/reviewer_kernel/review_contract.rs",
+  "src/reviewer_kernel/policy/mod.rs",
 ];
 
 const forbiddenCoreTerms = [

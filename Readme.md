@@ -37,20 +37,19 @@ work, but the surface is still settling.
 - TypeScript and Python SDK previews over a shared runner protocol
 - Durable review sessions with events, results, artifacts, logs, cancellation,
   retries, leases, and worker claims
-- Durable libSQL-backed SQLite stores by default, with explicit Postgres and
-  in-memory store modes
-- Workspace-scoped model and provider profiles with secret references (no raw
+- Durable libSQL-backed SQLite stores by default, with an explicit in-memory
+  store mode
+- Project-scoped model and provider profiles with secret references (no raw
   credentials)
 - GitHub and GitLab webhook verification, source mapping, and queued scheduling
 - Full HTTP API: review creation, SSE streaming, results, artifacts,
-  cancellation, webhooks, and workspace profiles
+  cancellation, webhooks, and project profiles
 - An Axum-backed `muzen-service` binary wrapping the core HTTP router
 - Pull request and merge request materialization with temporary Git checkouts,
   token-safe auth, provider base URL routing, and changed-file inference
 
 **Still hardening:**
 
-- Postgres integration CI for environments with `MUZEN_POSTGRES_TEST_URL`
 - Live GitHub/GitLab provider smoke tests where tokens and network access are
   available
 - Migration from local inline execution to durable service-bound SDK execution
@@ -78,9 +77,10 @@ const muzen = await createMuzen({
 
 try {
   const review = await muzen.review(
-    local(".", {
-      changedFiles: ["Cargo.toml"],
-    }),
+    local("."),
+    {
+      scope: { files: ["Cargo.toml"] },
+    },
   );
 
   review.subscribe((event) => {
@@ -106,8 +106,8 @@ More examples:
 
 `muzen-service` exposes the full HTTP API from RFC 0001. It uses
 `sqlite://.muzen/muzen.db` for durable local storage by default. Override that
-with `--store-url` or `MUZEN_STORE_URL` to use `postgres://`, `postgresql://`,
-`sqlite://`, or explicit non-durable `memory://` storage.
+with `--store-url` or `MUZEN_STORE_URL` to use `sqlite://` or explicit
+non-durable `memory://` storage.
 Production deployments should read
 [`docs/production-operations.md`](docs/production-operations.md), especially
 the notes on external HTTP API authentication and preview schema resets.
@@ -130,20 +130,20 @@ const muzen = createMuzenClient({
   token: process.env.MUZEN_TOKEN,
 });
 
-const workspace = muzen.workspace("acme");
+const project = muzen.project("acme");
 
-await workspace.models.set("default", {
+await project.models.set("default", {
   provider: "openai_compatible",
   model: "gpt-5",
-  secretRef: "vault://workspaces/acme/models/default",
+  secretRef: "vault://projects/acme/models/default",
 });
 
-await workspace.providers.set("github", {
+await project.providers.set("github", {
   provider: "github",
-  secretRef: "vault://workspaces/acme/providers/github",
+  secretRef: "vault://projects/acme/providers/github",
 });
 
-const review = await workspace.review("github:maskdotdev/heimdaal#123", {
+const review = await project.review("github:maskdotdev/heimdaal#123", {
   model: "default",
 });
 
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
 ```
 
 The helpers verify signatures (GitHub) or tokens (GitLab), map pull request and
-merge request events to review sources, and queue workspace reviews
+merge request events to review sources, and queue project reviews
 automatically.
 
 ## Python
@@ -173,7 +173,7 @@ Python shares the same runner protocol as TypeScript:
 import asyncio
 import os
 
-from muzen import Client, local
+from muzen import Client, ReviewChangeSpec, ReviewChangedFile, ReviewOptions, local
 
 
 async def main() -> None:
@@ -182,7 +182,15 @@ async def main() -> None:
     )
     try:
         review = await client.review(
-            local(".", changed_files=["Cargo.toml"]),
+            local("."),
+            ReviewOptions(
+                change=ReviewChangeSpec(
+                    kind="revision_range",
+                    changed_files=[
+                        ReviewChangedFile(path="Cargo.toml", status="modified")
+                    ],
+                )
+            ),
         )
 
         async for event in review.events():
@@ -215,7 +223,7 @@ TypeScript SDK       Python SDK
         |           |             |             |
         +-----------+-------------+-------------+
                                     |
-                      SQLite, Postgres, or memory stores
+                         SQLite or memory stores
 
 Remote clients use HTTP instead:
 

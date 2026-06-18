@@ -74,7 +74,7 @@ fn concurrent_queued_search_observes_cancellation_before_permit() {
         .unwrap();
 
     runtime.block_on(async {
-        let search_permit = engine.search.acquire_search_permit_for_test().await;
+        let search_permit = engine.acquire_search_permit_for_test().await;
         let cancel = tokio_util::sync::CancellationToken::new();
         let queued_engine = Arc::clone(&engine);
         let queued_cancel = cancel.clone();
@@ -112,7 +112,7 @@ fn concurrent_queued_search_observes_cancellation_before_permit() {
         assert_eq!(engine.snapshot_counters().search_scans, 0);
         assert_eq!(engine.inflight_tool_count_for_test(), 0);
         let metrics = engine.snapshot_tool_metrics();
-        let search_metrics = &metrics[&ToolMetricKey::builtin(ToolName::SearchText)];
+        let search_metrics = &metrics[&builtin_metric_key(ToolName::SearchText)];
         assert_eq!(search_metrics.calls, 1);
         assert_eq!(search_metrics.errors, 1);
         assert_eq!(search_metrics.cancellations, 1);
@@ -141,7 +141,7 @@ fn concurrent_deduped_search_waiter_observes_its_own_cancellation() {
         .unwrap();
 
     runtime.block_on(async {
-        let search_permit = engine.search.acquire_search_permit_for_test().await;
+        let search_permit = engine.acquire_search_permit_for_test().await;
         let owner_engine = Arc::clone(&engine);
         let owner = tokio::spawn(async move {
             owner_engine
@@ -198,7 +198,7 @@ fn concurrent_deduped_search_waiter_observes_its_own_cancellation() {
         assert_eq!(engine.snapshot_counters().search_dedupe_waiters, 1);
         assert_eq!(engine.snapshot_counters().search_scans, 1);
         let metrics = engine.snapshot_tool_metrics();
-        let search_metrics = &metrics[&ToolMetricKey::builtin(ToolName::SearchText)];
+        let search_metrics = &metrics[&builtin_metric_key(ToolName::SearchText)];
         assert_eq!(search_metrics.calls, 2);
         assert_eq!(search_metrics.successes, 1);
         assert_eq!(search_metrics.errors, 1);
@@ -246,7 +246,7 @@ fn concurrent_duplicate_tool_calls_in_one_turn_are_rejected() {
         ToolErrorCode::InvalidArgs
     );
     let metrics = engine.snapshot_tool_metrics();
-    let read_diff_metrics = &metrics[&ToolMetricKey::builtin(ToolName::ReadDiff)];
+    let read_diff_metrics = &metrics[&builtin_metric_key(ToolName::ReadDiff)];
     assert_eq!(read_diff_metrics.successes, 1);
     assert_eq!(read_diff_metrics.errors, 1);
 }
@@ -296,7 +296,7 @@ fn concurrent_tool_invalid_args_and_path_denied_are_reported() {
     );
     assert_eq!(engine.snapshot_counters().tool_errors, 2);
     let metrics = engine.snapshot_tool_metrics();
-    let read_file_metrics = &metrics[&ToolMetricKey::builtin(ToolName::ReadFile)];
+    let read_file_metrics = &metrics[&builtin_metric_key(ToolName::ReadFile)];
     assert_eq!(read_file_metrics.calls, 2);
     assert_eq!(read_file_metrics.errors, 2);
 }
@@ -357,10 +357,13 @@ fn concurrent_search_cache_is_scoped_by_filesystem_scope() {
     let counters = engine.snapshot_counters();
     assert_eq!(counters.search_scans, 2);
     let metrics = engine.snapshot_tool_metrics();
-    let search_key = ToolMetricKey::builtin(ToolName::SearchText);
+    let search_key = builtin_metric_key(ToolName::SearchText);
     assert_eq!(
-        search_key.provider_id(),
-        Some(ToolProviderId::builtin_review())
+        search_key,
+        ToolMetricKey::new(
+            &ToolProviderId::builtin_review(),
+            &ToolId::from(ToolName::SearchText)
+        )
     );
     let search_metrics = &metrics[&search_key];
     assert_eq!(search_metrics.calls, 2);
@@ -629,26 +632,26 @@ fn concurrent_in_process_tool_provider_timeout_is_typed() {
     limits.max_tool_provider_ms = 5;
     let tool_id = ToolId::parse("slow_custom_check").unwrap();
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_custom(
-            tool_id.clone(),
-            "Slow custom check used to prove provider timeout.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            false,
-            Arc::new(SlowCustomTool),
-        )
-        .unwrap();
+    register_test_custom_tool_with_parameters(
+        &mut registry,
+        tool_id.as_str(),
+        "Slow custom check used to prove provider timeout.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(SlowCustomTool),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -670,7 +673,7 @@ fn concurrent_in_process_tool_provider_timeout_is_typed() {
     );
     assert_eq!(results[0].provider_id, ToolProviderId::in_process());
     let metrics = engine.snapshot_tool_metrics();
-    let slow_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let slow_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(slow_metrics.errors, 1);
     assert_eq!(slow_metrics.timeouts, 1);
     assert_eq!(slow_metrics.cancellations, 0);
@@ -700,37 +703,33 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
     let provider_id = ToolProviderId::parse("jsonrpc_test_provider").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External JSON-RPC check.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::custom_read_only(),
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External JSON-RPC check.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
             },
-            Arc::new(EchoJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-            }),
-        )
-        .unwrap();
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(EchoJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -754,8 +753,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
         serde_json::Value::String("[REDACTED]".to_string())
     );
     let artifact_text = engine
-        .artifacts
-        .list()
+        .redacted_artifacts_for_test()
         .into_iter()
         .map(|artifact| artifact.content)
         .collect::<Vec<_>>()
@@ -763,8 +761,7 @@ fn concurrent_jsonrpc_tool_provider_executes_external_tool() {
     assert!(artifact_text.contains("[REDACTED]"));
     assert!(!artifact_text.contains("AKIA1234567890ABCDEF"));
     let raw_artifact_text = engine
-        .artifacts
-        .list_raw()
+        .raw_artifacts_for_test()
         .into_iter()
         .map(|artifact| artifact.content)
         .collect::<Vec<_>>()
@@ -796,36 +793,32 @@ fn concurrent_jsonrpc_provider_artifact_write_requires_capability_policy() {
     let provider_id = ToolProviderId::parse("jsonrpc_policy_provider").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool that returns an undeclared artifact.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool that returns an undeclared artifact.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::default(),
+        Arc::new(StaticJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: None,
+                artifact: Some(CustomToolArtifact {
+                    key: ArtifactKey("smuggled_external_artifact".to_string()),
+                    content: "external artifact".to_string(),
+                }),
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: None,
-                    artifact: Some(CustomToolArtifact {
-                        key: ArtifactKey("smuggled_external_artifact".to_string()),
-                        content: "external artifact".to_string(),
-                    }),
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -861,7 +854,7 @@ fn concurrent_jsonrpc_provider_artifact_write_requires_capability_policy() {
         results[0].error.as_ref().unwrap().code,
         ToolErrorCode::ToolNotAllowed
     );
-    assert!(engine.artifacts.list().is_empty());
+    assert!(engine.redacted_artifacts_for_test().is_empty());
 }
 
 #[test]
@@ -880,33 +873,29 @@ fn concurrent_jsonrpc_provider_network_read_requires_runtime_authority_policy() 
         network_read: true,
         ..ToolEffects::default()
     };
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool that requires network read.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: network_effects,
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool that requires network read.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        network_effects,
+        Arc::new(StaticJsonRpcTransport {
+            provider_id,
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: Some(serde_json::json!({"ok": true})),
+                artifact: None,
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id,
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: Some(serde_json::json!({"ok": true})),
-                    artifact: None,
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -954,42 +943,37 @@ fn concurrent_jsonrpc_provider_requires_runtime_provider_scope() {
     let provider_id = ToolProviderId::parse("jsonrpc_scoped_provider").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool behind provider scope.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool behind provider scope.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::default(),
+        Arc::new(StaticJsonRpcTransport {
+            provider_id,
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: Some(serde_json::json!({"ok": true})),
+                artifact: None,
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id,
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: Some(serde_json::json!({"ok": true})),
-                    artifact: None,
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority = capabilities
-        .runtime_authority
-        .scoped_to_providers(vec![ToolProviderId::parse("other_provider").unwrap()]);
+    capabilities.runtime_authority.allowed_provider_ids =
+        Some(vec![ToolProviderId::parse("other_provider").unwrap()]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1032,46 +1016,40 @@ fn concurrent_jsonrpc_provider_resource_requires_runtime_resource_scope() {
     let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool behind provider resource scope.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: vec![resource_id],
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool behind provider resource scope.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        vec![resource_id],
+        ToolEffects::default(),
+        Arc::new(StaticJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: Some(serde_json::json!({"ok": true})),
+                artifact: None,
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: Some(serde_json::json!({"ok": true})),
-                    artifact: None,
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority =
-        capabilities
-            .runtime_authority
-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-                provider_id,
-                ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
-            )]);
+    capabilities.runtime_authority.allowed_provider_resources =
+        Some(vec![ProviderResourceScope::new(
+            provider_id,
+            ProviderResourceId::parse("github/org-b/repo-b").unwrap(),
+        )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1114,47 +1092,41 @@ fn concurrent_jsonrpc_provider_resource_scope_is_sent_when_allowed() {
     let resource_id = ProviderResourceId::parse("github/org-a/repo-a").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool behind matching provider resource scope.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: vec![resource_id.clone()],
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool behind matching provider resource scope.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        vec![resource_id.clone()],
+        ToolEffects::default(),
+        Arc::new(ResourceCheckingJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            expected_provider_resources: vec![resource_id.clone()],
+            response: JsonRpcToolResponse {
+                data: Some(serde_json::json!({"ok": true})),
+                artifact: None,
+                limits: LimitInfo::default(),
             },
-            Arc::new(ResourceCheckingJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                expected_provider_resources: vec![resource_id.clone()],
-                response: JsonRpcToolResponse {
-                    data: Some(serde_json::json!({"ok": true})),
-                    artifact: None,
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = CapabilitySet::review_read_only();
-    capabilities.runtime_authority =
-        capabilities
-            .runtime_authority
-            .scoped_to_provider_resources(vec![ProviderResourceScope::new(
-                provider_id.clone(),
-                resource_id,
-            )]);
+    capabilities.runtime_authority.allowed_provider_resources =
+        Some(vec![ProviderResourceScope::new(
+            provider_id.clone(),
+            resource_id,
+        )]);
     capabilities.grant_tool(
         tool_id.clone(),
         ToolGrant {
@@ -1195,36 +1167,32 @@ fn concurrent_jsonrpc_provider_rejects_oversized_artifacts_before_storage() {
     let provider_id = ToolProviderId::parse("jsonrpc_large_artifact_provider").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool that returns an oversized artifact.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool that returns an oversized artifact.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::default(),
+        Arc::new(StaticJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: None,
+                artifact: Some(CustomToolArtifact {
+                    key: ArtifactKey("large_external_artifact".to_string()),
+                    content: "too large".to_string(),
+                }),
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: None,
-                    artifact: Some(CustomToolArtifact {
-                        key: ArtifactKey("large_external_artifact".to_string()),
-                        content: "too large".to_string(),
-                    }),
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1259,7 +1227,7 @@ fn concurrent_jsonrpc_provider_rejects_oversized_artifacts_before_storage() {
         results[0].error.as_ref().unwrap().code,
         ToolErrorCode::TooLarge
     );
-    assert!(engine.artifacts.list().is_empty());
+    assert!(engine.redacted_artifacts_for_test().is_empty());
 }
 
 #[test]
@@ -1275,35 +1243,31 @@ fn concurrent_jsonrpc_provider_rejects_oversized_output_data() {
     let provider_id = ToolProviderId::parse("jsonrpc_large_output_provider").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_jsonrpc_tool(
-            provider_id.clone(),
-            tool_id.clone(),
-            "External tool that returns oversized data.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            CustomToolOptions {
-                cacheable: false,
-                effects: ToolEffects::default(),
-                provider_resources: Vec::new(),
+    register_test_jsonrpc_tool_with_parameters(
+        &mut registry,
+        provider_id.clone(),
+        tool_id.as_str(),
+        "External tool that returns oversized data.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::default(),
+        Arc::new(StaticJsonRpcTransport {
+            provider_id: provider_id.clone(),
+            tool_id: tool_id.clone(),
+            calls: Arc::clone(&calls),
+            response: JsonRpcToolResponse {
+                data: Some(serde_json::json!({
+                    "payload": "this provider output is much too large"
+                })),
+                artifact: None,
+                limits: LimitInfo::default(),
             },
-            Arc::new(StaticJsonRpcTransport {
-                provider_id: provider_id.clone(),
-                tool_id: tool_id.clone(),
-                calls: Arc::clone(&calls),
-                response: JsonRpcToolResponse {
-                    data: Some(serde_json::json!({
-                        "payload": "this provider output is much too large"
-                    })),
-                    artifact: None,
-                    limits: LimitInfo::default(),
-                },
-            }),
-        )
-        .unwrap();
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1355,31 +1319,31 @@ fn concurrent_tool_provider_concurrency_is_bounded_per_provider() {
     let active = Arc::new(AtomicUsize::new(0));
     let max_seen = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_custom(
-            tool_id.clone(),
-            "Counting custom check.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "additionalProperties": true
-            }),
-            false,
-            Arc::new(CountingSlowCustomTool {
-                active: Arc::clone(&active),
-                max_seen: Arc::clone(&max_seen),
-            }),
-        )
-        .unwrap();
+    register_test_custom_tool_with_parameters(
+        &mut registry,
+        tool_id.as_str(),
+        "Counting custom check.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "additionalProperties": true
+        }),
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(CountingSlowCustomTool {
+            active: Arc::clone(&active),
+            max_seen: Arc::clone(&max_seen),
+        }),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -1405,7 +1369,7 @@ fn concurrent_tool_provider_concurrency_is_bounded_per_provider() {
     assert!(results.iter().all(|result| result.ok));
     assert_eq!(max_seen.load(Ordering::SeqCst), 1);
     let metrics = engine.snapshot_tool_metrics();
-    let counted_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let counted_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(counted_metrics.calls, 2);
     assert_eq!(counted_metrics.successes, 2);
     assert_eq!(
@@ -1428,26 +1392,26 @@ fn concurrent_in_process_tool_provider_panic_is_contained() {
     let limits = RuntimeLimits::standard(1, 64 * 1024, 10);
     let tool_id = ToolId::parse("panic_custom_check").unwrap();
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_custom(
-            tool_id.clone(),
-            "Panic custom check.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            false,
-            Arc::new(PanicCustomTool),
-        )
-        .unwrap();
+    register_test_custom_tool_with_parameters(
+        &mut registry,
+        tool_id.as_str(),
+        "Panic custom check.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(PanicCustomTool),
+    );
     let engine = ToolEngine::with_registry(snapshot, Arc::new(limits), Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let mut capabilities = trusted_custom_capabilities();
-    capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
 
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", capabilities),
@@ -1469,7 +1433,7 @@ fn concurrent_in_process_tool_provider_panic_is_contained() {
         ToolErrorCode::Internal
     );
     let metrics = engine.snapshot_tool_metrics();
-    let panic_metrics = &metrics[&ToolMetricKey::in_process(&tool_id)];
+    let panic_metrics = &metrics[&in_process_metric_key(&tool_id)];
     assert_eq!(panic_metrics.errors, 1);
 }
 
@@ -1483,22 +1447,22 @@ fn concurrent_registry_executes_allowed_custom_tool() {
     let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 10));
     let tool_id = ToolId::parse("host_custom_check").unwrap();
     let mut registry = ToolRegistry::review_defaults().unwrap();
-    registry
-        .register_custom(
-            tool_id.clone(),
-            "Host engine supplied custom reviewer check.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
-                },
-                "required": ["value"],
-                "additionalProperties": false
-            }),
-            false,
-            Arc::new(EchoCustomTool),
-        )
-        .unwrap();
+    register_test_custom_tool_with_parameters(
+        &mut registry,
+        tool_id.as_str(),
+        "Host engine supplied custom reviewer check.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        }),
+        Vec::new(),
+        ToolEffects::custom_read_only(),
+        Arc::new(EchoCustomTool),
+    );
     let engine = ToolEngine::with_registry(snapshot, limits, Arc::new(registry)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1523,7 +1487,7 @@ fn concurrent_registry_executes_allowed_custom_tool() {
     );
 
     let mut allowed_capabilities = trusted_custom_capabilities();
-    allowed_capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
+    allowed_capabilities.grant_tool(tool_id.clone(), custom_read_only_grant());
     let results = runtime.block_on(engine.execute_batch(
         test_scope_with_capabilities("session", allowed_capabilities),
         TurnId(0),
@@ -1543,8 +1507,11 @@ fn concurrent_registry_executes_allowed_custom_tool() {
     assert!(data.contains("[REDACTED]"));
     assert!(!data.contains("AKIA1234567890ABCDEF"));
     let metrics = engine.snapshot_tool_metrics();
-    let custom_key = ToolMetricKey::in_process(&tool_id);
-    assert_eq!(custom_key.provider_id(), Some(ToolProviderId::in_process()));
+    let custom_key = in_process_metric_key(&tool_id);
+    assert_eq!(
+        custom_key,
+        ToolMetricKey::new(&ToolProviderId::in_process(), &tool_id)
+    );
     let custom_metrics = &metrics[&custom_key];
     assert_eq!(custom_metrics.calls, 2);
     assert_eq!(custom_metrics.successes, 1);
@@ -1557,7 +1524,7 @@ fn concurrent_tool_registry_rejects_alias_collisions() {
     let alias = ToolId::parse("provider_visible_name").unwrap();
     let first = ToolId::parse("first_custom_alias_check").unwrap();
     registry
-        .register_custom_with_alias_and_effects(
+        .register_custom_with_alias_for_test(
             first.clone(),
             alias.clone(),
             "First custom check.",
@@ -1575,11 +1542,10 @@ fn concurrent_tool_registry_rejects_alias_collisions() {
         )
         .unwrap();
 
-    let table = registry.alias_table().unwrap();
-    assert_eq!(table.alias_for(&first), Some(&alias));
-    assert_eq!(table.tool_for_alias(&alias), Some(&first));
+    assert_eq!(registry.model_alias_for_tool(&first), Some(&alias));
+    assert_eq!(registry.tool_id_for_model_alias(&alias), Some(first));
 
-    let duplicate = registry.register_custom_with_alias_and_effects(
+    let duplicate = registry.register_custom_with_alias_for_test(
         ToolId::parse("second_custom_alias_check").unwrap(),
         alias,
         "Second custom check.",

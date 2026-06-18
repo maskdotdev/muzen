@@ -30,13 +30,11 @@ export type ReviewSourceLike = ReviewSource | string;
 export interface LocalReviewSource {
   type: "local";
   repo: string;
-  changedFiles?: string[];
 }
 
 export interface RawSnapshotReviewSource {
   type: "raw_snapshot";
   root: string;
-  changedFiles?: string[];
 }
 
 export interface GithubPullRequestSource {
@@ -75,19 +73,14 @@ export type DedupePolicy =
 
 export interface ReviewOptions {
   dedupe?: DedupePolicy;
-  cancelSuperseded?: boolean;
-  model?: ReviewModelSpec;
+  model?: ReviewModelSpec | string;
   sourceProvider?: ReviewSourceProvider;
   hooks?: ReviewHooks;
   heartbeat?: ReviewHeartbeatOptions;
-  contextEngine?: ContextEngineConfig;
   signal?: AbortSignal;
   change?: ReviewChangeSpec;
-  scope?: ReviewScope;
   metadata?: Record<string, unknown>;
   instructions?: ReviewInstruction[];
-  tools?: ReviewTool[];
-  sessions?: ReviewAgentSession[];
   limits?: ReviewLimits;
 }
 
@@ -218,7 +211,6 @@ export interface ReviewChangeSpec {
   changedFiles?: ReviewChangedFile[];
   diff?: string | null;
   reviewTarget?: string | null;
-  metadata?: Record<string, unknown>;
 }
 
 export interface ReviewChangedFile {
@@ -284,23 +276,6 @@ export interface ReviewToolResult {
 export interface ReviewToolArtifact {
   key: string;
   content: string;
-}
-
-export interface ReviewScope {
-  files?: string[];
-  include?: string[];
-  exclude?: string[];
-}
-
-export interface ReviewAgentSession {
-  id: string;
-  role: ReviewRole;
-  objective: string;
-  cwd?: string;
-  model?: ReviewModelSpec;
-  instructions?: ReviewInstruction[];
-  toolGrants?: string[];
-  budget?: ReviewAgentBudget;
 }
 
 export interface ReviewAgentBudget {

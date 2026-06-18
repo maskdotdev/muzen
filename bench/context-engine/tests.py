@@ -829,51 +829,89 @@ class SummaryProofTest(unittest.TestCase):
         self.assertEqual(first.name, "a" * 12)
         self.assertEqual(second.name, "b" * 12)
 
-    def test_materialize_repo_uses_origin_mirror_and_commit_worktree(self):
+    def test_materialize_repo_returns_git_checkouts_for_pinned_commits(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             origin = tmp_path / "origin"
-            origin.mkdir()
             corpus = tmp_path / "corpus"
+            origin.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=origin, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "tests@example.com"],
+                cwd=origin,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Muzen Tests"],
+                cwd=origin,
+                check=True,
+            )
+            tracked = origin / "tracked.txt"
+            tracked.write_text("first\n")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=origin, check=True)
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "first"],
+                cwd=origin,
+                check=True,
+            )
+            first_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=origin,
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            tracked.write_text("second\n")
+            subprocess.run(
+                ["git", "commit", "--quiet", "-am", "second"],
+                cwd=origin,
+                check=True,
+            )
+            second_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=origin,
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
             source = {
                 "kind": "git",
                 "origin": str(origin),
-                "commit": "a" * 40,
+                "commit": first_commit,
             }
-            calls = []
             original_corpus_cache = run.CORPUS_CACHE
-            original_subprocess_run = run.subprocess.run
-
-            def fake_run(command, **_kwargs):
-                calls.append(command)
-                if command[:3] == ["git", "clone", "--quiet"]:
-                    Path(command[-1]).mkdir(parents=True)
-                if "worktree" in command and "add" in command:
-                    target = Path(command[-2])
-                    target.mkdir(parents=True)
-                    (target / ".git").write_text("gitdir: mirror/worktrees/a\n")
-                return subprocess.CompletedProcess(command, 0)
 
             try:
                 run.CORPUS_CACHE = corpus
-                run.subprocess.run = fake_run
                 target = run.materialize_repo(source)
                 second = run.materialize_repo(
-                    {**source, "commit": "b" * 40}
+                    {**source, "commit": second_commit}
                 )
             finally:
                 run.CORPUS_CACHE = original_corpus_cache
-                run.subprocess.run = original_subprocess_run
 
-            clone_calls = [call for call in calls if call[:4] == ["git", "clone", "--quiet", "--mirror"]]
-            fetch_calls = [call for call in calls if "fetch" in call]
-            worktree_calls = [call for call in calls if "worktree" in call and "add" in call]
-
-            self.assertEqual(len(clone_calls), 1)
-            self.assertEqual(len(fetch_calls), 1)
-            self.assertEqual(len(worktree_calls), 2)
-            self.assertEqual(target, corpus / ("a" * 12))
-            self.assertEqual(second, corpus / ("b" * 12))
+            self.assertEqual(target, corpus / first_commit[:12])
+            self.assertEqual(second, corpus / second_commit[:12])
+            self.assertEqual((target / "tracked.txt").read_text(), "first\n")
+            self.assertEqual((second / "tracked.txt").read_text(), "second\n")
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(target), "rev-parse", "HEAD"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ).stdout.strip(),
+                first_commit,
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(second), "rev-parse", "HEAD"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ).stdout.strip(),
+                second_commit,
+            )
 
     def test_selected_tail_details_join_scores_to_evidence(self):
         result = {

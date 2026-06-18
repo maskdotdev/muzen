@@ -8,6 +8,7 @@ from muzen import (
     parse_review_source,
     perforce,
     raw_snapshot,
+    ReviewSource,
     source_key,
 )
 from muzen.sources import MuzenSourceError
@@ -41,10 +42,7 @@ class SourceTests(unittest.TestCase):
             source_key(gitlab.merge_request(owner="maskdotdev", repo="heimdaal", number=2)),
             "gitlab:maskdotdev/heimdaal!2",
         )
-        self.assertEqual(
-            local(".", changed_files=["Cargo.toml"]).changed_files,
-            ["Cargo.toml"],
-        )
+        self.assertEqual(local("."), ReviewSource(type="local", repo="."))
         self.assertEqual(
             source_key(raw_snapshot("/tmp/snapshot")),
             "raw_snapshot:/tmp/snapshot",

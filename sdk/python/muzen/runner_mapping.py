@@ -30,31 +30,19 @@ def _to_runner_start_params(
     source: ReviewSource,
     options: ReviewOptions,
 ) -> Dict[str, Any]:
-    changed_files = (
-        options.scope_files
-        or _changed_file_paths(options)
-        or (source.changed_files if source.type == "local" else [])
-    )
-    model_plan = _model_plan(options)
+    model_plan = _model_plan(options.model, [])
     payload = {
         "protocolVersion": "muzen.runner.v1",
         "runId": review_id,
         "source": _source_to_remote(source),
-        "changedFiles": changed_files,
+        "changedFiles": [],
         "metadata": options.metadata,
         "change": _change_to_runner(options),
         "instructions": [_instruction_to_runner(item) for item in options.instructions],
-        "sessions": [
-            _session_to_runner(
-                session,
-                model_plan["sessionProfileIds"],
-            )
-            for session in options.sessions
-        ],
+        "sessions": [],
         "limits": _limits_to_runner(options.limits),
         "model": model_plan["runnerModel"],
-        "tools": [_tool_to_runner(tool) for tool in options.tools],
-        "contextEngine": _context_engine_to_runner(options.context_engine),
+        "tools": [],
     }
     if source.type == "local":
         payload["repo"] = source.repo
@@ -62,72 +50,56 @@ def _to_runner_start_params(
 
 
 def _to_swarm_start_params(run_id: str, options: SwarmOptions) -> Dict[str, Any]:
-    review_options = _swarm_review_options(options)
-    payload = _to_runner_start_params(
-        run_id,
-        ReviewSource(type="local", repo=options.repo, changed_files=options.files),
-        review_options,
-    )
-    payload["mode"] = "direct_sessions"
-    return payload
-
-
-def _swarm_review_options(options: SwarmOptions) -> ReviewOptions:
     if not options.agents:
         raise ValueError("run_swarm requires at least one agent")
-    return ReviewOptions(
-        model=options.model,
-        metadata=options.metadata,
-        tools=options.tools,
-        limits=options.limits,
-        sessions=[
-            _swarm_agent_to_review_session(agent)
+    model_plan = _model_plan(options.model, options.agents)
+    return {
+        "protocolVersion": "muzen.runner.v1",
+        "runId": run_id,
+        "repo": options.repo,
+        "source": {"type": "local", "repo": options.repo},
+        "changedFiles": options.files,
+        "metadata": options.metadata,
+        "instructions": [],
+        "sessions": [
+            _swarm_agent_to_runner(agent, model_plan["sessionProfileIds"])
             for agent in options.agents
         ],
-    )
-
-
-def _swarm_agent_to_review_session(agent: Any) -> Any:
-    from .types import ReviewAgentSession
-
-    return ReviewAgentSession(
-        id=agent.id,
-        role="generalist",
-        objective=agent.objective,
-        model=agent.model,
-        instructions=agent.instructions,
-        tool_grants=agent.tool_grants,
-        budget=agent.budget,
-    )
-
-
-def _session_to_runner(
-    session: Any, session_profiles: Dict[str, str]
-) -> Dict[str, Any]:
-    payload = {
-        "id": session.id,
-        "role": session.role,
-        "objective": session.objective,
-        "cwd": session.cwd,
-        "modelProfileId": session_profiles.get(session.id),
-        "instructions": [_instruction_to_runner(item) for item in session.instructions],
-        "toolGrants": session.tool_grants,
+        "limits": _limits_to_runner(options.limits),
+        "model": model_plan["runnerModel"],
+        "tools": [_tool_to_runner(tool) for tool in options.tools],
     }
-    if session.budget is not None:
-        payload["budget"] = _camel_dict(asdict(session.budget))
+
+
+def _swarm_agent_to_runner(agent: Any, session_profiles: Dict[str, str]) -> Dict[str, Any]:
+    payload = {
+        "id": agent.id,
+        "role": "generalist",
+        "objective": agent.objective,
+        "cwd": None,
+        "modelProfileId": session_profiles.get(agent.id),
+        "instructions": [_instruction_to_runner(item) for item in agent.instructions],
+        "toolGrants": agent.tool_grants,
+    }
+    if agent.budget is not None:
+        payload["budget"] = _camel_dict(asdict(agent.budget))
     return payload
 
 
 _HOSTED_MODEL_SPECS = (OpenAIReviewModelSpec, AnthropicReviewModelSpec)
 
 
-def _model_plan(options: ReviewOptions) -> Dict[str, Any]:
+def _model_plan(model: Any, sessions: List[Any]) -> Dict[str, Any]:
+    if isinstance(model, str):
+        raise ValueError(
+            "model profile names are only supported by remote workspace reviews; pass a hosted model to local runs"
+        )
     profiles: Dict[str, Dict[str, Any]] = {}
     session_profiles: Dict[str, str] = {}
     default_profile_id: Optional[str] = None
-    if isinstance(options.model, _HOSTED_MODEL_SPECS):
-        default_profile_id = _add_hosted_profile(profiles, "default", options.model)
-    for session in options.sessions:
+    if isinstance(model, _HOSTED_MODEL_SPECS):
+        default_profile_id = _add_hosted_profile(profiles, "default", model)
+    for session in sessions:
         if isinstance(session.model, _HOSTED_MODEL_SPECS):
             profile_id = _add_hosted_profile(
                 profiles, f"session:{session.id}", session.model
@@ -136,6 +108,13 @@ def _model_plan(options: ReviewOptions) -> Dict[str, Any]:
             default_profile_id = default_profile_id or profile_id
     if not profiles:
         return {"runnerModel": None, "sessionProfileIds": session_profiles}
+    if not isinstance(model, _HOSTED_MODEL_SPECS) and any(
+        not isinstance(session.model, _HOSTED_MODEL_SPECS)
+        for session in sessions
+    ):
+        raise ValueError(
+            "session model overrides require a run-level model when any session omits its own model"
+        )
     return {
         "runnerModel": {
             "callback": False,
@@ -201,25 +180,6 @@ def _limits_to_runner(limits: Optional[ReviewLimits]) -> Optional[Dict[str, Any]
     }
 
 
-def _context_engine_to_runner(config: Any) -> Optional[Dict[str, Any]]:
-    if config is None:
-        return None
-    payload = {
-        "mode": config.mode,
-        "maxIndexedFiles": config.max_indexed_files,
-        "maxIndexedBytes": config.max_indexed_bytes,
-        "maxEvidenceItems": config.max_evidence_items,
-        "maxPackTokens": config.max_pack_tokens,
-        "maxQueryResults": config.max_query_results,
-        "includeRepositoryGuidance": config.include_repository_guidance,
-        "includeHostContext": config.include_host_context,
-        "strictEvidenceRequired": config.strict_evidence_required,
-    }
-    if getattr(config, "semantic", None) is not None:
-        payload["semantic"] = _semantic_config_to_runner(config.semantic)
-    return payload
-
-
 def _semantic_config_to_runner(config: Any) -> Dict[str, Any]:
     payload = {
         "mode": config.mode,
@@ -237,12 +197,6 @@ def _semantic_config_to_runner(config: Any) -> Dict[str, Any]:
     return payload
 
 
-def _changed_file_paths(options: ReviewOptions) -> List[str]:
-    if options.change is None or not options.change.changed_files:
-        return []
-    return [file.path for file in options.change.changed_files]
-
-
 def _change_to_runner(options: ReviewOptions) -> Optional[Dict[str, Any]]:
     change = options.change
     if change is None:
@@ -258,7 +212,6 @@ def _change_to_runner(options: ReviewOptions) -> Optional[Dict[str, Any]]:
         ],
         "diff": change.diff,
         "reviewTarget": change.review_target,
-        "metadata": change.metadata,
     }
 
 
@@ -472,7 +425,6 @@ def _source_to_remote(source: ReviewSource) -> Dict[str, Any]:
         return {
             "type": "local",
             "repo": source.repo,
-            "changedFiles": source.changed_files,
         }
     if source.type == "github_pull_request":
         return {
@@ -492,7 +444,6 @@ def _source_to_remote(source: ReviewSource) -> Dict[str, Any]:
         return {
             "type": "raw_snapshot",
             "root": source.root,
-            "changedFiles": source.changed_files,
         }
     if source.type == "perforce_changelist":
         return {

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   github,
   local,
-  type ReviewAgentSession,
+  type ReviewInstruction,
   type ReviewOptions,
   type ReviewRole,
   type ReviewSource,
@@ -30,12 +30,6 @@ const port = Number(process.env.PORT ?? 4077);
 const runnerPath = process.env.MUZEN_RUNNER_PATH ?? defaultRunnerPath();
 const reviewModel = createDemoReviewModel();
 const store = new DurableReviewStore();
-const demoAgentBudget = {
-  maxTurns: 18,
-  maxToolCalls: 64,
-  maxPromptTokens: 64_000,
-  maxOutputTokens: 8_000,
-};
 
 createServer(async (request, response) => {
   try {
@@ -193,7 +187,7 @@ function reviewSource(input: CreateReviewRequest): ReviewSource {
   if (!repo) {
     throw new Error("local repo path is empty");
   }
-  return local(repo, { changedFiles: input.changedFiles });
+  return local(repo);
 }
 
 function reviewOptions(
@@ -213,11 +207,12 @@ function reviewOptions(
     limits: {
       maxActiveSessions: validateMaxActiveSessions(input.maxActiveSessions),
     },
-    sessions: sessions(input.roles),
+    instructions: roleInstructions(input.roles),
     metadata: {
       example: "tanstack-durable-review",
       requestedSource: target,
       requestedSourceKind: input.sourceKind,
+      requestedRoles: input.roles.length > 0 ? input.roles : ["generalist"],
       ...reviewModel.metadata,
     },
   };
@@ -233,16 +228,15 @@ function validateMaxActiveSessions(value: number | undefined): number {
   return value;
 }
 
-function sessions(roles: ReviewRole[]): ReviewAgentSession[] {
+function roleInstructions(roles: ReviewRole[]): ReviewInstruction[] {
   const selected: ReviewRole[] = roles.length > 0 ? roles : ["generalist"];
   return selected.map((role) => ({
-    id: role,
-    role,
-    objective:
+    kind: "host_policy",
+    text:
       role === "generalist"
         ? "Review this change for concrete correctness, security, API-contract, data-loss, and integration bugs."
         : `Review this change from the ${role} perspective.`,
-    budget: demoAgentBudget,
+    trusted: true,
   }));
 }
 

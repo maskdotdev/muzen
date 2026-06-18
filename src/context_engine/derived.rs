@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::{stable_id, RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{stable_id, RuntimeError, RuntimeResult};
 
 use super::chunking::{FileChunk, SkeletonView};
 use super::index::CONTEXT_ENGINE_VERSION;

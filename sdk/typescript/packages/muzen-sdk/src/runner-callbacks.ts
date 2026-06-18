@@ -16,7 +16,10 @@ import type {
 export function registerReviewCallbacks(
   runner: RunnerStdioClient,
   options: ReviewOptions,
-  localOptions: { secrets?: MuzenSecretResolverOptions } = {},
+  localOptions: {
+    secrets?: MuzenSecretResolverOptions;
+    tools?: ReviewTool[];
+  } = {},
 ): () => void {
   const unsubscribeSource = registerSourceMaterializeHandler(
     runner,
@@ -30,7 +33,7 @@ export function registerReviewCallbacks(
   );
   const unsubscribeTools = registerReviewToolHandlers(
     runner,
-    options.tools ?? [],
+    localOptions.tools ?? [],
     options.signal,
   );
   const unsubscribeHeartbeat = registerReviewHeartbeatHandler(

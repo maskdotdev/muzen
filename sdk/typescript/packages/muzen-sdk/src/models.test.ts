@@ -5,6 +5,7 @@ import {
   anthropic,
   openai,
   reviewOptionsRequireSecretResolver,
+  swarmOptionsRequireSecretResolver,
 } from "./models.js";
 
 describe("hosted model helpers", () => {
@@ -61,19 +62,28 @@ describe("hosted model helpers", () => {
     );
     assert.equal(
       reviewOptionsRequireSecretResolver({
-        sessions: [
+        model: openai({
+          model: "gpt-5.4-mini",
+          credential: { env: "OPENAI_API_KEY" },
+        }),
+      }),
+      false,
+    );
+    assert.equal(
+      swarmOptionsRequireSecretResolver({
+        repo: "/repo",
+        agents: [
           {
             id: "security",
-            role: "security",
             objective: "Review security risk.",
             model: openai({
               model: "gpt-5.4-mini",
-              credential: { env: "OPENAI_API_KEY" },
+              credential: { secretRef: "tenant:acme/openai" },
             }),
           },
         ],
       }),
-      false,
+      true,
     );
   });
 });

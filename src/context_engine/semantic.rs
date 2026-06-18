@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::runtime::contracts::{RuntimeError, RuntimeResult};
-use crate::util::resolve_credential_ref;
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeResult};
+use crate::reviewer_kernel::system::resolve_credential_ref;
 
 use super::{
-    ContextEmbeddingProviderKind, ContextEngineConfig, ContextEvidence, ContextSemanticConfig,
-    ContextSemanticMode, ContextSensitivity,
+    ContextEngineConfig, ContextEvidence, ContextSemanticConfig, ContextSemanticMode,
+    ContextSensitivity,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,8 +37,6 @@ impl EmbeddingVector {
 
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
-    fn kind(&self) -> ContextEmbeddingProviderKind;
-
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>>;
 }
 
@@ -136,10 +134,6 @@ pub fn context_embedding_text(evidence: &ContextEvidence, file_content: Option<&
 
 #[async_trait]
 impl EmbeddingProvider for LocalHashEmbeddingProvider {
-    fn kind(&self) -> ContextEmbeddingProviderKind {
-        ContextEmbeddingProviderKind::Local
-    }
-
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
         Ok(inputs
             .into_iter()
@@ -212,10 +206,6 @@ const HOSTED_EMBEDDING_REQUEST_BATCH: usize = 128;
 
 #[async_trait]
 impl EmbeddingProvider for HostedEmbeddingProvider {
-    fn kind(&self) -> ContextEmbeddingProviderKind {
-        ContextEmbeddingProviderKind::Hosted
-    }
-
     async fn embed(&self, inputs: Vec<EmbeddingInput>) -> RuntimeResult<Vec<EmbeddingVector>> {
         let mut vectors = Vec::with_capacity(inputs.len());
         for batch in inputs.chunks(HOSTED_EMBEDDING_REQUEST_BATCH) {
@@ -335,12 +325,14 @@ impl VectorIndex for NoVectorIndex {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub enum SemanticInputDecision {
     Allowed,
     SkippedNoVector,
     SkippedRestrictedHosted,
 }
 
+#[cfg(test)]
 pub fn semantic_input_decision(
     config: &ContextEngineConfig,
     evidence: &ContextEvidence,

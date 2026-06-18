@@ -43,7 +43,6 @@ describe("review sources", () => {
     assert.deepEqual(source, {
       type: "raw_snapshot",
       root: "/tmp/muzen-snapshot",
-      changedFiles: [],
     });
     assert.equal(sourceKey(source), "raw_snapshot:/tmp/muzen-snapshot");
   });
@@ -57,15 +56,13 @@ describe("review sources", () => {
       sourceKey(gitlab.mergeRequest({ owner: "maskdotdev", repo: "heimdaal", number: 2 })),
       "gitlab:maskdotdev/heimdaal!2",
     );
-    assert.deepEqual(local(".", { changedFiles: ["Cargo.toml"] }), {
+    assert.deepEqual(local("."), {
       type: "local",
       repo: ".",
-      changedFiles: ["Cargo.toml"],
     });
-    assert.deepEqual(rawSnapshot("/bundle", { changedFiles: ["src/lib.rs"] }), {
+    assert.deepEqual(rawSnapshot("/bundle"), {
       type: "raw_snapshot",
       root: "/bundle",
-      changedFiles: ["src/lib.rs"],
     });
     assert.equal(
       sourceKey(

@@ -135,10 +135,6 @@ pub struct ContextGraphDebugExport {
 }
 
 impl ContextGraphDebugExport {
-    pub fn collect(graph: &ContextGraph, expansion: &ContextGraphExpansion) -> Self {
-        Self::collect_bounded(graph, expansion, ContextGraphDebugLimits::default())
-    }
-
     pub fn collect_bounded(
         graph: &ContextGraph,
         expansion: &ContextGraphExpansion,

@@ -151,6 +151,66 @@
       "result": {
         "name": "WorkerRunOnceResult"
       }
+    },
+    {
+      "method": "context.index",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Index a repository snapshot outside a review run.",
+      "params": {
+        "name": "ContextIndexParams"
+      },
+      "result": {
+        "name": "ContextManifest"
+      }
+    },
+    {
+      "method": "context.pack",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Build a role-scoped context pack from a previously indexed snapshot.",
+      "params": {
+        "name": "ContextPackRequest"
+      },
+      "result": {
+        "name": "ContextPack"
+      }
+    },
+    {
+      "method": "context.query",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Query an indexed snapshot or context pack outside agent execution.",
+      "params": {
+        "name": "ContextQuery"
+      },
+      "result": {
+        "name": "ContextQueryResult"
+      }
+    },
+    {
+      "method": "context.feedback",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Record feedback as a proposed context learning for an indexed snapshot.",
+      "params": {
+        "name": "ContextFeedback"
+      },
+      "result": {
+        "name": "ContextFeedbackReceipt"
+      }
+    },
+    {
+      "method": "context.learning.approve",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Approve or reject a proposed context learning for an indexed snapshot.",
+      "params": {
+        "name": "ContextLearningApprovalParams"
+      },
+      "result": {
+        "name": "ContextLearningApprovalReceipt"
+      }
     }
   ],
   "callbacks": [
@@ -632,11 +692,139 @@
           "default": "null"
         },
         {
-          "name": "mode",
-          "type": "string",
+          "name": "contextEngine",
+          "type": "ContextEngineConfig",
           "required": false,
           "default": "null"
         }
+      ]
+    },
+    {
+      "name": "ContextEngineConfig",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "mode",
+          "type": "ContextEngineMode",
+          "required": true
+        },
+        {
+          "name": "semantic",
+          "type": "ContextSemanticConfig",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "maxIndexedFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxIndexedBytes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxEvidenceItems",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxPackTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxQueryResults",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "includeRepositoryGuidance",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "includeHostContext",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "strictEvidenceRequired",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextEngineMode",
+      "shape": "enum",
+      "values": [
+        "disabled",
+        "snapshot_v0"
+      ]
+    },
+    {
+      "name": "ContextSemanticConfig",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "mode",
+          "type": "ContextSemanticMode",
+          "required": true
+        },
+        {
+          "name": "provider",
+          "type": "ContextEmbeddingProviderKind",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "hostedBaseUrl",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "hostedModel",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "hostedCredentialRef",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "allowRestrictedHostedInputs",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "maxEmbeddingInputs",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextSemanticMode",
+      "shape": "enum",
+      "values": [
+        "no_vector",
+        "local",
+        "hosted"
+      ]
+    },
+    {
+      "name": "ContextEmbeddingProviderKind",
+      "shape": "enum",
+      "values": [
+        "local",
+        "hosted"
       ]
     },
     {
@@ -802,12 +990,6 @@
           "type": "string",
           "required": false,
           "default": "null"
-        },
-        {
-          "name": "metadata",
-          "type": "json",
-          "required": false,
-          "default": "{}"
         }
       ]
     },
@@ -1027,6 +1209,12 @@
           "default": "null"
         },
         {
+          "name": "responseFormat",
+          "type": "ModelResponseFormat",
+          "required": false,
+          "default": "null"
+        },
+        {
           "name": "instructions",
           "type": "RunInstructionParams[]",
           "required": false,
@@ -1043,6 +1231,28 @@
           "type": "RunAgentBudgetParams",
           "required": false,
           "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ModelResponseFormat",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "schema",
+          "type": "json",
+          "required": true
+        },
+        {
+          "name": "strict",
+          "type": "boolean",
+          "required": false,
+          "default": "true"
         }
       ]
     },
@@ -1123,6 +1333,12 @@
           "default": "null"
         },
         {
+          "name": "maxChildSessions",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
           "name": "maxFileBytes",
           "type": "integer",
           "required": false,
@@ -1131,6 +1347,30 @@
         {
           "name": "maxSearchMatches",
           "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "orchestratorModelProfileId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "searchModelProfileId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "exploreModelProfileId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "validatorModelProfileId",
+          "type": "string",
           "required": false,
           "default": "null"
         }
@@ -1245,7 +1485,7 @@
       "shape": "object",
       "fields": [
         {
-          "name": "workspaceId",
+          "name": "projectId",
           "type": "string",
           "required": false,
           "default": "null"
@@ -1281,7 +1521,7 @@
       "fields": [
         {
           "name": "reviewOptions",
-          "type": "ReviewOptions",
+          "type": "json",
           "required": false,
           "default": "{}"
         }
@@ -1358,7 +1598,7 @@
       "shape": "enum",
       "values": [
         "fifo",
-        "round_robin_by_workspace"
+        "round_robin_by_project"
       ]
     },
     {
@@ -1393,7 +1633,7 @@
           "default": "null"
         },
         {
-          "name": "maxRunningPerWorkspace",
+          "name": "maxRunningPerProject",
           "type": "integer",
           "required": false,
           "default": "null"
@@ -1624,39 +1864,6 @@
           "type": "json",
           "required": false,
           "default": "{}"
-        },
-        {
-          "name": "sessionOutputs",
-          "type": "RunnerSessionOutput[]",
-          "required": false,
-          "default": "[]"
-        }
-      ]
-    },
-    {
-      "name": "RunnerSessionOutput",
-      "shape": "object",
-      "fields": [
-        {
-          "name": "sessionId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "completed",
-          "type": "boolean",
-          "required": true
-        },
-        {
-          "name": "output",
-          "type": "string",
-          "required": false,
-          "default": "null"
         }
       ]
     },
@@ -1734,6 +1941,112 @@
           "name": "snapshotCount",
           "type": "integer",
           "required": true
+        },
+        {
+          "name": "qualityDiagnostics",
+          "type": "RunnerReviewQualityDiagnostics",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerReviewQualityDiagnostics",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "contractRiskUnits",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "contractSeedCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "contractPackCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "omittedContractPackCandidates",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "selectedContractPacks",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "contractEvidenceFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "coverageCounts",
+          "type": "Record<string, integer>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "coverageCountsByLens",
+          "type": "Record<string, Record<string, integer>>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "highRiskFilesBelowTarget",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "challengeStatusCounts",
+          "type": "Record<string, integer>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "sessionsRun",
+          "type": "integer",
+          "required": false,
+          "default": "0"
+        },
+        {
+          "name": "budgetsUsed",
+          "type": "Record<string, integer>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "explicitCallerCapSessions",
+          "type": "integer",
+          "required": false,
+          "default": "0"
+        },
+        {
+          "name": "candidateFindings",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "rescuedCandidates",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "rejectedCandidates",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "rejectionReasons",
+          "type": "Record<string, integer>",
+          "required": false,
+          "default": "{}"
         }
       ]
     },
@@ -1750,6 +2063,18 @@
           "name": "verdict",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "coverage",
+          "type": "string",
+          "required": false,
+          "default": "sampled"
+        },
+        {
+          "name": "reviewVerdict",
+          "type": "string",
+          "required": false,
+          "default": "clean"
         },
         {
           "name": "summary",
@@ -1833,6 +2158,12 @@
           "default": "null"
         },
         {
+          "name": "challengeStatus",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
           "name": "evidence",
           "type": "RunnerFindingEvidence[]",
           "required": false,
@@ -1861,6 +2192,12 @@
           "type": "RunnerFindingLocation",
           "required": false,
           "default": "null"
+        },
+        {
+          "name": "relatedPaths",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
         }
       ]
     },
@@ -2099,6 +2436,922 @@
       ]
     },
     {
+      "name": "ContextIndexParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "repo",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "changedFiles",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "hostMetadata",
+          "type": "object<string,json>",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "crossRepoContracts",
+          "type": "CrossRepoContractCandidate[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "allowedCrossRepoResources",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "config",
+          "type": "ContextEngineConfig",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "CrossRepoContractCandidate",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "resourceId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "originalUrl",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextManifest",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "schemaVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "engineVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "ruleCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "evidenceCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "relationshipCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "skippedCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "createdAtUtc",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextEvidence",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "ContextEvidenceKind",
+          "required": true
+        },
+        {
+          "name": "source",
+          "type": "ContextEvidenceSource",
+          "required": true
+        },
+        {
+          "name": "trust",
+          "type": "ContextTrust",
+          "required": true
+        },
+        {
+          "name": "sensitivity",
+          "type": "ContextSensitivity",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "type": "ContextScope",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "range",
+          "type": "ContextRange",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "contentHash",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "tokenEstimate",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "provenance",
+          "type": "ContextProvenance",
+          "required": true
+        },
+        {
+          "name": "createdAtUtc",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "expiresAtUtc",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextEvidenceKind",
+      "shape": "enum",
+      "values": [
+        "diff",
+        "file_span",
+        "symbol",
+        "test",
+        "config",
+        "doc",
+        "repository_rule",
+        "organization_rule",
+        "ticket",
+        "historical_pr",
+        "prior_finding",
+        "ci_failure",
+        "dependency",
+        "cross_repo_contract",
+        "tool_output",
+        "pack_summary"
+      ]
+    },
+    {
+      "name": "ContextEvidenceSource",
+      "shape": "enum",
+      "values": [
+        "snapshot",
+        "host",
+        "history",
+        "memory",
+        "tool",
+        "external"
+      ]
+    },
+    {
+      "name": "ContextTrust",
+      "shape": "enum",
+      "values": [
+        "kernel",
+        "host_trusted",
+        "organization_trusted",
+        "repository_untrusted",
+        "user_untrusted",
+        "external_untrusted",
+        "tool_provider"
+      ]
+    },
+    {
+      "name": "ContextSensitivity",
+      "shape": "enum",
+      "values": [
+        "public",
+        "private",
+        "secret_redacted",
+        "restricted"
+      ]
+    },
+    {
+      "name": "ContextScope",
+      "shape": "enum",
+      "values": [
+        "run",
+        "snapshot",
+        "workspace",
+        "repository",
+        "organization",
+        "external"
+      ]
+    },
+    {
+      "name": "ContextRange",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "startLine",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "endLine",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextProvenance",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "provider",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "toolCallId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "originalUrl",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextPackRequest",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "purpose",
+          "type": "ContextPackPurpose",
+          "required": true
+        },
+        {
+          "name": "maxTokens",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextPack",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "purpose",
+          "type": "ContextPackPurpose",
+          "required": true
+        },
+        {
+          "name": "evidence",
+          "type": "ContextEvidence[]",
+          "required": true
+        },
+        {
+          "name": "relationships",
+          "type": "ContextRelationship[]",
+          "required": true
+        },
+        {
+          "name": "omittedCandidates",
+          "type": "OmittedContextCandidate[]",
+          "required": true
+        },
+        {
+          "name": "budget",
+          "type": "ContextBudgetUsage",
+          "required": true
+        },
+        {
+          "name": "sufficiency",
+          "type": "ContextSufficiency",
+          "required": true
+        },
+        {
+          "name": "compilerVersion",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "createdAtUtc",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextPackPurpose",
+      "shape": "enum",
+      "values": [
+        "general_review",
+        "correctness",
+        "security",
+        "tests",
+        "architecture",
+        "performance",
+        "validator",
+        "standalone_query"
+      ]
+    },
+    {
+      "name": "ContextRelationship",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "from",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "ContextRelationshipKind",
+          "required": true
+        },
+        {
+          "name": "confidence",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextRelationshipKind",
+      "shape": "enum",
+      "values": [
+        "imports",
+        "calls",
+        "implements",
+        "tests",
+        "configures",
+        "documents",
+        "depends_on",
+        "same_symbol",
+        "similar_history",
+        "violates_rule",
+        "satisfies_ticket",
+        "contradicts",
+        "cross_repo_contract"
+      ]
+    },
+    {
+      "name": "OmittedContextCandidate",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "evidenceId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "ContextEvidenceKind",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "score",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "tokenEstimate",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "ContextOmissionReason",
+          "required": true
+        },
+        {
+          "name": "budgetState",
+          "type": "OmittedContextBudgetState",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "OmittedContextBudgetState",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "remainingTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "fullContentRemainingTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "fullContentShortfallTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "skeletonTokenEstimate",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "skeletonShortfallTokens",
+          "type": "integer",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextOmissionReason",
+      "shape": "enum",
+      "values": [
+        "budget_exhausted",
+        "duplicate",
+        "low_relevance",
+        "lower_trust",
+        "generated_file",
+        "binary_file",
+        "secret_redacted",
+        "outside_scope",
+        "superseded_by_summary",
+        "requires_ungranted_capability"
+      ]
+    },
+    {
+      "name": "ContextBudgetUsage",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "usedTokens",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextSufficiency",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "status",
+          "type": "ContextSufficiencyStatus",
+          "required": true
+        },
+        {
+          "name": "missing",
+          "type": "string[]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextSufficiencyStatus",
+      "shape": "enum",
+      "values": [
+        "sufficient",
+        "probably_sufficient",
+        "insufficient"
+      ]
+    },
+    {
+      "name": "ContextQuery",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "runId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "purpose",
+          "type": "ContextPackPurpose",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "kind",
+          "type": "ContextQueryKind",
+          "required": true
+        },
+        {
+          "name": "arguments",
+          "type": "json",
+          "required": true
+        },
+        {
+          "name": "currentEvidence",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "limits",
+          "type": "ContextQueryLimits",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextQueryLimits",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "maxResults",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxTokens",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextQueryKind",
+      "shape": "enum",
+      "values": [
+        "search_text",
+        "read_span",
+        "explain_pack",
+        "related_tests",
+        "related_symbols",
+        "ticket_requirements",
+        "history_similar",
+        "cross_repo_contracts",
+        "sufficiency_check"
+      ]
+    },
+    {
+      "name": "ContextQueryResult",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "ContextQueryKind",
+          "required": true
+        },
+        {
+          "name": "evidence",
+          "type": "ContextEvidence[]",
+          "required": true
+        },
+        {
+          "name": "sufficiency",
+          "type": "ContextSufficiency",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "data",
+          "type": "json",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "omitted",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ContextFeedback",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "evidenceIds",
+          "type": "string[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "feedback",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "source",
+          "type": "ContextLearningSource",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "scope",
+          "type": "ContextLearningScope",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextFeedbackReceipt",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "accepted",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "proposedLearning",
+          "type": "ContextLearning",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextLearning",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "source",
+          "type": "ContextLearningSource",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "ContextLearningStatus",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "type": "ContextLearningScope",
+          "required": true
+        },
+        {
+          "name": "evidenceIds",
+          "type": "string[]",
+          "required": true
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "createdAtUtc",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "expiresAtUtc",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextLearningSource",
+      "shape": "enum",
+      "values": [
+        "accepted_finding",
+        "dismissed_finding",
+        "human_feedback",
+        "merged_pr",
+        "manual_rule"
+      ]
+    },
+    {
+      "name": "ContextLearningStatus",
+      "shape": "enum",
+      "values": [
+        "proposed",
+        "approved",
+        "expired",
+        "rejected"
+      ]
+    },
+    {
+      "name": "ContextLearningScope",
+      "shape": "enum",
+      "values": [
+        "repository",
+        "workspace",
+        "organization"
+      ]
+    },
+    {
+      "name": "ContextLearningApprovalParams",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "snapshotId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "learningId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "approve",
+          "type": "boolean",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "expiresAtUtc",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        }
+      ]
+    },
+    {
+      "name": "ContextLearningApprovalReceipt",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "accepted",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "learning",
+          "type": "ContextLearning",
+          "required": true
+        }
+      ]
+    },
+    {
       "name": "ReviewHttpResponse",
       "shape": "object",
       "fields": [
@@ -2177,7 +3430,7 @@
         },
         {
           "name": "event",
-          "type": "ReviewEvent",
+          "type": "json",
           "required": true
         }
       ]
@@ -2198,12 +3451,12 @@
         },
         {
           "name": "context",
-          "type": "RuntimeEventContext",
+          "type": "json",
           "required": true
         },
         {
           "name": "event",
-          "type": "RuntimeEvent",
+          "type": "json",
           "required": true
         }
       ]

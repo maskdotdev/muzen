@@ -1,11 +1,11 @@
 import type {
   AnthropicReviewModelSpec,
   OpenAIReviewModelSpec,
-  ReviewAgentSession,
   ReviewHostedModelSpec,
   ReviewModelCredential,
   ReviewModelSpec,
   ReviewOptions,
+  SwarmOptions,
 } from "./types.js";
 
 export interface OpenAIModelOptions {
@@ -64,27 +64,29 @@ export function anthropic(
 }
 
 export function isCallbackReviewModelSpec(
-  model: ReviewOptions["model"] | ReviewAgentSession["model"],
+  model: ReviewOptions["model"] | undefined,
 ): model is Extract<ReviewModelSpec, { kind: "callback" }> {
   return typeof model === "object" && model !== null && model.kind === "callback";
 }
 
 export function isHostedReviewModelSpec(
-  model: ReviewOptions["model"] | ReviewAgentSession["model"],
+  model: ReviewOptions["model"] | undefined,
 ): model is ReviewHostedModelSpec {
   return typeof model === "object" && model !== null && model.kind === "provider";
 }
 
 export function reviewOptionsRequireSecretResolver(options: ReviewOptions): boolean {
-  if (modelUsesSecretRef(options.model)) {
-    return true;
-  }
-  return (options.sessions ?? []).some((session) => modelUsesSecretRef(session.model));
+  return modelUsesSecretRef(options.model);
 }
 
-function modelUsesSecretRef(
-  model: ReviewOptions["model"] | ReviewAgentSession["model"],
-): boolean {
+export function swarmOptionsRequireSecretResolver(options: SwarmOptions): boolean {
+  return (
+    modelUsesSecretRef(options.model) ||
+    options.agents.some((agent) => modelUsesSecretRef(agent.model))
+  );
+}
+
+function modelUsesSecretRef(model: ReviewOptions["model"] | undefined): boolean {
   return (
     isHostedReviewModelSpec(model) &&
     typeof model.credential === "object" &&

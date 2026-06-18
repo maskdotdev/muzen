@@ -21,7 +21,7 @@ host service
 The service uses an in-memory store so the example stays small. The important
 part is the boundary: the browser never owns the review lifecycle, and the
 worker emits events that can be replayed by cursor. For real production, replace
-`src/server/store.ts` with Postgres or the Muzen durable service store.
+`src/server/store.ts` with the Muzen durable service store.
 
 ## Run
 

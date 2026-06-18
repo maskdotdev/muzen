@@ -131,13 +131,11 @@ def _remote_source(value: Dict[str, Any]) -> ReviewSource:
         return ReviewSource(
             type="local",
             repo=value["repo"],
-            changed_files=value.get("changedFiles", []),
         )
     if value["type"] == "raw_snapshot":
         return ReviewSource(
             type="raw_snapshot",
             root=value["root"],
-            changed_files=value.get("changedFiles", []),
         )
     if value["type"] == "perforce_changelist":
         return ReviewSource(

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::contracts::RepoPath;
+use crate::reviewer_kernel::kernel_types::RepoPath;
 
 use super::super::ContextRelationshipKind;
 use super::model::{ContextEdge, ContextEdgeId, ContextEdgeKind, ContextGraph, ContextNodeId};

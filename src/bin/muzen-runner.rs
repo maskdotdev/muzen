@@ -1,3 +1,3 @@
 fn main() {
-    muzen::runner::main_entry();
+    muzen::runner_protocol::main_entry();
 }

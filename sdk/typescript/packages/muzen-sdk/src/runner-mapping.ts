@@ -1,18 +1,20 @@
 import type { JsonRpcNotification } from "./protocol.js";
 import { sourceKey } from "./sources.js";
 import type {
-  ReviewChangeSpec,
-  ReviewAgentSession,
   ReviewArtifact,
+  ReviewChangeSpec,
   ReviewEvent,
   ReviewEventType,
   ReviewFinding,
   ReviewHostedModelSpec,
   ReviewLimits,
+  ReviewModelSpec,
   ReviewOptions,
   ReviewResult,
   ReviewSource,
   ReviewStatus,
+  ReviewTool,
+  SwarmAgent,
   SwarmAgentOutput,
   SwarmAgentStatus,
   SwarmOptions,
@@ -29,17 +31,13 @@ export function toRunnerStartParams(
   source: ReviewSource,
   options: ReviewOptions,
 ): unknown {
-  const changedFiles =
-    options.scope?.files ??
-    changedFilePaths(options.change) ??
-    (source.type === "local" ? source.changedFiles ?? [] : []);
   const modelPlan = mapReviewModels(options);
   const params: Record<string, unknown> = {
     protocolVersion: "muzen.runner.v1",
     runId: reviewId,
     source,
     sourceProvider: mapReviewSourceProvider(options.sourceProvider),
-    changedFiles,
+    changedFiles: [],
     metadata: options.metadata ?? {},
     change: mapReviewChange(options.change),
     instructions: (options.instructions ?? []).map((instruction) => ({
@@ -47,32 +45,11 @@ export function toRunnerStartParams(
       text: instruction.text,
       trusted: instruction.trusted ?? false,
     })),
-    sessions: (options.sessions ?? []).map((session) => ({
-      id: session.id,
-      role: session.role,
-      objective: session.objective,
-      cwd: session.cwd,
-      modelProfileId: modelPlan.sessionProfileIds.get(session.id),
-      instructions: (session.instructions ?? []).map((instruction) => ({
-        kind: instruction.kind,
-        text: instruction.text,
-        trusted: instruction.trusted ?? false,
-      })),
-      toolGrants: session.toolGrants ?? [],
-      budget: session.budget,
-    })),
+    sessions: [],
     limits: mapReviewLimits(options.limits),
     model: modelPlan.runnerModel,
-    tools: (options.tools ?? []).map((tool) => ({
-      id: tool.id,
-      description: tool.description,
-      parameters: tool.parameters,
-      effects: tool.effects ?? [],
-      cacheable: tool.cacheable ?? false,
-      providerResources: tool.providerResources ?? [],
-    })),
+    tools: [],
     heartbeat: mapReviewHeartbeat(options),
-    contextEngine: options.contextEngine,
   };
   if (source.type === "local") {
     params.repo = source.repo;
@@ -80,41 +57,37 @@ export function toRunnerStartParams(
   return params;
 }
 
-/** A swarm run rides the same run.start surface as a review: agents become
- * sessions, the repo becomes a local source, and `mode: "direct_sessions"`
- * routes them through the generic agent loop instead of review planning. */
 export function toSwarmStartParams(runId: string, options: SwarmOptions): unknown {
-  const reviewOptions = swarmReviewOptions(options);
-  const params = toRunnerStartParams(
-    runId,
-    { type: "local", repo: options.repo, changedFiles: options.files ?? [] },
-    reviewOptions,
-  ) as Record<string, unknown>;
-  return { ...params, mode: "direct_sessions" };
-}
-
-/** Internal review-shaped view of swarm options, so model planning and
- * callback registration are shared with review runs. */
-export function swarmReviewOptions(options: SwarmOptions): ReviewOptions {
   if (options.agents.length === 0) {
     throw new Error("runSwarm requires at least one agent");
   }
+  const modelPlan = mapModelPlan(options.model, options.agents);
   return {
-    model: options.model,
-    tools: options.tools,
-    limits: options.limits,
-    hooks: options.hooks,
+    protocolVersion: "muzen.runner.v1",
+    runId,
+    repo: options.repo,
+    source: { type: "local", repo: options.repo },
+    changedFiles: options.files ?? [],
     metadata: options.metadata,
-    signal: options.signal,
+    instructions: [],
     sessions: options.agents.map((agent) => ({
       id: agent.id,
       role: "generalist",
       objective: agent.objective,
-      instructions: agent.instructions,
-      model: agent.model,
-      toolGrants: agent.toolGrants,
+      cwd: undefined,
+      modelProfileId: modelPlan.sessionProfileIds.get(agent.id),
+      instructions: (agent.instructions ?? []).map((instruction) => ({
+        kind: instruction.kind,
+        text: instruction.text,
+        trusted: instruction.trusted ?? false,
+      })),
+      toolGrants: agent.toolGrants ?? [],
       budget: agent.budget,
     })),
+    limits: mapReviewLimits(options.limits),
+    model: modelPlan.runnerModel,
+    tools: mapRunnerTools(options.tools ?? []),
+    heartbeat: mapHeartbeat(options),
   };
 }
 
@@ -175,6 +148,10 @@ function mapSwarmAgentStatus(status: string): SwarmAgentStatus {
 }
 
 function mapReviewHeartbeat(options: ReviewOptions): unknown {
+  return mapHeartbeat(options);
+}
+
+function mapHeartbeat(options: Pick<ReviewOptions, "hooks" | "heartbeat">): unknown {
   if (!options.hooks?.onHeartbeat) {
     return undefined;
   }
@@ -185,7 +162,7 @@ function mapReviewHeartbeat(options: ReviewOptions): unknown {
   };
 }
 
-function mapReviewModel(model: ReviewOptions["model"]): unknown {
+function mapReviewModel(model: ReviewOptions["model"] | undefined): unknown {
   if (isCallbackReviewModelSpec(model)) {
     return { callback: true };
   }
@@ -203,10 +180,22 @@ interface HostedProfilePlan {
 }
 
 function mapReviewModels(options: ReviewOptions): ModelPlan {
-  if (isCallbackReviewModelSpec(options.model)) {
-    rejectHostedSessionOverrides(options.sessions ?? []);
+  return mapModelPlan(options.model, []);
+}
+
+function mapModelPlan(
+  model: ReviewOptions["model"] | undefined,
+  sessions: SessionModelOverride[],
+): ModelPlan {
+  if (typeof model === "string") {
+    throw new Error(
+      "model profile names are only supported by remote workspace reviews; pass a callback or hosted model to local runs",
+    );
+  }
+  if (isCallbackReviewModelSpec(model)) {
+    rejectHostedSessionOverrides(sessions);
     return {
-      runnerModel: mapReviewModel(options.model),
+      runnerModel: mapReviewModel(model),
       sessionProfileIds: new Map(),
     };
   }
@@ -215,16 +204,16 @@ function mapReviewModels(options: ReviewOptions): ModelPlan {
   const profiles = new Map<string, HostedProfilePlan>();
   let defaultProfileId: string | undefined;
 
-  if (isHostedReviewModelSpec(options.model)) {
+  if (isHostedReviewModelSpec(model)) {
     const planned = addHostedProfile(
       profiles,
       "default",
-      options.model,
+      model,
     );
     defaultProfileId = planned.profileId;
   }
 
-  for (const session of options.sessions ?? []) {
+  for (const session of sessions) {
     if (isHostedReviewModelSpec(session.model)) {
       const planned = addHostedProfile(
         profiles,
@@ -238,13 +227,13 @@ function mapReviewModels(options: ReviewOptions): ModelPlan {
 
   if (profiles.size === 0) {
     return {
-      runnerModel: mapReviewModel(options.model),
+      runnerModel: mapReviewModel(model),
       sessionProfileIds,
     };
   }
 
-  if (!isHostedReviewModelSpec(options.model)) {
-    const sessionsWithoutModel = (options.sessions ?? []).filter(
+  if (!isHostedReviewModelSpec(model)) {
+    const sessionsWithoutModel = sessions.filter(
       (session) =>
         !session.model &&
         !sessionProfileIds.has(session.id),
@@ -266,12 +255,28 @@ function mapReviewModels(options: ReviewOptions): ModelPlan {
   };
 }
 
-function rejectHostedSessionOverrides(sessions: ReviewAgentSession[]): void {
+interface SessionModelOverride {
+  id: string;
+  model?: ReviewModelSpec;
+}
+
+function rejectHostedSessionOverrides(sessions: SessionModelOverride[]): void {
   if (sessions.some((session) => isHostedReviewModelSpec(session.model))) {
     throw new Error(
       "hosted session model overrides cannot be mixed with a callback run model",
     );
   }
+}
+
+function mapRunnerTools(tools: ReviewTool[]): unknown[] {
+  return tools.map((tool) => ({
+    id: tool.id,
+    description: tool.description,
+    parameters: tool.parameters,
+    effects: tool.effects ?? [],
+    cacheable: tool.cacheable ?? false,
+    providerResources: tool.providerResources ?? [],
+  }));
 }
 
 function addHostedProfile(
@@ -336,13 +341,6 @@ function mapReviewSourceProvider(
   };
 }
 
-function changedFilePaths(change: ReviewChangeSpec | undefined): string[] | undefined {
-  if (!change?.changedFiles?.length) {
-    return undefined;
-  }
-  return change.changedFiles.map((file) => file.path);
-}
-
 function mapReviewChange(change: ReviewChangeSpec | undefined): unknown {
   if (!change) {
     return undefined;
@@ -355,7 +353,6 @@ function mapReviewChange(change: ReviewChangeSpec | undefined): unknown {
     changedFiles: change.changedFiles ?? [],
     diff: change.diff,
     reviewTarget: change.reviewTarget,
-    metadata: change.metadata ?? {},
   };
 }
 

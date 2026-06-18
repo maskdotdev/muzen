@@ -10,7 +10,7 @@ use tree_sitter::Node;
 
 use super::chunking::{language_for_path, parse_tree};
 use super::ContextRange;
-use crate::runtime::contracts::RepoPath;
+use crate::reviewer_kernel::kernel_types::RepoPath;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContextSymbolGraph {
@@ -19,12 +19,6 @@ pub struct ContextSymbolGraph {
 }
 
 impl ContextSymbolGraph {
-    pub fn add_file(&mut self, path: RepoPath, content: &str) -> ParsedSymbols {
-        let parsed = parse_symbols(&path.display(), content);
-        self.add_parsed(path, &parsed);
-        parsed
-    }
-
     /// Register already-parsed symbols (R9: cached derived data) without
     /// re-parsing the file.
     pub fn add_parsed(&mut self, path: RepoPath, parsed: &ParsedSymbols) {
@@ -35,14 +29,6 @@ impl ContextSymbolGraph {
         if !parsed.imports.is_empty() {
             self.imports_by_file.insert(path, parsed.imports.clone());
         }
-    }
-
-    pub fn file_definitions(&self, path: &RepoPath) -> impl Iterator<Item = &str> {
-        self.definitions_by_file
-            .get(path)
-            .into_iter()
-            .flatten()
-            .map(String::as_str)
     }
 }
 

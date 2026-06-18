@@ -109,20 +109,24 @@ describe("runner-backed Muzen preview", () => {
     const workspace = muzen.workspace("local");
 
     const manifest = await workspace.context.index({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
     });
     const pack = await workspace.context.buildPack({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       purpose: "security",
       maxTokens: 4000,
     });
     const query = await workspace.context.query({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       kind: "related_tests",
       arguments: { path: "src/auth.ts" },
     });
     const feedback = await workspace.context.recordFeedback({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       feedback: "Suppress duplicate warning.",
     });
     const approval = await workspace.context.approveLearning({
@@ -161,16 +165,13 @@ describe("runner-backed Muzen preview", () => {
       muzen = await createMuzen({ runnerPath });
 
       const review = await muzen.review(
-        local(repo, { changedFiles: ["Cargo.toml"] }),
+        local(repo),
         {
+          change: {
+            kind: "revision_range",
+            changedFiles: [{ path: "Cargo.toml", status: "modified" }],
+          },
           model: smokeReviewModel("Cargo.toml"),
-          sessions: [
-            {
-              id: "security",
-              role: "security",
-              objective: "Find security regressions",
-            },
-          ],
         },
       );
       const result = await review.wait();
@@ -528,7 +529,7 @@ describe("remote Muzen client", () => {
       version: "1",
       provider: "openai_compatible",
       model: "gpt-5",
-      secretRef: "vault://workspaces/acme/models/default",
+      secretRef: "vault://projects/acme/models/default",
       baseUrl: "https://models.example.test",
       routing: { region: "us-east" },
       updatedAtUtc: "1780620000.000000000Z",
@@ -538,7 +539,7 @@ describe("remote Muzen client", () => {
       name: "github",
       version: "1",
       provider: "github",
-      secretRef: "vault://workspaces/acme/providers/github",
+      secretRef: "vault://projects/acme/providers/github",
       baseUrl: "https://api.github.com",
       routing: { installation: "123" },
       updatedAtUtc: "1780620000.000000000Z",
@@ -554,37 +555,37 @@ describe("remote Muzen client", () => {
         body,
       });
       if (
-        url.pathname === "/v1/workspaces/acme/models/default" &&
+        url.pathname === "/v1/projects/acme/models/default" &&
         method === "PUT"
       ) {
         return Response.json({ profile: modelProfile });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/models/default" &&
+        url.pathname === "/v1/projects/acme/models/default" &&
         method === "GET"
       ) {
         return Response.json(modelProfile);
       }
-      if (url.pathname === "/v1/workspaces/acme/models") {
+      if (url.pathname === "/v1/projects/acme/models") {
         return Response.json({ profiles: [modelProfile] });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/providers/github" &&
+        url.pathname === "/v1/projects/acme/providers/github" &&
         method === "PUT"
       ) {
         return Response.json({ profile: providerProfile });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/providers/github" &&
+        url.pathname === "/v1/projects/acme/providers/github" &&
         method === "GET"
       ) {
         return Response.json(providerProfile);
       }
-      if (url.pathname === "/v1/workspaces/acme/providers") {
+      if (url.pathname === "/v1/projects/acme/providers") {
         return Response.json({ profiles: [providerProfile] });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/reviews" &&
+        url.pathname === "/v1/projects/acme/reviews" &&
         method === "POST"
       ) {
         return Response.json({
@@ -596,7 +597,7 @@ describe("remote Muzen client", () => {
         });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/context/index" &&
+        url.pathname === "/v1/projects/acme/context/index" &&
         method === "POST"
       ) {
         return Response.json({
@@ -613,7 +614,7 @@ describe("remote Muzen client", () => {
         });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/context/packs" &&
+        url.pathname === "/v1/projects/acme/context/packs" &&
         method === "POST"
       ) {
         return Response.json({
@@ -632,7 +633,7 @@ describe("remote Muzen client", () => {
         });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/context/query" &&
+        url.pathname === "/v1/projects/acme/context/query" &&
         method === "POST"
       ) {
         return Response.json({
@@ -644,7 +645,7 @@ describe("remote Muzen client", () => {
         });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/context/feedback" &&
+        url.pathname === "/v1/projects/acme/context/feedback" &&
         method === "POST"
       ) {
         return Response.json({
@@ -665,7 +666,7 @@ describe("remote Muzen client", () => {
         });
       }
       if (
-        url.pathname === "/v1/workspaces/acme/context/learnings/approve" &&
+        url.pathname === "/v1/projects/acme/context/learnings/approve" &&
         method === "POST"
       ) {
         return Response.json({
@@ -694,7 +695,7 @@ describe("remote Muzen client", () => {
     const savedModel = await workspace.models.set("default", {
       provider: "openai_compatible",
       model: "gpt-5",
-      secretRef: "vault://workspaces/acme/models/default",
+      secretRef: "vault://projects/acme/models/default",
       baseUrl: "https://models.example.test",
       routing: { region: "us-east" },
     });
@@ -702,35 +703,35 @@ describe("remote Muzen client", () => {
     const modelProfiles = await workspace.models.list();
     const savedProvider = await workspace.providers.set("github", {
       provider: "github",
-      secretRef: "vault://workspaces/acme/providers/github",
+      secretRef: "vault://projects/acme/providers/github",
       baseUrl: "https://api.github.com",
       routing: { installation: "123" },
     });
     const loadedProvider = await workspace.providers.get("github");
     const providerProfiles = await workspace.providers.list();
     const review = await workspace.review("github:maskdotdev/heimdaal#123", {
-      model: openai({
-        model: "gpt-5",
-        credential: { secretRef: "vault://workspaces/acme/models/default" },
-        baseUrl: "https://models.example.test",
-      }),
+      model: "default",
     });
     const manifest = await workspace.context.index({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
     });
     const pack = await workspace.context.buildPack({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       purpose: "security",
       maxTokens: 4000,
     });
     const query = await workspace.context.query({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       kind: "related_tests",
       arguments: { path: "src/auth.ts" },
       limits: { maxResults: 10, maxTokens: 1000 },
     });
     const feedback = await workspace.context.recordFeedback({
-      source: local("/repo", { changedFiles: ["src/auth.ts"] }),
+      source: local("/repo"),
+      changedFiles: ["src/auth.ts"],
       feedback: "Suppress duplicate warning.",
     });
     const approval = await workspace.context.approveLearning({
@@ -741,12 +742,12 @@ describe("remote Muzen client", () => {
 
     assert.equal(workspace.id, "acme");
     assert.equal(savedModel.model, "gpt-5");
-    assert.equal(loadedModel?.secretRef, "vault://workspaces/acme/models/default");
+    assert.equal(loadedModel?.secretRef, "vault://projects/acme/models/default");
     assert.equal(modelProfiles.length, 1);
     assert.equal(savedProvider.provider, "github");
     assert.equal(
       loadedProvider?.secretRef,
-      "vault://workspaces/acme/providers/github",
+      "vault://projects/acme/providers/github",
     );
     assert.equal(providerProfiles.length, 1);
     assert.equal(review.id, "review-workspace-1");
@@ -755,19 +756,20 @@ describe("remote Muzen client", () => {
     assert.equal(query.kind, "related_tests");
     assert.equal(feedback.proposedLearning?.status, "proposed");
     assert.equal(approval.learning.status, "approved");
+    assert.equal((requests[6]?.body as { options?: { model?: string } }).options?.model, "default");
     assert.deepEqual(requests.map((request) => request.path), [
-      "/v1/workspaces/acme/models/default",
-      "/v1/workspaces/acme/models/default",
-      "/v1/workspaces/acme/models",
-      "/v1/workspaces/acme/providers/github",
-      "/v1/workspaces/acme/providers/github",
-      "/v1/workspaces/acme/providers",
-      "/v1/workspaces/acme/reviews",
-      "/v1/workspaces/acme/context/index",
-      "/v1/workspaces/acme/context/packs",
-      "/v1/workspaces/acme/context/query",
-      "/v1/workspaces/acme/context/feedback",
-      "/v1/workspaces/acme/context/learnings/approve",
+      "/v1/projects/acme/models/default",
+      "/v1/projects/acme/models/default",
+      "/v1/projects/acme/models",
+      "/v1/projects/acme/providers/github",
+      "/v1/projects/acme/providers/github",
+      "/v1/projects/acme/providers",
+      "/v1/projects/acme/reviews",
+      "/v1/projects/acme/context/index",
+      "/v1/projects/acme/context/packs",
+      "/v1/projects/acme/context/query",
+      "/v1/projects/acme/context/feedback",
+      "/v1/projects/acme/context/learnings/approve",
     ]);
     assert.equal((requests.at(-3)?.body as { kind?: string }).kind, "related_tests");
   });
@@ -830,7 +832,7 @@ describe("remote Muzen client", () => {
     assert.deepEqual(requests, [
       {
         method: "POST",
-        path: "/v1/workspaces/acme/webhooks/github",
+        path: "/v1/projects/acme/webhooks/github",
         authorization: "Bearer test-token",
         githubEvent: "pull_request",
         body: '{"action":"opened"}',

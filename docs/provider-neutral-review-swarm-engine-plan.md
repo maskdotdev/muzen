@@ -150,9 +150,6 @@ Source providers
 
 Important Muzen context:
 
-- `docs/10-out-of-10-architecture-plan.md` already frames Muzen as a reusable
-  repository-review execution kernel with shared snapshots, run specs, session
-  specs, dynamic tools, and capability grants.
 - `docs/sdk-runner-implementation-plan.md` already points toward an SDK to
   runner protocol with model callbacks, tool callbacks, events, and artifacts.
 - `sdk/typescript/packages/muzen-sdk/src/types.ts` exposes provider-neutral
@@ -240,15 +237,10 @@ const result = await runMuzenReview({
     startRevision: sourceStartSha,
     headRevision: sourceHeadSha,
   },
-  sessions: mapArgusPersonaModeToSessions(personaMode, personaTemplates),
   instructions: [
     hostInstructions(argusReviewPolicy),
     repositoryInstructionsProvider(),
-  ],
-  tools: [
-    argusIssueContextTool,
-    argusCodeSearchTool,
-    argusTraceSymbolTool,
+    personaModeInstructions(personaMode, personaTemplates),
   ],
   model: openAiCompatibleModel({ apiUrl, model, token: tokenRef }),
   metadata: {
@@ -354,7 +346,7 @@ type ReviewSessionSpec = {
   model?: ModelSpec
   instructions?: InstructionSpec[]
   toolGrants?: ToolGrant[]
-  scope?: ReviewScope
+  cwd?: string
   limits?: SessionLimits
   output?: SessionOutputPolicy
 }

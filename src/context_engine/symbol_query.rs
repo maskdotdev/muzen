@@ -49,7 +49,10 @@ pub(crate) fn related_symbol_terms(
 
 pub(crate) fn related_symbol_score(
     evidence: &ContextEvidence,
-    file_contents: &std::collections::BTreeMap<crate::runtime::contracts::RepoPath, String>,
+    file_contents: &std::collections::BTreeMap<
+        crate::reviewer_kernel::kernel_types::RepoPath,
+        String,
+    >,
     graph: &ContextGraph,
     path: &str,
     terms: &[String],
@@ -60,7 +63,7 @@ pub(crate) fn related_symbol_score(
         return Some(100);
     }
     let mut score = 0usize;
-    if let Ok(query_path) = crate::runtime::contracts::RepoPath::parse(path) {
+    if let Ok(query_path) = crate::reviewer_kernel::kernel_types::RepoPath::parse(path) {
         let is_relationship = |kind: ContextEdgeKind| {
             matches!(
                 kind,
