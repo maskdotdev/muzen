@@ -77,47 +77,34 @@ fn handshake_fixture_matches_current_response() {
 #[test]
 fn schema_marks_wired_run_methods_and_callbacks_implemented() {
     let schema = protocol_schema();
-    for method in [
-        "runner.handshake",
-        "runner.check",
-        "runner.schema.export",
-        "run.start",
-        "run.cancel",
-        "run.status",
-        "run.result",
-        "artifact.read",
-        "artifact.export",
-        "snapshot.readText",
-        "context.index",
-        "context.pack",
-        "context.query",
-        "context.feedback",
-        "context.learning.approve",
-        "webhook.github.handle",
-        "webhook.gitlab.handle",
-        "worker.runOnce",
-    ] {
+    for method in schema::sdk_to_runner_methods() {
         assert_method_status(&schema.requests, method, RunnerMethodStatus::Implemented);
     }
-    for method in [
-        "source.materialize",
-        "run.heartbeat",
-        "model.complete",
-        "secret.resolve",
-        "tool.execute",
-    ] {
+    for method in schema::runner_to_sdk_callbacks() {
         assert_method_status(&schema.callbacks, method, RunnerMethodStatus::Implemented);
     }
-    for method in [
-        "event.review",
-        "event.runtime",
-        "run.finished",
-        "run.failed",
-    ] {
+    for method in schema::runner_to_sdk_notifications() {
         assert_method_status(
             &schema.notifications,
             method,
             RunnerMethodStatus::Implemented,
+        );
+    }
+}
+
+#[test]
+fn stateful_methods_match_sdk_to_runner_registry() {
+    for method in schema::sdk_to_runner_methods() {
+        assert_eq!(
+            protocol::stateful_method(method),
+            !method.starts_with("runner."),
+            "{method} stateful classification drifted"
+        );
+    }
+    for method in schema::runner_to_sdk_callbacks().chain(schema::runner_to_sdk_notifications()) {
+        assert!(
+            !protocol::stateful_method(method),
+            "{method} is runner-to-sdk and must not be classified as an SDK-to-runner stateful method"
         );
     }
 }

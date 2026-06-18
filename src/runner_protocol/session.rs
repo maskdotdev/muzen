@@ -131,21 +131,7 @@ fn handle_request(request: JsonRpcRequest) -> JsonRpcResponse {
         }
         "runner.check" => JsonRpcResponse::success(request.id, json!(runner_check())),
         "runner.schema.export" => JsonRpcResponse::success(request.id, json!(protocol_schema())),
-        "run.start"
-        | "run.cancel"
-        | "run.status"
-        | "run.result"
-        | "artifact.read"
-        | "artifact.export"
-        | "snapshot.readText"
-        | "context.index"
-        | "context.pack"
-        | "context.query"
-        | "context.feedback"
-        | "context.learning.approve"
-        | "webhook.github.handle"
-        | "webhook.gitlab.handle"
-        | "worker.runOnce" => JsonRpcResponse::error(
+        method if stateful_method(method) => JsonRpcResponse::error(
             request.id,
             JsonRpcError::not_implemented(format!(
                 "{} requires the stateful stdio session in {}",

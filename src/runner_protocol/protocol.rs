@@ -4,25 +4,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::schema::sdk_to_runner_methods;
+
 pub(crate) fn stateful_method(method: &str) -> bool {
-    matches!(
-        method,
-        "run.start"
-            | "run.cancel"
-            | "run.status"
-            | "run.result"
-            | "artifact.read"
-            | "artifact.export"
-            | "snapshot.readText"
-            | "context.index"
-            | "context.pack"
-            | "context.query"
-            | "context.feedback"
-            | "context.learning.approve"
-            | "webhook.github.handle"
-            | "webhook.gitlab.handle"
-            | "worker.runOnce"
-    )
+    !method.starts_with("runner.") && sdk_to_runner_methods().any(|registered| registered == method)
 }
 
 pub(crate) fn write_response<W: Write>(writer: &mut W, response: &JsonRpcResponse) -> Result<()> {

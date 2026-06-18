@@ -39,6 +39,20 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
     }
 }
 
+pub(crate) fn sdk_to_runner_methods() -> impl Iterator<Item = &'static str> {
+    SDK_TO_RUNNER_METHODS.iter().map(|spec| spec.method)
+}
+
+#[cfg(test)]
+pub(crate) fn runner_to_sdk_callbacks() -> impl Iterator<Item = &'static str> {
+    RUNNER_TO_SDK_CALLBACKS.iter().map(|spec| spec.method)
+}
+
+#[cfg(test)]
+pub(crate) fn runner_to_sdk_notifications() -> impl Iterator<Item = &'static str> {
+    RUNNER_TO_SDK_NOTIFICATIONS.iter().map(|spec| spec.method)
+}
+
 #[derive(Debug, Copy, Clone)]
 struct MethodSpec {
     method: &'static str,
