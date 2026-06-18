@@ -358,7 +358,7 @@ fn infer_changed_files(repo_root: &Path, plan: &ProviderCheckoutPlan) -> Vec<Str
                 "diff",
                 "--name-only",
                 "-z",
-                "--diff-filter=ACMRTUXB",
+                "--diff-filter=ACDMRTUXB",
                 &range,
             ],
             plan,
@@ -378,7 +378,7 @@ fn infer_inline_diff(repo_root: &Path, plan: &ProviderCheckoutPlan) -> Option<St
     for range in [primary_range, fallback_range] {
         if let Ok(output) = run_git_output(
             repo_root,
-            &["diff", "--patch", "--diff-filter=ACMRTUXB", &range],
+            &["diff", "--patch", "--diff-filter=ACDMRTUXB", &range],
             plan,
         ) {
             let diff = String::from_utf8_lossy(&output).to_string();

@@ -173,7 +173,7 @@ Python shares the same runner protocol as TypeScript:
 import asyncio
 import os
 
-from muzen import Client, ReviewOptions, local
+from muzen import Client, ReviewChangeSpec, ReviewChangedFile, ReviewOptions, local
 
 
 async def main() -> None:
@@ -183,7 +183,14 @@ async def main() -> None:
     try:
         review = await client.review(
             local("."),
-            ReviewOptions(scope_files=["Cargo.toml"]),
+            ReviewOptions(
+                change=ReviewChangeSpec(
+                    kind="revision_range",
+                    changed_files=[
+                        ReviewChangedFile(path="Cargo.toml", status="modified")
+                    ],
+                )
+            ),
         )
 
         async for event in review.events():

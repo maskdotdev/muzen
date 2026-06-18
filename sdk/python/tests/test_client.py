@@ -469,7 +469,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 "version": "1",
                 "provider": "openai_compatible",
                 "model": "gpt-5",
-                "secretRef": "vault://workspaces/acme/models/default",
+                "secretRef": "vault://projects/acme/models/default",
                 "baseUrl": "https://models.example.test",
                 "routing": {"region": "us-east"},
                 "updatedAtUtc": "1780620000.000000000Z",
@@ -479,24 +479,24 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                 "name": "github",
                 "version": "1",
                 "provider": "github",
-                "secretRef": "vault://workspaces/acme/providers/github",
+                "secretRef": "vault://projects/acme/providers/github",
                 "baseUrl": "https://api.github.com",
                 "routing": {"installation": "123"},
                 "updatedAtUtc": "1780620000.000000000Z",
             }
-            if path == "/v1/workspaces/acme/models/default" and method == "PUT":
+            if path == "/v1/projects/acme/models/default" and method == "PUT":
                 return {"profile": model_profile}
-            if path == "/v1/workspaces/acme/models/default" and method == "GET":
+            if path == "/v1/projects/acme/models/default" and method == "GET":
                 return model_profile
-            if path == "/v1/workspaces/acme/models":
+            if path == "/v1/projects/acme/models":
                 return {"profiles": [model_profile]}
-            if path == "/v1/workspaces/acme/providers/github" and method == "PUT":
+            if path == "/v1/projects/acme/providers/github" and method == "PUT":
                 return {"profile": provider_profile}
-            if path == "/v1/workspaces/acme/providers/github" and method == "GET":
+            if path == "/v1/projects/acme/providers/github" and method == "GET":
                 return provider_profile
-            if path == "/v1/workspaces/acme/providers":
+            if path == "/v1/projects/acme/providers":
                 return {"profiles": [provider_profile]}
-            if path == "/v1/workspaces/acme/reviews" and method == "POST":
+            if path == "/v1/projects/acme/reviews" and method == "POST":
                 return {
                     "review": {
                         "id": "review-workspace-1",
@@ -504,7 +504,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "source": body["source"],
                     }
                 }
-            if path == "/v1/workspaces/acme/context/index" and method == "POST":
+            if path == "/v1/projects/acme/context/index" and method == "POST":
                 return {
                     "manifest": {
                         "schemaVersion": "muzen.context_manifest.v1",
@@ -517,7 +517,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "createdAtUtc": "1780620000.000000000Z",
                     }
                 }
-            if path == "/v1/workspaces/acme/context/packs" and method == "POST":
+            if path == "/v1/projects/acme/context/packs" and method == "POST":
                 return {
                     "pack": {
                         "id": "ctxpack-1",
@@ -538,7 +538,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "createdAtUtc": "1780620000.000000000Z",
                     }
                 }
-            if path == "/v1/workspaces/acme/context/query" and method == "POST":
+            if path == "/v1/projects/acme/context/query" and method == "POST":
                 return {
                     "result": {
                         "kind": body["kind"],
@@ -546,7 +546,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                         "omitted": 0,
                     }
                 }
-            if path == "/v1/workspaces/acme/context/feedback" and method == "POST":
+            if path == "/v1/projects/acme/context/feedback" and method == "POST":
                 return {
                     "receipt": {
                         "accepted": True,
@@ -564,7 +564,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             if (
-                path == "/v1/workspaces/acme/context/learnings/approve"
+                path == "/v1/projects/acme/context/learnings/approve"
                 and method == "POST"
             ):
                 return {
@@ -611,7 +611,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
             ModelProfileInput(
                 provider="openai_compatible",
                 model="gpt-5",
-                secret_ref="vault://workspaces/acme/models/default",
+                secret_ref="vault://projects/acme/models/default",
                 base_url="https://models.example.test",
                 routing={"region": "us-east"},
             ),
@@ -622,7 +622,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
             "github",
             ProviderProfileInput(
                 provider="github",
-                secret_ref="vault://workspaces/acme/providers/github",
+                secret_ref="vault://projects/acme/providers/github",
                 base_url="https://api.github.com",
                 routing={"installation": "123"},
             ),
@@ -631,13 +631,7 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         providers = await workspace.providers.list()
         review = await workspace.review(
             "github:maskdotdev/heimdaal#123",
-            ReviewOptions(
-                model=openai(
-                    "gpt-5",
-                    credential={"secretRef": "vault://workspaces/acme/models/default"},
-                    base_url="https://models.example.test",
-                )
-            ),
+            ReviewOptions(model="default"),
         )
         manifest = await workspace.context.index(
             source=local("/repo"),
@@ -670,10 +664,10 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(workspace.id, "acme")
         self.assertEqual(model.model, "gpt-5")
-        self.assertEqual(loaded_model.secret_ref, "vault://workspaces/acme/models/default")
+        self.assertEqual(loaded_model.secret_ref, "vault://projects/acme/models/default")
         self.assertEqual(len(models), 1)
         self.assertEqual(provider.provider, "github")
-        self.assertEqual(loaded_provider.secret_ref, "vault://workspaces/acme/providers/github")
+        self.assertEqual(loaded_provider.secret_ref, "vault://projects/acme/providers/github")
         self.assertEqual(len(providers), 1)
         self.assertEqual(review.id, "review-workspace-1")
         self.assertEqual(manifest["schemaVersion"], "muzen.context_manifest.v1")
@@ -687,21 +681,22 @@ class RemoteClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(feedback_request["source"]["type"], "local")
         self.assertEqual(feedback_request["source"]["repo"], "/repo")
         self.assertNotIn("learningSource", feedback_request)
+        self.assertEqual(requests[6]["body"]["options"]["model"], "default")
         self.assertEqual(
             [request["path"] for request in requests],
             [
-                "/v1/workspaces/acme/models/default",
-                "/v1/workspaces/acme/models/default",
-                "/v1/workspaces/acme/models",
-                "/v1/workspaces/acme/providers/github",
-                "/v1/workspaces/acme/providers/github",
-                "/v1/workspaces/acme/providers",
-                "/v1/workspaces/acme/reviews",
-                "/v1/workspaces/acme/context/index",
-                "/v1/workspaces/acme/context/packs",
-                "/v1/workspaces/acme/context/query",
-                "/v1/workspaces/acme/context/feedback",
-                "/v1/workspaces/acme/context/learnings/approve",
+                "/v1/projects/acme/models/default",
+                "/v1/projects/acme/models/default",
+                "/v1/projects/acme/models",
+                "/v1/projects/acme/providers/github",
+                "/v1/projects/acme/providers/github",
+                "/v1/projects/acme/providers",
+                "/v1/projects/acme/reviews",
+                "/v1/projects/acme/context/index",
+                "/v1/projects/acme/context/packs",
+                "/v1/projects/acme/context/query",
+                "/v1/projects/acme/context/feedback",
+                "/v1/projects/acme/context/learnings/approve",
                 "/v1/reviews/review-workspace-1/result",
             ],
         )

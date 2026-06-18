@@ -90,6 +90,10 @@ _HOSTED_MODEL_SPECS = (OpenAIReviewModelSpec, AnthropicReviewModelSpec)
 
 
 def _model_plan(model: Any, sessions: List[Any]) -> Dict[str, Any]:
+    if isinstance(model, str):
+        raise ValueError(
+            "model profile names are only supported by remote workspace reviews; pass a hosted model to local runs"
+        )
     profiles: Dict[str, Dict[str, Any]] = {}
     session_profiles: Dict[str, str] = {}
     default_profile_id: Optional[str] = None

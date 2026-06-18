@@ -177,7 +177,7 @@ function terminalEventType(status: ReviewStatus): ReviewEvent["type"] {
 }
 
 function requestedChangedFiles(review: StoredReview): string[] {
-  return review.options.scope?.files ?? [];
+  return review.options.change?.changedFiles?.map((file) => file.path) ?? [];
 }
 
 function inferredReviewError(review: StoredReview): string | undefined {

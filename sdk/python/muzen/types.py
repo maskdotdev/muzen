@@ -505,8 +505,7 @@ class ProviderProfile:
 @dataclass(frozen=True)
 class ReviewOptions:
     dedupe: Union[str, Dict[str, str]] = "none"
-    cancel_superseded: bool = False
-    model: Optional[ReviewModelSpec] = None
+    model: Optional[Union[ReviewModelSpec, str]] = None
     change: Optional["ReviewChangeSpec"] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     instructions: List["ReviewInstruction"] = field(default_factory=list)

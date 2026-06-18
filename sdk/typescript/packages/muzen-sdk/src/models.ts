@@ -64,13 +64,13 @@ export function anthropic(
 }
 
 export function isCallbackReviewModelSpec(
-  model: ReviewModelSpec | undefined,
+  model: ReviewOptions["model"] | undefined,
 ): model is Extract<ReviewModelSpec, { kind: "callback" }> {
   return typeof model === "object" && model !== null && model.kind === "callback";
 }
 
 export function isHostedReviewModelSpec(
-  model: ReviewModelSpec | undefined,
+  model: ReviewOptions["model"] | undefined,
 ): model is ReviewHostedModelSpec {
   return typeof model === "object" && model !== null && model.kind === "provider";
 }
@@ -86,7 +86,7 @@ export function swarmOptionsRequireSecretResolver(options: SwarmOptions): boolea
   );
 }
 
-function modelUsesSecretRef(model: ReviewModelSpec | undefined): boolean {
+function modelUsesSecretRef(model: ReviewOptions["model"] | undefined): boolean {
   return (
     isHostedReviewModelSpec(model) &&
     typeof model.credential === "object" &&

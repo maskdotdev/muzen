@@ -97,7 +97,6 @@ describe("review cancellation", () => {
     await remote.review(local("/repo"), {
       signal: controller.signal,
       hooks: { onEvent: () => {} },
-      model: { kind: "callback", handler: () => ({ content: "done" }) },
       sourceProvider: {
         baseUrl: "https://source.example",
         handler: () => ({ root: "/bundle" }),

@@ -187,6 +187,80 @@ fn materializes_provider_source_from_local_git_remote() {
     assert!(inline_diff.contains("+pub fn fixture() {}"));
 }
 
+#[test]
+fn materializes_provider_source_including_deleted_files() {
+    if Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let root = tempfile::tempdir().expect("temp root");
+    let remote = root.path().join("maskdotdev").join("heimdaal.git");
+    fs::create_dir_all(remote.parent().expect("remote parent")).expect("remote parent");
+    git(root.path(), &["init", "--bare", remote.to_str().unwrap()]);
+
+    let work = root.path().join("work");
+    fs::create_dir_all(&work).expect("work dir");
+    git(&work, &["init", "."]);
+    fs::write(work.join("README.md"), "# fixture\n").expect("write base");
+    git(&work, &["add", "README.md"]);
+    git(
+        &work,
+        &[
+            "-c",
+            "user.name=Muzen Test",
+            "-c",
+            "user.email=muzen@example.test",
+            "commit",
+            "-m",
+            "base",
+        ],
+    );
+    git(
+        &work,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&work, &["push", "origin", "HEAD:master"]);
+    git(
+        root.path(),
+        &[
+            "--git-dir",
+            remote.to_str().unwrap(),
+            "symbolic-ref",
+            "HEAD",
+            "refs/heads/master",
+        ],
+    );
+    fs::remove_file(work.join("README.md")).expect("remove changed file");
+    git(&work, &["add", "README.md"]);
+    git(
+        &work,
+        &[
+            "-c",
+            "user.name=Muzen Test",
+            "-c",
+            "user.email=muzen@example.test",
+            "commit",
+            "-m",
+            "delete readme",
+        ],
+    );
+    git(&work, &["push", "origin", "HEAD:refs/pull/123/head"]);
+
+    let source = ReviewSource::github_pull_request("maskdotdev", "heimdaal", 123).unwrap();
+    let provider = SourceProviderConfig {
+        base_url: Some(format!("file://{}", root.path().display())),
+        callback: false,
+    };
+
+    let materialized =
+        materialize_run_source(None, Some(&source), &[], Some(&provider), None).unwrap();
+
+    assert!(!materialized.repo_root().join("README.md").exists());
+    assert_eq!(materialized.changed_files(), &["README.md".to_string()]);
+    let inline_diff = materialized.inline_diff().expect("inline diff");
+    assert!(inline_diff.contains("deleted file mode"));
+    assert!(inline_diff.contains("-# fixture"));
+}
+
 fn git(workdir: &Path, args: &[&str]) {
     let output = Command::new("git")
         .current_dir(workdir)

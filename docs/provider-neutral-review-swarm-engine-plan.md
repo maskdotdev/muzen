@@ -346,7 +346,7 @@ type ReviewSessionSpec = {
   model?: ModelSpec
   instructions?: InstructionSpec[]
   toolGrants?: ToolGrant[]
-  scope?: ReviewScope
+  cwd?: string
   limits?: SessionLimits
   output?: SessionOutputPolicy
 }

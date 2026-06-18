@@ -163,7 +163,7 @@ class RemoteWorkspace:
         snapshot = _unwrap_review_snapshot(
             await self._client._request_json(
                 "POST",
-                f"/v1/workspaces/{_quote(self.id)}/reviews",
+                f"/v1/projects/{_quote(self.id)}/reviews",
                 {
                     "source": _source_to_remote(source),
                     "options": _review_options_to_remote(options or ReviewOptions()),
@@ -319,7 +319,7 @@ class RemoteContextWorkspace:
         )["receipt"]
 
     def _path(self, kind: str) -> str:
-        return f"/v1/workspaces/{_quote(self._workspace_id)}/context/{kind}"
+        return f"/v1/projects/{_quote(self._workspace_id)}/context/{kind}"
 
 
 class RemoteWorkspaceProfileCollection:
@@ -360,7 +360,7 @@ class RemoteWorkspaceProfileCollection:
         )
 
     def _collection_path(self) -> str:
-        return f"/v1/workspaces/{_quote(self._workspace_id)}/{self._kind}"
+        return f"/v1/projects/{_quote(self._workspace_id)}/{self._kind}"
 
     def _profile_path(self, name: str) -> str:
         return f"{self._collection_path()}/{_quote(name)}"
@@ -488,7 +488,6 @@ class RemoteReviewSession:
 def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
     return {
         "dedupe": options.dedupe,
-        "cancelSuperseded": options.cancel_superseded,
         "model": _model_to_remote(options.model),
         "metadata": options.metadata,
         "change": _change_to_runner(options),
@@ -498,23 +497,17 @@ def _review_options_to_remote(options: ReviewOptions) -> Dict[str, Any]:
 
 
 def _model_to_remote(model: Any) -> Any:
+    if model is None:
+        return None
+    if isinstance(model, str):
+        return model
     if isinstance(model, OpenAIReviewModelSpec):
-        return {
-            "kind": model.kind,
-            "provider": model.provider,
-            "model": model.model,
-            "credential": {
-                "env": model.credential.env,
-                "secretRef": model.credential.secret_ref,
-            },
-            "baseUrl": model.base_url,
-            "apiProtocol": model.api_protocol,
-            "maxInputTokens": model.max_input_tokens,
-            "maxOutputTokens": model.max_output_tokens,
-            "temperature": model.temperature,
-            "topP": model.top_p,
-        }
-    return None
+        raise ValueError(
+            'remote reviews use stored project model profile names; pass model="default" or another profile id'
+        )
+    raise ValueError(
+        'remote reviews use stored project model profile names; pass model="default" or another profile id'
+    )
 
 
 def _context_index_body(

@@ -162,7 +162,7 @@ function mapHeartbeat(options: Pick<ReviewOptions, "hooks" | "heartbeat">): unkn
   };
 }
 
-function mapReviewModel(model: ReviewModelSpec | undefined): unknown {
+function mapReviewModel(model: ReviewOptions["model"] | undefined): unknown {
   if (isCallbackReviewModelSpec(model)) {
     return { callback: true };
   }
@@ -184,9 +184,14 @@ function mapReviewModels(options: ReviewOptions): ModelPlan {
 }
 
 function mapModelPlan(
-  model: ReviewModelSpec | undefined,
+  model: ReviewOptions["model"] | undefined,
   sessions: SessionModelOverride[],
 ): ModelPlan {
+  if (typeof model === "string") {
+    throw new Error(
+      "model profile names are only supported by remote workspace reviews; pass a callback or hosted model to local runs",
+    );
+  }
   if (isCallbackReviewModelSpec(model)) {
     rejectHostedSessionOverrides(sessions);
     return {

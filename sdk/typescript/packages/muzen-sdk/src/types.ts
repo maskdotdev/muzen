@@ -73,8 +73,7 @@ export type DedupePolicy =
 
 export interface ReviewOptions {
   dedupe?: DedupePolicy;
-  cancelSuperseded?: boolean;
-  model?: ReviewModelSpec;
+  model?: ReviewModelSpec | string;
   sourceProvider?: ReviewSourceProvider;
   hooks?: ReviewHooks;
   heartbeat?: ReviewHeartbeatOptions;
