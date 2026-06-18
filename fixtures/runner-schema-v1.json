@@ -1521,7 +1521,7 @@
       "fields": [
         {
           "name": "reviewOptions",
-          "type": "ReviewOptions",
+          "type": "json",
           "required": false,
           "default": "{}"
         }
@@ -3308,29 +3308,6 @@
       ]
     },
     {
-      "name": "ContextLearningApproval",
-      "shape": "object",
-      "fields": [
-        {
-          "name": "learningId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "approve",
-          "type": "boolean",
-          "required": false,
-          "default": "false"
-        },
-        {
-          "name": "expiresAtUtc",
-          "type": "string",
-          "required": false,
-          "default": "null"
-        }
-      ]
-    },
-    {
       "name": "ContextLearningApprovalParams",
       "shape": "object",
       "fields": [
@@ -3370,64 +3347,6 @@
         {
           "name": "learning",
           "type": "ContextLearning",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "ContextFindingEvidence",
-      "shape": "object",
-      "fields": [
-        {
-          "name": "findingId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "primaryEvidence",
-          "type": "string[]",
-          "required": true
-        },
-        {
-          "name": "supportingEvidence",
-          "type": "string[]",
-          "required": true
-        },
-        {
-          "name": "contradictedBy",
-          "type": "string[]",
-          "required": true
-        },
-        {
-          "name": "sufficiency",
-          "type": "ContextSufficiencyStatus",
-          "required": true
-        },
-        {
-          "name": "artifactId",
-          "type": "string",
-          "required": false,
-          "default": "null"
-        }
-      ]
-    },
-    {
-      "name": "ContextFindingsEvidenceArtifact",
-      "shape": "object",
-      "fields": [
-        {
-          "name": "schemaVersion",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "runId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "findings",
-          "type": "ContextFindingEvidence[]",
           "required": true
         }
       ]
@@ -3511,7 +3430,7 @@
         },
         {
           "name": "event",
-          "type": "ReviewEvent",
+          "type": "json",
           "required": true
         }
       ]
@@ -3532,12 +3451,12 @@
         },
         {
           "name": "context",
-          "type": "RuntimeEventContext",
+          "type": "json",
           "required": true
         },
         {
           "name": "event",
-          "type": "RuntimeEvent",
+          "type": "json",
           "required": true
         }
       ]

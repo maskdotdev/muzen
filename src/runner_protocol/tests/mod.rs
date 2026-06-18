@@ -123,6 +123,114 @@ fn schema_marks_wired_run_methods_and_callbacks_implemented() {
 }
 
 #[test]
+fn schema_definitions_cover_referenced_payload_types() {
+    let schema = protocol_schema();
+    let definitions = schema
+        .definitions
+        .iter()
+        .map(|definition| definition.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut missing = Vec::new();
+
+    for method in schema
+        .requests
+        .iter()
+        .chain(schema.callbacks.iter())
+        .chain(schema.notifications.iter())
+    {
+        for payload in method.params.iter().chain(method.result.iter()) {
+            if !definitions.contains(payload.name.as_str()) {
+                missing.push(format!("{} -> {}", method.method, payload.name));
+            }
+        }
+    }
+    for definition in &schema.definitions {
+        for field in &definition.fields {
+            let Some(payload_type) = referenced_payload_type(&field.value_type) else {
+                continue;
+            };
+            if !definitions.contains(payload_type) {
+                missing.push(format!(
+                    "{}.{} -> {}",
+                    definition.name, field.name, payload_type
+                ));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "missing schema definitions: {missing:?}"
+    );
+}
+
+#[test]
+fn schema_definitions_are_reachable_from_methods() {
+    let schema = protocol_schema();
+    let definitions = schema
+        .definitions
+        .iter()
+        .map(|definition| (definition.name.as_str(), definition))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut reachable = std::collections::BTreeSet::new();
+    let mut stack = Vec::new();
+
+    for method in schema
+        .requests
+        .iter()
+        .chain(schema.callbacks.iter())
+        .chain(schema.notifications.iter())
+    {
+        stack.extend(
+            method
+                .params
+                .iter()
+                .chain(method.result.iter())
+                .map(|payload| payload.name.as_str()),
+        );
+    }
+    while let Some(name) = stack.pop() {
+        if !reachable.insert(name) {
+            continue;
+        }
+        let Some(definition) = definitions.get(name) else {
+            continue;
+        };
+        for field in &definition.fields {
+            if let Some(payload_type) = referenced_payload_type(&field.value_type) {
+                stack.push(payload_type);
+            }
+        }
+    }
+
+    let unreachable = definitions
+        .keys()
+        .filter(|name| !reachable.contains(**name))
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(
+        unreachable.is_empty(),
+        "unreachable schema definitions: {unreachable:?}"
+    );
+}
+
+fn referenced_payload_type(value_type: &str) -> Option<&str> {
+    let value_type = value_type.strip_suffix("[]").unwrap_or(value_type);
+    if value_type.contains('<') || value_type.contains('|') {
+        return None;
+    }
+    if value_type
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_uppercase())
+    {
+        Some(value_type)
+    } else {
+        None
+    }
+}
+
+#[test]
 fn stdio_handles_multiple_requests() {
     let input = br#"{"jsonrpc":"2.0","id":1,"method":"runner.check"}
 {"jsonrpc":"2.0","id":2,"method":"runner.schema.export"}

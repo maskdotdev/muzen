@@ -364,7 +364,7 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
         ),
         object(
             "WebhookReviewOptions",
-            vec![defaulted("reviewOptions", "ReviewOptions", "{}")],
+            vec![defaulted("reviewOptions", "json", "{}")],
         ),
         object(
             "WorkerRunOnceParams",
@@ -956,14 +956,6 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec!["repository", "workspace", "organization"],
         ),
         object(
-            "ContextLearningApproval",
-            vec![
-                required("learningId", "string"),
-                defaulted("approve", "boolean", "false"),
-                optional("expiresAtUtc", "string"),
-            ],
-        ),
-        object(
             "ContextLearningApprovalParams",
             vec![
                 required("snapshotId", "string"),
@@ -977,25 +969,6 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("accepted", "boolean"),
                 required("learning", "ContextLearning"),
-            ],
-        ),
-        object(
-            "ContextFindingEvidence",
-            vec![
-                required("findingId", "string"),
-                required("primaryEvidence", "string[]"),
-                required("supportingEvidence", "string[]"),
-                required("contradictedBy", "string[]"),
-                required("sufficiency", "ContextSufficiencyStatus"),
-                optional("artifactId", "string"),
-            ],
-        ),
-        object(
-            "ContextFindingsEvidenceArtifact",
-            vec![
-                required("schemaVersion", "string"),
-                required("runId", "string"),
-                required("findings", "ContextFindingEvidence[]"),
             ],
         ),
         object(
@@ -1018,7 +991,7 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("toolCallId", "string"),
                 optional("artifactId", "string"),
                 optional("findingId", "string"),
-                required("event", "ReviewEvent"),
+                required("event", "json"),
             ],
         ),
         object(
@@ -1026,8 +999,8 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             vec![
                 required("seq", "integer"),
                 required("timestampUtc", "string"),
-                required("context", "RuntimeEventContext"),
-                required("event", "RuntimeEvent"),
+                required("context", "json"),
+                required("event", "json"),
             ],
         ),
         object(
