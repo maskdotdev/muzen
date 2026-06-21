@@ -188,7 +188,7 @@ Protocol heartbeat pressure sweep:
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061048Z \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061457Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -208,20 +208,20 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061048Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061457Z/protocol-session-stress-summary.json
 ```
 
 | Mode | Runs | Completed runs | Sessions per run | Tool calls per run | Heartbeat callbacks | Model callbacks | Tool callbacks | Callback ownership errors | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 4 | 4 | 3 | 6 | 117 | 36 | 24 | 0 | passed |
-| process | 4 | 4 | 3 | 6 | 120 | 36 | 24 | 0 | passed |
+| shared | 4 | 4 | 3 | 6 | 116 | 36 | 24 | 0 | passed |
+| process | 4 | 4 | 3 | 6 | 116 | 36 | 24 | 0 | passed |
 
 Protocol heartbeat cancellation sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061102Z \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061457Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -241,13 +241,77 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061102Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061457Z/protocol-session-stress-summary.json
 ```
 
 | Mode | Runs | Completed runs | Cancelled runs | Heartbeat callbacks | Run-failed notifications | Run-finished notifications | Callback ownership errors | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 4 | 3 | 1 | 90 | 1 | 3 | 0 | passed |
-| process | 4 | 3 | 1 | 87 | 1 | 3 | 0 | passed |
+| shared | 4 | 3 | 1 | 88 | 1 | 3 | 0 | passed |
+| process | 4 | 3 | 1 | 88 | 1 | 3 | 0 | passed |
+
+Protocol in-flight status pressure sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-status-pressure-20260621T061421Z \
+  --cases 4 \
+  --concurrency 2 \
+  --sessions 3 \
+  --max-active-sessions 2 \
+  --max-tool-calls 4 \
+  --max-turns 8 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 1 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --status-poll-interval-ms 25 \
+  --artifact-bytes 2048
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-status-pressure-20260621T061421Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Running status polls per run | Status poll errors | Model callbacks | Tool callbacks | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 4 | 35 | 0 | 36 | 24 | 0 | passed |
+| process | 4 | 4 | 35 | 0 | 36 | 24 | 0 | passed |
+
+Protocol explicit cancel request sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-request-cancel-20260621T061436Z \
+  --cases 4 \
+  --concurrency 2 \
+  --sessions 3 \
+  --max-active-sessions 2 \
+  --max-tool-calls 4 \
+  --max-turns 8 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 1 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --status-poll-interval-ms 25 \
+  --request-cancel-mode cancel-first \
+  --request-cancel-after-status 1 \
+  --artifact-bytes 2048
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-request-cancel-20260621T061436Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Cancelled runs | Accepted cancel requests | Running status polls on cancelled run | Run-failed notifications | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 3 | 1 | 1 | 6 | 1 | 0 | passed |
+| process | 4 | 3 | 1 | 1 | 6 | 1 | 0 | passed |
 
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
@@ -294,6 +358,11 @@ Interpretation:
   metrics. In cancellation mode, declining the first heartbeat for
   `protocol-run-1` cancels exactly that run in both shared and process modes;
   the remaining runs complete and no callback crosses run/session ownership.
+- In-flight `run.status` and explicit `run.cancel` pressure are covered against
+  active shared runs. Status polling observes `running` while sessions are still
+  executing, and an explicit cancel request against `protocol-run-1` cancels
+  exactly one run while the remaining runs complete in both shared and process
+  modes.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -309,11 +378,11 @@ Current recommendation: do not run live evals for this runner investigation yet.
 The deterministic shared/process protocol path is now covered for explicit
 multi-session fan-out, delayed callback tools, callback/custom tool accounting,
 session-budget reporting, direct-session budget exhaustion, active-session
-heartbeats, and heartbeat-triggered cancellation. The next useful fake-first
-step is protocol status/cancel-query pressure against in-flight shared runs, or
-tightening cancelled-run result visibility so the harness can assert partial
-session diagnostics instead of treating expected heartbeat cancellation as a
-terminal JSON-RPC error.
+heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
+explicit cancel requests. The next useful fake-first step is tightening
+cancelled-run result visibility so the harness can assert partial session
+diagnostics instead of treating expected cancellation as a terminal JSON-RPC
+error.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

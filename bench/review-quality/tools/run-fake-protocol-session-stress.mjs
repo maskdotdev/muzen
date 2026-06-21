@@ -30,6 +30,9 @@ const artifactBytes = positiveInt(args.artifactBytes || "2048", "--artifact-byte
 const heartbeatMode = enumArg(args.heartbeatMode || "none", ["none", "continue", "cancel-first"], "--heartbeat-mode");
 const heartbeatIntervalMs = positiveInt(args.heartbeatIntervalMs || "30", "--heartbeat-interval-ms");
 const heartbeatLeaseSeconds = positiveInt(args.heartbeatLeaseSeconds || "1", "--heartbeat-lease-seconds");
+const statusPollIntervalMs = nonnegativeInt(args.statusPollIntervalMs || "0", "--status-poll-interval-ms");
+const requestCancelMode = enumArg(args.requestCancelMode || "none", ["none", "cancel-first"], "--request-cancel-mode");
+const requestCancelAfterStatus = positiveInt(args.requestCancelAfterStatus || "1", "--request-cancel-after-status");
 const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
 
 const config = {
@@ -47,6 +50,9 @@ const config = {
   heartbeatMode,
   heartbeatIntervalMs,
   heartbeatLeaseSeconds,
+  statusPollIntervalMs,
+  requestCancelMode,
+  requestCancelAfterStatus,
 };
 
 async function main() {
@@ -496,6 +502,17 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
         (diagnostic) => diagnostic.exhaustedToolBudget === true,
       ).length,
       budgetRejectedToolCalls: budgetRejectedByRun[result.runId] ?? 0,
+      statusPolls: Array.isArray(result.protocolPressure?.statusPolls)
+        ? result.protocolPressure.statusPolls.length
+        : 0,
+      runningStatusPolls: Array.isArray(result.protocolPressure?.statusPolls)
+        ? result.protocolPressure.statusPolls.filter((poll) => poll.status === "running").length
+        : 0,
+      statusPollErrors: Array.isArray(result.protocolPressure?.statusPolls)
+        ? result.protocolPressure.statusPolls.filter((poll) => poll.error).length
+        : 0,
+      cancelRequested: result.protocolPressure?.cancelResult != null,
+      cancelAccepted: result.protocolPressure?.cancelResult?.cancelled === true,
     };
   });
   const callbacksByRun = groupBy(callbacks, (record) => record.runId ?? "unknown");
@@ -532,6 +549,14 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
     totalTokens: stats(runResults.map((result) => result.totalTokens)),
     findings: stats(runResults.map((result) => result.findings)),
     sessionOutputs: stats(runResults.map((result) => result.sessionOutputs)),
+    statusPolls: stats(runResults.map((result) => result.statusPolls)),
+    runningStatusPolls: stats(runResults.map((result) => result.runningStatusPolls)),
+    statusPollErrors: stats(runResults.map((result) => result.statusPollErrors)),
+    cancelRequests: countObject(
+      runResults
+        .filter((result) => result.cancelRequested)
+        .map((result) => (result.cancelAccepted ? "accepted" : "rejected")),
+    ),
     callbacks: {
       total: callbacks.length,
       byMethod: countObject(callbacks.map((record) => record.method)),
@@ -568,7 +593,8 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
 }
 
 function buildReport({ outputDir, runnerPath, config, shared, process }) {
-  const expectsAllRunsCompleted = config.heartbeatMode !== "cancel-first";
+  const expectsAllRunsCompleted =
+    config.heartbeatMode !== "cancel-first" && config.requestCancelMode !== "cancel-first";
   const expectedSuccessfulToolCallsPerSession = Math.min(config.toolsPerSession, config.maxToolCalls);
   const expectedToolCallsPerRun = config.sessions * expectedSuccessfulToolCallsPerSession;
   const expectedBudgetRejectedToolCallsPerRun =
@@ -705,6 +731,34 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
         ? ["process.expectedOneCancelledHeartbeatRun"]
         : []),
     ],
+    requestPressureFailures: [
+      ...(config.statusPollIntervalMs > 0 && shared.statusPolls.min < 1
+        ? ["shared.missingStatusPolls"]
+        : []),
+      ...(config.statusPollIntervalMs > 0 && process.statusPolls.min < 1
+        ? ["process.missingStatusPolls"]
+        : []),
+      ...(config.statusPollIntervalMs > 0 && shared.runningStatusPolls.min < 1
+        ? ["shared.missingRunningStatusPolls"]
+        : []),
+      ...(config.statusPollIntervalMs > 0 && process.runningStatusPolls.min < 1
+        ? ["process.missingRunningStatusPolls"]
+        : []),
+      ...(shared.statusPollErrors.max > 0 ? ["shared.statusPollErrors"] : []),
+      ...(process.statusPollErrors.max > 0 ? ["process.statusPollErrors"] : []),
+      ...(config.requestCancelMode === "cancel-first" && shared.statuses.cancelled !== 1
+        ? ["shared.expectedOneRequestCancelledRun"]
+        : []),
+      ...(config.requestCancelMode === "cancel-first" && process.statuses.cancelled !== 1
+        ? ["process.expectedOneRequestCancelledRun"]
+        : []),
+      ...(config.requestCancelMode === "cancel-first" && shared.cancelRequests.accepted !== 1
+        ? ["shared.expectedOneAcceptedCancelRequest"]
+        : []),
+      ...(config.requestCancelMode === "cancel-first" && process.cancelRequests.accepted !== 1
+        ? ["process.expectedOneAcceptedCancelRequest"]
+        : []),
+    ],
   };
   return {
     schemaVersion: "muzen.fake-protocol-session-stress.v1",
@@ -725,29 +779,106 @@ function hasBlockingRegression(report) {
     report.regressions.isolationFailures.length > 0 ||
     report.regressions.toolAccountingFailures.length > 0 ||
     report.regressions.explicitSessionFailures.length > 0 ||
-    report.regressions.heartbeatFailures.length > 0
+    report.regressions.heartbeatFailures.length > 0 ||
+    report.regressions.requestPressureFailures.length > 0
   );
 }
 
 async function runFixtureWithExpectedCancellation(runner, fixture, config) {
+  const start = runner.runStart(runStartForFixture(fixture, config));
+  const monitor =
+    config.statusPollIntervalMs > 0 || expectsRequestCancellation(config, fixture.runId)
+      ? monitorActiveRun(runner, fixture, config, start)
+      : Promise.resolve({ statusPolls: [], cancelResult: null });
   try {
-    return await runner.runStart(runStartForFixture(fixture, config));
+    const result = await start;
+    result.protocolPressure = await monitor;
+    return result;
   } catch (error) {
-    if (expectsHeartbeatCancellation(config, fixture.runId)) {
+    const protocolPressure = await monitor;
+    if (expectsCancellation(config, fixture.runId)) {
       return {
         runId: fixture.runId,
         status: "cancelled",
         error: error instanceof Error ? error.message : String(error),
         findings: [],
         sessionOutputs: [],
+        protocolPressure,
       };
     }
     throw error;
   }
 }
 
+async function monitorActiveRun(runner, fixture, config, start) {
+  const statusPolls = [];
+  let cancelResult = null;
+  let settled = false;
+  start.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  while (!settled) {
+    await sleep(config.statusPollIntervalMs || 10);
+    if (settled) break;
+    const poll = await lookupRunStatus(runner, fixture.runId);
+    statusPolls.push(poll);
+    if (
+      !cancelResult &&
+      expectsRequestCancellation(config, fixture.runId) &&
+      statusPolls.filter((status) => status.status === "running").length >=
+        config.requestCancelAfterStatus
+    ) {
+      cancelResult = await cancelRun(runner, fixture.runId);
+    }
+  }
+  return { statusPolls, cancelResult };
+}
+
+async function lookupRunStatus(runner, runId) {
+  try {
+    const result = await runner.request("run.status", { runId });
+    return {
+      runId,
+      status: result.status ?? null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      runId,
+      status: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function cancelRun(runner, runId) {
+  try {
+    return await runner.request("run.cancel", { runId });
+  } catch (error) {
+    return {
+      runId,
+      status: null,
+      cancelled: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function expectsCancellation(config, runId) {
+  return expectsHeartbeatCancellation(config, runId) || expectsRequestCancellation(config, runId);
+}
+
 function expectsHeartbeatCancellation(config, runId) {
   return config.heartbeatMode === "cancel-first" && runId === "protocol-run-1";
+}
+
+function expectsRequestCancellation(config, runId) {
+  return config.requestCancelMode === "cancel-first" && runId === "protocol-run-1";
 }
 
 function stableCallbackCounts(counts) {
@@ -937,7 +1068,7 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--heartbeat-mode none|continue|cancel-first] [--heartbeat-interval-ms 30] [--heartbeat-lease-seconds 1] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--heartbeat-mode none|continue|cancel-first] [--heartbeat-interval-ms 30] [--heartbeat-lease-seconds 1] [--status-poll-interval-ms 0] [--request-cancel-mode none|cancel-first] [--request-cancel-after-status 1] [--fail-on-regression true|false]\n",
   );
 }
 
