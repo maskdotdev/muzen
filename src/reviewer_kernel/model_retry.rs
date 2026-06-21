@@ -13,7 +13,9 @@ use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::{
     ConversationItem, ModelTurn, RuntimeError, RuntimeLimits, RuntimeResult, SessionScope, TurnId,
 };
-use crate::reviewer_kernel::model::ConcurrentModelClient;
+use crate::reviewer_kernel::model::{
+    observe_model_limiter_waits, ConcurrentModelClient, ModelLimiterWaitSnapshot,
+};
 use crate::reviewer_kernel::policy::ReviewerPolicy;
 
 pub(crate) struct ModelTurnOutcome {
@@ -21,6 +23,7 @@ pub(crate) struct ModelTurnOutcome {
     /// Model calls actually made; on success the last attempt is the one
     /// that succeeded, so `attempts - 1` of them errored.
     pub(crate) attempts: usize,
+    pub(crate) limiter_wait: ModelLimiterWaitSnapshot,
 }
 
 /// `event_scope` names the session in emitted events; `call_scope` may differ
@@ -39,18 +42,21 @@ pub(crate) async fn complete_model_turn(
 ) -> ModelTurnOutcome {
     let max_attempts = limits.model_retry_max_attempts.max(1);
     let mut attempt = 0usize;
+    let mut limiter_wait = ModelLimiterWaitSnapshot::default();
     loop {
         attempt += 1;
-        let outcome = tokio::time::timeout(
+        let (outcome, attempt_limiter_wait) = observe_model_limiter_waits(tokio::time::timeout(
             Duration::from_millis(limits.max_model_turn_ms.max(1)),
             model.complete(call_scope, transcript, turn_id, cancel.child_token()),
-        )
+        ))
         .await;
+        limiter_wait.add(attempt_limiter_wait);
         let error = match outcome {
             Ok(Ok(turn)) => {
                 return ModelTurnOutcome {
                     result: Ok(turn),
                     attempts: attempt,
+                    limiter_wait,
                 }
             }
             Ok(Err(error)) => error,
@@ -69,6 +75,7 @@ pub(crate) async fn complete_model_turn(
             return ModelTurnOutcome {
                 result: Err(error),
                 attempts: attempt,
+                limiter_wait,
             };
         }
         let delay = backoff_delay(limits, &event_scope.id.0, attempt);
@@ -77,6 +84,7 @@ pub(crate) async fn complete_model_turn(
                 return ModelTurnOutcome {
                     result: Err(RuntimeError::Cancelled),
                     attempts: attempt,
+                    limiter_wait,
                 }
             }
             _ = tokio::time::sleep(delay) => {}

@@ -44,6 +44,10 @@ function compareRunnerModes(sharedRoot, processRoot) {
         modelCalls: sharedCase.modelCalls - processCase.modelCalls,
         toolCalls: sharedCase.toolCalls - processCase.toolCalls,
         totalTokens: sharedCase.totalTokens - processCase.totalTokens,
+        modelLimiterWaitMs:
+          sharedCase.modelLimiterWaitMs - processCase.modelLimiterWaitMs,
+        maxModelLimiterWaitMs:
+          sharedCase.maxModelLimiterWaitMs - processCase.maxModelLimiterWaitMs,
         findings: sharedCase.findings - processCase.findings,
         candidates: sharedCase.candidates - processCase.candidates,
         hits: sharedCase.hits - processCase.hits,
@@ -73,6 +77,9 @@ function compareRunnerModes(sharedRoot, processRoot) {
         modelCalls: sharedSummary.totals.modelCalls - processSummary.totals.modelCalls,
         toolCalls: sharedSummary.totals.toolCalls - processSummary.totals.toolCalls,
         totalTokens: sharedSummary.totals.totalTokens - processSummary.totals.totalTokens,
+        modelLimiterWaitMs:
+          (sharedSummary.totals.modelLimiterWaitMs ?? 0) -
+          (processSummary.totals.modelLimiterWaitMs ?? 0),
         findings: sharedSummary.totals.findings - processSummary.totals.findings,
         hits: sharedSummary.totals.hits - processSummary.totals.hits,
         misses: sharedSummary.totals.misses - processSummary.totals.misses,
@@ -94,6 +101,8 @@ function compactCase(root, name, report) {
     modelCalls: report.review?.modelCalls ?? 0,
     toolCalls: report.review?.toolCalls ?? 0,
     totalTokens: report.review?.tokens?.totalTokens ?? 0,
+    modelLimiterWaitMs: report.review?.modelMetrics?.limiterWaitMs ?? 0,
+    maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
     findings: report.review?.findings ?? 0,
     candidates: report.benchmark?.candidateCount ?? 0,
     rejectedCandidates: report.benchmark?.rejectedCandidateCount ?? 0,

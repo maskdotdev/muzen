@@ -122,6 +122,8 @@ fn merge_model_metrics(left: &mut ModelMetricsSnapshot, right: ModelMetricsSnaps
     left.unpriced_calls += right.unpriced_calls;
     left.latency_ms += right.latency_ms;
     left.max_latency_ms = left.max_latency_ms.max(right.max_latency_ms);
+    left.limiter_wait_ms += right.limiter_wait_ms;
+    left.max_limiter_wait_ms = left.max_limiter_wait_ms.max(right.max_limiter_wait_ms);
     left.estimated_input_cost_micro_usd += right.estimated_input_cost_micro_usd;
     left.estimated_output_cost_micro_usd += right.estimated_output_cost_micro_usd;
     left.estimated_total_cost_micro_usd += right.estimated_total_cost_micro_usd;

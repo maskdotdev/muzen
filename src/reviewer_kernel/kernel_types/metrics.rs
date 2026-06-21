@@ -67,6 +67,8 @@ pub struct ModelMetricsSnapshot {
     pub unpriced_calls: usize,
     pub latency_ms: u64,
     pub max_latency_ms: u64,
+    pub limiter_wait_ms: u64,
+    pub max_limiter_wait_ms: u64,
     pub estimated_input_cost_micro_usd: u64,
     pub estimated_output_cost_micro_usd: u64,
     pub estimated_total_cost_micro_usd: u64,

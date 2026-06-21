@@ -7,12 +7,17 @@ use super::*;
 use crate::reviewer_kernel::kernel_types::{
     CapabilitySet, RuntimeEvent, RuntimeEventSink, SessionId,
 };
+use crate::reviewer_kernel::model::ModelLimiter;
 use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
 
 struct FlakyModel {
     calls: AtomicUsize,
     failures_before_success: usize,
     error: fn() -> RuntimeError,
+}
+
+struct LimiterBackedModel {
+    limiter: Arc<ModelLimiter>,
 }
 
 #[async_trait]
@@ -28,6 +33,26 @@ impl ConcurrentModelClient for FlakyModel {
         if call < self.failures_before_success {
             return Err((self.error)());
         }
+        Ok(ModelTurn::Text {
+            content: "ok".to_string(),
+            usage: Default::default(),
+        })
+    }
+}
+
+#[async_trait]
+impl ConcurrentModelClient for LimiterBackedModel {
+    async fn complete(
+        &self,
+        scope: &SessionScope,
+        _transcript: &[ConversationItem],
+        _turn_id: TurnId,
+        _cancel: CancellationToken,
+    ) -> RuntimeResult<ModelTurn> {
+        let _permit = self
+            .limiter
+            .acquire_for_model("provider", "profile", "credential", &scope.id)
+            .await?;
         Ok(ModelTurn::Text {
             content: "ok".to_string(),
             usage: Default::default(),
@@ -165,6 +190,88 @@ async fn non_retryable_errors_fail_immediately() {
     let sink = Arc::new(CaptureSink::default());
     let outcome = run_complete(&model, &fast_retry_limits(3), Arc::clone(&sink)).await;
     assert!(outcome.result.is_err());
+    assert_eq!(outcome.attempts, 1);
+    assert_eq!(model_failed_flags(&sink), vec![(1, false)]);
+}
+
+#[tokio::test]
+async fn records_successful_model_limiter_waits() {
+    let scope = test_scope();
+    let limiter = Arc::new(ModelLimiter::new_with_buckets(1, 1, 1, 1, 1));
+    let blocking_permit = limiter
+        .acquire_for_model("provider", "profile", "credential", &scope.id)
+        .await
+        .unwrap();
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        drop(blocking_permit);
+    });
+    let model = LimiterBackedModel {
+        limiter: Arc::clone(&limiter),
+    };
+    let events = RuntimeEventDispatcher::new(None);
+    let mut limits = fast_retry_limits(1);
+    limits.max_model_turn_ms = 500;
+
+    let outcome = complete_model_turn(
+        &model,
+        &ReviewerPolicy::new(),
+        &events,
+        &limits,
+        &scope,
+        &scope,
+        &[],
+        TurnId(0),
+        &CancellationToken::new(),
+    )
+    .await;
+    release.await.unwrap();
+
+    assert!(outcome.result.is_ok());
+    assert_eq!(outcome.attempts, 1);
+    assert!(
+        outcome.limiter_wait.total_wait_ms >= 1,
+        "expected limiter wait to be recorded, got {:?}",
+        outcome.limiter_wait
+    );
+    assert!(
+        outcome.limiter_wait.max_bucket_wait_ms >= 1,
+        "expected max limiter bucket wait to be recorded, got {:?}",
+        outcome.limiter_wait
+    );
+}
+
+#[tokio::test]
+async fn limiter_queue_wait_counts_against_model_turn_timeout() {
+    let scope = test_scope();
+    let limiter = Arc::new(ModelLimiter::new_with_buckets(1, 1, 1, 1, 1));
+    let blocking_permit = limiter
+        .acquire_for_model("provider", "profile", "credential", &scope.id)
+        .await
+        .unwrap();
+    let model = LimiterBackedModel {
+        limiter: Arc::clone(&limiter),
+    };
+    let sink = Arc::new(CaptureSink::default());
+    let events = RuntimeEventDispatcher::new(Some(sink.clone()));
+    let mut limits = fast_retry_limits(1);
+    limits.max_model_turn_ms = 5;
+
+    let outcome = complete_model_turn(
+        &model,
+        &ReviewerPolicy::new(),
+        &events,
+        &limits,
+        &scope,
+        &scope,
+        &[],
+        TurnId(0),
+        &CancellationToken::new(),
+    )
+    .await;
+    drop(blocking_permit);
+
+    assert!(matches!(outcome.result, Err(RuntimeError::Timeout)));
     assert_eq!(outcome.attempts, 1);
     assert_eq!(model_failed_flags(&sink), vec![(1, false)]);
 }

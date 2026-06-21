@@ -1,0 +1,305 @@
+#!/usr/bin/env node
+
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { startFakeResponsesServer } from "./fake-responses-model.mjs";
+
+const args = parseArgs(process.argv.slice(2));
+if (args.help) {
+  usage();
+  process.exit(0);
+}
+
+const outputDir = path.resolve(args.outputDir || `/tmp/muzen-fake-runner-repro-${timestamp()}`);
+const fixtureRoot = path.join(outputDir, "fixtures");
+const worktreeRoot = path.join(fixtureRoot, "worktrees");
+const goldenDir = path.join(fixtureRoot, "goldens");
+const caseSource = path.join(fixtureRoot, "summary.json");
+const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
+const caseCount = positiveInt(args.cases || "5", "--cases");
+const concurrency = positiveInt(args.concurrency || "5", "--concurrency");
+const maxToolCalls = positiveInt(args.maxToolCalls || "6", "--max-tool-calls");
+const maxTurns = positiveInt(args.maxTurns || String(maxToolCalls + 4), "--max-turns");
+const toolsBeforeFinal =
+  args.toolsBeforeFinal === "infinite"
+    ? Number.POSITIVE_INFINITY
+    : positiveInt(args.toolsBeforeFinal || "999999", "--tools-before-final");
+const latencyMs = nonnegativeInt(args.latencyMs || "0", "--latency-ms");
+const jitterMs = nonnegativeInt(args.jitterMs || "0", "--jitter-ms");
+const maxConcurrent = positiveInt(args.maxConcurrent || "64", "--max-concurrent");
+const invalidFinalAttempts = nonnegativeInt(args.invalidFinalAttempts || "0", "--invalid-final-attempts");
+const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
+const toolName = args.toolName || "diff";
+
+fs.mkdirSync(outputDir, { recursive: true });
+fs.rmSync(fixtureRoot, { recursive: true, force: true });
+fs.mkdirSync(worktreeRoot, { recursive: true });
+fs.mkdirSync(goldenDir, { recursive: true });
+createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource });
+
+const fakeModel = await startFakeResponsesServer({
+  latencyMs,
+  jitterMs,
+  maxConcurrent,
+  toolsBeforeFinal,
+  invalidFinalAttempts,
+  httpErrorEvery,
+  toolName,
+  logPath: path.join(outputDir, "fake-model.jsonl"),
+});
+
+try {
+  const sharedDir = path.join(outputDir, "shared");
+  const processDir = path.join(outputDir, "process");
+  const common = [
+    "bench/review-quality/tools/run-muzen-martian-concurrent.mjs",
+    "--case-source",
+    caseSource,
+    "--golden-dir",
+    goldenDir,
+    "--worktree-root",
+    worktreeRoot,
+    "--runner-path",
+    runnerPath,
+    "--concurrency",
+    String(concurrency),
+    "--limit",
+    String(caseCount),
+    "--sessions",
+    "1",
+    "--max-active",
+    "1",
+    "--max-turns",
+    String(maxTurns),
+    "--max-tool-calls",
+    String(maxToolCalls),
+    "--model",
+    "fake-responses-model",
+    "--skip-semantic",
+    "true",
+    "--progress",
+    args.progress || "false",
+    "--sample-interval-ms",
+    args.sampleIntervalMs || "1000",
+  ];
+  const env = {
+    ...process.env,
+    OPENAI_BASE_URL: fakeModel.baseUrl,
+    OPENAI_API_KEY: "fake",
+  };
+  await runCheckedAsync("node", [...common, "--runner-mode", "shared", "--output-dir", sharedDir], env);
+  fakeModel.reset();
+  await runCheckedAsync("node", [...common, "--runner-mode", "process", "--output-dir", processDir], env);
+
+  const comparePath = path.join(outputDir, "runner-mode-compare.json");
+  await runCheckedAsync(
+    "node",
+    [
+      "bench/review-quality/tools/compare-muzen-runner-modes.mjs",
+      "--shared",
+      sharedDir,
+      "--process",
+      processDir,
+      "--output",
+      comparePath,
+    ],
+    process.env,
+  );
+  const compare = readJson(comparePath);
+  const summary = reproductionSummary({
+    outputDir,
+    sharedDir,
+    processDir,
+    comparePath,
+    fakeModelBaseUrl: fakeModel.baseUrl,
+    caseCount,
+    concurrency,
+    maxToolCalls,
+    maxTurns,
+    toolsBeforeFinal: Number.isFinite(toolsBeforeFinal) ? toolsBeforeFinal : "infinite",
+    latencyMs,
+    jitterMs,
+    maxConcurrent,
+    invalidFinalAttempts,
+    httpErrorEvery,
+    toolName,
+    compare,
+  });
+  const summaryPath = path.join(outputDir, "reproduction-summary.json");
+  fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+} finally {
+  await fakeModel.close();
+}
+
+function reproductionSummary({
+  outputDir,
+  sharedDir,
+  processDir,
+  comparePath,
+  fakeModelBaseUrl,
+  caseCount,
+  concurrency,
+  maxToolCalls,
+  maxTurns,
+  toolsBeforeFinal,
+  latencyMs,
+  jitterMs,
+  maxConcurrent,
+  invalidFinalAttempts,
+  httpErrorEvery,
+  toolName,
+  compare,
+}) {
+  const sharedExhausted = compare.cases.filter((entry) => entry.shared.orchestrator.exhaustedMaxToolCalls);
+  const processExhausted = compare.cases.filter((entry) => entry.process.orchestrator.exhaustedMaxToolCalls);
+  return {
+    schemaVersion: "muzen.fake-runner-mode-repro.v1",
+    generatedAtUtc: new Date().toISOString(),
+    outputDir,
+    sharedDir,
+    processDir,
+    comparePath,
+    fakeModelBaseUrl,
+    config: {
+      caseCount,
+      concurrency,
+      maxToolCalls,
+      maxTurns,
+      toolsBeforeFinal,
+      latencyMs,
+      jitterMs,
+      maxConcurrent,
+      invalidFinalAttempts,
+      httpErrorEvery,
+      toolName,
+    },
+    exhaustedMaxToolCalls: {
+      shared: sharedExhausted.length,
+      process: processExhausted.length,
+      sharedOnly: sharedExhausted.filter(
+        (entry) => !compare.cases.find((candidate) => candidate.name === entry.name)?.process.orchestrator.exhaustedMaxToolCalls,
+      ).length,
+    },
+    reproducedObservedShape:
+      sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
+    totals: compare.totals,
+    cases: compare.cases.map((entry) => ({
+      name: entry.name,
+      shared: entry.shared.orchestrator,
+      process: entry.process.orchestrator,
+      delta: entry.delta,
+    })),
+  };
+}
+
+function createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource }) {
+  const results = [];
+  for (let index = 1; index <= caseCount; index += 1) {
+    const owner = "fake";
+    const repo = `runner-repro-${index}`;
+    const number = index;
+    const baseName = `${owner}-${repo}-pull-${number}`;
+    const worktree = path.join(worktreeRoot, `${owner}-${repo}-pr-${number}`);
+    fs.mkdirSync(path.join(worktree, "src"), { recursive: true });
+    runChecked("git", ["init", "-q"], process.env, worktree);
+    runChecked("git", ["config", "user.name", "Muzen Fake Repro"], process.env, worktree);
+    runChecked("git", ["config", "user.email", "muzen-fake-repro@example.invalid"], process.env, worktree);
+    fs.writeFileSync(path.join(worktree, "src", "example.txt"), `base value ${index}\n`);
+    runChecked("git", ["add", "src/example.txt"], process.env, worktree);
+    runChecked("git", ["commit", "-q", "-m", "base"], process.env, worktree);
+    runChecked("git", ["branch", `hagent-martian/pr-${number}-base`], process.env, worktree);
+    fs.writeFileSync(path.join(worktree, "src", "example.txt"), `base value ${index}\nhead value ${index}\n`);
+    runChecked("git", ["add", "src/example.txt"], process.env, worktree);
+    runChecked("git", ["commit", "-q", "-m", "head"], process.env, worktree);
+    fs.writeFileSync(path.join(goldenDir, `${baseName}.json`), `${JSON.stringify({ issues: [] }, null, 2)}\n`);
+    results.push({
+      prUrl: `https://github.com/${owner}/${repo}/pull/${number}`,
+      title: `Synthetic runner repro ${number}`,
+    });
+  }
+  fs.writeFileSync(caseSource, `${JSON.stringify({ results }, null, 2)}\n`);
+}
+
+function runChecked(command, commandArgs, env, cwd = process.cwd()) {
+  const result = spawnSync(command, commandArgs, {
+    cwd,
+    env,
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 64,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${commandArgs.join(" ")} failed with ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+  }
+  return result;
+}
+
+function runCheckedAsync(command, commandArgs, env, cwd = process.cwd()) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, commandArgs, {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on("data", (chunk) => stdout.push(chunk.toString("utf8")));
+    child.stderr.on("data", (chunk) => stderr.push(chunk.toString("utf8")));
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (code === 0) {
+        resolve({ stdout: stdout.join(""), stderr: stderr.join("") });
+        return;
+      }
+      reject(
+        new Error(
+          `${command} ${commandArgs.join(" ")} failed with code=${code} signal=${signal}\nstdout:\n${stdout.join("")}\nstderr:\n${stderr.join("")}`,
+        ),
+      );
+    });
+  });
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function parseArgs(argv) {
+  const parsed = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      continue;
+    }
+    if (!arg.startsWith("--")) throw new Error(`unexpected argument: ${arg}`);
+    const key = arg.slice(2).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+    const value = argv[++index];
+    if (value == null || value.startsWith("--")) throw new Error(`missing value for ${arg}`);
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function positiveInt(value, name) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function nonnegativeInt(value, name) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
+}
+
+function timestamp() {
+  return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
+}
+
+function usage() {
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N]\n`);
+}

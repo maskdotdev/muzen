@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
 
 const SCHEMA_VERSION = "muzen.review-quality-benchmark.v1";
 const JOB_SCHEMA_VERSION = "heimdaal.review-run.v1";
@@ -17,12 +18,65 @@ async function main() {
   const outputPath = args.output ? path.resolve(args.output) : null;
   const baseRef = required(args.baseRef, "--base-ref is required");
   const goldenPath = args.golden ? path.resolve(args.golden) : null;
+  const runId = args.runId || `review-quality-${timestamp()}`;
+  const tempDir = args.tempDir ? path.resolve(args.tempDir) : fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-"));
+  const job = buildProductionReviewJob({
+    repo,
+    runnerPath,
+    goldenPath,
+    baseRef,
+    runId,
+    mode: args.mode || "review",
+    outputPath,
+    traceOutputDir: args.traceOutputDir ? path.resolve(args.traceOutputDir) : null,
+    tempDir,
+    maxCapturedTextBytes: args.maxCapturedTextBytes ? numberArg(args.maxCapturedTextBytes, 0) : null,
+    model: args.model || DEFAULT_MODEL,
+    sessions: nonnegativeNumberArg(args.sessions, 0),
+    maxActive: numberArg(args.maxActive, 8),
+    maxTurns: numberArg(args.maxTurns, 10),
+    maxToolCalls: numberArg(args.maxToolCalls, 32),
+    maxPromptTokens: numberArg(args.maxPromptTokens, 64000),
+    maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
+  });
+
+  const startedAt = Date.now();
+  const run = await runRunnerReview(runnerPath, job.runStart);
+  const elapsedMs = Date.now() - startedAt;
+  fs.writeFileSync(job.framesPath, `${run.frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
+
+  const report = buildProductionReviewReport(job, run, { elapsedMs });
+  writeProductionReviewReport(report, outputPath);
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.exitCode = report.reviewValid ? 0 : 1;
+}
+
+export function buildProductionReviewJob({
+  repo,
+  runnerPath,
+  goldenPath,
+  baseRef,
+  runId,
+  mode = "review",
+  sessions = 0,
+  maxActive = 8,
+  maxTurns = 10,
+  maxToolCalls = 32,
+  maxPromptTokens = 64000,
+  maxOutputTokens = 8000,
+  model = DEFAULT_MODEL,
+  outputPath = null,
+  traceOutputDir = null,
+  maxCapturedTextBytes = null,
+  tempDir = null,
+}) {
+  const jobDir = path.resolve(tempDir || fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-")));
+  fs.mkdirSync(jobDir, { recursive: true });
   const changedFiles = gitChangedFiles(repo, baseRef);
   const changedFilePaths = changedFiles
     .map((file) => file.newPath ?? file.oldPath)
     .filter(Boolean);
   const inlineDiff = git(repo, ["diff", "--find-renames", "--find-copies", `${baseRef}...HEAD`]);
-  const runId = args.runId || `review-quality-${timestamp()}`;
   const runStart = buildRunnerStart({
     runId,
     repo,
@@ -30,31 +84,50 @@ async function main() {
     changedFiles,
     changedFilePaths,
     inlineDiff,
-    model: args.model || DEFAULT_MODEL,
-    sessions: nonnegativeNumberArg(args.sessions, 0),
-    maxActive: numberArg(args.maxActive, 8),
-    maxTurns: numberArg(args.maxTurns, 10),
-    maxToolCalls: numberArg(args.maxToolCalls, 32),
-    maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
+    model,
+    sessions,
+    maxActive,
+    maxTurns,
+    maxToolCalls,
+    maxPromptTokens,
+    maxOutputTokens,
   });
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-"));
-  const requestPath = path.join(tempDir, "run-start.json");
-  const framesPath = path.join(tempDir, "frames.jsonl");
+  const requestPath = path.join(jobDir, "run-start.json");
+  const framesPath = path.join(jobDir, "frames.jsonl");
   fs.writeFileSync(requestPath, `${JSON.stringify(runStart, null, 2)}\n`);
+  fs.writeFileSync(framesPath, "");
+  return {
+    schemaVersion: JOB_SCHEMA_VERSION,
+    mode,
+    repo,
+    runnerPath,
+    goldenPath,
+    baseRef,
+    runId,
+    model,
+    outputPath,
+    traceOutputDir,
+    maxCapturedTextBytes,
+    tempDir: jobDir,
+    requestPath,
+    framesPath,
+    changedFiles,
+    changedFilePaths,
+    inlineDiff,
+    runStart,
+  };
+}
 
-  const startedAt = Date.now();
-  const run = await runRunnerReview(runnerPath, runStart);
-  const elapsedMs = Date.now() - startedAt;
-  fs.writeFileSync(framesPath, `${run.frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-
+export function buildProductionReviewReport(job, run, { elapsedMs }) {
   const finalResult = run.result;
   const verdictCounts = fileReviewVerdictCounts(finalResult?.fileReviews || []);
-  const diagnostics = eventDiagnostics(run.frames);
+  const frames = Array.isArray(run.frames) ? run.frames : readFramesJsonl(job.framesPath);
+  const diagnostics = eventDiagnostics(frames);
   const qualityDiagnostics = finalResult?.summary?.qualityDiagnostics || {};
-  const golden = goldenPath ? readJson(goldenPath) : { issues: [] };
+  const golden = job.goldenPath ? readJson(job.goldenPath) : { issues: [] };
   const scoring = scoreFindings(finalResult?.findings || [], golden.issues || []);
-  const report = {
+  const runtimeDiagnostics = buildRuntimeDiagnostics(frames);
+  return {
     schemaVersion: SCHEMA_VERSION,
     generatedAtUtc: new Date().toISOString(),
     mode: "production-review-run",
@@ -62,16 +135,20 @@ async function main() {
     exitCode: run.exitCode,
     error: run.ok ? null : trim(run.error || run.stderr || "review command failed"),
     inputs: {
-      repo,
-      baseRef,
-      runnerPath,
-      model: args.model || DEFAULT_MODEL,
-      changedFileCount: changedFilePaths.length,
+      repo: job.repo,
+      baseRef: job.baseRef,
+      runnerPath: job.runnerPath,
+      model: job.model,
+      changedFileCount: job.changedFilePaths.length,
       goldenIssueCount: golden.issues?.length || 0,
     },
     artifacts: {
-      request: requestPath,
-      frames: framesPath,
+      request: job.requestPath,
+      frames: job.framesPath,
+      traceOutputDir: job.traceOutputDir,
+    },
+    audit: {
+      diagnostics: runtimeDiagnostics,
     },
     review: finalResult
       ? {
@@ -130,13 +207,14 @@ async function main() {
     },
     findings: finalResult?.findings || [],
   };
+}
 
+export function writeProductionReviewReport(report, outputPath) {
   if (outputPath) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
   }
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  process.exitCode = report.reviewValid ? 0 : 1;
+  writeTraceArtifacts(report);
 }
 
 function fileReviewVerdictCounts(fileReviews) {
@@ -259,6 +337,103 @@ function eventDiagnostics(frames) {
   };
 }
 
+function buildRuntimeDiagnostics(frames) {
+  const sessions = new Map();
+  for (const frame of frames) {
+    if (frame.method !== "event.runtime") continue;
+    const record = frame.params || {};
+    const event = record.event || {};
+    const eventName = Object.keys(event)[0];
+    const payload = eventName ? event[eventName] || {} : {};
+    const sessionId =
+      payload.sessionId ??
+      record.context?.sessionId ??
+      record.context?.session_id ??
+      null;
+    if (!sessionId) continue;
+    const session = sessionDiagnostics(sessions, sessionId);
+    if (eventName === "modelStarted") {
+      const turn = Number(payload.turnId ?? record.context?.turnId ?? 0);
+      session.turns = Math.max(session.turns, turn + 1);
+    } else if (eventName === "modelCompleted") {
+      session.modelTurnsCompleted += 1;
+      const turn = Number(payload.turnId ?? record.context?.turnId ?? 0);
+      session.turns = Math.max(session.turns, turn + 1);
+    } else if (eventName === "agentTrace") {
+      const traceKind = payload.traceKind || "";
+      const details = payload.details || {};
+      const turn = Number(payload.turnId ?? record.context?.turnId ?? 0);
+      if (Number.isFinite(turn)) session.turns = Math.max(session.turns, turn + 1);
+      if (traceKind === "model_turn_prepared") {
+        session.modelTurnsPrepared += 1;
+      } else if (traceKind === "transcript_compacted") {
+        session.transcriptCompactions += 1;
+      } else if (traceKind === "tool_calls_requested") {
+        session.toolCallsRequested += Array.isArray(details.calls) ? details.calls.length : 0;
+      } else if (traceKind === "tool_batch_planned") {
+        session.toolCallsCompleted += Number(details.scheduledCount || 0);
+        session.toolCallsDenied += Number(details.deniedCount || 0);
+      } else if (traceKind === "candidate_decision") {
+        session.candidateDecisions += 1;
+        if (String(payload.summary || "").toLowerCase().includes("reject")) {
+          session.rejectedCandidates += 1;
+        }
+      }
+    } else if (eventName === "sessionFinished") {
+      session.status = payload.status || session.status;
+    }
+  }
+  return {
+    sessions: [...sessions.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+  };
+}
+
+function sessionDiagnostics(sessions, sessionId) {
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, {
+      sessionId,
+      status: null,
+      turns: 0,
+      modelTurnsPrepared: 0,
+      modelTurnsCompleted: 0,
+      toolCallsRequested: 0,
+      toolCallsCompleted: 0,
+      toolCallsDenied: 0,
+      transcriptCompactions: 0,
+      candidateDecisions: 0,
+      rejectedCandidates: 0,
+    });
+  }
+  return sessions.get(sessionId);
+}
+
+function writeTraceArtifacts(report) {
+  const traceOutputDir = report.artifacts?.traceOutputDir;
+  const framesPath = report.artifacts?.frames;
+  if (!traceOutputDir || !framesPath || !fs.existsSync(framesPath)) return;
+  fs.mkdirSync(traceOutputDir, { recursive: true });
+  const runtime = [];
+  const review = [];
+  for (const line of fs.readFileSync(framesPath, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const frame = JSON.parse(line);
+    if (frame.method === "event.runtime") runtime.push(JSON.stringify(frame.params));
+    if (frame.method === "event.review") review.push(JSON.stringify(frame.params));
+  }
+  fs.writeFileSync(path.join(traceOutputDir, "runtime-events.jsonl"), runtime.join("\n") + (runtime.length ? "\n" : ""));
+  fs.writeFileSync(path.join(traceOutputDir, "review-events.jsonl"), review.join("\n") + (review.length ? "\n" : ""));
+  fs.writeFileSync(path.join(traceOutputDir, "audit-diagnostics.json"), `${JSON.stringify(report.audit, null, 2)}\n`);
+}
+
+function readFramesJsonl(framesPath) {
+  if (!framesPath || !fs.existsSync(framesPath)) return [];
+  return fs
+    .readFileSync(framesPath, "utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+}
+
 function buildRunnerStart({
   runId,
   repo,
@@ -271,6 +446,7 @@ function buildRunnerStart({
   maxActive,
   maxTurns,
   maxToolCalls,
+  maxPromptTokens,
   maxOutputTokens,
 }) {
   const modelProfileId = "production-review-oai";
@@ -301,7 +477,7 @@ function buildRunnerStart({
           baseUrl: process.env.OPENAI_BASE_URL || undefined,
           credential: { env: "OPENAI_API_KEY" },
           model,
-          maxInputTokens: 64000,
+          maxInputTokens: maxPromptTokens,
           maxOutputTokens,
           temperature: 0,
         },
@@ -317,7 +493,7 @@ function buildRunnerStart({
       budget: {
         maxTurns,
         maxToolCalls,
-        maxPromptTokens: 64000,
+        maxPromptTokens,
         maxOutputTokens,
       },
     })),
@@ -549,7 +725,13 @@ function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}
+
+function isMainModule() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}

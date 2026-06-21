@@ -38,6 +38,8 @@ pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &Mode
     target.unpriced_calls += report.unpriced_calls;
     target.latency_ms += report.latency_ms;
     target.max_latency_ms = target.max_latency_ms.max(report.max_latency_ms);
+    target.limiter_wait_ms += report.limiter_wait_ms;
+    target.max_limiter_wait_ms = target.max_limiter_wait_ms.max(report.max_limiter_wait_ms);
     target.estimated_input_cost_micro_usd += report.estimated_input_cost_micro_usd;
     target.estimated_output_cost_micro_usd += report.estimated_output_cost_micro_usd;
     target.estimated_total_cost_micro_usd += report.estimated_total_cost_micro_usd;

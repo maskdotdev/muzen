@@ -174,6 +174,11 @@ impl AgentLoopRuntime {
             .await;
             model_calls += outcome.attempts;
             model_metrics.calls += outcome.attempts;
+            model_metrics.retries += outcome.attempts.saturating_sub(1);
+            model_metrics.limiter_wait_ms += outcome.limiter_wait.total_wait_ms;
+            model_metrics.max_limiter_wait_ms = model_metrics
+                .max_limiter_wait_ms
+                .max(outcome.limiter_wait.max_bucket_wait_ms);
             let turn = match outcome.result {
                 Ok(turn) => {
                     model_metrics.errors += outcome.attempts - 1;
@@ -300,6 +305,11 @@ impl AgentLoopRuntime {
                 .await;
                 model_calls += outcome.attempts;
                 model_metrics.calls += outcome.attempts;
+                model_metrics.retries += outcome.attempts.saturating_sub(1);
+                model_metrics.limiter_wait_ms += outcome.limiter_wait.total_wait_ms;
+                model_metrics.max_limiter_wait_ms = model_metrics
+                    .max_limiter_wait_ms
+                    .max(outcome.limiter_wait.max_bucket_wait_ms);
                 let turn = match outcome.result {
                     Ok(turn) => {
                         model_metrics.errors += outcome.attempts - 1;

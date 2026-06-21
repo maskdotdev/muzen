@@ -153,6 +153,7 @@ const DEFAULT_CASE_SOURCE =
 const DEFAULT_GOLDEN_DIR =
   "/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-direct/goldens";
 const DEFAULT_WORKTREE_ROOT = "/tmp/muzen-hagent-martian-worktrees";
+const SHARED_RUNNER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_OUTPUT_DIR =
   "/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-real-50-c5";
 const DEFAULT_MODEL = process.env.MODEL || "gpt-5.5";
@@ -236,15 +237,29 @@ const runnerClient =
         progress: args.progress ?? "true",
       })
     : null;
-if (runnerClient) {
-  await runnerClient.start();
-  state.runnerPid = runnerClient.child?.pid ?? null;
-}
-
 const sampler = setInterval(() => sampleProcesses(state), sampleIntervalMs);
 sampler.unref();
 
 try {
+  if (runnerClient) {
+    try {
+      await withTimeout(
+        runnerClient.start(),
+        SHARED_RUNNER_START_TIMEOUT_MS,
+        `shared runner startup timed out after ${SHARED_RUNNER_START_TIMEOUT_MS}ms`,
+      );
+      state.runnerPid = runnerClient.child?.pid ?? null;
+    } catch (error) {
+      await runnerClient.close().catch((closeError) => {
+        appendJsonl(metricsPath, {
+          event: "runner_start_cleanup_error",
+          atUtc: new Date().toISOString(),
+          error: closeError instanceof Error ? closeError.message : String(closeError),
+        });
+      });
+      throw error;
+    }
+  }
   await runPool(cases, concurrency, (testCase) =>
     runReviewCase(testCase, {
       outputDir,
@@ -407,35 +422,51 @@ async function runReviewCase(testCase, options) {
   let run;
   let report = null;
   let error = null;
+  let releaseDisposition = "none";
   try {
     run = await options.runnerClient.run(job.runStart, {
       framesPath: job.framesPath,
       name: testCase.name,
     });
+    releaseDisposition = options.releasePolicy === "end" ? "deferred" : "immediate";
+    if (releaseDisposition === "deferred") {
+      options.state.deferredReleases.push({
+        name: testCase.name,
+        runId,
+      });
+    }
     const elapsedMs = Date.now() - startedAt;
     report = buildProductionReviewReport(job, run, { elapsedMs });
     writeProductionReviewReport(report, outputPath);
     fs.writeFileSync(stdoutPath, `${JSON.stringify(report, null, 2)}\n`);
     fs.writeFileSync(stderrPath, run.stderr || "");
-    if (options.releasePolicy === "end") {
-      options.state.deferredReleases.push({
-        name: testCase.name,
-        runId,
-      });
-    } else {
-      const release = await options.runnerClient.release(runId);
-      appendJsonl(options.metricsPath, {
-        event: "release",
-        atUtc: new Date().toISOString(),
-        name: testCase.name,
-        runId,
-        ...release,
-      });
-    }
   } catch (caught) {
     error = caught instanceof Error ? caught : new Error(String(caught));
     fs.writeFileSync(stderrPath, `${error.stack || error.message}\n`);
     fs.writeFileSync(stdoutPath, "");
+  } finally {
+    if (releaseDisposition === "immediate") {
+      try {
+        const release = await options.runnerClient.release(runId);
+        appendJsonl(options.metricsPath, {
+          event: "release",
+          atUtc: new Date().toISOString(),
+          name: testCase.name,
+          runId,
+          ...release,
+        });
+      } catch (caught) {
+        const releaseError = caught instanceof Error ? caught : new Error(String(caught));
+        appendJsonl(options.metricsPath, {
+          event: "release_error",
+          atUtc: new Date().toISOString(),
+          name: testCase.name,
+          runId,
+          error: releaseError.message,
+        });
+        if (!error) error = releaseError;
+      }
+    }
   }
 
   const active = options.state.active.get(runId);
@@ -510,6 +541,8 @@ async function runReviewCaseProcess(testCase, options) {
     testCase.golden,
     "--mode",
     "review",
+    "--run-id",
+    runId,
     "--sessions",
     options.sessions,
     "--max-active",
@@ -526,6 +559,8 @@ async function runReviewCaseProcess(testCase, options) {
     outputPath,
     "--trace-output-dir",
     traceDir,
+    "--temp-dir",
+    path.join(options.jobsDir, testCase.outputName),
     "--progress",
     options.progress,
   ];
@@ -1000,6 +1035,15 @@ function spawnSyncChecked(command, commandArgs, options = {}) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   return { stdout: result, stderr: "" };
+}
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer.unref();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function readJson(file) {

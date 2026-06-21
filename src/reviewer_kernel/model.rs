@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -190,6 +192,80 @@ pub struct ModelPermit {
     _buckets: Vec<OwnedSemaphorePermit>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ModelLimiterWaitSnapshot {
+    pub(crate) total_wait_ms: u64,
+    pub(crate) max_bucket_wait_ms: u64,
+    pub(crate) global_wait_ms: u64,
+    pub(crate) provider_wait_ms: u64,
+    pub(crate) profile_wait_ms: u64,
+    pub(crate) key_wait_ms: u64,
+    pub(crate) session_wait_ms: u64,
+}
+
+impl ModelLimiterWaitSnapshot {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.total_wait_ms += other.total_wait_ms;
+        self.max_bucket_wait_ms = self.max_bucket_wait_ms.max(other.max_bucket_wait_ms);
+        self.global_wait_ms += other.global_wait_ms;
+        self.provider_wait_ms += other.provider_wait_ms;
+        self.profile_wait_ms += other.profile_wait_ms;
+        self.key_wait_ms += other.key_wait_ms;
+        self.session_wait_ms += other.session_wait_ms;
+    }
+
+    fn record(&mut self, bucket: ModelLimiterBucket, wait_ms: u64) {
+        self.total_wait_ms += wait_ms;
+        self.max_bucket_wait_ms = self.max_bucket_wait_ms.max(wait_ms);
+        match bucket {
+            ModelLimiterBucket::Global => self.global_wait_ms += wait_ms,
+            ModelLimiterBucket::Provider => self.provider_wait_ms += wait_ms,
+            ModelLimiterBucket::Profile => self.profile_wait_ms += wait_ms,
+            ModelLimiterBucket::Key => self.key_wait_ms += wait_ms,
+            ModelLimiterBucket::Session => self.session_wait_ms += wait_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ModelLimiterBucket {
+    Global,
+    Provider,
+    Profile,
+    Key,
+    Session,
+}
+
+tokio::task_local! {
+    static MODEL_LIMITER_OBSERVATION: RefCell<ModelLimiterWaitSnapshot>;
+}
+
+pub(crate) async fn observe_model_limiter_waits<F, T>(future: F) -> (T, ModelLimiterWaitSnapshot)
+where
+    F: Future<Output = T>,
+{
+    MODEL_LIMITER_OBSERVATION
+        .scope(
+            RefCell::new(ModelLimiterWaitSnapshot::default()),
+            async move {
+                let output = future.await;
+                let snapshot = MODEL_LIMITER_OBSERVATION.with(|state| *state.borrow());
+                (output, snapshot)
+            },
+        )
+        .await
+}
+
+fn record_model_limiter_wait(bucket: ModelLimiterBucket, wait_ms: u64) {
+    let _ = MODEL_LIMITER_OBSERVATION.try_with(|state| {
+        state.borrow_mut().record(bucket, wait_ms);
+    });
+}
+
+fn elapsed_wait_ms(started: Instant) -> u64 {
+    started.elapsed().as_micros().div_ceil(1000) as u64
+}
+
 impl ModelLimiter {
     #[cfg(test)]
     pub fn new(global_concurrency: usize) -> Self {
@@ -256,21 +332,43 @@ impl ModelLimiter {
         credential_ref: &str,
         session_id: &SessionId,
     ) -> RuntimeResult<ModelPermit> {
+        let global_started = Instant::now();
         let global = self
             .global
             .clone()
             .acquire_owned()
             .await
             .map_err(|_| RuntimeError::Cancelled)?;
+        record_model_limiter_wait(ModelLimiterBucket::Global, elapsed_wait_ms(global_started));
         let buckets = vec![
-            self.acquire_bucket(&self.per_provider, provider, self.max_per_provider)
-                .await?,
-            self.acquire_bucket(&self.per_profile, profile_id, self.max_per_profile)
-                .await?,
-            self.acquire_bucket(&self.per_key, credential_ref, self.max_per_key)
-                .await?,
-            self.acquire_bucket(&self.per_session, &session_id.0, self.max_per_session)
-                .await?,
+            self.acquire_bucket(
+                &self.per_provider,
+                provider,
+                self.max_per_provider,
+                ModelLimiterBucket::Provider,
+            )
+            .await?,
+            self.acquire_bucket(
+                &self.per_profile,
+                profile_id,
+                self.max_per_profile,
+                ModelLimiterBucket::Profile,
+            )
+            .await?,
+            self.acquire_bucket(
+                &self.per_key,
+                credential_ref,
+                self.max_per_key,
+                ModelLimiterBucket::Key,
+            )
+            .await?,
+            self.acquire_bucket(
+                &self.per_session,
+                &session_id.0,
+                self.max_per_session,
+                ModelLimiterBucket::Session,
+            )
+            .await?,
         ];
         Ok(ModelPermit {
             _global: global,
@@ -283,14 +381,18 @@ impl ModelLimiter {
         buckets: &DashMap<String, Arc<Semaphore>>,
         key: &str,
         max_per_bucket: usize,
+        bucket: ModelLimiterBucket,
     ) -> RuntimeResult<OwnedSemaphorePermit> {
-        buckets
+        let started = Instant::now();
+        let permit = buckets
             .entry(key.to_string())
             .or_insert_with(|| Arc::new(Semaphore::new(max_per_bucket)))
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| RuntimeError::Cancelled)
+            .map_err(|_| RuntimeError::Cancelled)?;
+        record_model_limiter_wait(bucket, elapsed_wait_ms(started));
+        Ok(permit)
     }
 }
 
