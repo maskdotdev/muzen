@@ -183,6 +183,72 @@ bench/results-review-quality/fake-protocol-budget-exhaustion-20260621T060523Z/pr
 | shared | 6 | 4 | 4 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
 | process | 6 | 4 | 4 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
 
+Protocol heartbeat pressure sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061048Z \
+  --cases 4 \
+  --concurrency 2 \
+  --sessions 3 \
+  --max-active-sessions 2 \
+  --max-tool-calls 4 \
+  --max-turns 8 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 1 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --heartbeat-mode continue \
+  --heartbeat-interval-ms 25 \
+  --heartbeat-lease-seconds 1 \
+  --artifact-bytes 2048
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061048Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Sessions per run | Tool calls per run | Heartbeat callbacks | Model callbacks | Tool callbacks | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 4 | 3 | 6 | 117 | 36 | 24 | 0 | passed |
+| process | 4 | 4 | 3 | 6 | 120 | 36 | 24 | 0 | passed |
+
+Protocol heartbeat cancellation sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061102Z \
+  --cases 4 \
+  --concurrency 2 \
+  --sessions 3 \
+  --max-active-sessions 2 \
+  --max-tool-calls 4 \
+  --max-turns 8 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 1 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --heartbeat-mode cancel-first \
+  --heartbeat-interval-ms 25 \
+  --heartbeat-lease-seconds 1 \
+  --artifact-bytes 2048
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061102Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Cancelled runs | Heartbeat callbacks | Run-failed notifications | Run-finished notifications | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 3 | 1 | 90 | 1 | 3 | 0 | passed |
+| process | 4 | 3 | 1 | 87 | 1 | 3 | 0 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
@@ -221,6 +287,13 @@ Interpretation:
   `maxToolCalls=1`; the runner schedules one, rejects one with
   `budget_exceeded`, forces finalization, and shared/process modes agree on
   completed sessions, exhausted-session counts, and rejection counts.
+- Heartbeat pressure is covered while explicit sessions are active. In
+  continue mode, heartbeat counts vary slightly with wall-clock scheduling, so
+  the gate requires valid ownership and presence rather than exact heartbeat
+  parity while preserving exact parity for model/tool callbacks and run
+  metrics. In cancellation mode, declining the first heartbeat for
+  `protocol-run-1` cancels exactly that run in both shared and process modes;
+  the remaining runs complete and no callback crosses run/session ownership.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -235,9 +308,12 @@ Interpretation:
 Current recommendation: do not run live evals for this runner investigation yet.
 The deterministic shared/process protocol path is now covered for explicit
 multi-session fan-out, delayed callback tools, callback/custom tool accounting,
-session-budget reporting, and direct-session budget exhaustion. The next useful
-fake-first step is broader protocol pressure around cancellation/heartbeat
-while sessions are active before considering any subscription-backed diagnostic.
+session-budget reporting, direct-session budget exhaustion, active-session
+heartbeats, and heartbeat-triggered cancellation. The next useful fake-first
+step is protocol status/cancel-query pressure against in-flight shared runs, or
+tightening cancelled-run result visibility so the harness can assert partial
+session diagnostics instead of treating expected heartbeat cancellation as a
+terminal JSON-RPC error.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

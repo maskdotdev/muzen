@@ -27,6 +27,9 @@ const toolCallsPerTurn = positiveInt(args.toolCallsPerTurn || "1", "--tool-calls
 const toolDelayMs = nonnegativeInt(args.toolDelayMs || "100", "--tool-delay-ms");
 const modelDelayMs = nonnegativeInt(args.modelDelayMs || "0", "--model-delay-ms");
 const artifactBytes = positiveInt(args.artifactBytes || "2048", "--artifact-bytes");
+const heartbeatMode = enumArg(args.heartbeatMode || "none", ["none", "continue", "cancel-first"], "--heartbeat-mode");
+const heartbeatIntervalMs = positiveInt(args.heartbeatIntervalMs || "30", "--heartbeat-interval-ms");
+const heartbeatLeaseSeconds = positiveInt(args.heartbeatLeaseSeconds || "1", "--heartbeat-lease-seconds");
 const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
 
 const config = {
@@ -41,6 +44,9 @@ const config = {
   toolDelayMs,
   modelDelayMs,
   artifactBytes,
+  heartbeatMode,
+  heartbeatIntervalMs,
+  heartbeatLeaseSeconds,
 };
 
 async function main() {
@@ -78,12 +84,13 @@ async function runSharedMode({ runnerPath, outputDir, fixtures, config }) {
     artifactBytes: config.artifactBytes,
     toolsPerSession: config.toolsPerSession,
     toolCallsPerTurn: config.toolCallsPerTurn,
+    heartbeatMode: config.heartbeatMode,
   });
   await runner.start();
   try {
     const startedAt = Date.now();
     const results = await runPool(fixtures, config.concurrency, (fixture) =>
-      runner.runStart(runStartForFixture(fixture, config)),
+      runFixtureWithExpectedCancellation(runner, fixture, config),
     );
     return summarizeMode({
       label: "shared",
@@ -113,11 +120,12 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
         artifactBytes: config.artifactBytes,
         toolsPerSession: config.toolsPerSession,
         toolCallsPerTurn: config.toolCallsPerTurn,
+        heartbeatMode: config.heartbeatMode,
       });
       runners.push(runner);
       await runner.start();
       try {
-        return await runner.runStart(runStartForFixture(fixture, config));
+        return await runFixtureWithExpectedCancellation(runner, fixture, config);
       } finally {
         await runner.close();
       }
@@ -138,7 +146,16 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
 }
 
 class ProtocolRunner {
-  constructor(runnerPath, { label, logDir, toolDelayMs, modelDelayMs, artifactBytes, toolsPerSession, toolCallsPerTurn }) {
+  constructor(runnerPath, {
+    label,
+    logDir,
+    toolDelayMs,
+    modelDelayMs,
+    artifactBytes,
+    toolsPerSession,
+    toolCallsPerTurn,
+    heartbeatMode,
+  }) {
     this.runnerPath = runnerPath;
     this.label = label;
     this.logDir = logDir;
@@ -147,6 +164,8 @@ class ProtocolRunner {
     this.artifactBytes = artifactBytes;
     this.toolsPerSession = toolsPerSession;
     this.toolCallsPerTurn = toolCallsPerTurn;
+    this.heartbeatMode = heartbeatMode;
+    this.heartbeatCounts = new Map();
     this.child = null;
     this.nextId = 1;
     this.pending = new Map();
@@ -262,6 +281,9 @@ class ProtocolRunner {
       turn: params.turn ?? null,
       callId: params.callId ?? null,
       toolId: params.toolId ?? null,
+      sequence: params.sequence ?? null,
+      elapsedMs: params.elapsedMs ?? null,
+      leaseSeconds: params.leaseSeconds ?? null,
       startedAt: Date.now(),
     };
     this.callbacks.push(record);
@@ -271,6 +293,8 @@ class ProtocolRunner {
           ? await this.modelComplete(params)
           : frame.method === "tool.execute"
             ? await this.toolExecute(params)
+            : frame.method === "run.heartbeat"
+              ? this.runHeartbeat(params)
             : (() => {
                 throw new Error(`unexpected callback ${frame.method}`);
               })();
@@ -358,6 +382,13 @@ class ProtocolRunner {
     };
   }
 
+  runHeartbeat(params) {
+    const runId = String(params.runId ?? "unknown-run");
+    const count = (this.heartbeatCounts.get(runId) ?? 0) + 1;
+    this.heartbeatCounts.set(runId, count);
+    return { continueRun: shouldContinueHeartbeat({ mode: this.heartbeatMode, runId, count }) };
+  }
+
   write(frame) {
     this.child.stdin.write(`${JSON.stringify(frame)}\n`);
   }
@@ -404,6 +435,15 @@ function runStartForFixture(fixture, config) {
       maxFileBytes: 200 * 1024,
       maxSearchMatches: 120,
     },
+    ...(config.heartbeatMode === "none"
+      ? {}
+      : {
+          heartbeat: {
+            callback: true,
+            intervalMs: config.heartbeatIntervalMs,
+            leaseSeconds: config.heartbeatLeaseSeconds,
+          },
+        }),
   };
 }
 
@@ -466,6 +506,7 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
         total: records.length,
         modelComplete: records.filter((record) => record.method === "model.complete").length,
         toolExecute: records.filter((record) => record.method === "tool.execute").length,
+        runHeartbeat: records.filter((record) => record.method === "run.heartbeat").length,
         sessions: [...new Set(records.map((record) => record.sessionId).filter(Boolean))].sort(),
         delayedToolMs: stats(
           records
@@ -499,6 +540,10 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
         if (record.method !== "tool.execute") return false;
         return record.runId !== record.argumentRunId || record.sessionId !== record.argumentSessionId;
       }).length,
+      heartbeatUnexpectedRunIds: callbacks.filter((record) => {
+        if (record.method !== "run.heartbeat") return false;
+        return !runResults.some((result) => result.runId === record.runId);
+      }).length,
       errors: callbacks.filter((record) => record.error).length,
     },
     notifications: {
@@ -523,6 +568,7 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
 }
 
 function buildReport({ outputDir, runnerPath, config, shared, process }) {
+  const expectsAllRunsCompleted = config.heartbeatMode !== "cancel-first";
   const expectedSuccessfulToolCallsPerSession = Math.min(config.toolsPerSession, config.maxToolCalls);
   const expectedToolCallsPerRun = config.sessions * expectedSuccessfulToolCallsPerSession;
   const expectedBudgetRejectedToolCallsPerRun =
@@ -560,7 +606,8 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       shared.sessionOutputs.min === process.sessionOutputs.min &&
       shared.sessionOutputs.max === process.sessionOutputs.max,
     callbacksByMethod:
-      JSON.stringify(shared.callbacks.byMethod) === JSON.stringify(process.callbacks.byMethod),
+      JSON.stringify(stableCallbackCounts(shared.callbacks.byMethod)) ===
+      JSON.stringify(stableCallbackCounts(process.callbacks.byMethod)),
   };
   const regressions = {
     parityFailures: Object.entries(parity)
@@ -571,48 +618,50 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       ...(process.callbacks.runIdMismatches ? ["process.callbackRunIdMismatches"] : []),
       ...(shared.callbacks.errors ? ["shared.callbackErrors"] : []),
       ...(process.callbacks.errors ? ["process.callbackErrors"] : []),
+      ...(shared.callbacks.heartbeatUnexpectedRunIds ? ["shared.heartbeatUnexpectedRunIds"] : []),
+      ...(process.callbacks.heartbeatUnexpectedRunIds ? ["process.heartbeatUnexpectedRunIds"] : []),
       ...(shared.notifications.unexpectedRunIds ? ["shared.notificationUnexpectedRunIds"] : []),
       ...(process.notifications.unexpectedRunIds ? ["process.notificationUnexpectedRunIds"] : []),
       ...(shared.frames.unexpectedRunIds ? ["shared.frameUnexpectedRunIds"] : []),
       ...(process.frames.unexpectedRunIds ? ["process.frameUnexpectedRunIds"] : []),
     ],
     toolAccountingFailures: [
-      ...(shared.toolCalls.min !== expectedToolCallsPerRun || shared.toolCalls.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (shared.toolCalls.min !== expectedToolCallsPerRun || shared.toolCalls.max !== expectedToolCallsPerRun)
         ? ["shared.toolCalls"]
         : []),
-      ...(process.toolCalls.min !== expectedToolCallsPerRun || process.toolCalls.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (process.toolCalls.min !== expectedToolCallsPerRun || process.toolCalls.max !== expectedToolCallsPerRun)
         ? ["process.toolCalls"]
         : []),
-      ...(shared.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
-      shared.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (shared.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
+      shared.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun)
         ? ["shared.diagnosticToolCallsUsed"]
         : []),
-      ...(process.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
-      process.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (process.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
+      process.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun)
         ? ["process.diagnosticToolCallsUsed"]
         : []),
-      ...(shared.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
-      shared.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (shared.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
+      shared.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun)
         ? ["shared.diagnosticCustomToolCalls"]
         : []),
-      ...(process.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
-      process.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (process.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
+      process.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun)
         ? ["process.diagnosticCustomToolCalls"]
         : []),
-      ...(shared.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
-      shared.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+      ...(expectsAllRunsCompleted && (shared.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
+      shared.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun)
         ? ["shared.diagnosticExhaustedSessions"]
         : []),
-      ...(process.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
-      process.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+      ...(expectsAllRunsCompleted && (process.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
+      process.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun)
         ? ["process.diagnosticExhaustedSessions"]
         : []),
-      ...(shared.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
-      shared.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (shared.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
+      shared.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun)
         ? ["shared.budgetRejectedToolCalls"]
         : []),
-      ...(process.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
-      process.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+      ...(expectsAllRunsCompleted && (process.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
+      process.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun)
         ? ["process.budgetRejectedToolCalls"]
         : []),
     ],
@@ -623,17 +672,37 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       ...(process.sessions.min !== config.sessions || process.sessions.max !== config.sessions
         ? ["process.sessions"]
         : []),
-      ...(shared.completedSessions.min !== config.sessions || shared.completedSessions.max !== config.sessions
+      ...(expectsAllRunsCompleted && (shared.completedSessions.min !== config.sessions || shared.completedSessions.max !== config.sessions)
         ? ["shared.completedSessions"]
         : []),
-      ...(process.completedSessions.min !== config.sessions || process.completedSessions.max !== config.sessions
+      ...(expectsAllRunsCompleted && (process.completedSessions.min !== config.sessions || process.completedSessions.max !== config.sessions)
         ? ["process.completedSessions"]
         : []),
-      ...(shared.sessionOutputs.min !== config.sessions || shared.sessionOutputs.max !== config.sessions
+      ...(expectsAllRunsCompleted && (shared.sessionOutputs.min !== config.sessions || shared.sessionOutputs.max !== config.sessions)
         ? ["shared.sessionOutputs"]
         : []),
-      ...(process.sessionOutputs.min !== config.sessions || process.sessionOutputs.max !== config.sessions
+      ...(expectsAllRunsCompleted && (process.sessionOutputs.min !== config.sessions || process.sessionOutputs.max !== config.sessions)
         ? ["process.sessionOutputs"]
+        : []),
+    ],
+    heartbeatFailures: [
+      ...(config.heartbeatMode !== "none" && !shared.callbacks.byMethod["run.heartbeat"]
+        ? ["shared.missingHeartbeatCallbacks"]
+        : []),
+      ...(config.heartbeatMode !== "none" && !process.callbacks.byMethod["run.heartbeat"]
+        ? ["process.missingHeartbeatCallbacks"]
+        : []),
+      ...(config.heartbeatMode === "continue" && (shared.statuses.completed !== config.cases)
+        ? ["shared.expectedCompletedHeartbeatRuns"]
+        : []),
+      ...(config.heartbeatMode === "continue" && (process.statuses.completed !== config.cases)
+        ? ["process.expectedCompletedHeartbeatRuns"]
+        : []),
+      ...(config.heartbeatMode === "cancel-first" && shared.statuses.cancelled !== 1
+        ? ["shared.expectedOneCancelledHeartbeatRun"]
+        : []),
+      ...(config.heartbeatMode === "cancel-first" && process.statuses.cancelled !== 1
+        ? ["process.expectedOneCancelledHeartbeatRun"]
         : []),
     ],
   };
@@ -655,8 +724,41 @@ function hasBlockingRegression(report) {
     report.regressions.parityFailures.length > 0 ||
     report.regressions.isolationFailures.length > 0 ||
     report.regressions.toolAccountingFailures.length > 0 ||
-    report.regressions.explicitSessionFailures.length > 0
+    report.regressions.explicitSessionFailures.length > 0 ||
+    report.regressions.heartbeatFailures.length > 0
   );
+}
+
+async function runFixtureWithExpectedCancellation(runner, fixture, config) {
+  try {
+    return await runner.runStart(runStartForFixture(fixture, config));
+  } catch (error) {
+    if (expectsHeartbeatCancellation(config, fixture.runId)) {
+      return {
+        runId: fixture.runId,
+        status: "cancelled",
+        error: error instanceof Error ? error.message : String(error),
+        findings: [],
+        sessionOutputs: [],
+      };
+    }
+    throw error;
+  }
+}
+
+function expectsHeartbeatCancellation(config, runId) {
+  return config.heartbeatMode === "cancel-first" && runId === "protocol-run-1";
+}
+
+function stableCallbackCounts(counts) {
+  return Object.fromEntries(
+    Object.entries(counts).filter(([method]) => method !== "run.heartbeat"),
+  );
+}
+
+function shouldContinueHeartbeat({ mode, runId, count }) {
+  if (mode === "cancel-first" && runId === "protocol-run-1" && count === 1) return false;
+  return true;
 }
 
 async function runPool(items, concurrencyLimit, worker) {
@@ -819,6 +921,11 @@ function booleanArg(value, label) {
   fail(`${label} must be true or false`);
 }
 
+function enumArg(value, allowed, label) {
+  if (allowed.includes(value)) return value;
+  fail(`${label} must be one of: ${allowed.join(", ")}`);
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
@@ -830,7 +937,7 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--heartbeat-mode none|continue|cancel-first] [--heartbeat-interval-ms 30] [--heartbeat-lease-seconds 1] [--fail-on-regression true|false]\n",
   );
 }
 
