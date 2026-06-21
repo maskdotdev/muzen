@@ -607,17 +607,27 @@ Interpretation:
   than mixed-run leakage; isolation gates continue to fail on orphan or
   unexpected run IDs.
 
-Current recommendation: do not run live evals for this runner investigation yet.
-The deterministic shared/process protocol path is now covered for explicit
-multi-session fan-out, delayed callback tools, callback/custom tool accounting,
-session-budget reporting, direct-session budget exhaustion, active-session
-heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
-explicit cancel requests, including a combined mixed-pressure run. The next
-useful fake-first step is a higher-volume mixed sweep across the new large
-fixture knobs before considering live evals.
+Current recommendation: do not run live evals for this runner investigation.
+The deterministic fake evidence now covers the scored autonomous path under
+candidate publication, forced budget exhaustion, Codex-proxy-shaped retry
+pressure, and large synthetic fixtures, and it covers the explicit protocol
+path under multi-session fan-out, delayed callback tools, callback/custom tool
+accounting, session-budget reporting, direct-session budget exhaustion,
+active-session heartbeats, heartbeat-triggered cancellation, in-flight status
+polling, explicit cancel requests, and large-fixture mixed pressure. Across
+those gates, shared and process modes agree on terminal statuses, findings,
+model calls, tool calls, tokens, callback ownership, budget accounting, and
+isolation. Treat future live evals as review-quality/model-behavior work, not
+as necessary evidence for the shared/concurrent runner investigation unless a
+new deterministic repro contradicts these fake gates.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
+
+Historical note: the June 7 commands below predate the scored-session guards
+and are retained only as old result provenance. They use explicit sessions and
+should not be rerun as scored review-quality commands; current scored harnesses
+must use `--sessions 0`.
 
 | PR | Mode | Goldens | Hits | False positives | Findings | Notes |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
