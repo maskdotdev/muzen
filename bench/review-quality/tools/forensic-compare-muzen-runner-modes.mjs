@@ -413,9 +413,17 @@ function candidateSummary(audit, events) {
   const validations = [];
   const decisions = [];
   const skipped = [];
+  const seenLifecycleEvents = new Set();
   for (const record of events) {
     const trace = record.event?.agentTrace;
     if (!trace) continue;
+    if (!trace.traceKind?.startsWith("candidate_")) continue;
+    const lifecycleKey = JSON.stringify({
+      traceKind: trace.traceKind,
+      details: trace.details ?? {},
+    });
+    if (seenLifecycleEvents.has(lifecycleKey)) continue;
+    seenLifecycleEvents.add(lifecycleKey);
     if (trace.traceKind === "candidate_finding_emitted") {
       emitted.push({
         candidateId: trace.details?.candidateId ?? null,
@@ -468,6 +476,12 @@ function candidateSummary(audit, events) {
     accepted: decisions.filter((decision) => decision.decision === "accepted").length,
     rejected: decisions.filter((decision) => decision.decision === "rejected").length,
     reasons: countObject(decisions.map((decision) => decision.reason)),
+    rejectionReasons: countObject(
+      decisions
+        .filter((decision) => decision.decision === "rejected")
+        .map((decision) => decision.reason),
+    ),
+    validatorStatuses: countObject(decisions.map((decision) => decision.validatorStatus)),
     publicationSkippedBudgetExhausted: decisions.filter(
       (decision) => decision.publicationSkippedBudgetExhausted,
     ).length + skipped.filter((item) => item.publicationSkippedBudgetExhausted).length,
@@ -767,6 +781,15 @@ function renderMarkdown(report) {
   lines.push(
     `- Candidate lifecycle: shared emitted/validated/accepted ${sum(report.cases.map((item) => item.shared.candidates.emitted))}/${sum(report.cases.map((item) => item.shared.candidates.validationsCompleted))}/${sum(report.cases.map((item) => item.shared.candidates.accepted))}; process ${sum(report.cases.map((item) => item.process.candidates.emitted))}/${sum(report.cases.map((item) => item.process.candidates.validationsCompleted))}/${sum(report.cases.map((item) => item.process.candidates.accepted))}.`,
   );
+  const sharedRejectionReasons = formatCountObject(
+    mergeCountObjects(report.cases.map((item) => item.shared.candidates.rejectionReasons)),
+  );
+  const processRejectionReasons = formatCountObject(
+    mergeCountObjects(report.cases.map((item) => item.process.candidates.rejectionReasons)),
+  );
+  lines.push(
+    `- Candidate rejections: shared ${sum(report.cases.map((item) => item.shared.candidates.rejected))} (${sharedRejectionReasons}); process ${sum(report.cases.map((item) => item.process.candidates.rejected))} (${processRejectionReasons}).`,
+  );
   lines.push(
     `- Cases where process accepted more candidates: ${formatList(report.patterns.processAcceptedMoreCandidatesCases)}.`,
   );
@@ -778,12 +801,12 @@ function renderMarkdown(report) {
   lines.push("## Cases");
   lines.push("");
   lines.push(
-    "| case | shared finalization | process finalization | shared turns/tools/compactions | process turns/tools/compactions | candidates shared/process | findings shared/process | needs_review shared/process | p95 model ms shared/process |",
+    "| case | shared finalization | process finalization | shared turns/tools/compactions | process turns/tools/compactions | candidates shared/process | accepted/rejected shared | accepted/rejected process | rejection reasons shared/process | findings shared/process | needs_review shared/process | p95 model ms shared/process |",
   );
-  lines.push("|---|---|---|---:|---:|---:|---:|---:|---:|");
+  lines.push("|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|");
   for (const item of report.cases) {
     lines.push(
-      `| ${item.name} | ${item.shared.orchestrator.finalizationCause} | ${item.process.orchestrator.finalizationCause} | ${item.shared.orchestrator.turns}/${item.shared.orchestrator.toolCallsCompleted}/${item.shared.orchestrator.transcriptCompactions} | ${item.process.orchestrator.turns}/${item.process.orchestrator.toolCallsCompleted}/${item.process.orchestrator.transcriptCompactions} | ${item.shared.review.candidates}/${item.process.review.candidates} | ${item.shared.review.findings}/${item.process.review.findings} | ${item.shared.review.incompleteVerdicts}/${item.process.review.incompleteVerdicts} | ${item.shared.orchestrator.latency.primaryModelMs.p95 ?? ""}/${item.process.orchestrator.latency.primaryModelMs.p95 ?? ""} |`,
+      `| ${item.name} | ${item.shared.orchestrator.finalizationCause} | ${item.process.orchestrator.finalizationCause} | ${item.shared.orchestrator.turns}/${item.shared.orchestrator.toolCallsCompleted}/${item.shared.orchestrator.transcriptCompactions} | ${item.process.orchestrator.turns}/${item.process.orchestrator.toolCallsCompleted}/${item.process.orchestrator.transcriptCompactions} | ${item.shared.review.candidates}/${item.process.review.candidates} | ${item.shared.candidates.accepted}/${item.shared.candidates.rejected} | ${item.process.candidates.accepted}/${item.process.candidates.rejected} | ${formatCountObject(item.shared.candidates.rejectionReasons)}/${formatCountObject(item.process.candidates.rejectionReasons)} | ${item.shared.review.findings}/${item.process.review.findings} | ${item.shared.review.incompleteVerdicts}/${item.process.review.incompleteVerdicts} | ${item.shared.orchestrator.latency.primaryModelMs.p95 ?? ""}/${item.process.orchestrator.latency.primaryModelMs.p95 ?? ""} |`,
     );
   }
   lines.push("");
@@ -869,6 +892,25 @@ function round(value, digits) {
 
 function formatList(values) {
   return values.length === 0 ? "none" : values.map((value) => `\`${value}\``).join(", ");
+}
+
+function mergeCountObjects(objects) {
+  const merged = {};
+  for (const object of objects) {
+    for (const [key, count] of Object.entries(object ?? {})) {
+      merged[key] = (merged[key] ?? 0) + count;
+    }
+  }
+  return merged;
+}
+
+function formatCountObject(object) {
+  const entries = Object.entries(object ?? {}).filter(([, count]) => count > 0);
+  if (entries.length === 0) return "none";
+  return entries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, count]) => `${key}:${count}`)
+    .join(", ");
 }
 
 function parseArgs(argv) {

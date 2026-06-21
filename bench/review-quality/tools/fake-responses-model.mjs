@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
   httpErrorEvery: 0,
   toolName: "diff",
   finalMode: "clean",
+  validationStatus: "supported",
   logPath: null,
 };
 
@@ -38,6 +39,9 @@ export async function startFakeResponsesServer(config = {}) {
     reset() {
       state.sequence = 0;
       state.invalidFinalsUsed = 0;
+    },
+    configure(nextConfig = {}) {
+      Object.assign(state, nextConfig);
     },
     close() {
       return new Promise((resolve, reject) => {
@@ -131,7 +135,7 @@ function decideResponse(state, body, sequence) {
       output_text: "this is intentionally not json",
     };
   }
-  const content = finalJson(responseFormatName, state.finalMode);
+  const content = finalJson(responseFormatName, state.finalMode, state.validationStatus);
   return {
     status: 200,
     decision: "valid_final_text",
@@ -156,27 +160,10 @@ function responseEnvelope(decision) {
   };
 }
 
-function finalJson(responseFormatName, finalMode) {
+function finalJson(responseFormatName, finalMode, validationStatus) {
   if (String(responseFormatName).includes("packet")) {
     if (finalMode === "candidate" && String(responseFormatName).includes("validate_finding")) {
-      return JSON.stringify({
-        status: "supported",
-        summary: "Synthetic validator confirms the changed line returns success before pending work finishes.",
-        checkedPaths: ["src/example.txt"],
-        evidence: [
-          {
-            path: "src/example.txt",
-            startLine: 2,
-            endLine: 2,
-            snippet: "head value",
-            artifactId: null,
-            whyItMatters: "The changed line represents the path that now reports success before pending work finishes.",
-          },
-        ],
-        openQuestions: [],
-        suggestedNextSearches: [],
-        candidateFindings: [],
-      });
+      return JSON.stringify(validationPacket(validationStatus));
     }
     return JSON.stringify({
       status: "insufficient",
@@ -236,6 +223,36 @@ function finalJson(responseFormatName, finalMode) {
   });
 }
 
+function validationPacket(status) {
+  const normalized = ["supported", "refuted", "insufficient", "needs_more_evidence"].includes(status)
+    ? status
+    : "supported";
+  return {
+    status: normalized,
+    summary:
+      normalized === "supported"
+        ? "Synthetic validator confirms the changed line returns success before pending work finishes."
+        : `Synthetic validator returns ${normalized} for deterministic publication diagnostics.`,
+    checkedPaths: ["src/example.txt"],
+    evidence: [
+      {
+        path: "src/example.txt",
+        startLine: 2,
+        endLine: 2,
+        snippet: "head value",
+        artifactId: null,
+        whyItMatters: "The changed line represents the path that now reports success before pending work finishes.",
+      },
+    ],
+    openQuestions:
+      normalized === "supported"
+        ? []
+        : ["synthetic validation was configured not to support the candidate"],
+    suggestedNextSearches: [],
+    candidateFindings: [],
+  };
+}
+
 function textMessage(text) {
   return {
     type: "message",
@@ -291,6 +308,7 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
         : 0,
       responseFormat: body.text?.format?.name || null,
       finalMode: state.finalMode,
+      validationStatus: state.validationStatus,
     })}\n`,
   );
 }
@@ -350,12 +368,13 @@ function configFromArgs(args) {
     httpErrorEvery: numberArg(args.httpErrorEvery, DEFAULT_CONFIG.httpErrorEvery),
     toolName: args.toolName || DEFAULT_CONFIG.toolName,
     finalMode: args.finalMode || DEFAULT_CONFIG.finalMode,
+    validationStatus: args.validationStatus || DEFAULT_CONFIG.validationStatus,
     logPath: args.log || null,
   };
 }
 
 function usage() {
-  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--log path]\n`);
+  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--log path]\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

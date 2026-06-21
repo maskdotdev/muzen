@@ -31,7 +31,11 @@ const maxConcurrent = positiveInt(args.maxConcurrent || "64", "--max-concurrent"
 const invalidFinalAttempts = nonnegativeInt(args.invalidFinalAttempts || "0", "--invalid-final-attempts");
 const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
 const toolName = args.toolName || "diff";
-const finalMode = args.finalMode || "clean";
+const sharedFinalMode = args.sharedFinalMode || args.finalMode || "clean";
+const processFinalMode = args.processFinalMode || args.finalMode || sharedFinalMode;
+const sharedValidationStatus = args.sharedValidationStatus || args.validationStatus || "supported";
+const processValidationStatus =
+  args.processValidationStatus || args.validationStatus || sharedValidationStatus;
 
 fs.mkdirSync(outputDir, { recursive: true });
 fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -47,7 +51,8 @@ const fakeModel = await startFakeResponsesServer({
   invalidFinalAttempts,
   httpErrorEvery,
   toolName,
-  finalMode,
+  finalMode: sharedFinalMode,
+  validationStatus: sharedValidationStatus,
   logPath: path.join(outputDir, "fake-model.jsonl"),
 });
 
@@ -90,8 +95,16 @@ try {
     OPENAI_BASE_URL: fakeModel.baseUrl,
     OPENAI_API_KEY: "fake",
   };
+  fakeModel.configure({
+    finalMode: sharedFinalMode,
+    validationStatus: sharedValidationStatus,
+  });
   await runCheckedAsync("node", [...common, "--runner-mode", "shared", "--output-dir", sharedDir], env);
   fakeModel.reset();
+  fakeModel.configure({
+    finalMode: processFinalMode,
+    validationStatus: processValidationStatus,
+  });
   await runCheckedAsync("node", [...common, "--runner-mode", "process", "--output-dir", processDir], env);
 
   const comparePath = path.join(outputDir, "runner-mode-compare.json");
@@ -128,7 +141,10 @@ try {
     invalidFinalAttempts,
     httpErrorEvery,
     toolName,
-    finalMode,
+    sharedFinalMode,
+    processFinalMode,
+    sharedValidationStatus,
+    processValidationStatus,
     compare,
   });
   const summaryPath = path.join(outputDir, "reproduction-summary.json");
@@ -156,7 +172,10 @@ function reproductionSummary({
   invalidFinalAttempts,
   httpErrorEvery,
   toolName,
-  finalMode,
+  sharedFinalMode,
+  processFinalMode,
+  sharedValidationStatus,
+  processValidationStatus,
   compare,
 }) {
   const sharedExhausted = compare.cases.filter((entry) => entry.shared.orchestrator.exhaustedMaxToolCalls);
@@ -183,7 +202,10 @@ function reproductionSummary({
       invalidFinalAttempts,
       httpErrorEvery,
       toolName,
-      finalMode,
+      sharedFinalMode,
+      processFinalMode,
+      sharedValidationStatus,
+      processValidationStatus,
     },
     exhaustedMaxToolCalls: {
       shared: sharedExhausted.length,
@@ -367,5 +389,5 @@ function timestamp() {
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--final-mode clean|candidate]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
 }
