@@ -23,6 +23,17 @@ const maxToolCalls = positiveInt(args.maxToolCalls || "6", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || "10", "--max-turns");
 const toolsBeforeFinal = args.toolsBeforeFinal || "1";
 const finalMode = args.finalMode || "clean";
+const sharedFinalMode = args.sharedFinalMode || finalMode;
+const processFinalMode = args.processFinalMode || finalMode;
+const validationStatus = args.validationStatus || "supported";
+const sharedValidationStatus = args.sharedValidationStatus || validationStatus;
+const processValidationStatus = args.processValidationStatus || validationStatus;
+const invalidFinalAttempts = nonnegativeInt(
+  args.invalidFinalAttempts || "0",
+  "--invalid-final-attempts",
+);
+const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
+const toolName = args.toolName || "diff";
 const postPrepareCooldownMs = nonnegativeInt(
   args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
@@ -54,8 +65,20 @@ for (const concurrency of concurrencies) {
       String(maxTurns),
       "--tools-before-final",
       toolsBeforeFinal,
-      "--final-mode",
-      finalMode,
+      "--shared-final-mode",
+      sharedFinalMode,
+      "--process-final-mode",
+      processFinalMode,
+      "--shared-validation-status",
+      sharedValidationStatus,
+      "--process-validation-status",
+      processValidationStatus,
+      "--invalid-final-attempts",
+      String(invalidFinalAttempts),
+      "--http-error-every",
+      String(httpErrorEvery),
+      "--tool-name",
+      toolName,
       "--latency-ms",
       String(latencyMs),
       "--jitter-ms",
@@ -104,7 +127,13 @@ const report = {
     maxToolCalls,
     maxTurns,
     toolsBeforeFinal,
-    finalMode,
+    sharedFinalMode,
+    processFinalMode,
+    sharedValidationStatus,
+    processValidationStatus,
+    invalidFinalAttempts,
+    httpErrorEvery,
+    toolName,
     postPrepareCooldownMs,
   },
   regressions: summarizeRegressions(runs),
@@ -145,12 +174,37 @@ function compactRun(summary, { concurrency, outputDir }) {
     release: summary.release,
     isolation: summary.isolation,
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
+    observedRuns: summary.observedRuns,
+    fakeModel: compactFakeModel(summary.fakeModel),
     parity: {
       modelCalls: totals.shared?.modelCalls === totals.process?.modelCalls,
       toolCalls: totals.shared?.toolCalls === totals.process?.toolCalls,
       totalTokens: totals.shared?.totalTokens === totals.process?.totalTokens,
       findings: totals.shared?.findings === totals.process?.findings,
     },
+  };
+}
+
+function compactFakeModel(fakeModel) {
+  if (!fakeModel) return null;
+  return {
+    requests: fakeModel.requests,
+    conversationCount: fakeModel.conversationCount,
+    decisions: fakeModel.decisions,
+    statuses: fakeModel.statuses,
+    invalidFinalsByConversation: fakeModel.invalidFinalsByConversation,
+    queuedMs: fakeModel.queuedMs,
+    byRunLabel: Object.fromEntries(
+      Object.entries(fakeModel.byRunLabel ?? {}).map(([label, summary]) => [
+        label,
+        {
+          requests: summary.requests,
+          decisions: summary.decisions,
+          statuses: summary.statuses,
+          queuedMs: summary.queuedMs,
+        },
+      ]),
+    ),
   };
 }
 
@@ -272,6 +326,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--post-prepare-cooldown-ms 3000]\n",
+    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--post-prepare-cooldown-ms 3000]\n",
   );
 }
