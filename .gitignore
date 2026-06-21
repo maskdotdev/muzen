@@ -11,6 +11,7 @@ bench/results-sdk-memory-real/
 bench/review-quality/current-corpus-runs.json
 bench/review-quality/fixtures/full-audit-scenarios.json
 experiments/**/results/
+experiments/**/.auth.json
 experiments/**/*.events.jsonl
 experiments/**/*.replay.json
 experiments/**/*.profile.json
