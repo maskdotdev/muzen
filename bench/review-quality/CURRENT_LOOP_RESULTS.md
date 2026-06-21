@@ -188,7 +188,7 @@ Protocol heartbeat pressure sweep:
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061457Z \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T062012Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -208,7 +208,7 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T061457Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-heartbeat-continue-20260621T062012Z/protocol-session-stress-summary.json
 ```
 
 | Mode | Runs | Completed runs | Sessions per run | Tool calls per run | Heartbeat callbacks | Model callbacks | Tool callbacks | Callback ownership errors | Result |
@@ -221,7 +221,7 @@ Protocol heartbeat cancellation sweep:
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061457Z \
+  --output-dir bench/results-review-quality/fake-protocol-heartbeat-cancel-result-20260621T062331Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -241,20 +241,20 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-heartbeat-cancel-first-20260621T061457Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-heartbeat-cancel-result-20260621T062331Z/protocol-session-stress-summary.json
 ```
 
-| Mode | Runs | Completed runs | Cancelled runs | Heartbeat callbacks | Run-failed notifications | Run-finished notifications | Callback ownership errors | Result |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 4 | 3 | 1 | 88 | 1 | 3 | 0 | passed |
-| process | 4 | 3 | 1 | 88 | 1 | 3 | 0 | passed |
+| Mode | Runs | Completed runs | Cancelled runs | Stored cancelled results | Stored cancelled session outputs | Heartbeat callbacks | Run-failed notifications | Run-finished notifications | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 3 | 1 | 1 | 3 | 88 | 1 | 3 | 0 | passed |
+| process | 4 | 3 | 1 | 1 | 3 | 88 | 1 | 3 | 0 | passed |
 
 Protocol in-flight status pressure sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-status-pressure-20260621T061421Z \
+  --output-dir bench/results-review-quality/fake-protocol-status-pressure-20260621T062012Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -272,12 +272,12 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-status-pressure-20260621T061421Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-status-pressure-20260621T062012Z/protocol-session-stress-summary.json
 ```
 
 | Mode | Runs | Completed runs | Running status polls per run | Status poll errors | Model callbacks | Tool callbacks | Callback ownership errors | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 4 | 4 | 35 | 0 | 36 | 24 | 0 | passed |
+| shared | 4 | 4 | 34 | 0 | 36 | 24 | 0 | passed |
 | process | 4 | 4 | 35 | 0 | 36 | 24 | 0 | passed |
 
 Protocol explicit cancel request sweep:
@@ -285,7 +285,7 @@ Protocol explicit cancel request sweep:
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-request-cancel-20260621T061436Z \
+  --output-dir bench/results-review-quality/fake-protocol-request-cancel-result-20260621T062331Z \
   --cases 4 \
   --concurrency 2 \
   --sessions 3 \
@@ -305,13 +305,13 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-request-cancel-20260621T061436Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-request-cancel-result-20260621T062331Z/protocol-session-stress-summary.json
 ```
 
-| Mode | Runs | Completed runs | Cancelled runs | Accepted cancel requests | Running status polls on cancelled run | Run-failed notifications | Callback ownership errors | Result |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 4 | 3 | 1 | 1 | 6 | 1 | 0 | passed |
-| process | 4 | 3 | 1 | 1 | 6 | 1 | 0 | passed |
+| Mode | Runs | Completed runs | Cancelled runs | Stored cancelled results | Stored cancelled session outputs | Accepted cancel requests | Running status polls on cancelled run | Run-failed notifications | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
+| process | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
 
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
@@ -363,6 +363,13 @@ Interpretation:
   executing, and an explicit cancel request against `protocol-run-1` cancels
   exactly one run while the remaining runs complete in both shared and process
   modes.
+- Cancelled run visibility is now explicit. Expected cancellation paths fetch
+  `run.result` after the terminal `run.start` error, require one stored
+  `cancelled` result in both shared and process modes, and assert that stored
+  session outputs are present for the cancelled run. Model/tool usage counters
+  for the intentionally cancelled run are timing-sensitive, so cancellation
+  gates assert containment, stored result shape, and ownership instead of exact
+  model/tool parity at the cancellation boundary.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -379,10 +386,10 @@ The deterministic shared/process protocol path is now covered for explicit
 multi-session fan-out, delayed callback tools, callback/custom tool accounting,
 session-budget reporting, direct-session budget exhaustion, active-session
 heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
-explicit cancel requests. The next useful fake-first step is tightening
-cancelled-run result visibility so the harness can assert partial session
-diagnostics instead of treating expected cancellation as a terminal JSON-RPC
-error.
+explicit cancel requests. The next useful fake-first step is adding a
+higher-volume mixed pressure sweep that combines heartbeats, status polling,
+explicit cancellation, and tool-budget exhaustion in one run while preserving
+shared/process parity.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

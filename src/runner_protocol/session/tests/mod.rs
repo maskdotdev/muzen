@@ -279,6 +279,7 @@ fn interactive_run_cancel_preempts_active_run_start() {
         .expect("result request")
         .expect("result response");
     assert!(result.result.is_some(), "partial result remains stored");
+    assert_eq!(result.result.as_ref().unwrap()["status"], "cancelled");
 }
 
 fn run_lookup_request(id: u64, method: &str) -> JsonRpcRequest {

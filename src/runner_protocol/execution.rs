@@ -89,9 +89,9 @@ pub(crate) fn execute_run_start(
         .enable_all()
         .build()
         .context("failed to build runner tokio runtime")?;
-    let report = runtime.block_on(run.execute_with_cancel(cancel));
+    let report = runtime.block_on(run.execute_with_cancel(cancel.clone()));
     heartbeat.stop();
-    let result = runner_result_from_report(&report, plan.metadata);
+    let result = runner_result_from_report(&report, plan.metadata, cancel.is_cancelled());
     let stored = RunnerStoredRun::from_report(&report, result.clone());
     Ok(ExecutedRun {
         result,
@@ -170,6 +170,7 @@ fn start_heartbeat(
 fn runner_result_from_report(
     report: &RunReport,
     metadata: BTreeMap<String, Value>,
+    cancelled: bool,
 ) -> RunnerRunResult {
     let mut summary = runner_summary_from_review(&report.summary);
     let snapshots = report
@@ -259,7 +260,7 @@ fn runner_result_from_report(
     RunnerRunResult {
         protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
         run_id: report.run_id.clone(),
-        status: summary_status(&summary),
+        status: summary_status(&summary, cancelled),
         summary,
         session_outputs,
         file_reviews,
@@ -509,8 +510,10 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
     }
 }
 
-fn summary_status(summary: &RunnerRunSummary) -> String {
-    if summary.completed_sessions == summary.sessions {
+fn summary_status(summary: &RunnerRunSummary, cancelled: bool) -> String {
+    if cancelled && summary.completed_sessions < summary.sessions {
+        "cancelled".to_string()
+    } else if summary.completed_sessions == summary.sessions {
         "completed".to_string()
     } else {
         "partial".to_string()

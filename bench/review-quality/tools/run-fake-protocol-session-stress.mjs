@@ -502,6 +502,17 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
         (diagnostic) => diagnostic.exhaustedToolBudget === true,
       ).length,
       budgetRejectedToolCalls: budgetRejectedByRun[result.runId] ?? 0,
+      storedResultRetrieved: result.protocolPressure?.storedResult?.retrieved === true,
+      storedResultStatus: result.protocolPressure?.storedResult?.status ?? null,
+      storedResultRunIdMatches:
+        result.protocolPressure?.storedResult?.retrieved !== true
+          ? null
+          : result.protocolPressure.storedResult.runId === result.runId,
+      storedResultSessions: result.protocolPressure?.storedResult?.sessions ?? null,
+      storedResultSessionOutputs: Number.isFinite(result.protocolPressure?.storedResult?.sessionOutputs)
+        ? result.protocolPressure.storedResult.sessionOutputs
+        : null,
+      storedResultErrors: result.protocolPressure?.storedResult?.error ? 1 : 0,
       statusPolls: Array.isArray(result.protocolPressure?.statusPolls)
         ? result.protocolPressure.statusPolls.length
         : 0,
@@ -549,6 +560,15 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
     totalTokens: stats(runResults.map((result) => result.totalTokens)),
     findings: stats(runResults.map((result) => result.findings)),
     sessionOutputs: stats(runResults.map((result) => result.sessionOutputs)),
+    storedResultRetrieved: countObject(
+      runResults
+        .filter((result) => result.storedResultRetrieved)
+        .map((result) => result.storedResultStatus ?? "unknown"),
+    ),
+    storedResultErrors: stats(runResults.map((result) => result.storedResultErrors)),
+    storedResultSessionOutputs: stats(
+      runResults.map((result) => result.storedResultSessionOutputs),
+    ),
     statusPolls: stats(runResults.map((result) => result.statusPolls)),
     runningStatusPolls: stats(runResults.map((result) => result.runningStatusPolls)),
     statusPollErrors: stats(runResults.map((result) => result.statusPollErrors)),
@@ -593,8 +613,9 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
 }
 
 function buildReport({ outputDir, runnerPath, config, shared, process }) {
+  const expectsCancellationRun = expectsAnyCancellation(config);
   const expectsAllRunsCompleted =
-    config.heartbeatMode !== "cancel-first" && config.requestCancelMode !== "cancel-first";
+    !expectsCancellationRun;
   const expectedSuccessfulToolCallsPerSession = Math.min(config.toolsPerSession, config.maxToolCalls);
   const expectedToolCallsPerRun = config.sessions * expectedSuccessfulToolCallsPerSession;
   const expectedBudgetRejectedToolCallsPerRun =
@@ -608,30 +629,30 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
     completedSessions:
       shared.completedSessions.min === process.completedSessions.min &&
       shared.completedSessions.max === process.completedSessions.max,
-    modelCalls:
+    modelCalls: expectsCancellationRun ||
       shared.modelCalls.min === process.modelCalls.min && shared.modelCalls.max === process.modelCalls.max,
-    toolCalls:
+    toolCalls: expectsCancellationRun ||
       shared.toolCalls.min === process.toolCalls.min && shared.toolCalls.max === process.toolCalls.max,
-    diagnosticToolCallsUsed:
+    diagnosticToolCallsUsed: expectsCancellationRun ||
       shared.diagnosticToolCallsUsed.min === process.diagnosticToolCallsUsed.min &&
       shared.diagnosticToolCallsUsed.max === process.diagnosticToolCallsUsed.max,
-    diagnosticCustomToolCalls:
+    diagnosticCustomToolCalls: expectsCancellationRun ||
       shared.diagnosticCustomToolCalls.min === process.diagnosticCustomToolCalls.min &&
       shared.diagnosticCustomToolCalls.max === process.diagnosticCustomToolCalls.max,
-    diagnosticExhaustedSessions:
+    diagnosticExhaustedSessions: expectsCancellationRun ||
       shared.diagnosticExhaustedSessions.min === process.diagnosticExhaustedSessions.min &&
       shared.diagnosticExhaustedSessions.max === process.diagnosticExhaustedSessions.max,
-    budgetRejectedToolCalls:
+    budgetRejectedToolCalls: expectsCancellationRun ||
       shared.budgetRejectedToolCalls.min === process.budgetRejectedToolCalls.min &&
       shared.budgetRejectedToolCalls.max === process.budgetRejectedToolCalls.max,
-    totalTokens:
+    totalTokens: expectsCancellationRun ||
       shared.totalTokens.min === process.totalTokens.min && shared.totalTokens.max === process.totalTokens.max,
     findings:
       shared.findings.min === process.findings.min && shared.findings.max === process.findings.max,
     sessionOutputs:
       shared.sessionOutputs.min === process.sessionOutputs.min &&
       shared.sessionOutputs.max === process.sessionOutputs.max,
-    callbacksByMethod:
+    callbacksByMethod: expectsCancellationRun ||
       JSON.stringify(stableCallbackCounts(shared.callbacks.byMethod)) ===
       JSON.stringify(stableCallbackCounts(process.callbacks.byMethod)),
   };
@@ -759,6 +780,26 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
         ? ["process.expectedOneAcceptedCancelRequest"]
         : []),
     ],
+    cancellationResultFailures: [
+      ...(expectsAnyCancellation(config) && shared.storedResultRetrieved.cancelled !== 1
+        ? ["shared.expectedOneStoredCancelledResult"]
+        : []),
+      ...(expectsAnyCancellation(config) && process.storedResultRetrieved.cancelled !== 1
+        ? ["process.expectedOneStoredCancelledResult"]
+        : []),
+      ...(expectsAnyCancellation(config) && shared.storedResultErrors.max > 0
+        ? ["shared.storedResultLookupErrors"]
+        : []),
+      ...(expectsAnyCancellation(config) && process.storedResultErrors.max > 0
+        ? ["process.storedResultLookupErrors"]
+        : []),
+      ...(expectsAnyCancellation(config) && shared.storedResultSessionOutputs.max < 1
+        ? ["shared.missingStoredCancelledSessionOutputs"]
+        : []),
+      ...(expectsAnyCancellation(config) && process.storedResultSessionOutputs.max < 1
+        ? ["process.missingStoredCancelledSessionOutputs"]
+        : []),
+    ],
   };
   return {
     schemaVersion: "muzen.fake-protocol-session-stress.v1",
@@ -780,7 +821,8 @@ function hasBlockingRegression(report) {
     report.regressions.toolAccountingFailures.length > 0 ||
     report.regressions.explicitSessionFailures.length > 0 ||
     report.regressions.heartbeatFailures.length > 0 ||
-    report.regressions.requestPressureFailures.length > 0
+    report.regressions.requestPressureFailures.length > 0 ||
+    report.regressions.cancellationResultFailures.length > 0
   );
 }
 
@@ -796,7 +838,16 @@ async function runFixtureWithExpectedCancellation(runner, fixture, config) {
     return result;
   } catch (error) {
     const protocolPressure = await monitor;
+    const storedResult = await lookupRunResult(runner, fixture.runId);
+    protocolPressure.storedResult = summarizeStoredRunResult(storedResult);
     if (expectsCancellation(config, fixture.runId)) {
+      if (storedResult.result) {
+        return {
+          ...storedResult.result,
+          protocolPressure,
+          startError: error instanceof Error ? error.message : String(error),
+        };
+      }
       return {
         runId: fixture.runId,
         status: "cancelled",
@@ -869,8 +920,45 @@ async function cancelRun(runner, runId) {
   }
 }
 
+async function lookupRunResult(runner, runId) {
+  try {
+    return {
+      result: await runner.request("run.result", { runId }),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      result: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function summarizeStoredRunResult(lookup) {
+  if (!lookup.result) {
+    return {
+      retrieved: false,
+      error: lookup.error,
+    };
+  }
+  return {
+    retrieved: true,
+    runId: lookup.result.runId ?? null,
+    status: lookup.result.status ?? null,
+    sessions: lookup.result.summary?.sessions ?? null,
+    completedSessions: lookup.result.summary?.completedSessions ?? null,
+    sessionOutputs: Array.isArray(lookup.result.sessionOutputs)
+      ? lookup.result.sessionOutputs.length
+      : null,
+  };
+}
+
 function expectsCancellation(config, runId) {
   return expectsHeartbeatCancellation(config, runId) || expectsRequestCancellation(config, runId);
+}
+
+function expectsAnyCancellation(config) {
+  return config.heartbeatMode === "cancel-first" || config.requestCancelMode === "cancel-first";
 }
 
 function expectsHeartbeatCancellation(config, runId) {

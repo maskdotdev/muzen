@@ -179,7 +179,7 @@ fn execute_interactive_run_start(
                 .expect("runner state poisoned")
                 .reports
                 .insert(result.run_id.clone(), executed.stored);
-            if cancel.is_cancelled() {
+            if result.status == "cancelled" {
                 let failure =
                     RunFailedNotification::from_runner_error(format!("run {run_id} cancelled"));
                 let runner_error = JsonRpcError::runner_error(failure.error.clone());
