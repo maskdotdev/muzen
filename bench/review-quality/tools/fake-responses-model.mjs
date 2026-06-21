@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
   invalidFinalAttempts: 0,
   httpErrorEvery: 0,
   toolName: "diff",
+  finalMode: "clean",
   logPath: null,
 };
 
@@ -130,7 +131,7 @@ function decideResponse(state, body, sequence) {
       output_text: "this is intentionally not json",
     };
   }
-  const content = finalJson(responseFormatName);
+  const content = finalJson(responseFormatName, state.finalMode);
   return {
     status: 200,
     decision: "valid_final_text",
@@ -155,8 +156,28 @@ function responseEnvelope(decision) {
   };
 }
 
-function finalJson(responseFormatName) {
+function finalJson(responseFormatName, finalMode) {
   if (String(responseFormatName).includes("packet")) {
+    if (finalMode === "candidate" && String(responseFormatName).includes("validate_finding")) {
+      return JSON.stringify({
+        status: "supported",
+        summary: "Synthetic validator confirms the changed line returns success before pending work finishes.",
+        checkedPaths: ["src/example.txt"],
+        evidence: [
+          {
+            path: "src/example.txt",
+            startLine: 2,
+            endLine: 2,
+            snippet: "head value",
+            artifactId: null,
+            whyItMatters: "The changed line represents the path that now reports success before pending work finishes.",
+          },
+        ],
+        openQuestions: [],
+        suggestedNextSearches: [],
+        candidateFindings: [],
+      });
+    }
     return JSON.stringify({
       status: "insufficient",
       summary: "Synthetic delegate packet.",
@@ -165,6 +186,38 @@ function finalJson(responseFormatName) {
       openQuestions: [],
       suggestedNextSearches: [],
       candidateFindings: [],
+    });
+  }
+  if (finalMode === "candidate") {
+    return JSON.stringify({
+      verdict: "issues_found",
+      summary: "Synthetic deterministic review found one changed-line issue.",
+      candidates: [
+        {
+          id: "fake_candidate_early_success",
+          title: "Changed line returns success before pending work finishes",
+          claim:
+            "The changed line reports success before pending work finishes, so failed pending work can be silently skipped.",
+          severity: "medium",
+          path: "src/example.txt",
+          startLine: 2,
+          endLine: 2,
+          behaviorBefore: "The workflow did not report the new success marker before pending work completed.",
+          behaviorAfter:
+            "The workflow reports success on the changed line before pending work finishes and can silently skip failures.",
+          evidenceArtifactIds: [],
+          relatedPaths: [],
+        },
+      ],
+      notes: [],
+      completeness: {
+        reviewedChangedFiles: ["src/example.txt"],
+        reviewedRiskEntries: [],
+        unreviewedRiskEntries: [],
+        unresolvedQuestions: [],
+        incompleteReasons: [],
+        ignoredChildCandidates: [],
+      },
     });
   }
   return JSON.stringify({
@@ -237,6 +290,7 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
         ? body.input.filter((item) => item?.type === "function_call_output").length
         : 0,
       responseFormat: body.text?.format?.name || null,
+      finalMode: state.finalMode,
     })}\n`,
   );
 }
@@ -295,12 +349,13 @@ function configFromArgs(args) {
     invalidFinalAttempts: numberArg(args.invalidFinalAttempts, DEFAULT_CONFIG.invalidFinalAttempts),
     httpErrorEvery: numberArg(args.httpErrorEvery, DEFAULT_CONFIG.httpErrorEvery),
     toolName: args.toolName || DEFAULT_CONFIG.toolName,
+    finalMode: args.finalMode || DEFAULT_CONFIG.finalMode,
     logPath: args.log || null,
   };
 }
 
 function usage() {
-  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--log path]\n`);
+  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--log path]\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

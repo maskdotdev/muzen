@@ -30,8 +30,18 @@ const probes = [
   {
     name: "symmetric-tool-budget-exhaustion",
     toolsBeforeFinal: "infinite",
+    finalMode: "clean",
     expectSharedOnlyExhaustion: 0,
     expectExhausted: 5,
+    expectFindings: 0,
+  },
+  {
+    name: "candidate-publication",
+    toolsBeforeFinal: "1",
+    finalMode: "candidate",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 5,
   },
 ];
 
@@ -42,6 +52,7 @@ for (const probe of probes) {
     runnerPath,
     outputDir,
     toolsBeforeFinal: probe.toolsBeforeFinal,
+    finalMode: probe.finalMode || "clean",
     cases: args.cases || "5",
     concurrency: args.concurrency || "5",
     maxToolCalls: args.maxToolCalls || "6",
@@ -78,6 +89,7 @@ function runProbe({
   runnerPath,
   outputDir,
   toolsBeforeFinal,
+  finalMode,
   cases,
   concurrency,
   maxToolCalls,
@@ -104,6 +116,8 @@ function runProbe({
       maxTurns,
       "--tools-before-final",
       toolsBeforeFinal,
+      "--final-mode",
+      finalMode,
       "--latency-ms",
       latencyMs,
       "--jitter-ms",
@@ -164,6 +178,16 @@ function assertProbe(probe, summary) {
     summary.totals.process.totalTokens,
   );
   assertEqual(
+    `${probe.name} shared findings`,
+    summary.totals.shared.findings,
+    probe.expectFindings ?? 0,
+  );
+  assertEqual(
+    `${probe.name} process findings`,
+    summary.totals.process.findings,
+    probe.expectFindings ?? 0,
+  );
+  assertEqual(
     `${probe.name} provider errors`,
     providerErrors(summary.totals.shared),
     0,
@@ -177,6 +201,7 @@ function assertProbe(probe, summary) {
 
 function compactTotals(totals) {
   return {
+    findings: totals.findings,
     modelCalls: totals.modelCalls,
     toolCalls: totals.toolCalls,
     totalTokens: totals.totalTokens,

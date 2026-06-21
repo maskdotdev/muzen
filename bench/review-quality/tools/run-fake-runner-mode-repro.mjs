@@ -31,6 +31,7 @@ const maxConcurrent = positiveInt(args.maxConcurrent || "64", "--max-concurrent"
 const invalidFinalAttempts = nonnegativeInt(args.invalidFinalAttempts || "0", "--invalid-final-attempts");
 const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
 const toolName = args.toolName || "diff";
+const finalMode = args.finalMode || "clean";
 
 fs.mkdirSync(outputDir, { recursive: true });
 fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -46,6 +47,7 @@ const fakeModel = await startFakeResponsesServer({
   invalidFinalAttempts,
   httpErrorEvery,
   toolName,
+  finalMode,
   logPath: path.join(outputDir, "fake-model.jsonl"),
 });
 
@@ -126,6 +128,7 @@ try {
     invalidFinalAttempts,
     httpErrorEvery,
     toolName,
+    finalMode,
     compare,
   });
   const summaryPath = path.join(outputDir, "reproduction-summary.json");
@@ -153,6 +156,7 @@ function reproductionSummary({
   invalidFinalAttempts,
   httpErrorEvery,
   toolName,
+  finalMode,
   compare,
 }) {
   const sharedExhausted = compare.cases.filter((entry) => entry.shared.orchestrator.exhaustedMaxToolCalls);
@@ -179,6 +183,7 @@ function reproductionSummary({
       invalidFinalAttempts,
       httpErrorEvery,
       toolName,
+      finalMode,
     },
     exhaustedMaxToolCalls: {
       shared: sharedExhausted.length,
@@ -362,5 +367,5 @@ function timestamp() {
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--final-mode clean|candidate]\n`);
 }
