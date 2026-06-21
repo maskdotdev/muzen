@@ -144,6 +144,8 @@ pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnve
     if result.ok {
         if let Some(tool_name) = result.tool_name.as_builtin() {
             counts.increment(tool_name);
+        } else {
+            counts.increment_custom();
         }
     }
 }

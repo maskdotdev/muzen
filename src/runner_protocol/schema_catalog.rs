@@ -550,6 +550,7 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("findRelatedFiles", "integer"),
                 required("findTestsForFile", "integer"),
                 required("listImports", "integer"),
+                defaulted("custom", "integer", "0"),
             ],
         ),
         object(

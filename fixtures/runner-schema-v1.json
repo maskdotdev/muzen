@@ -1885,6 +1885,12 @@
           "name": "listImports",
           "required": true,
           "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "custom",
+          "required": false,
+          "type": "integer"
         }
       ],
       "name": "RunnerToolCounts",

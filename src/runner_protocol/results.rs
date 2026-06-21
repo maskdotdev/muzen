@@ -172,6 +172,8 @@ pub struct RunnerToolCounts {
     pub find_related_files: usize,
     pub find_tests_for_file: usize,
     pub list_imports: usize,
+    #[serde(default)]
+    pub custom: usize,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]

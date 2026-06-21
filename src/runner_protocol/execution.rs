@@ -476,6 +476,7 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
                     find_related_files: diagnostic.tool_counts.find_related_files,
                     find_tests_for_file: diagnostic.tool_counts.find_tests_for_file,
                     list_imports: diagnostic.tool_counts.list_imports,
+                    custom: diagnostic.tool_counts.custom,
                 },
             })
             .collect(),

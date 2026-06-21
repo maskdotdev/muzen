@@ -125,16 +125,19 @@ bench/results-review-quality/fake-sweep-large-fixture-sessions-20260621T053310Z/
 | 4 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
 | 8 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
 
-Protocol explicit-session stress sweep:
+Protocol explicit-session and tool-accounting stress sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --runner-path target/release/muzen-runner \
-  --output-dir bench/results-review-quality/fake-protocol-session-stress-20260621T055306Z \
+  --output-dir bench/results-review-quality/fake-protocol-tool-accounting-20260621T055951Z \
   --cases 6 \
   --concurrency 3 \
   --sessions 4 \
   --max-active-sessions 2 \
+  --max-tool-calls 4 \
+  --max-turns 8 \
+  --tools-per-session 2 \
   --tool-delay-ms 100 \
   --artifact-bytes 4096
 ```
@@ -142,13 +145,13 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-protocol-session-stress-20260621T055306Z/protocol-session-stress-summary.json
+bench/results-review-quality/fake-protocol-tool-accounting-20260621T055951Z/protocol-session-stress-summary.json
 ```
 
-| Mode | Runs | Sessions per run | Completed per run | Session outputs per run | Model callbacks | Tool callbacks | Callback ownership errors | Result |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| shared | 6 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
-| process | 6 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
+| Mode | Runs | Sessions per run | Completed per run | Session outputs per run | Tool calls per run | Diagnostic tool calls used | Diagnostic custom tool calls | Model callbacks | Tool callbacks | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 6 | 4 | 4 | 4 | 8 | 8 | 8 | 72 | 48 | 0 | passed |
+| process | 6 | 4 | 4 | 4 | 8 | 8 | 8 | 72 | 48 | 0 | passed |
 
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
@@ -178,6 +181,11 @@ Interpretation:
   caller-provided sessions as the contract: all requested sessions run under
   their own IDs, delayed callback tools preserve run/session ownership, and the
   runner result emits `sessionOutputs` for the SDK swarm mapping.
+- Callback/custom tools now count as tool calls in aggregate metrics and
+  per-session diagnostics. The protocol harness runs two callback tools per
+  explicit session and fails if top-level `summary.toolCalls`, diagnostic
+  `toolCallsUsed`, or diagnostic `toolCounts.custom` diverge from the expected
+  session-local count.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -191,9 +199,10 @@ Interpretation:
 
 Current recommendation: do not run live evals for this runner investigation yet.
 The deterministic shared/process protocol path is now covered for explicit
-multi-session fan-out and delayed callback tools. The next useful fake-first
-step is to add a pressure probe for callback/custom-tool accounting and
-session-budget reporting before considering any subscription-backed diagnostic.
+multi-session fan-out, delayed callback tools, callback/custom tool accounting,
+and session-budget reporting. The next useful fake-first step is an intentional
+direct-session budget-exhaustion probe before considering any
+subscription-backed diagnostic.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

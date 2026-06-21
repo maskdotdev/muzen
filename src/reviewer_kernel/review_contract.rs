@@ -449,6 +449,7 @@ pub struct ToolCounts {
     pub find_related_files: usize,
     pub find_tests_for_file: usize,
     pub list_imports: usize,
+    pub custom: usize,
 }
 
 impl ToolCounts {
@@ -464,6 +465,7 @@ impl ToolCounts {
         self.find_related_files += other.find_related_files;
         self.find_tests_for_file += other.find_tests_for_file;
         self.list_imports += other.list_imports;
+        self.custom += other.custom;
     }
 
     pub fn increment(&mut self, tool: ToolName) {
@@ -482,6 +484,10 @@ impl ToolCounts {
         }
     }
 
+    pub fn increment_custom(&mut self) {
+        self.custom += 1;
+    }
+
     pub fn total(self) -> usize {
         self.list_changed_files
             + self.read_diff
@@ -494,5 +500,6 @@ impl ToolCounts {
             + self.find_related_files
             + self.find_tests_for_file
             + self.list_imports
+            + self.custom
     }
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::reviewer_kernel::agent_loop::budgeted_tool_result_count;
 use crate::reviewer_kernel::review_contract::{
     ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
-    RenameDetection, SnapshotMode,
+    RenameDetection, SnapshotMode, ToolCounts,
 };
 
 use super::*;
@@ -96,6 +96,23 @@ fn custom_delegate_results_consume_tool_budget() {
         budgeted_tool_result_count(&[custom_success, builtin_invalid, budget_denied]),
         2
     );
+}
+
+#[test]
+fn custom_tool_results_are_visible_in_tool_counts() {
+    let mut counts = ToolCounts::default();
+    let custom_success = tool_result_for_budget_test("search_code", None);
+    let builtin_success = tool_result_for_budget_test("read_file", None);
+    let custom_denied =
+        tool_result_for_budget_test("explore_code", Some(ToolErrorCode::BudgetExceeded));
+
+    crate::reviewer_kernel::tool_engine::count_tool_result(&mut counts, &custom_success);
+    crate::reviewer_kernel::tool_engine::count_tool_result(&mut counts, &builtin_success);
+    crate::reviewer_kernel::tool_engine::count_tool_result(&mut counts, &custom_denied);
+
+    assert_eq!(counts.custom, 1);
+    assert_eq!(counts.read_file, 1);
+    assert_eq!(counts.total(), 2);
 }
 
 #[test]

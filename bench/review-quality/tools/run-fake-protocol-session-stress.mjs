@@ -22,10 +22,14 @@ const sessions = positiveInt(args.sessions || "3", "--sessions");
 const maxActiveSessions = positiveInt(args.maxActiveSessions || args.maxActive || "2", "--max-active-sessions");
 const maxToolCalls = positiveInt(args.maxToolCalls || "4", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || "6", "--max-turns");
+const toolsPerSession = positiveInt(args.toolsPerSession || "1", "--tools-per-session");
 const toolDelayMs = nonnegativeInt(args.toolDelayMs || "100", "--tool-delay-ms");
 const modelDelayMs = nonnegativeInt(args.modelDelayMs || "0", "--model-delay-ms");
 const artifactBytes = positiveInt(args.artifactBytes || "2048", "--artifact-bytes");
 const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
+if (toolsPerSession > maxToolCalls) {
+  fail("--tools-per-session must be less than or equal to --max-tool-calls");
+}
 
 const config = {
   cases,
@@ -34,6 +38,7 @@ const config = {
   maxActiveSessions,
   maxToolCalls,
   maxTurns,
+  toolsPerSession,
   toolDelayMs,
   modelDelayMs,
   artifactBytes,
@@ -72,6 +77,7 @@ async function runSharedMode({ runnerPath, outputDir, fixtures, config }) {
     toolDelayMs: config.toolDelayMs,
     modelDelayMs: config.modelDelayMs,
     artifactBytes: config.artifactBytes,
+    toolsPerSession: config.toolsPerSession,
   });
   await runner.start();
   try {
@@ -105,6 +111,7 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
         toolDelayMs: config.toolDelayMs,
         modelDelayMs: config.modelDelayMs,
         artifactBytes: config.artifactBytes,
+        toolsPerSession: config.toolsPerSession,
       });
       runners.push(runner);
       await runner.start();
@@ -130,13 +137,14 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
 }
 
 class ProtocolRunner {
-  constructor(runnerPath, { label, logDir, toolDelayMs, modelDelayMs, artifactBytes }) {
+  constructor(runnerPath, { label, logDir, toolDelayMs, modelDelayMs, artifactBytes, toolsPerSession }) {
     this.runnerPath = runnerPath;
     this.label = label;
     this.logDir = logDir;
     this.toolDelayMs = toolDelayMs;
     this.modelDelayMs = modelDelayMs;
     this.artifactBytes = artifactBytes;
+    this.toolsPerSession = toolsPerSession;
     this.child = null;
     this.nextId = 1;
     this.pending = new Map();
@@ -290,13 +298,13 @@ class ProtocolRunner {
     const turn = Number(params.turn ?? 0);
     const runId = String(params.runId ?? "unknown-run");
     const sessionId = String(params.sessionId ?? "unknown-session");
-    if (turn === 0) {
+    if (turn < this.toolsPerSession) {
       return {
         toolCalls: [
           {
-            callId: `${runId}-${sessionId}-probe`,
+            callId: `${runId}-${sessionId}-probe-${turn}`,
             toolId: "ownership_probe",
-            arguments: { runId, sessionId },
+            arguments: { runId, sessionId, turn },
           },
         ],
         usage: usageFor(turn),
@@ -365,10 +373,11 @@ function runStartForFixture(fixture, config) {
         parameters: {
           type: "object",
           additionalProperties: false,
-          required: ["runId", "sessionId"],
+          required: ["runId", "sessionId", "turn"],
           properties: {
             runId: { type: "string" },
             sessionId: { type: "string" },
+            turn: { type: "integer" },
           },
         },
         effects: ["write_artifact"],
@@ -413,20 +422,29 @@ function createFixtures({ fixtureRoot, cases }) {
 }
 
 function summarizeMode({ label, startedAt, completedAt, results, callbacks, notifications, frames, stderr }) {
-  const runResults = results.map((result) => ({
-    runId: result.runId,
-    status: result.status,
-    sessions: result.summary?.sessions ?? null,
-    completedSessions: result.summary?.completedSessions ?? null,
-    modelCalls: result.summary?.modelCalls ?? null,
-    toolCalls: result.summary?.toolCalls ?? null,
-    totalTokens: result.summary?.totalTokens ?? null,
-    findings: Array.isArray(result.findings) ? result.findings.length : null,
-    sessionOutputs: Array.isArray(result.sessionOutputs) ? result.sessionOutputs.length : null,
-    sessionOutputIds: Array.isArray(result.sessionOutputs)
-      ? result.sessionOutputs.map((output) => output.sessionId).sort()
-      : [],
-  }));
+  const runResults = results.map((result) => {
+    const diagnostics = Array.isArray(result.summary?.completionDiagnostics)
+      ? result.summary.completionDiagnostics
+      : [];
+    return {
+      runId: result.runId,
+      status: result.status,
+      sessions: result.summary?.sessions ?? null,
+      completedSessions: result.summary?.completedSessions ?? null,
+      modelCalls: result.summary?.modelCalls ?? null,
+      toolCalls: result.summary?.toolCalls ?? null,
+      totalTokens: result.summary?.totalTokens ?? null,
+      findings: Array.isArray(result.findings) ? result.findings.length : null,
+      sessionOutputs: Array.isArray(result.sessionOutputs) ? result.sessionOutputs.length : null,
+      sessionOutputIds: Array.isArray(result.sessionOutputs)
+        ? result.sessionOutputs.map((output) => output.sessionId).sort()
+        : [],
+      diagnosticToolCallsUsed: sumNumbers(diagnostics.map((diagnostic) => diagnostic.toolCallsUsed)),
+      diagnosticCustomToolCalls: sumNumbers(
+        diagnostics.map((diagnostic) => diagnostic.toolCounts?.custom),
+      ),
+    };
+  });
   const callbacksByRun = groupBy(callbacks, (record) => record.runId ?? "unknown");
   const runCallbackSummaries = Object.fromEntries(
     Object.entries(callbacksByRun).map(([runId, records]) => [
@@ -453,6 +471,8 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
     completedSessions: stats(runResults.map((result) => result.completedSessions)),
     modelCalls: stats(runResults.map((result) => result.modelCalls)),
     toolCalls: stats(runResults.map((result) => result.toolCalls)),
+    diagnosticToolCallsUsed: stats(runResults.map((result) => result.diagnosticToolCallsUsed)),
+    diagnosticCustomToolCalls: stats(runResults.map((result) => result.diagnosticCustomToolCalls)),
     totalTokens: stats(runResults.map((result) => result.totalTokens)),
     findings: stats(runResults.map((result) => result.findings)),
     sessionOutputs: stats(runResults.map((result) => result.sessionOutputs)),
@@ -488,6 +508,7 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
 }
 
 function buildReport({ outputDir, runnerPath, config, shared, process }) {
+  const expectedToolCallsPerRun = config.sessions * config.toolsPerSession;
   const parity = {
     statuses: JSON.stringify(shared.statuses) === JSON.stringify(process.statuses),
     sessions:
@@ -499,6 +520,12 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       shared.modelCalls.min === process.modelCalls.min && shared.modelCalls.max === process.modelCalls.max,
     toolCalls:
       shared.toolCalls.min === process.toolCalls.min && shared.toolCalls.max === process.toolCalls.max,
+    diagnosticToolCallsUsed:
+      shared.diagnosticToolCallsUsed.min === process.diagnosticToolCallsUsed.min &&
+      shared.diagnosticToolCallsUsed.max === process.diagnosticToolCallsUsed.max,
+    diagnosticCustomToolCalls:
+      shared.diagnosticCustomToolCalls.min === process.diagnosticCustomToolCalls.min &&
+      shared.diagnosticCustomToolCalls.max === process.diagnosticCustomToolCalls.max,
     totalTokens:
       shared.totalTokens.min === process.totalTokens.min && shared.totalTokens.max === process.totalTokens.max,
     findings:
@@ -522,6 +549,30 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       ...(process.notifications.unexpectedRunIds ? ["process.notificationUnexpectedRunIds"] : []),
       ...(shared.frames.unexpectedRunIds ? ["shared.frameUnexpectedRunIds"] : []),
       ...(process.frames.unexpectedRunIds ? ["process.frameUnexpectedRunIds"] : []),
+    ],
+    toolAccountingFailures: [
+      ...(shared.toolCalls.min !== expectedToolCallsPerRun || shared.toolCalls.max !== expectedToolCallsPerRun
+        ? ["shared.toolCalls"]
+        : []),
+      ...(process.toolCalls.min !== expectedToolCallsPerRun || process.toolCalls.max !== expectedToolCallsPerRun
+        ? ["process.toolCalls"]
+        : []),
+      ...(shared.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
+      shared.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+        ? ["shared.diagnosticToolCallsUsed"]
+        : []),
+      ...(process.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun ||
+      process.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+        ? ["process.diagnosticToolCallsUsed"]
+        : []),
+      ...(shared.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
+      shared.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+        ? ["shared.diagnosticCustomToolCalls"]
+        : []),
+      ...(process.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
+      process.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+        ? ["process.diagnosticCustomToolCalls"]
+        : []),
     ],
     explicitSessionFailures: [
       ...(shared.sessions.min !== config.sessions || shared.sessions.max !== config.sessions
@@ -561,6 +612,7 @@ function hasBlockingRegression(report) {
   return (
     report.regressions.parityFailures.length > 0 ||
     report.regressions.isolationFailures.length > 0 ||
+    report.regressions.toolAccountingFailures.length > 0 ||
     report.regressions.explicitSessionFailures.length > 0
   );
 }
@@ -607,6 +659,10 @@ function groupBy(items, keyFn) {
     (groups[key] ||= []).push(item);
     return groups;
   }, {});
+}
+
+function sumNumbers(values) {
+  return values.filter(Number.isFinite).reduce((total, value) => total + value, 0);
 }
 
 function stats(values) {
@@ -685,7 +741,7 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fail-on-regression true|false]\n",
   );
 }
 
