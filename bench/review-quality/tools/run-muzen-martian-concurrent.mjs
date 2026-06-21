@@ -257,7 +257,7 @@ try {
     jobsDir,
     model,
     runnerPath,
-    sessions: args.sessions || "1",
+    sessions: args.sessions || "0",
     maxActive: args.maxActive || "1",
     maxTurns: args.maxTurns || "60",
     maxToolCalls: args.maxToolCalls || "50",
@@ -302,7 +302,7 @@ try {
       runnerMode,
       runnerPath,
       runnerClient,
-      sessions: args.sessions || "1",
+      sessions: args.sessions || "0",
       maxActive: args.maxActive || "1",
       maxTurns: args.maxTurns || "60",
       maxToolCalls: args.maxToolCalls || "50",
@@ -346,13 +346,17 @@ const reviewSummary = buildReviewSummary({
 fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(reviewSummary, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(reviewSummary, null, 2)}\n`);
 
-if (args.skipSemantic !== "true") {
+if (args.skipSemantic === "false") {
+  const semanticScorer = "bench/review-quality/tools/score-martian-semantic.mjs";
+  if (!fs.existsSync(semanticScorer)) {
+    throw new Error(`semantic scoring requested, but ${semanticScorer} does not exist`);
+  }
   fs.mkdirSync(semanticDir, { recursive: true });
   const semanticResults = [];
   for (const result of reviewResults) {
     const semanticOutput = path.join(semanticDir, `${result.name}.semantic.json`);
     const commandArgs = [
-      "bench/review-quality/tools/score-martian-semantic.mjs",
+      semanticScorer,
       "--result",
       result.outputPath,
       "--golden",
@@ -1122,8 +1126,10 @@ Options:
   --worktree-root <dir>         Materialized worktree root
   --output-dir <dir>            Review output directory
   --model <model>               Review model (default: MODEL or gpt-5.5)
+  --sessions <n>                Explicit sessions; 0 uses autonomous review scoring (default: 0)
+  --max-active <n>              Max active sessions inside each review run (default: 1)
   --semantic-model <model>      Semantic judge model (default: gpt-5.4-mini)
-  --skip-semantic true          Skip semantic scoring
+  --skip-semantic false         Run semantic scoring when the scorer script is available
   --sample-interval-ms <n>      Process tree RSS sample interval (default: 5000)
   --post-prepare-cooldown-ms <n>
                                 Wait after git/job prep before runner admission (default: 3000)

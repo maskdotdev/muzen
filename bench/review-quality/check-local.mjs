@@ -148,6 +148,7 @@ if (includeCodexProxy) {
     finalMode: "candidate",
     cases: "5",
     concurrency: "5",
+    sessions: "0",
     maxConcurrent: "1",
     latencyMs: "25",
     jitterMs: "0",

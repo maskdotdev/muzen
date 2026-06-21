@@ -41,11 +41,11 @@ The harness builds a `run.start` request from git metadata, invokes
 `muzen-runner stdio`, stores the JSON-RPC frames, parses the final runner result,
 and reports hit rate, false positives, token/tool metrics, coverage, challenge,
 and candidate synthesis diagnostics. In the current autonomous-review path,
-`--sessions 0` creates the default adaptive `review-orchestrator`; `--sessions 1`
-uses an explicit caller-provided orchestrator template, so `--max-turns` and
-`--max-tool-calls` are hard caps for that orchestrator. The completion
-diagnostics in each result report the effective `maxToolCalls` used by the
-orchestrator.
+`--sessions 0` creates the default adaptive `review-orchestrator` and is the
+review-quality scoring mode. Passing one or more explicit sessions selects
+direct-session mode, which returns raw `sessionOutputs` and completion
+diagnostics but does not publish review findings. Use direct sessions for
+protocol/session harnesses, not scored review-quality evals.
 
 Summarize one or more result files:
 

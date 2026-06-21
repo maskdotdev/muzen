@@ -20,20 +20,37 @@ temporary fake auth file, points it at the fake Responses server, and exercises
 the same `OPENAI_BASE_URL` path used by live subscription evals without making
 live model calls.
 
-Latest fake/local protocol-pressure-integrated result:
+Latest fake/local proxy-plus-protocol integrated result:
 
 ```text
-bench/results-review-quality/check-local-protocol-pressure-20260621T064623Z
+bench/results-review-quality/check-local-ui-gate-20260621T065721Z
 ```
 
-This passed all 7 local probes (`finalize-after-one-tool`,
+This passed all 8 local probes (`finalize-after-one-tool`,
 `symmetric-tool-budget-exhaustion`, `candidate-publication`,
 `schema-repair-per-conversation`, `provider-queue-saturation`,
-`caller-hard-cap-budget`, `adaptive-budget-surface`) plus one fake protocol
-mixed-pressure sweep with no regressions. The protocol sweep produced
-shared/process status parity at 5 completed and 1 cancelled run each, heartbeat
-callbacks above 100 in both modes, running status polls present in both modes,
-and completed-run budget rejection/tool-call minimums of 4 in both modes.
+`caller-hard-cap-budget`, `adaptive-budget-surface`,
+`codex-proxy-deterministic-retry`) plus one fake protocol mixed-pressure sweep
+with no regressions. The proxy-shaped fake probe published 5 findings in both
+shared and process mode with 36 model calls, 10 tool calls, 360 tokens, and 16
+configured provider errors per mode. The protocol sweep produced shared/process
+status parity at 5 completed and 1 cancelled run each, heartbeat callbacks above
+100 in both modes, running status polls present in both modes, and completed-run
+budget rejection/tool-call minimums of 4 in both modes.
+
+Direct-session scoring finding:
+
+```text
+bench/results-review-quality/min-direct-session-candidate-20260621T064921Z
+bench/results-review-quality/min-orchestrator-candidate-20260621T064921Z
+```
+
+With the same fake candidate model response, direct-session mode accepted the
+final output but published 0 findings and 0 candidate lifecycle events.
+Autonomous review (`--sessions 0`) published 1 finding with validation and
+candidate lifecycle events. This confirms direct sessions are a raw protocol /
+session-output path, not a scored review-quality path. Scored live evals and
+eval UI launch presets should use autonomous review (`--sessions 0`).
 
 Latest `check-local --include-codex-proxy true` result after removing fake
 validation repair noise:

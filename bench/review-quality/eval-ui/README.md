@@ -35,11 +35,13 @@ No `npm install`, no build step. Requires only Node (24+).
   - **Raw events** — paged, filterable view of `all-events.jsonl`.
 - **Launch a run** — the **New run** button runs a curated preset:
   - *Local gate (fake model)* — `check-local.mjs`; needs a built
-    `muzen-runner`, but does not make live model calls.
-  - *Synthetic positive / Anti-cheat / Synthetic suite* — need a built
-    `muzen-runner` and a model. Output + trace land under
-    `bench/results-review-quality/eval-ui-runs/…` and the trace opens in place
-    when the run finishes.
+    `muzen-runner`, but does not make live model calls. It includes the
+    fake Codex-proxy-shaped path and fake protocol pressure sweep.
+  - *Martian suite / Anti-cheat suite* — need a built `muzen-runner` and a
+    model. They run autonomous review (`--sessions 0`) so review-quality
+    scoring uses published findings instead of raw direct-session outputs.
+    Output lands under `bench/results-review-quality/eval-ui-runs/…` and is
+    picked up by the run browser when the run finishes.
 
   Live stdout/stderr streams into the console while the run executes.
 
