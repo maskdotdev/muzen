@@ -78,6 +78,7 @@ for (const probe of probes) {
     shared: compactTotals(summary.totals.shared),
     process: compactTotals(summary.totals.process),
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
+    release: summary.release,
   });
 }
 
@@ -210,6 +211,10 @@ function assertProbe(probe, summary) {
     providerErrors(summary.totals.process),
     0,
   );
+  assertEqual(`${probe.name} shared release errors`, summary.release.shared.releaseErrors, 0);
+  assertEqual(`${probe.name} shared failed finishes`, summary.release.shared.failedFinishes, 0);
+  assertEqual(`${probe.name} process release errors`, summary.release.process.releaseErrors, 0);
+  assertEqual(`${probe.name} process failed finishes`, summary.release.process.failedFinishes, 0);
   if (probe.expectInvalidFinalsPerConversation) {
     const invalidFinalsByConversation = Object.values(
       summary.fakeModel.invalidFinalsByConversation ?? {},

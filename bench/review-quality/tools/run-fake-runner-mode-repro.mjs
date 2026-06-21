@@ -181,6 +181,10 @@ function reproductionSummary({
   const sharedExhausted = compare.cases.filter((entry) => entry.shared.orchestrator.exhaustedMaxToolCalls);
   const processExhausted = compare.cases.filter((entry) => entry.process.orchestrator.exhaustedMaxToolCalls);
   const fakeModelMetrics = summarizeFakeModelLog(fakeModelLogPath);
+  const release = {
+    shared: summarizeRunMetrics(path.join(sharedDir, "metrics.jsonl")),
+    process: summarizeRunMetrics(path.join(processDir, "metrics.jsonl")),
+  };
   return {
     schemaVersion: "muzen.fake-runner-mode-repro.v1",
     generatedAtUtc: new Date().toISOString(),
@@ -217,6 +221,7 @@ function reproductionSummary({
     reproducedObservedShape:
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
     fakeModel: fakeModelMetrics,
+    release,
     totals: compare.totals,
     cases: compare.cases.map((entry) => ({
       name: entry.name,
@@ -224,6 +229,18 @@ function reproductionSummary({
       process: entry.process.orchestrator,
       delta: entry.delta,
     })),
+  };
+}
+
+function summarizeRunMetrics(metricsPath) {
+  const records = readJsonl(metricsPath);
+  return {
+    starts: records.filter((record) => record.event === "start").length,
+    finishes: records.filter((record) => record.event === "finish").length,
+    releases: records.filter((record) => record.event === "release").length,
+    releaseErrors: records.filter((record) => record.event === "release_error").length,
+    failedFinishes: records.filter((record) => record.event === "finish" && record.code !== 0)
+      .length,
   };
 }
 

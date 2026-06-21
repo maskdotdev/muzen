@@ -87,10 +87,6 @@ class SharedRunnerClient {
     }
   }
 
-  async release(runId) {
-    return await this.request("run.release", { runId });
-  }
-
   request(method, params, { runId = null } = {}) {
     if (!this.child || this.child.exitCode !== null) {
       return Promise.reject(new Error("shared runner is not running"));
@@ -184,10 +180,6 @@ const runnerMode = args.runnerMode || "shared";
 if (!["shared", "process"].includes(runnerMode)) {
   throw new Error("--runner-mode must be one of: shared, process");
 }
-const releasePolicy = args.releasePolicy || "immediate";
-if (!["immediate", "end"].includes(releasePolicy)) {
-  throw new Error("--release-policy must be one of: immediate, end");
-}
 const limit = args.limit ? positiveInt(args.limit, "--limit") : null;
 const sampleIntervalMs = positiveInt(args.sampleIntervalMs || "5000", "--sample-interval-ms");
 const maxCapturedTextBytes = args.maxCapturedTextBytes
@@ -221,12 +213,10 @@ const state = {
   harnessPid: process.pid,
   runnerPid: null,
   runnerMode,
-  releasePolicy,
-  deferredReleases: [],
 };
 
 process.stderr.write(
-  `[muzen-concurrent] ${new Date().toISOString()} starting ${cases.length} cases concurrency=${concurrency} runnerMode=${runnerMode} releasePolicy=${releasePolicy} model=${model}\n`,
+  `[muzen-concurrent] ${new Date().toISOString()} starting ${cases.length} cases concurrency=${concurrency} runnerMode=${runnerMode} model=${model}\n`,
 );
 
 const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
@@ -270,7 +260,6 @@ try {
       runnerMode,
       runnerPath,
       runnerClient,
-      releasePolicy,
       sessions: args.sessions || "1",
       maxActive: args.maxActive || "1",
       maxTurns: args.maxTurns || "60",
@@ -283,9 +272,6 @@ try {
       metricsPath,
     }),
   );
-  if (runnerClient && releasePolicy === "end") {
-    await releaseDeferredRuns(runnerClient, state, metricsPath);
-  }
 } finally {
   clearInterval(sampler);
   sampleProcesses(state);
@@ -312,7 +298,6 @@ const reviewSummary = buildReviewSummary({
   peakHarnessRssBytes: state.peakHarnessRssBytes,
   peakProcessTreeRssBytes: state.peakProcessTreeRssBytes,
   runnerMode,
-  releasePolicy,
 });
 fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(reviewSummary, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(reviewSummary, null, 2)}\n`);
@@ -422,19 +407,11 @@ async function runReviewCase(testCase, options) {
   let run;
   let report = null;
   let error = null;
-  let releaseDisposition = "none";
   try {
     run = await options.runnerClient.run(job.runStart, {
       framesPath: job.framesPath,
       name: testCase.name,
     });
-    releaseDisposition = options.releasePolicy === "end" ? "deferred" : "immediate";
-    if (releaseDisposition === "deferred") {
-      options.state.deferredReleases.push({
-        name: testCase.name,
-        runId,
-      });
-    }
     const elapsedMs = Date.now() - startedAt;
     report = buildProductionReviewReport(job, run, { elapsedMs });
     writeProductionReviewReport(report, outputPath);
@@ -444,29 +421,6 @@ async function runReviewCase(testCase, options) {
     error = caught instanceof Error ? caught : new Error(String(caught));
     fs.writeFileSync(stderrPath, `${error.stack || error.message}\n`);
     fs.writeFileSync(stdoutPath, "");
-  } finally {
-    if (releaseDisposition === "immediate") {
-      try {
-        const release = await options.runnerClient.release(runId);
-        appendJsonl(options.metricsPath, {
-          event: "release",
-          atUtc: new Date().toISOString(),
-          name: testCase.name,
-          runId,
-          ...release,
-        });
-      } catch (caught) {
-        const releaseError = caught instanceof Error ? caught : new Error(String(caught));
-        appendJsonl(options.metricsPath, {
-          event: "release_error",
-          atUtc: new Date().toISOString(),
-          name: testCase.name,
-          runId,
-          error: releaseError.message,
-        });
-        if (!error) error = releaseError;
-      }
-    }
   }
 
   const active = options.state.active.get(runId);
@@ -502,24 +456,6 @@ async function runReviewCase(testCase, options) {
       `[muzen-concurrent] ${new Date(completedAt).toISOString()} failed ${testCase.name} code=${code}\n`,
     );
   }
-}
-
-async function releaseDeferredRuns(runnerClient, state, metricsPath) {
-  for (const pending of state.deferredReleases) {
-    process.stderr.write(
-      `[muzen-concurrent] ${new Date().toISOString()} release ${pending.name}\n`,
-    );
-    const release = await runnerClient.release(pending.runId);
-    appendJsonl(metricsPath, {
-      event: "release",
-      atUtc: new Date().toISOString(),
-      name: pending.name,
-      runId: pending.runId,
-      releasePolicy: "end",
-      ...release,
-    });
-  }
-  state.deferredReleases = [];
 }
 
 async function runReviewCaseProcess(testCase, options) {
@@ -937,7 +873,6 @@ function buildReviewSummary({
   peakHarnessRssBytes,
   peakProcessTreeRssBytes,
   runnerMode,
-  releasePolicy,
 }) {
   const totals = {
     goldenIssues: sum(cases, "goldenIssues"),
@@ -963,7 +898,6 @@ function buildReviewSummary({
     generatedAtUtc: new Date(completedAt).toISOString(),
     model,
     runnerMode,
-    releasePolicy,
     concurrency,
     sampleIntervalMs,
     caseCount: cases.length,
@@ -1128,7 +1062,6 @@ function usage() {
 Options:
   --concurrency <n>             Review process concurrency (default: 5)
   --runner-mode <mode>          shared or process (default: shared)
-  --release-policy <policy>     immediate or end for shared runner run.release (default: immediate)
   --limit <n>                   Limit cases from the source summary
   --case-source <file>          Previous summary with Martian PR URLs
   --golden-dir <dir>            Golden JSON directory
