@@ -27,6 +27,8 @@ const toolCallsPerTurn = positiveInt(args.toolCallsPerTurn || "1", "--tool-calls
 const toolDelayMs = nonnegativeInt(args.toolDelayMs || "100", "--tool-delay-ms");
 const modelDelayMs = nonnegativeInt(args.modelDelayMs || "0", "--model-delay-ms");
 const artifactBytes = positiveInt(args.artifactBytes || "2048", "--artifact-bytes");
+const fixtureExtraLines = nonnegativeInt(args.fixtureExtraLines || "0", "--fixture-extra-lines");
+const fixtureLineBytes = positiveInt(args.fixtureLineBytes || "80", "--fixture-line-bytes");
 const heartbeatMode = enumArg(args.heartbeatMode || "none", ["none", "continue", "cancel-first"], "--heartbeat-mode");
 const heartbeatIntervalMs = positiveInt(args.heartbeatIntervalMs || "30", "--heartbeat-interval-ms");
 const heartbeatLeaseSeconds = positiveInt(args.heartbeatLeaseSeconds || "1", "--heartbeat-lease-seconds");
@@ -47,6 +49,8 @@ const config = {
   toolDelayMs,
   modelDelayMs,
   artifactBytes,
+  fixtureExtraLines,
+  fixtureLineBytes,
   heartbeatMode,
   heartbeatIntervalMs,
   heartbeatLeaseSeconds,
@@ -64,7 +68,7 @@ async function main() {
   const fixtureRoot = path.join(outputDir, "fixtures");
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
   fs.mkdirSync(fixtureRoot, { recursive: true });
-  const fixtures = createFixtures({ fixtureRoot, cases });
+  const fixtures = createFixtures({ fixtureRoot, cases, fixtureExtraLines, fixtureLineBytes });
 
   const shared = await runSharedMode({ runnerPath, outputDir, fixtures, config });
   const processMode = await runProcessMode({ runnerPath, outputDir, fixtures, config });
@@ -453,7 +457,7 @@ function runStartForFixture(fixture, config) {
   };
 }
 
-function createFixtures({ fixtureRoot, cases }) {
+function createFixtures({ fixtureRoot, cases, fixtureExtraLines, fixtureLineBytes }) {
   return Array.from({ length: cases }, (_, zeroIndex) => {
     const index = zeroIndex + 1;
     const name = `protocol-case-${index}`;
@@ -461,7 +465,7 @@ function createFixtures({ fixtureRoot, cases }) {
     fs.mkdirSync(repo, { recursive: true });
     fs.writeFileSync(
       path.join(repo, "Cargo.toml"),
-      `[package]\nname = "fixture-${index}"\nversion = "0.0.0"\n`,
+      fixtureText(index, { fixtureExtraLines, fixtureLineBytes }),
     );
     return {
       index,
@@ -470,6 +474,26 @@ function createFixtures({ fixtureRoot, cases }) {
       runId: `protocol-run-${index}`,
     };
   });
+}
+
+function fixtureText(index, { fixtureExtraLines, fixtureLineBytes }) {
+  const lines = [
+    "[package]",
+    `name = "fixture-${index}"`,
+    'version = "0.0.0"',
+    "",
+    "# synthetic payload used by fake protocol stress gates",
+  ];
+  for (let line = 1; line <= fixtureExtraLines; line += 1) {
+    lines.push(fixtureLine(index, line, fixtureLineBytes));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function fixtureLine(index, line, fixtureLineBytes) {
+  const seed = `# protocol-fixture case=${index} line=${line} `;
+  if (seed.length >= fixtureLineBytes) return seed.slice(0, fixtureLineBytes);
+  return `${seed}${"x".repeat(fixtureLineBytes - seed.length)}`;
 }
 
 function summarizeMode({ label, startedAt, completedAt, results, callbacks, notifications, frames, stderr }) {
@@ -1251,7 +1275,7 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--heartbeat-mode none|continue|cancel-first] [--heartbeat-interval-ms 30] [--heartbeat-lease-seconds 1] [--status-poll-interval-ms 0] [--request-cancel-mode none|cancel-first] [--request-cancel-after-status 1] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fixture-extra-lines 0] [--fixture-line-bytes 80] [--heartbeat-mode none|continue|cancel-first] [--heartbeat-interval-ms 30] [--heartbeat-lease-seconds 1] [--status-poll-interval-ms 0] [--request-cancel-mode none|cancel-first] [--request-cancel-after-status 1] [--fail-on-regression true|false]\n",
   );
 }
 

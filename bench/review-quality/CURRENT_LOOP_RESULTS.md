@@ -382,6 +382,79 @@ bench/results-review-quality/fake-protocol-mixed-pressure-sweep-20260621T062934Z
 | ---: | --- | --- | --- | --- | --- | --- | --- |
 | 3 | 15 / 3 | 15 / 3 | 103-104 / 105-106 | 6 / 6 | 4 / 4 | 4 / 4 | passed |
 
+Protocol mixed large-fixture gate:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-mixed-large-fixture-20260621T063315Z \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --max-tool-calls 1 \
+  --max-turns 5 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 2 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --fixture-extra-lines 400 \
+  --fixture-line-bytes 160 \
+  --heartbeat-mode continue \
+  --heartbeat-interval-ms 25 \
+  --heartbeat-lease-seconds 1 \
+  --status-poll-interval-ms 25 \
+  --request-cancel-mode cancel-first \
+  --request-cancel-after-status 1 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-mixed-large-fixture-20260621T063315Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Cancelled runs | Fixture extra lines | Fixture line bytes | Heartbeat callbacks | Completed-run tool calls | Completed-run exhausted sessions | Completed-run budget rejections | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 6 | 5 | 1 | 400 | 160 | 106 | 4 | 4 | 4 | passed |
+| process | 6 | 5 | 1 | 400 | 160 | 104 | 4 | 4 | 4 | passed |
+
+Protocol mixed large-fixture repeat sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-mixed-pressure-sweep.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-mixed-large-fixture-sweep-20260621T063333Z \
+  --iterations 2 \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --max-tool-calls 1 \
+  --max-turns 5 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 2 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --fixture-extra-lines 400 \
+  --fixture-line-bytes 160 \
+  --heartbeat-interval-ms 25 \
+  --status-poll-interval-ms 25 \
+  --request-cancel-after-status 1 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-mixed-large-fixture-sweep-20260621T063333Z/mixed-pressure-sweep-summary.json
+```
+
+| Iterations | Shared completed/cancelled | Process completed/cancelled | Fixture extra lines | Fixture line bytes | Heartbeat callbacks shared/process | Status polls min shared/process | Completed-run tool calls min shared/process | Completed-run budget rejections min shared/process | Result |
+| ---: | --- | --- | ---: | ---: | --- | --- | --- | --- | --- |
+| 2 | 10 / 2 | 10 / 2 | 400 | 160 | 103-105 / 104-105 | 6 / 1 | 4 / 4 | 4 / 4 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
@@ -404,6 +477,10 @@ Interpretation:
   confirms the fixture sizing path works, but it also exposed a coverage gap:
   hosted/autonomous review requests still use the autonomous orchestrator path
   and do not prove explicit protocol fan-out.
+- The protocol stress harness now also accepts `--fixture-extra-lines` and
+  `--fixture-line-bytes`, covering large synthetic fixtures on the explicit
+  protocol direct-session path instead of only through the hosted/autonomous
+  fake runner sweep.
 - The protocol-level harness reproduced the explicit-session bug: non-empty
   `RunStartParams.sessions` were being collapsed to the autonomous
   `review-orchestrator` session. The direct-session runner path now treats
@@ -448,6 +525,10 @@ Interpretation:
   three-iteration sweep covered 18 runs per mode with stable terminal status
   counts, heartbeat/status/cancel activity, stored cancelled results, and exact
   completed-run budget accounting.
+- Large-fixture mixed protocol pressure is covered. The single-run and
+  two-iteration sweep variants use 400 extra 160-byte fixture lines per case and
+  still preserve shared/process terminal status counts and completed-run budget
+  accounting.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -465,8 +546,8 @@ multi-session fan-out, delayed callback tools, callback/custom tool accounting,
 session-budget reporting, direct-session budget exhaustion, active-session
 heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
 explicit cancel requests, including a combined mixed-pressure run. The next
-useful fake-first step is a higher-volume mixed sweep, or an artifact/large
-fixture variant of the mixed sweep, before considering live evals.
+useful fake-first step is a higher-volume mixed sweep across the new large
+fixture knobs before considering live evals.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

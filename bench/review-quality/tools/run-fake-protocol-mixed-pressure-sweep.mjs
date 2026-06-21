@@ -28,6 +28,8 @@ const toolsPerSession = positiveInt(args.toolsPerSession || "2", "--tools-per-se
 const toolCallsPerTurn = positiveInt(args.toolCallsPerTurn || "2", "--tool-calls-per-turn");
 const toolDelayMs = nonnegativeInt(args.toolDelayMs || "120", "--tool-delay-ms");
 const modelDelayMs = nonnegativeInt(args.modelDelayMs || "20", "--model-delay-ms");
+const fixtureExtraLines = nonnegativeInt(args.fixtureExtraLines || "0", "--fixture-extra-lines");
+const fixtureLineBytes = positiveInt(args.fixtureLineBytes || "80", "--fixture-line-bytes");
 const heartbeatIntervalMs = positiveInt(args.heartbeatIntervalMs || "25", "--heartbeat-interval-ms");
 const heartbeatLeaseSeconds = positiveInt(args.heartbeatLeaseSeconds || "1", "--heartbeat-lease-seconds");
 const statusPollIntervalMs = positiveInt(args.statusPollIntervalMs || "25", "--status-poll-interval-ms");
@@ -74,6 +76,10 @@ for (let iteration = 1; iteration <= iterations; iteration += 1) {
       String(toolDelayMs),
       "--model-delay-ms",
       String(modelDelayMs),
+      "--fixture-extra-lines",
+      String(fixtureExtraLines),
+      "--fixture-line-bytes",
+      String(fixtureLineBytes),
       "--heartbeat-mode",
       "continue",
       "--heartbeat-interval-ms",
@@ -131,6 +137,8 @@ const report = {
     toolCallsPerTurn,
     toolDelayMs,
     modelDelayMs,
+    fixtureExtraLines,
+    fixtureLineBytes,
     heartbeatIntervalMs,
     heartbeatLeaseSeconds,
     statusPollIntervalMs,
@@ -296,6 +304,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-mixed-pressure-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--iterations 5] [--cases 6] [--concurrency 3] [--sessions 4] [--max-active-sessions 2] [--max-tool-calls 1] [--max-turns 5] [--tools-per-session 2] [--tool-calls-per-turn 2] [--tool-delay-ms 120] [--model-delay-ms 20] [--heartbeat-interval-ms 25] [--status-poll-interval-ms 25] [--request-cancel-after-status 1] [--artifact-bytes 4096] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-mixed-pressure-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--iterations 5] [--cases 6] [--concurrency 3] [--sessions 4] [--max-active-sessions 2] [--max-tool-calls 1] [--max-turns 5] [--tools-per-session 2] [--tool-calls-per-turn 2] [--tool-delay-ms 120] [--model-delay-ms 20] [--fixture-extra-lines 0] [--fixture-line-bytes 80] [--heartbeat-interval-ms 25] [--status-poll-interval-ms 25] [--request-cancel-after-status 1] [--artifact-bytes 4096] [--fail-on-regression true|false]\n",
   );
 }
