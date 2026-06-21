@@ -558,6 +558,7 @@ impl ConcurrentModelClient for PublicFacadeModel {
                     "id": "public-facade-finding",
                     "title": "Changed marker no longer satisfies the lookup",
                     "claim": format!("The changed marker omits the required {} lookup value, so callers searching for it fail.", self.query),
+                    "negativeOutcome": format!("Callers that depend on the {} lookup value now fail to find the changed marker.", self.query),
                     "severity": "medium",
                     "path": self.path,
                     "startLine": 1,

@@ -2,7 +2,7 @@ use std::io::{Result as IoResult, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::failures::{RunFailedNotification, RunnerFailureKind, RunnerRetryHint};
 use super::schema_types::{RunnerMethodSchema, RunnerMethodStatus};
@@ -55,7 +55,22 @@ fn schema_fixture_matches_current_schema() {
             .expect("schema fixture");
     let current = serde_json::to_value(protocol_schema()).expect("current runner schema");
 
-    assert_eq!(current, fixture);
+    assert_eq!(canonical_json(current), canonical_json(fixture));
+}
+
+fn canonical_json(value: Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.into_iter().map(canonical_json).collect()),
+        Value::Object(map) => {
+            let mut entries: Vec<_> = map
+                .into_iter()
+                .map(|(key, value)| (key, canonical_json(value)))
+                .collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            Value::Object(entries.into_iter().collect())
+        }
+        value => value,
+    }
 }
 
 #[test]

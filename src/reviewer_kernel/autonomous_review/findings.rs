@@ -24,6 +24,7 @@ pub(super) struct CandidateFinding {
     pub(super) id: String,
     pub(super) title: String,
     pub(super) claim: String,
+    pub(super) negative_outcome: String,
     #[serde(default)]
     pub(super) severity: Option<String>,
     pub(super) path: String,
@@ -102,17 +103,20 @@ pub(super) fn parse_orchestrator_output(output: Option<&str>) -> ParsedOrchestra
 pub(super) fn parse_child_packet(kind: DelegateTaskKind, output: Option<&str>) -> Value {
     output
         .and_then(|output| serde_json::from_str::<Value>(output).ok())
-        .unwrap_or_else(|| {
-            json!({
-                "status": "insufficient",
-                "summary": format!("{} child did not return a valid packet", kind.tool_name()),
-                "checkedPaths": [],
-                "evidence": [],
-                "openQuestions": ["child output was missing or malformed"],
-                "suggestedNextSearches": [],
-                "candidateFindings": []
-            })
-        })
+        .unwrap_or_else(|| invalid_child_packet(kind, "child output was missing or malformed"))
+}
+
+pub(super) fn invalid_child_packet(kind: DelegateTaskKind, reason: impl Into<String>) -> Value {
+    let reason = reason.into();
+    json!({
+        "status": "insufficient",
+        "summary": format!("{} child did not return a publishable packet: {reason}", kind.tool_name()),
+        "checkedPaths": [],
+        "evidence": [],
+        "openQuestions": [reason],
+        "suggestedNextSearches": [],
+        "candidateFindings": []
+    })
 }
 
 pub(super) fn compact_child_packet(
@@ -186,10 +190,30 @@ pub(super) fn build_findings(
     let changed_paths = changed_paths_for_snapshot(snapshot);
     let changed_ranges = changed_line_ranges_by_path(&snapshot.diff.content);
     let mut seen_candidate_keys = BTreeSet::new();
+    let mut seen_candidate_ids = BTreeSet::new();
     let mut findings = Vec::new();
     let mut rejection_reasons = BTreeMap::new();
     let mut publication_decisions = Vec::new();
     for candidate in candidates {
+        let candidate_id = candidate.id.trim();
+        if candidate_id.is_empty() {
+            record_candidate_rejection(&mut rejection_reasons, "empty_candidate_id");
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                "empty_candidate_id",
+                None,
+            ));
+            continue;
+        }
+        if !seen_candidate_ids.insert(candidate_id.to_string()) {
+            record_candidate_rejection(&mut rejection_reasons, "duplicate_candidate_id");
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                "duplicate_candidate_id",
+                None,
+            ));
+            continue;
+        }
         let key = stable_id(&[&candidate.path, &candidate.claim, &candidate.title]);
         if !seen_candidate_keys.insert(key) {
             record_candidate_rejection(&mut rejection_reasons, "duplicate_candidate");
@@ -364,7 +388,7 @@ fn candidate_to_finding(
             candidate.id.clone()
         },
         title: candidate.title.clone(),
-        claim: candidate.claim.clone(),
+        claim: finding_claim(candidate),
         severity: parse_severity(candidate.severity.as_deref()),
         confidence: if validation_has_summary { 0.85 } else { 0.8 },
         validation_status: ValidationStatus::Validated,
@@ -388,6 +412,18 @@ fn candidate_to_finding(
             .clone()
             .map(|id| vec![id])
             .unwrap_or_default(),
+    }
+}
+
+fn finding_claim(candidate: &CandidateFinding) -> String {
+    let negative_outcome = candidate.negative_outcome.trim();
+    if negative_outcome.is_empty() {
+        candidate.claim.clone()
+    } else {
+        format!(
+            "{}\n\nNegative outcome: {negative_outcome}",
+            candidate.claim
+        )
     }
 }
 

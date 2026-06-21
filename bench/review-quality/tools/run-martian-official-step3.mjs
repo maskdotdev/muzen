@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 
 const DEFAULT_PROXY_BASE_URL = "http://127.0.0.1:4141/v1";
@@ -34,7 +35,12 @@ const proxyBaseUrl = trimTrailingSlash(
   args.proxyBaseUrl || process.env.OPENAI_BASE_URL || DEFAULT_PROXY_BASE_URL,
 );
 const proxyApiKey = args.proxyApiKey || process.env.OPENAI_API_KEY || "muzen-codex-proxy";
-const offlineDir = resolveOfflineDir(args);
+const sourceOfflineDir = resolveOfflineDir(args);
+const isolation =
+  args.summaryFile && args.isolate !== "false"
+    ? createIsolatedOfflineDir(sourceOfflineDir, judgeModel)
+    : null;
+const offlineDir = isolation?.offlineDir || sourceOfflineDir;
 const benchmarkDataFile = path.join(offlineDir, "results", "benchmark_data.json");
 const candidateModel = args.candidateModel || DEFAULT_CANDIDATE_MODEL;
 const targetModelDir = path.join(offlineDir, "results", sanitizeModelName(judgeModel));
@@ -112,6 +118,35 @@ function resolveOfflineDir(parsedArgs) {
   throw new Error(
     `could not find code-review-benchmark offline checkout; pass --benchmark-root or set MARTIAN_BENCHMARK_ROOT`,
   );
+}
+
+function createIsolatedOfflineDir(sourceOfflineDir, judgeModel) {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "muzen-martian-step3-"));
+  const offlineDir = path.join(parent, "offline");
+  fs.mkdirSync(offlineDir, { recursive: true });
+  for (const entry of fs.readdirSync(sourceOfflineDir)) {
+    const source = path.join(sourceOfflineDir, entry);
+    const target = path.join(offlineDir, entry);
+    if (entry === "results") {
+      fs.mkdirSync(path.join(target, sanitizeModelName(judgeModel)), { recursive: true });
+      fs.copyFileSync(
+        path.join(source, "benchmark_data.json"),
+        path.join(target, "benchmark_data.json"),
+      );
+      const sourceCandidates = path.join(source, sanitizeModelName(judgeModel), "candidates.json");
+      if (fs.existsSync(sourceCandidates)) {
+        fs.copyFileSync(
+          sourceCandidates,
+          path.join(target, sanitizeModelName(judgeModel), "candidates.json"),
+        );
+      }
+      continue;
+    }
+    const stat = fs.lstatSync(source);
+    fs.symlinkSync(source, target, stat.isDirectory() ? "dir" : "file");
+  }
+  process.stderr.write(`[martian-step3] isolated offline dir: ${offlineDir}\n`);
+  return { offlineDir, sourceOfflineDir };
 }
 
 function stageCandidates({ offlineDir, tool, judgeModel, candidateModel, candidatesFile, summaryFile, benchmarkDataFile }) {
@@ -492,6 +527,7 @@ Options:
   --candidate-model <model>     Source model directory for candidates (default: ${DEFAULT_CANDIDATE_MODEL})
   --candidates-file <file>      Explicit source candidates.json
   --summary-file <file>         Materialize candidates/review rows from a concurrent summary.json
+  --isolate false               Disable per-run offline isolation for --summary-file staging
   --evaluations-file <file>     Output evaluations file
   --dedup-groups <file>         Optional official dedup groups file
   --limit <n>                   Forwarded to step3_judge_comments

@@ -11,6 +11,7 @@ pub(super) fn autonomous_candidate_rejection_reason(
     let path = candidate.path.trim();
     let title = candidate.title.trim();
     let claim = candidate.claim.trim();
+    let negative_outcome = candidate.negative_outcome.trim();
     if path.is_empty() {
         return Some("invalid_path");
     }
@@ -19,6 +20,9 @@ pub(super) fn autonomous_candidate_rejection_reason(
     }
     if title.is_empty() || claim.is_empty() {
         return Some("empty_title_or_claim");
+    }
+    if negative_outcome.is_empty() {
+        return Some("missing_negative_outcome");
     }
     let Some((start_line, end_line)) = candidate.start_line.zip(candidate.end_line) else {
         return Some("missing_line_range");
@@ -36,7 +40,7 @@ pub(super) fn autonomous_candidate_rejection_reason(
 
     let behavior_before = candidate.behavior_before.as_deref().unwrap_or_default();
     let behavior_after = candidate.behavior_after.as_deref().unwrap_or_default();
-    let title_and_claim = format!("{title} {claim}");
+    let title_and_claim = format!("{title} {claim} {negative_outcome}");
     let title_claim_describes_negative_outcome = describes_negative_outcome(&title_and_claim);
     if behavior_comparison_missing(behavior_before, behavior_after)
         && !title_claim_describes_negative_outcome

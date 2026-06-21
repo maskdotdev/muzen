@@ -20,7 +20,7 @@ use crate::reviewer_kernel::tool_engine::registry::{
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
-use super::findings::{compact_child_packet, parse_child_packet};
+use super::findings::{compact_child_packet, invalid_child_packet, parse_child_packet};
 use super::prompts::child_task_packet;
 use super::schemas::{child_final_instruction, child_response_format};
 use super::sessions::{run_session_loop, SessionKind, SessionRunConfig};
@@ -268,7 +268,21 @@ pub(super) async fn run_child_delegate(
         cancel,
     )
     .await;
-    let parsed = parse_child_packet(kind, report.output.as_deref());
+    let child_output_valid =
+        report.completed && report.diagnostic.final_output.schema_validation_success;
+    let parsed = if child_output_valid {
+        parse_child_packet(kind, report.output.as_deref())
+    } else {
+        invalid_child_packet(
+            kind,
+            format!(
+                "child session status={} completed={} schemaValidationSuccess={}",
+                report.status,
+                report.completed,
+                report.diagnostic.final_output.schema_validation_success
+            ),
+        )
+    };
     let artifact_content = serde_json::to_string_pretty(&parsed)
         .unwrap_or_else(|_| report.output.clone().unwrap_or_default());
     let artifact_id = state.tools.insert_artifact(

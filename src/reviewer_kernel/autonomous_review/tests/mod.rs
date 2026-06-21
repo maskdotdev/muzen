@@ -148,6 +148,40 @@ diff --git a/src/registry.ts b/src/registry.ts
 }
 
 #[test]
+fn diff_risk_inventory_surfaces_general_code_review_obligations() {
+    let diff = r#"diff --git a/src/Command.java b/src/Command.java
+--- a/src/Command.java
++++ b/src/Command.java
+@@ -1,3 +1,10 @@
++  String part = value.substring(4, 6);
++  this.rawId = Objects.requireNonNull(grantType);
++  List values = Json.readValue(payload, List.class);
++  commandLine.exit(42);
++  if (profile.isFeatureEnabled(NEW_FLOW)) cleanup();
++  store.findByName(server, resource.getId(), owner.getId());
++  try { run(); } catch (RuntimeException ignored) {}
+diff --git a/i18n/messages_fr.properties b/i18n/messages_fr.properties
+--- a/i18n/messages_fr.properties
++++ b/i18n/messages_fr.properties
+@@ -1,2 +1,3 @@
++welcome=Welcome {0}
+"#;
+    let entries = diff_risk_inventory(diff, 20);
+    let categories = entries
+        .iter()
+        .map(|entry| entry.category)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(categories.contains("offset_or_slice_boundary"));
+    assert!(categories.contains("nullability_contract"));
+    assert!(categories.contains("unchecked_collection_shape"));
+    assert!(categories.contains("process_exit_boundary"));
+    assert!(categories.contains("feature_gate_consistency"));
+    assert!(categories.contains("identifier_lookup_contract"));
+    assert!(categories.contains("broad_exception_boundary"));
+    assert!(categories.contains("localized_resource_change"));
+}
+
+#[test]
 fn autonomous_review_schemas_are_strict_provider_compatible() {
     assert_strict_object_schema(&orchestrator_response_format().schema);
     assert_strict_object_schema(&child_response_format(DelegateTaskKind::SearchCode).schema);
@@ -175,6 +209,7 @@ fn orchestrator_output_parses_camel_case_candidate_contract() {
                 "id": "finding_1",
                 "title": "Async callback returns early",
                 "claim": "The changed loop returns success before writes finish.",
+                "negativeOutcome": "Callers can observe success while delete writes are still pending, so failed deletes can be silently skipped.",
                 "severity": "high",
                 "path": "src/workflow.ts",
                 "startLine": 42,
@@ -185,7 +220,14 @@ fn orchestrator_output_parses_camel_case_candidate_contract() {
                 "relatedPaths": ["src/caller.ts"]
             }],
             "notes": [],
-            "completeness": {}
+            "completeness": {
+                "reviewedChangedFiles": ["src/workflow.ts"],
+                "reviewedRiskEntries": [],
+                "unreviewedRiskEntries": [],
+                "unresolvedQuestions": [],
+                "incompleteReasons": [],
+                "ignoredChildCandidates": []
+            }
         }"#,
     ));
 
@@ -196,6 +238,10 @@ fn orchestrator_output_parses_camel_case_candidate_contract() {
     assert_eq!(
         candidate.behavior_after.as_deref(),
         Some("The caller returns before write promises settle.")
+    );
+    assert_eq!(
+        candidate.negative_outcome,
+        "Callers can observe success while delete writes are still pending, so failed deletes can be silently skipped."
     );
     assert_eq!(candidate.evidence_artifact_ids, ["artifact_1"]);
     assert_eq!(candidate.related_paths, ["src/caller.ts"]);
@@ -277,6 +323,7 @@ fn publication_gate_rejects_vague_candidate_without_behavior_comparison() {
         "Async callback changed",
         "The changed callback may have different behavior.",
     );
+    candidate.negative_outcome.clear();
     candidate.behavior_before = None;
     candidate.behavior_after = None;
 
@@ -286,7 +333,7 @@ fn publication_gate_rejects_vague_candidate_without_behavior_comparison() {
             &publication_changed_paths(),
             &publication_changed_ranges(),
         ),
-        Some("missing_behavior_comparison")
+        Some("missing_negative_outcome")
     );
 }
 
@@ -343,8 +390,42 @@ fn build_findings_records_publication_decisions() {
 }
 
 #[test]
+fn build_findings_rejects_duplicate_candidate_ids_before_validation_reuse() {
+    let snapshot = publication_snapshot();
+    let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
+    let tools = ToolEngine::new(Arc::clone(&snapshot), limits).expect("tool engine");
+    let first = publication_candidate(
+        "Async callback returns before writes finish",
+        "The changed forEach async callback returns success before delete promises finish.",
+    );
+    let mut second = publication_candidate(
+        "Different candidate with reused id",
+        "The changed handler drops failed retries after reporting success.",
+    );
+    second.id = first.id.clone();
+    let validation = ValidationPacket {
+        candidate_id: first.id.clone(),
+        status: "supported".to_string(),
+        summary: "raw diff and file evidence support the first candidate".to_string(),
+        artifact_id: None,
+        child_session_id: Some("review-orchestrator/validate-0001".to_string()),
+    };
+
+    let outcome = build_findings(&tools, &snapshot, "head", &[first, second], &[validation]);
+
+    assert_eq!(outcome.findings.len(), 1);
+    assert_eq!(outcome.rejection_reasons["duplicate_candidate_id"], 1);
+}
+
+#[test]
 fn final_output_schema_gate_requires_required_fields() {
     assert!(session_output_valid(
+        SessionKind::Orchestrator,
+        Some(
+            r#"{"verdict":"clean","summary":"done","candidates":[],"notes":[],"completeness":{"reviewedChangedFiles":[],"reviewedRiskEntries":[],"unreviewedRiskEntries":[],"unresolvedQuestions":[],"incompleteReasons":[],"ignoredChildCandidates":[]}}"#
+        )
+    ));
+    assert!(!session_output_valid(
         SessionKind::Orchestrator,
         Some(
             r#"{"verdict":"clean","summary":"done","candidates":[],"notes":[],"completeness":{}}"#
@@ -371,6 +452,9 @@ fn publication_candidate(title: &str, claim: &str) -> CandidateFinding {
             id: stable_id(&[title, claim]),
             title: title.to_string(),
             claim: claim.to_string(),
+            negative_outcome:
+                "Callers can observe success before delete promises finish, so failed deletes can be silently skipped."
+                    .to_string(),
             severity: Some("medium".to_string()),
             path: "src/workflow.ts".to_string(),
             start_line: Some(42),

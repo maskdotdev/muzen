@@ -56,7 +56,7 @@ pub(super) fn diff_risk_inventory(diff: &str, max_entries: usize) -> Vec<DiffRis
                 continue;
             }
             let added = line.trim_start_matches('+').trim();
-            for (category, obligation) in risk_categories_for_added_line(added) {
+            for (category, obligation) in risk_categories_for_added_line(&current_path, added) {
                 if entries.len() >= max_entries {
                     return entries;
                 }
@@ -88,9 +88,16 @@ pub(super) fn parse_hunk_head_start(line: &str) -> Option<usize> {
     digits.parse().ok()
 }
 
-fn risk_categories_for_added_line(line: &str) -> Vec<(&'static str, &'static str)> {
+fn risk_categories_for_added_line(path: &str, line: &str) -> Vec<(&'static str, &'static str)> {
     let mut categories = Vec::new();
     let lowered = line.to_ascii_lowercase();
+    let lowered_path = path.to_ascii_lowercase();
+    if lowered_path.ends_with(".properties") || lowered_path.ends_with(".po") {
+        categories.push((
+            "localized_resource_change",
+            "Verify locale-appropriate text, placeholder parity, markup parity, and copied-source-language mistakes in changed localized resources.",
+        ));
+    }
     let callback_async = [
         ".foreach(async",
         ".map(async",
@@ -138,6 +145,90 @@ fn risk_categories_for_added_line(line: &str) -> Vec<(&'static str, &'static str
         categories.push((
             "side_effect_aggregation",
             "Verify every produced side-effect promise is included in the awaited aggregate before state changes or success returns.",
+        ));
+    }
+    if lowered.contains("substring(")
+        || lowered.contains("sublist(")
+        || lowered.contains("charat(")
+        || lowered.contains("indexof(")
+    {
+        categories.push((
+            "offset_or_slice_boundary",
+            "Verify start/end offsets, inclusive/exclusive bounds, and branch polarity against the encoded data shape.",
+        ));
+    }
+    if lowered.contains("requirenonnull(")
+        || lowered.contains("checknotnull(")
+        || lowered.contains("assertnotnull(")
+        || lowered.contains(" != null")
+        || lowered.contains(" == null")
+    {
+        categories.push((
+            "nullability_contract",
+            "Verify the checked value is the value later consumed and that null handling preserves the intended API contract.",
+        ));
+    }
+    if lowered.contains("optional.get()")
+        || lowered.contains(".get()")
+            && (lowered.contains("optional") || lowered.contains("orelse"))
+    {
+        categories.push((
+            "unchecked_optional_access",
+            "Verify presence is established before unwrapping optional/result-like values and that absence cannot crash the changed path.",
+        ));
+    }
+    if lowered.contains("list.class")
+        || lowered.contains("map.class")
+        || lowered.contains("@suppresswarnings(\"unchecked\")")
+        || lowered.contains("@suppresswarnings({\"unchecked\"")
+        || lowered.contains("(list<")
+        || lowered.contains("(map<")
+    {
+        categories.push((
+            "unchecked_collection_shape",
+            "Verify deserialized or cast collection elements have the expected type and shape before downstream use.",
+        ));
+    }
+    if lowered.contains("system.exit(")
+        || lowered.contains(".exit(")
+            && (lowered.contains("picocli")
+                || lowered.contains("commandline")
+                || lowered.contains("exitcode"))
+    {
+        categories.push((
+            "process_exit_boundary",
+            "Verify changed command/control-flow code returns status through the expected boundary instead of terminating the host process unexpectedly.",
+        ));
+    }
+    if lowered.contains("catch (exception")
+        || lowered.contains("catch (runtimeexception")
+        || lowered.contains("catch (throwable")
+    {
+        categories.push((
+            "broad_exception_boundary",
+            "Verify broad exception handling does not hide unrelated failures and matches the precise failure mode being tested or handled.",
+        ));
+    }
+    if lowered.contains("feature")
+        && (lowered.contains("enabled")
+            || lowered.contains("isfeature")
+            || lowered.contains("profile.")
+            || lowered.contains("flag"))
+    {
+        categories.push((
+            "feature_gate_consistency",
+            "Verify cleanup, migration, and shared behavior are guarded by the same feature gate as the code that creates or consumes the state.",
+        ));
+    }
+    if lowered.contains("findbyname(")
+        || lowered.contains("getbyid(")
+        || lowered.contains("getclientbyid(")
+        || lowered.contains("getid()")
+            && (lowered.contains("getname()") || lowered.contains("find"))
+    {
+        categories.push((
+            "identifier_lookup_contract",
+            "Verify identifier/name/owner fields used for lookup match the fields used when resources are created and later consumed.",
         ));
     }
     categories

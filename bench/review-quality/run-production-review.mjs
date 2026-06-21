@@ -157,6 +157,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
   const golden = job.goldenPath ? readJson(job.goldenPath) : { issues: [] };
   const scoring = scoreFindings(finalResult?.findings || [], golden.issues || []);
   const runtimeDiagnostics = buildRuntimeDiagnostics(frames);
+  const candidateLifecycle = buildCandidateLifecycle(frames);
   return {
     schemaVersion: SCHEMA_VERSION,
     generatedAtUtc: new Date().toISOString(),
@@ -203,6 +204,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
             artifactBytes: finalResult.summary?.artifactBytes,
           },
           completionDiagnostics: finalResult.summary?.completionDiagnostics ?? [],
+          sessionOutputs: finalResult.sessionOutputs ?? [],
           elapsedMs: finalResult.summary?.elapsedMs,
         }
       : null,
@@ -232,6 +234,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
       omittedContractPackCandidates: qualityDiagnostics.omittedContractPackCandidates ?? [],
       explicitCallerCapSessions: qualityDiagnostics.explicitCallerCapSessions ?? 0,
       rejectionReasons: qualityDiagnostics.rejectionReasons ?? {},
+      candidateLifecycle,
       contractRiskCompletionCount: diagnostics.contractRiskCompletionCount,
       searchCount: diagnostics.searchCount,
       importCount: diagnostics.importCount,
@@ -249,6 +252,62 @@ export function writeProductionReviewReport(report, outputPath) {
     fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
   }
   writeTraceArtifacts(report);
+}
+
+function buildCandidateLifecycle(frames) {
+  const emitted = [];
+  const validations = [];
+  const decisions = [];
+  const seen = new Set();
+  for (const frame of frames) {
+    if (frame.method !== "event.runtime") continue;
+    const trace = frame.params?.event?.agentTrace;
+    if (!trace) continue;
+    const details = trace.details || {};
+    if (trace.traceKind === "candidate_finding_emitted") {
+      const key = `emitted:${details.candidateId}:${details.title}:${details.path}:${details.startLine}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      emitted.push({
+        candidateId: details.candidateId ?? null,
+        title: details.title ?? null,
+        path: details.path ?? null,
+        startLine: details.startLine ?? null,
+        endLine: details.endLine ?? null,
+        severity: details.severity ?? null,
+        claim: details.claim ?? null,
+        negativeOutcome: details.negativeOutcome ?? null,
+        behaviorBefore: details.behaviorBefore ?? null,
+        behaviorAfter: details.behaviorAfter ?? null,
+        relatedPaths: details.relatedPaths ?? [],
+        evidenceArtifactIds: details.evidenceArtifactIds ?? [],
+      });
+    } else if (trace.traceKind === "candidate_validation_completed") {
+      const key = `validation:${details.candidateId}:${details.validatorSessionId}:${details.status}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      validations.push({
+        candidateId: details.candidateId ?? null,
+        status: details.status ?? null,
+        validatorSessionId: details.validatorSessionId ?? null,
+        artifactId: details.artifactId ?? null,
+        summaryBytes: details.summaryBytes ?? null,
+      });
+    } else if (trace.traceKind === "candidate_finding_decision") {
+      const key = `decision:${details.candidateId}:${details.decision}:${details.reason}:${details.validatorSessionId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      decisions.push({
+        candidateId: details.candidateId ?? null,
+        decision: details.decision ?? null,
+        reason: details.reason ?? null,
+        validatorStatus: details.validatorStatus ?? null,
+        validatorSessionId: details.validatorSessionId ?? null,
+        publicationSkippedBudgetExhausted: Boolean(details.publicationSkippedBudgetExhausted),
+      });
+    }
+  }
+  return { emitted, validations, decisions };
 }
 
 function fileReviewVerdictCounts(fileReviews) {

@@ -82,9 +82,12 @@ impl ConcurrentModelClient for DeterministicReviewModel {
                 "candidates": [],
                 "notes": [],
                 "completeness": {
-                    "status": "complete",
-                    "checkedChangedFiles": [self.target_path],
-                    "incompleteReasons": []
+                    "reviewedChangedFiles": [self.target_path],
+                    "reviewedRiskEntries": [],
+                    "unreviewedRiskEntries": [],
+                    "unresolvedQuestions": [],
+                    "incompleteReasons": [],
+                    "ignoredChildCandidates": []
                 }
             })
         };

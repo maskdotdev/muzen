@@ -78,6 +78,7 @@ pub(super) fn candidate_schema() -> Value {
             "id",
             "title",
             "claim",
+            "negativeOutcome",
             "severity",
             "path",
             "startLine",
@@ -91,6 +92,7 @@ pub(super) fn candidate_schema() -> Value {
             "id": {"type": "string"},
             "title": {"type": "string"},
             "claim": {"type": "string"},
+            "negativeOutcome": {"type": "string"},
             "severity": {"type": ["string", "null"]},
             "path": {"type": "string"},
             "startLine": {"type": ["integer", "null"]},
@@ -127,7 +129,7 @@ fn evidence_packet_schema() -> Value {
 }
 
 pub(super) fn orchestrator_final_instruction() -> String {
-    "Return the final autonomous review result now as strict JSON. Include candidate findings only for concrete changed-code bugs supported by raw code or diff evidence. Each candidate must describe exactly one failing invariant and one concrete negative outcome; split unrelated behaviors into separate candidates. Correctness/no-issue observations, intended behavior, and suspicious but insufficient observations belong in notes or completeness.incompleteReasons, not candidates. Account for every diff risk inventory id in completeness.reviewedRiskEntries or completeness.unreviewedRiskEntries. If a material risk entry remains unreviewed, use verdict=incomplete.".to_string()
+    "Return the final autonomous review result now as strict JSON. Include candidate findings for concrete changed-code bugs and plausible single-invariant changed-code risks that have raw code or diff evidence plus a concrete negative outcome; the validator will decide publishability. Each candidate must describe exactly one failing invariant in claim and exactly one concrete user/system/test failure in negativeOutcome; split unrelated behaviors into separate candidates. Do not bury a directly changed, localized risk in notes only because it needs adversarial confirmation. Correctness/no-issue observations, intended behavior, style-only concerns, and observations without a concrete negative outcome belong in notes or completeness.incompleteReasons, not candidates. Account for every diff risk inventory id in completeness.reviewedRiskEntries or completeness.unreviewedRiskEntries. If a material risk entry remains unreviewed, use verdict=incomplete.".to_string()
 }
 
 pub(super) fn child_final_instruction(kind: DelegateTaskKind) -> String {
@@ -162,12 +164,15 @@ pub(super) fn session_output_valid(kind: SessionKind, output: Option<&str>) -> b
         SessionKind::Orchestrator => {
             value.get("verdict").and_then(Value::as_str).is_some()
                 && value.get("summary").and_then(Value::as_str).is_some()
-                && value.get("candidates").and_then(Value::as_array).is_some()
+                && value
+                    .get("candidates")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| items.iter().all(candidate_packet_valid))
                 && value.get("notes").and_then(Value::as_array).is_some()
                 && value
                     .get("completeness")
                     .and_then(Value::as_object)
-                    .is_some()
+                    .is_some_and(completeness_packet_valid)
         }
         SessionKind::Child(_) => {
             value.get("status").and_then(Value::as_str).is_some()
@@ -184,7 +189,47 @@ pub(super) fn session_output_valid(kind: SessionKind, output: Option<&str>) -> b
                 && value
                     .get("candidateFindings")
                     .and_then(Value::as_array)
-                    .is_some()
+                    .is_some_and(|items| items.iter().all(candidate_packet_valid))
         }
     }
+}
+
+fn completeness_packet_valid(value: &serde_json::Map<String, Value>) -> bool {
+    [
+        "reviewedChangedFiles",
+        "reviewedRiskEntries",
+        "unreviewedRiskEntries",
+        "unresolvedQuestions",
+        "incompleteReasons",
+        "ignoredChildCandidates",
+    ]
+    .iter()
+    .all(|key| value.get(*key).and_then(Value::as_array).is_some())
+}
+
+fn candidate_packet_valid(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.get("id").and_then(Value::as_str).is_some()
+        && object.get("title").and_then(Value::as_str).is_some()
+        && object.get("claim").and_then(Value::as_str).is_some()
+        && object
+            .get("negativeOutcome")
+            .and_then(Value::as_str)
+            .is_some()
+        && object.contains_key("severity")
+        && object.get("path").and_then(Value::as_str).is_some()
+        && object.contains_key("startLine")
+        && object.contains_key("endLine")
+        && object.contains_key("behaviorBefore")
+        && object.contains_key("behaviorAfter")
+        && object
+            .get("evidenceArtifactIds")
+            .and_then(Value::as_array)
+            .is_some()
+        && object
+            .get("relatedPaths")
+            .and_then(Value::as_array)
+            .is_some()
 }

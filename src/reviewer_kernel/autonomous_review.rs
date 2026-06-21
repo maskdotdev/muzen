@@ -123,6 +123,7 @@ impl AutonomousReviewRuntime {
                     "index": index,
                     "title": truncate_chars(&candidate.title, 240),
                     "claim": truncate_chars(&candidate.claim, 600),
+                    "negativeOutcome": truncate_chars(&candidate.negative_outcome, 600),
                     "severity": candidate.severity,
                     "path": candidate.path,
                     "startLine": candidate.start_line,
@@ -137,6 +138,7 @@ impl AutonomousReviewRuntime {
                         .map(|value| truncate_chars(value, 600)),
                     "candidateTextBytes": candidate.title.len()
                         + candidate.claim.len()
+                        + candidate.negative_outcome.len()
                         + candidate.behavior_before.as_deref().unwrap_or_default().len()
                         + candidate.behavior_after.as_deref().unwrap_or_default().len(),
                     "evidenceArtifactIds": candidate.evidence_artifact_ids,
@@ -233,6 +235,12 @@ impl AutonomousReviewRuntime {
             &findings,
             report.output.as_deref().unwrap_or_default(),
         );
+        let session_outputs = vec![SessionOutput {
+            session_id: trace_scope.id.0.clone(),
+            status: report.status.clone(),
+            completed: report.completed,
+            output: report.output.clone(),
+        }];
         let mut all_reports = Vec::new();
         all_reports.push(report);
         all_reports.extend(state.child_reports());
@@ -252,7 +260,7 @@ impl AutonomousReviewRuntime {
             metrics,
             findings,
             file_reviews,
-            session_outputs: Vec::new(),
+            session_outputs,
         }
     }
 

@@ -615,7 +615,7 @@ impl RunnerCallbackTransport for IsolationTransport {
                 } else {
                     Ok(json!({
                         "content": format!(
-                            "{{\"verdict\":\"clean\",\"summary\":\"{run_id} complete\",\"candidates\":[],\"notes\":[],\"completeness\":{{}}}}"
+                            "{{\"verdict\":\"clean\",\"summary\":\"{run_id} complete\",\"candidates\":[],\"notes\":[],\"completeness\":{{\"reviewedChangedFiles\":[\"Cargo.toml\"],\"reviewedRiskEntries\":[],\"unreviewedRiskEntries\":[],\"unresolvedQuestions\":[],\"incompleteReasons\":[],\"ignoredChildCandidates\":[]}}}}"
                         ),
                         "usage": { "inputTokens": 1, "outputTokens": 1, "totalTokens": 2 }
                     }))
