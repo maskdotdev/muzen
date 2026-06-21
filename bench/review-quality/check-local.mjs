@@ -64,6 +64,34 @@ const probes = [
     expectProviderQueue: true,
     expectConcurrentAdmission: true,
   },
+  {
+    name: "caller-hard-cap-budget",
+    toolsBeforeFinal: "1",
+    cases: "1",
+    concurrency: "1",
+    maxToolCalls: "4",
+    maxTurns: "8",
+    sessions: "1",
+    maxActive: "1",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 0,
+    expectCompletionMaxToolCalls: 4,
+  },
+  {
+    name: "adaptive-budget-surface",
+    toolsBeforeFinal: "1",
+    cases: "1",
+    concurrency: "1",
+    maxToolCalls: "4",
+    maxTurns: "8",
+    sessions: "0",
+    maxActive: "1",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 0,
+    expectCompletionMaxToolCallsGreaterThan: 4,
+  },
 ];
 
 const results = [];
@@ -75,10 +103,12 @@ for (const probe of probes) {
     toolsBeforeFinal: probe.toolsBeforeFinal,
     invalidFinalAttempts: probe.invalidFinalAttempts || "0",
     finalMode: probe.finalMode || "clean",
-    cases: args.cases || "5",
-    concurrency: args.concurrency || "5",
-    maxToolCalls: args.maxToolCalls || "6",
-    maxTurns: args.maxTurns || "10",
+    cases: probe.cases || args.cases || "5",
+    concurrency: probe.concurrency || args.concurrency || "5",
+    maxToolCalls: probe.maxToolCalls || args.maxToolCalls || "6",
+    maxTurns: probe.maxTurns || args.maxTurns || "10",
+    sessions: probe.sessions || args.sessions || "1",
+    maxActive: probe.maxActive || args.maxActive || "1",
     latencyMs: probe.latencyMs || args.latencyMs || "5",
     jitterMs: probe.jitterMs || args.jitterMs || "10",
     maxConcurrent: probe.maxConcurrent || args.maxConcurrent || "64",
@@ -124,6 +154,8 @@ function runProbe({
   concurrency,
   maxToolCalls,
   maxTurns,
+  sessions,
+  maxActive,
   latencyMs,
   jitterMs,
   maxConcurrent,
@@ -144,6 +176,10 @@ function runProbe({
       maxToolCalls,
       "--max-turns",
       maxTurns,
+      "--sessions",
+      sessions,
+      "--max-active",
+      maxActive,
       "--tools-before-final",
       toolsBeforeFinal,
       "--invalid-final-attempts",
@@ -269,6 +305,32 @@ function assertProbe(probe, summary) {
       1,
     );
   }
+  if (probe.expectCompletionMaxToolCalls != null) {
+    assertCompletionMaxToolCalls(
+      probe.name,
+      "shared",
+      summary.observedRuns.shared,
+      probe.expectCompletionMaxToolCalls,
+    );
+    assertCompletionMaxToolCalls(
+      probe.name,
+      "process",
+      summary.observedRuns.process,
+      probe.expectCompletionMaxToolCalls,
+    );
+  }
+  if (probe.expectCompletionMaxToolCallsGreaterThan != null) {
+    assertGreaterThan(
+      `${probe.name} shared completion max tool calls`,
+      summary.observedRuns.shared.completionMaxToolCalls.max,
+      probe.expectCompletionMaxToolCallsGreaterThan,
+    );
+    assertGreaterThan(
+      `${probe.name} process completion max tool calls`,
+      summary.observedRuns.process.completionMaxToolCalls.max,
+      probe.expectCompletionMaxToolCallsGreaterThan,
+    );
+  }
 }
 
 function assertIsolation(probeName, mode, isolation, { requireFrames }) {
@@ -359,6 +421,19 @@ function assertQueuedProvider(probeName, mode, summary) {
   assertGreaterThan(`${probeName} ${mode} fake-model requests`, summary.requests, 0);
   assertGreaterThan(`${probeName} ${mode} fake-model queued max ms`, summary.queuedMs.max, 0);
   assertGreaterThan(`${probeName} ${mode} fake-model queued p95 ms`, summary.queuedMs.p95, 0);
+}
+
+function assertCompletionMaxToolCalls(probeName, mode, observedRuns, expected) {
+  assertEqual(
+    `${probeName} ${mode} completion max tool calls min`,
+    observedRuns.completionMaxToolCalls.min,
+    expected,
+  );
+  assertEqual(
+    `${probeName} ${mode} completion max tool calls max`,
+    observedRuns.completionMaxToolCalls.max,
+    expected,
+  );
 }
 
 function compactIsolation(isolation) {

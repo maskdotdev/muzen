@@ -151,10 +151,22 @@ function compactCase(root, name, report) {
     events: traceBundle.events,
   });
   const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
+  const completionDiagnostics = report.review?.completionDiagnostics ?? [];
   return {
     status: report.review?.status ?? null,
     sessions: report.review?.sessions ?? null,
     completedSessions: report.review?.completedSessions ?? null,
+    completionDiagnostics: completionDiagnostics.length,
+    completionMaxToolCalls: maxNumber(
+      completionDiagnostics.map((diagnostic) => diagnostic.maxToolCalls),
+    ),
+    completionToolCallsUsed: completionDiagnostics.reduce(
+      (sum, diagnostic) => sum + (Number(diagnostic.toolCallsUsed) || 0),
+      0,
+    ),
+    completionExhaustedToolBudget: completionDiagnostics.filter(
+      (diagnostic) => diagnostic.exhaustedToolBudget === true,
+    ).length,
     modelCalls: report.review?.modelCalls ?? 0,
     toolCalls: report.review?.toolCalls ?? 0,
     totalTokens: report.review?.tokens?.totalTokens ?? 0,
@@ -220,6 +232,11 @@ function countNeedle(file, needle) {
 function countRegex(file, pattern) {
   if (!fs.existsSync(file)) return 0;
   return fs.readFileSync(file, "utf8").match(pattern)?.length ?? 0;
+}
+
+function maxNumber(values) {
+  const clean = values.filter((value) => Number.isFinite(value));
+  return clean.length ? Math.max(...clean) : null;
 }
 
 function parseArgs(argv) {

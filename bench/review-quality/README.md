@@ -40,11 +40,12 @@ MODEL=gpt-4o-mini node bench/review-quality/run-github-pr-review.mjs \
 The harness builds a `run.start` request from git metadata, invokes
 `muzen-runner stdio`, stores the JSON-RPC frames, parses the final runner result,
 and reports hit rate, false positives, token/tool metrics, coverage, challenge,
-and candidate synthesis diagnostics. `--sessions 0` lets planned review create
-the default correctness/security/architecture-contracts/performance lens panel.
-Positive `--sessions` values provide custom runner session templates. Current
-planned-runtime results also expose `reviewUnits` and `completedReviewUnits`
-because execution is scheduled by planned review units.
+and candidate synthesis diagnostics. In the current autonomous-review path,
+`--sessions 0` creates the default adaptive `review-orchestrator`; `--sessions 1`
+uses an explicit caller-provided orchestrator template, so `--max-turns` and
+`--max-tool-calls` are hard caps for that orchestrator. The completion
+diagnostics in each result report the effective `maxToolCalls` used by the
+orchestrator.
 
 Summarize one or more result files:
 

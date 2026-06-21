@@ -333,6 +333,12 @@ function summarizeObservedMode(cases, mode) {
     cases: values.length,
     sessions: stats(values.map((entry) => entry.sessions)),
     completedSessions: stats(values.map((entry) => entry.completedSessions)),
+    completionDiagnostics: stats(values.map((entry) => entry.completionDiagnostics)),
+    completionMaxToolCalls: stats(values.map((entry) => entry.completionMaxToolCalls)),
+    completionToolCallsUsed: stats(values.map((entry) => entry.completionToolCallsUsed)),
+    completionExhaustedToolBudget: stats(
+      values.map((entry) => entry.completionExhaustedToolBudget),
+    ),
     modelCalls: stats(values.map((entry) => entry.modelCalls)),
     toolCalls: stats(values.map((entry) => entry.toolCalls)),
   };
