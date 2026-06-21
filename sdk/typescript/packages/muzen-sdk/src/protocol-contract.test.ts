@@ -89,6 +89,10 @@ describe("runner protocol fixture", () => {
       "{}",
     );
     assert.equal(
+      requireField(definitions, "RunnerRunResult", "sessionOutputs").default,
+      "[]",
+    );
+    assert.equal(
       requireField(definitions, "RunStartParams", "instructions").default,
       "[]",
     );

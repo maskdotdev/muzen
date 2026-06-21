@@ -113,6 +113,7 @@ impl RunBuilder {
         let autonomous_delegate_host = AutonomousDelegateHost::default();
         register_autonomous_delegate_tools(&mut registry, autonomous_delegate_host.clone())?;
         let registry = Arc::new(registry);
+        let mode = self.spec.mode;
         let limits = Arc::new(self.spec.limits);
         let mut shards = Vec::new();
         for snapshot_spec in self.spec.snapshots {
@@ -174,6 +175,7 @@ impl RunBuilder {
             snapshot_handles,
             shards,
             limits,
+            mode,
             model_router,
             reviewer_policy,
             context_engine,
@@ -188,6 +190,7 @@ pub struct Run {
     snapshot_handles: Vec<SnapshotHandle>,
     pub(crate) shards: Vec<RunShard>,
     limits: Arc<RuntimeLimits>,
+    mode: RunMode,
     model_router: Arc<dyn RuntimeModelRouter>,
     reviewer_policy: Arc<ReviewerPolicy>,
     context_engine: Arc<dyn ContextEngine>,
@@ -208,6 +211,7 @@ struct ShardOutcome {
     metrics: crate::reviewer_kernel::kernel_types::ConcurrentRunReport,
     findings: Vec<FindingV1>,
     file_reviews: Vec<FileReviewV1>,
+    session_outputs: Vec<SessionOutput>,
     tools: Arc<ToolEngine>,
 }
 
@@ -394,6 +398,7 @@ impl Run {
                     tools: shard.tools,
                     policy: reviewer_policy,
                     limits,
+                    run_mode: self.mode,
                     review_revision_id: shard.review_revision_id,
                     events,
                     active_sessions,
@@ -414,6 +419,7 @@ impl Run {
                     metrics: report.metrics,
                     findings: shard_findings,
                     file_reviews: report.file_reviews,
+                    session_outputs: report.session_outputs,
                     tools,
                 };
                 if let Some(sink) = &shard_event_sink {
@@ -443,10 +449,12 @@ impl Run {
         let mut summaries = Vec::new();
         let mut findings = Vec::new();
         let mut file_reviews = Vec::new();
+        let mut session_outputs = Vec::new();
         for outcome in shard_outcomes {
             outcome.tools.merge_artifacts_into(&aggregate_artifacts);
             findings.extend(outcome.findings);
             file_reviews.extend(outcome.file_reviews);
+            session_outputs.extend(outcome.session_outputs);
             summaries.push(outcome.metrics);
         }
         let mut metrics = merge_run_summaries(summaries);
@@ -494,6 +502,7 @@ impl Run {
             snapshot_readers,
             findings,
             file_reviews,
+            session_outputs,
         }
     }
 }

@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 mod delegates;
@@ -41,13 +43,16 @@ use tasks::{
     VALIDATE_FINDING_TOOL,
 };
 
+use crate::reviewer_kernel::agent_loop::AgentLoopConfig;
 use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
 use crate::reviewer_kernel::policy::ReviewerPolicy;
+use crate::reviewer_kernel::report::SessionOutput;
 #[cfg(test)]
 use crate::reviewer_kernel::review_contract::BudgetSource;
 use crate::reviewer_kernel::review_contract::{AgentBudget, FileReviewV1, FindingV1, Role};
+use crate::reviewer_kernel::spec::RunMode;
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
@@ -60,6 +65,7 @@ pub(crate) struct AutonomousReviewRuntime {
     pub(crate) tools: Arc<ToolEngine>,
     pub(crate) policy: Arc<ReviewerPolicy>,
     pub(crate) limits: Arc<RuntimeLimits>,
+    pub(crate) run_mode: RunMode,
     pub(crate) review_revision_id: String,
     pub(crate) events: RuntimeEventDispatcher,
     pub(crate) active_sessions: Arc<Semaphore>,
@@ -70,6 +76,7 @@ pub(crate) struct AutonomousReviewRunReport {
     pub(crate) metrics: ConcurrentRunReport,
     pub(crate) findings: Vec<FindingV1>,
     pub(crate) file_reviews: Vec<FileReviewV1>,
+    pub(crate) session_outputs: Vec<SessionOutput>,
 }
 
 impl AutonomousReviewRuntime {
@@ -83,6 +90,12 @@ impl AutonomousReviewRuntime {
         let _guard = self
             .delegate_host
             .register(self.snapshot.snapshot_id.clone(), Arc::clone(&state));
+
+        if self.run_mode == RunMode::DirectSessions {
+            return self
+                .run_direct_sessions(state, sessions, started, cancel)
+                .await;
+        }
 
         let template = sessions.into_iter().next();
         let scope = self.orchestrator_scope(template);
@@ -239,6 +252,69 @@ impl AutonomousReviewRuntime {
             metrics,
             findings,
             file_reviews,
+            session_outputs: Vec::new(),
+        }
+    }
+
+    async fn run_direct_sessions(
+        &self,
+        state: Arc<AutonomousDelegateState>,
+        sessions: Vec<SessionScope>,
+        started: Instant,
+        cancel: CancellationToken,
+    ) -> AutonomousReviewRunReport {
+        let mut joins = JoinSet::new();
+        for (index, mut scope) in sessions.into_iter().enumerate() {
+            scope.snapshot_id = Some(self.snapshot.snapshot_id.clone());
+            let state = Arc::clone(&state);
+            let cancel = cancel.child_token();
+            joins.spawn(async move {
+                let _permit = state.active_sessions.clone().acquire_owned().await.ok();
+                let report = state
+                    .agent_loop_runtime()
+                    .run_session_loop(direct_session_config(scope.clone()), cancel)
+                    .await;
+                (index, scope, report)
+            });
+        }
+
+        let mut reports = Vec::new();
+        while let Some(result) = joins.join_next().await {
+            if let Ok((index, scope, report)) = result {
+                reports.push((index, scope, report));
+            }
+        }
+        reports.sort_by_key(|(index, _, _)| *index);
+        let session_outputs = reports
+            .iter()
+            .map(|(_, scope, report)| SessionOutput {
+                session_id: scope.id.0.clone(),
+                status: report.status.clone(),
+                completed: report.completed,
+                output: report.output.clone(),
+            })
+            .collect::<Vec<_>>();
+        let agent_reports = reports
+            .into_iter()
+            .map(|(_, _, report)| report)
+            .collect::<Vec<_>>();
+        let metrics = build_run_metrics(
+            "direct_sessions",
+            started,
+            &self.tools,
+            &self.snapshot.snapshot_id,
+            &agent_reports,
+            0,
+            0,
+            BTreeMap::new(),
+            0,
+            "direct_sessions",
+        );
+        AutonomousReviewRunReport {
+            metrics,
+            findings: Vec::new(),
+            file_reviews: Vec::new(),
+            session_outputs,
         }
     }
 
@@ -360,6 +436,37 @@ impl AutonomousReviewRuntime {
             self.policy
                 .plan_agent_trace_event(scope, None, trace_kind, summary, details),
         );
+    }
+}
+
+fn direct_session_config(scope: SessionScope) -> AgentLoopConfig {
+    let turn_guard = scope.budget.max_turns.max(1);
+    let response_format = scope.response_format.clone().unwrap_or_else(|| {
+        ModelResponseFormat::json_schema(
+            "muzen_direct_session_result_v1",
+            json!({
+                "type": "object",
+                "additionalProperties": true
+            }),
+        )
+    });
+    AgentLoopConfig {
+        scope,
+        task_packet: None,
+        trace_kind: "direct_session",
+        completion_kind: "direct_session",
+        response_format,
+        final_instruction: "Return the final output for this session now. Do not call more tools."
+            .to_string(),
+        turn_guard,
+        should_force_final_turn: Box::new(move |turn_index, tool_calls_used, budget| {
+            tool_calls_used >= budget.max_tool_calls || turn_index >= turn_guard.saturating_sub(1)
+        }),
+        output_valid: Box::new(|output| output.is_some()),
+        schema_repair_instruction: Box::new(|_, _| {
+            "Return the final output for this session now.".to_string()
+        }),
+        schema_repair_attempts: 0,
     }
 }
 

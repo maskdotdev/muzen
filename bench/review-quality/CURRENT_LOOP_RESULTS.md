@@ -125,6 +125,31 @@ bench/results-review-quality/fake-sweep-large-fixture-sessions-20260621T053310Z/
 | 4 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
 | 8 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
 
+Protocol explicit-session stress sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-session-stress-20260621T055306Z \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --tool-delay-ms 100 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-session-stress-20260621T055306Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Sessions per run | Completed per run | Session outputs per run | Model callbacks | Tool callbacks | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 6 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
+| process | 6 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
@@ -144,11 +169,15 @@ Interpretation:
   0 at every tested concurrency.
 - The fake sweep now accepts `--sessions`, `--max-active`,
   `--fixture-extra-lines`, and `--fixture-line-bytes`. The large-fixture run
-  confirms the fixture sizing path works, but it also exposes a coverage gap:
-  even with three explicit `RunStartParams.sessions`, the autonomous review
-  result reports only two sessions per case (orchestrator plus validator). Do
-  not claim this path covers explicit multi-session fan-out until a protocol
-  session harness verifies the requested sessions actually run.
+  confirms the fixture sizing path works, but it also exposed a coverage gap:
+  hosted/autonomous review requests still use the autonomous orchestrator path
+  and do not prove explicit protocol fan-out.
+- The protocol-level harness reproduced the explicit-session bug: non-empty
+  `RunStartParams.sessions` were being collapsed to the autonomous
+  `review-orchestrator` session. The direct-session runner path now treats
+  caller-provided sessions as the contract: all requested sessions run under
+  their own IDs, delayed callback tools preserve run/session ownership, and the
+  runner result emits `sessionOutputs` for the SDK swarm mapping.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -161,11 +190,10 @@ Interpretation:
   unexpected run IDs.
 
 Current recommendation: do not run live evals for this runner investigation yet.
-The next useful step is a deterministic protocol-level harness for explicit
-multi-session fan-out and intentionally delayed callback tools. If a live eval
-becomes necessary after those pass, it should be a deliberately approved, small
-runner-mode diagnostic through the subscription proxy with semantic scoring
-disabled first.
+The deterministic shared/process protocol path is now covered for explicit
+multi-session fan-out and delayed callback tools. The next useful fake-first
+step is to add a pressure probe for callback/custom-tool accounting and
+session-budget reporting before considering any subscription-backed diagnostic.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

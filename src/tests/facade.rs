@@ -540,6 +540,7 @@ fn public_reviewer_facade_runs_multiple_snapshots() {
         snapshots: vec![first_snapshot, second_snapshot],
         sessions,
         limits: crate::reviewer_kernel::kernel_types::RuntimeLimits::standard(2, 64 * 1024, 20),
+        mode: crate::reviewer_kernel::spec::RunMode::AutonomousReview,
     };
     let events = Arc::new(crate::reviewer_kernel::events::InMemoryReviewEventSink::default());
     let run = crate::reviewer_kernel::kernel::Run::builder(spec)

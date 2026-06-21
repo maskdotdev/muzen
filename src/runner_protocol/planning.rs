@@ -17,7 +17,7 @@ use crate::reviewer_kernel::review_contract::AgentBudget;
 #[cfg(test)]
 use crate::reviewer_kernel::review_contract::Role;
 use crate::reviewer_kernel::snapshots::{SnapshotPathPolicy, SnapshotSpec};
-use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunSpec};
+use crate::reviewer_kernel::spec::{ReviewSessionSpec, RunMode, RunSpec};
 
 use super::transport::RunnerCallbackTransport;
 use super::types::{
@@ -102,6 +102,7 @@ pub(crate) fn plan_run_start(
         .iter()
         .map(CallbackToolGrant::from_tool_params)
         .collect::<Result<Vec<_>>>()?;
+    let direct_sessions = !params.sessions.is_empty();
     let session_specs = if params.sessions.is_empty() {
         let spec = default_review_orchestrator_session(runner_instructions(&params.instructions));
         vec![grant_callback_tools(
@@ -133,7 +134,13 @@ pub(crate) fn plan_run_start(
     Ok(RunnerPlan {
         run_id: run_id.clone(),
         metadata,
-        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, runtime_limits),
+        spec: RunSpec::single_snapshot(run_id, snapshot, session_specs, runtime_limits).with_mode(
+            if direct_sessions {
+                RunMode::DirectSessions
+            } else {
+                RunMode::AutonomousReview
+            },
+        ),
         max_active_sessions,
         #[cfg(test)]
         target_path,

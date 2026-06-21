@@ -76,11 +76,23 @@ pub struct RunnerRunResult {
     pub status: String,
     pub summary: RunnerRunSummary,
     #[serde(default)]
+    pub session_outputs: Vec<RunnerSessionOutput>,
+    #[serde(default)]
     pub file_reviews: Vec<RunnerFileReview>,
     pub findings: Vec<RunnerFinding>,
     pub snapshots: Vec<RunnerSnapshotSummary>,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerSessionOutput {
+    pub session_id: String,
+    pub status: String,
+    pub completed: bool,
+    #[serde(default)]
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -19,7 +19,8 @@ use super::planning::plan_run_start;
 use super::results::{
     RunnerFileReview, RunnerFinalOutputDiagnostic, RunnerFinding, RunnerFindingEvidence,
     RunnerFindingLocation, RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary,
-    RunnerSessionCompletionDiagnostic, RunnerSnapshotSummary, RunnerToolCounts,
+    RunnerSessionCompletionDiagnostic, RunnerSessionOutput, RunnerSnapshotSummary,
+    RunnerToolCounts,
 };
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
@@ -245,11 +246,22 @@ fn runner_result_from_report(
             unit_id: review.unit_id,
         })
         .collect();
+    let session_outputs = report
+        .session_outputs()
+        .into_iter()
+        .map(|output| RunnerSessionOutput {
+            session_id: output.session_id,
+            status: output.status,
+            completed: output.completed,
+            output: output.output,
+        })
+        .collect();
     RunnerRunResult {
         protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
         run_id: report.run_id.clone(),
         status: summary_status(&summary),
         summary,
+        session_outputs,
         file_reviews,
         findings,
         snapshots,

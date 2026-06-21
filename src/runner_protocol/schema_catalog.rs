@@ -473,6 +473,7 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("runId", "string"),
                 required("status", "string"),
                 required("summary", "RunnerRunSummary"),
+                defaulted("sessionOutputs", "RunnerSessionOutput[]", "[]"),
                 defaulted("fileReviews", "RunnerFileReview[]", "[]"),
                 required("findings", "RunnerFinding[]"),
                 required("snapshots", "RunnerSnapshotSummary[]"),
@@ -616,6 +617,15 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("rescuedCandidates", "integer"),
                 required("rejectedCandidates", "integer"),
                 defaulted("rejectionReasons", "Record<string, integer>", "{}"),
+            ],
+        ),
+        object(
+            "RunnerSessionOutput",
+            vec![
+                required("sessionId", "string"),
+                required("status", "string"),
+                required("completed", "boolean"),
+                optional("output", "string"),
             ],
         ),
         object(

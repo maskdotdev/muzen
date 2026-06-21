@@ -248,6 +248,7 @@ pub struct RunReport {
     pub(crate) snapshot_readers: Vec<SnapshotReader>,
     pub(crate) findings: Vec<FindingV1>,
     pub(crate) file_reviews: Vec<FileReviewV1>,
+    pub(crate) session_outputs: Vec<SessionOutput>,
 }
 
 impl RunReport {
@@ -288,6 +289,18 @@ impl RunReport {
     pub fn file_reviews(&self) -> Vec<FileReviewV1> {
         self.file_reviews.clone()
     }
+
+    pub fn session_outputs(&self) -> Vec<SessionOutput> {
+        self.session_outputs.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionOutput {
+    pub session_id: String,
+    pub status: String,
+    pub completed: bool,
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone)]

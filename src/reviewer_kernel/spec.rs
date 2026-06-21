@@ -11,6 +11,7 @@ pub struct RunSpec {
     pub snapshots: Vec<SnapshotSpec>,
     pub sessions: Vec<ReviewSessionSpec>,
     pub limits: RuntimeLimits,
+    pub mode: RunMode,
 }
 
 impl RunSpec {
@@ -25,8 +26,20 @@ impl RunSpec {
             snapshots: vec![snapshot],
             sessions,
             limits,
+            mode: RunMode::AutonomousReview,
         }
     }
+
+    pub fn with_mode(mut self, mode: RunMode) -> Self {
+        self.mode = mode;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    AutonomousReview,
+    DirectSessions,
 }
 
 #[derive(Debug, Clone)]
