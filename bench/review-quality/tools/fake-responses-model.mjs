@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   toolName: "diff",
   finalMode: "clean",
   validationStatus: "supported",
+  runLabel: "default",
   logPath: null,
 };
 
@@ -308,6 +309,7 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
       queuedMs: requestMetrics.queuedMs ?? 0,
       activeAtStart: requestMetrics.activeAtStart ?? null,
       maxConcurrent: state.maxConcurrent,
+      runLabel: state.runLabel,
       requestId: body.metadata?.run_id ?? body.metadata?.request_id ?? null,
       conversationKey,
       decision: decision.decision,
@@ -409,12 +411,13 @@ function configFromArgs(args) {
     toolName: args.toolName || DEFAULT_CONFIG.toolName,
     finalMode: args.finalMode || DEFAULT_CONFIG.finalMode,
     validationStatus: args.validationStatus || DEFAULT_CONFIG.validationStatus,
+    runLabel: args.runLabel || DEFAULT_CONFIG.runLabel,
     logPath: args.log || null,
   };
 }
 
 function usage() {
-  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--log path]\n`);
+  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--run-label label] [--log path]\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -98,12 +98,14 @@ try {
   fakeModel.configure({
     finalMode: sharedFinalMode,
     validationStatus: sharedValidationStatus,
+    runLabel: "shared",
   });
   await runCheckedAsync("node", [...common, "--runner-mode", "shared", "--output-dir", sharedDir], env);
   fakeModel.reset();
   fakeModel.configure({
     finalMode: processFinalMode,
     validationStatus: processValidationStatus,
+    runLabel: "process",
   });
   await runCheckedAsync("node", [...common, "--runner-mode", "process", "--output-dir", processDir], env);
 
@@ -352,15 +354,28 @@ function summarizeFakeModelLog(logPath) {
   const conversationKeys = [
     ...new Set(records.map((record) => record.conversationKey).filter(Boolean)),
   ].sort();
+  const byRunLabel = {};
+  for (const runLabel of [...new Set(records.map((record) => record.runLabel || "default"))].sort()) {
+    byRunLabel[runLabel] = summarizeFakeModelRecords(
+      records.filter((record) => (record.runLabel || "default") === runLabel),
+    );
+  }
   return {
-    requests: records.length,
+    ...summarizeFakeModelRecords(records),
     conversationCount: conversationKeys.length,
-    decisions: countObject(records.map((record) => record.decision)),
     invalidFinalsByConversation: countObject(
       records
         .filter((record) => record.decision === "invalid_final_text")
         .map((record) => record.conversationKey),
     ),
+    byRunLabel,
+  };
+}
+
+function summarizeFakeModelRecords(records) {
+  return {
+    requests: records.length,
+    decisions: countObject(records.map((record) => record.decision)),
     statuses: countObject(records.map((record) => record.status)),
     maxActiveAtStart: records.length
       ? Math.max(...records.map((record) => record.activeAtStart ?? 0))

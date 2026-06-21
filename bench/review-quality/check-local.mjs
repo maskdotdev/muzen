@@ -52,6 +52,17 @@ const probes = [
     expectFindings: 0,
     expectInvalidFinalsPerConversation: true,
   },
+  {
+    name: "provider-queue-saturation",
+    toolsBeforeFinal: "1",
+    maxConcurrent: "1",
+    latencyMs: "25",
+    jitterMs: "0",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 0,
+    expectProviderQueue: true,
+  },
 ];
 
 const results = [];
@@ -67,9 +78,9 @@ for (const probe of probes) {
     concurrency: args.concurrency || "5",
     maxToolCalls: args.maxToolCalls || "6",
     maxTurns: args.maxTurns || "10",
-    latencyMs: args.latencyMs || "5",
-    jitterMs: args.jitterMs || "10",
-    maxConcurrent: args.maxConcurrent || "64",
+    latencyMs: probe.latencyMs || args.latencyMs || "5",
+    jitterMs: probe.jitterMs || args.jitterMs || "10",
+    maxConcurrent: probe.maxConcurrent || args.maxConcurrent || "64",
   });
   assertProbe(probe, summary);
   results.push({
@@ -78,6 +89,7 @@ for (const probe of probes) {
     shared: compactTotals(summary.totals.shared),
     process: compactTotals(summary.totals.process),
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
+    fakeModel: compactFakeModel(summary.fakeModel),
     release: summary.release,
     isolation: compactIsolation(summary.isolation),
   });
@@ -236,6 +248,10 @@ function assertProbe(probe, summary) {
       assertEqual(`${probe.name} invalid finals conversation ${index + 1}`, count, 2);
     }
   }
+  if (probe.expectProviderQueue) {
+    assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
+    assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
+  }
 }
 
 function assertIsolation(probeName, mode, isolation, { requireFrames }) {
@@ -259,6 +275,29 @@ function compactTotals(totals) {
     totalTokens: totals.totalTokens,
     providerErrors: providerErrors(totals),
   };
+}
+
+function compactFakeModel(fakeModel) {
+  return {
+    requests: fakeModel.requests,
+    queuedMs: fakeModel.queuedMs,
+    byRunLabel: Object.fromEntries(
+      Object.entries(fakeModel.byRunLabel ?? {}).map(([label, summary]) => [
+        label,
+        {
+          requests: summary.requests,
+          queuedMs: summary.queuedMs,
+        },
+      ]),
+    ),
+  };
+}
+
+function assertQueuedProvider(probeName, mode, summary) {
+  if (!summary) fail(`${probeName} ${mode} fake-model phase metrics missing`);
+  assertGreaterThan(`${probeName} ${mode} fake-model requests`, summary.requests, 0);
+  assertGreaterThan(`${probeName} ${mode} fake-model queued max ms`, summary.queuedMs.max, 0);
+  assertGreaterThan(`${probeName} ${mode} fake-model queued p95 ms`, summary.queuedMs.p95, 0);
 }
 
 function compactIsolation(isolation) {
@@ -291,6 +330,12 @@ function providerErrors(totals) {
 function assertEqual(label, actual, expected) {
   if (actual !== expected) {
     fail(`${label}: expected ${expected}, got ${actual}`);
+  }
+}
+
+function assertGreaterThan(label, actual, threshold) {
+  if (!(actual > threshold)) {
+    fail(`${label}: expected > ${threshold}, got ${actual}`);
   }
 }
 
