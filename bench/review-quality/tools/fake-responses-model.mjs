@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
   toolsBeforeFinal: Number.POSITIVE_INFINITY,
   invalidFinalAttempts: 0,
   httpErrorEvery: 0,
+  httpErrorAttemptsPerRequest: 0,
   toolName: "diff",
   finalMode: "clean",
   validationStatus: "supported",
@@ -29,6 +30,7 @@ export async function startFakeResponsesServer(config = {}) {
     sequence: 0,
     invalidFinalsUsed: 0,
     invalidFinalsByConversation: new Map(),
+    httpErrorsByRequest: new Map(),
     queue: [],
   };
   const server = http.createServer((req, res) => {
@@ -43,6 +45,7 @@ export async function startFakeResponsesServer(config = {}) {
       state.sequence = 0;
       state.invalidFinalsUsed = 0;
       state.invalidFinalsByConversation.clear();
+      state.httpErrorsByRequest.clear();
     },
     configure(nextConfig = {}) {
       Object.assign(state, nextConfig);
@@ -84,6 +87,29 @@ async function handleRequest(state, req, res, requestMetrics = {}) {
 
   if (req.method !== "POST" || !req.url.endsWith("/responses")) {
     writeJson(res, 404, { error: { message: "fake model only implements POST /responses" } });
+    return;
+  }
+  const requestFingerprint = sha256(rawBody);
+  requestMetrics.requestFingerprint = requestFingerprint;
+  const httpErrorsForRequest = state.httpErrorsByRequest.get(requestFingerprint) ?? 0;
+  if (
+    state.httpErrorAttemptsPerRequest > 0 &&
+    httpErrorsForRequest < state.httpErrorAttemptsPerRequest
+  ) {
+    state.httpErrorsByRequest.set(requestFingerprint, httpErrorsForRequest + 1);
+    writeLog(
+      state,
+      sequence,
+      body,
+      {
+        status: 500,
+        decision: "configured_http_error",
+        requestFingerprint,
+      },
+      startedAt,
+      requestMetrics,
+    );
+    writeJson(res, 500, { error: { message: "configured fake model error" } });
     return;
   }
   if (state.httpErrorEvery > 0 && sequence % state.httpErrorEvery === 0) {
@@ -312,6 +338,7 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
       runLabel: state.runLabel,
       requestId: body.metadata?.run_id ?? body.metadata?.request_id ?? null,
       conversationKey,
+      requestFingerprint: decision.requestFingerprint ?? requestMetrics.requestFingerprint ?? sha256(JSON.stringify(body)),
       decision: decision.decision,
       status: decision.status,
       toolsExposed: Array.isArray(body.tools) ? body.tools.length : 0,
@@ -408,6 +435,10 @@ function configFromArgs(args) {
         : numberArg(args.toolsBeforeFinal, DEFAULT_CONFIG.toolsBeforeFinal),
     invalidFinalAttempts: numberArg(args.invalidFinalAttempts, DEFAULT_CONFIG.invalidFinalAttempts),
     httpErrorEvery: numberArg(args.httpErrorEvery, DEFAULT_CONFIG.httpErrorEvery),
+    httpErrorAttemptsPerRequest: numberArg(
+      args.httpErrorAttemptsPerRequest,
+      DEFAULT_CONFIG.httpErrorAttemptsPerRequest,
+    ),
     toolName: args.toolName || DEFAULT_CONFIG.toolName,
     finalMode: args.finalMode || DEFAULT_CONFIG.finalMode,
     validationStatus: args.validationStatus || DEFAULT_CONFIG.validationStatus,
@@ -417,7 +448,7 @@ function configFromArgs(args) {
 }
 
 function usage() {
-  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--run-label label] [--log path]\n`);
+  process.stderr.write(`Usage: fake-responses-model.mjs [--port 8787] [--latency-ms 25] [--max-concurrent 1] [--tools-before-final N|infinite] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--tool-name diff|grep|read] [--final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--run-label label] [--log path]\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

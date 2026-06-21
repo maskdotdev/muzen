@@ -2,6 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { startFakeResponsesServer } from "./fake-responses-model.mjs";
 
@@ -36,7 +37,16 @@ const postPrepareCooldownMs = nonnegativeInt(
 );
 const invalidFinalAttempts = nonnegativeInt(args.invalidFinalAttempts || "0", "--invalid-final-attempts");
 const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
+const httpErrorAttemptsPerRequest = nonnegativeInt(
+  args.httpErrorAttemptsPerRequest || "0",
+  "--http-error-attempts-per-request",
+);
 const toolName = args.toolName || "diff";
+const viaCodexProxy = booleanArg(args.viaCodexProxy || "false", "--via-codex-proxy");
+const codexProxyScript = path.resolve(
+  args.codexProxyScript || "experiments/codex-chatgpt-proxy/codex-chatgpt-responses-proxy.mjs",
+);
+const codexProxyReasoningEffort = args.codexProxyReasoningEffort || "low";
 const sharedFinalMode = args.sharedFinalMode || args.finalMode || "clean";
 const processFinalMode = args.processFinalMode || args.finalMode || sharedFinalMode;
 const sharedValidationStatus = args.sharedValidationStatus || args.validationStatus || "supported";
@@ -56,13 +66,23 @@ const fakeModel = await startFakeResponsesServer({
   toolsBeforeFinal,
   invalidFinalAttempts,
   httpErrorEvery,
+  httpErrorAttemptsPerRequest,
   toolName,
   finalMode: sharedFinalMode,
   validationStatus: sharedValidationStatus,
   logPath: path.join(outputDir, "fake-model.jsonl"),
 });
 
+let codexProxy = null;
 try {
+  if (viaCodexProxy) {
+    codexProxy = await startCodexProxy({
+      outputDir,
+      script: codexProxyScript,
+      upstream: `${fakeModel.baseUrl}/responses`,
+      reasoningEffort: codexProxyReasoningEffort,
+    });
+  }
   const sharedDir = path.join(outputDir, "shared");
   const processDir = path.join(outputDir, "process");
   const common = [
@@ -100,7 +120,7 @@ try {
   ];
   const env = {
     ...process.env,
-    OPENAI_BASE_URL: fakeModel.baseUrl,
+    OPENAI_BASE_URL: codexProxy?.baseUrl ?? fakeModel.baseUrl,
     OPENAI_API_KEY: "fake",
   };
   fakeModel.configure({
@@ -140,6 +160,7 @@ try {
     comparePath,
     fakeModelLogPath,
     fakeModelBaseUrl: fakeModel.baseUrl,
+    codexProxy,
     caseCount,
     concurrency,
     sessions,
@@ -153,6 +174,7 @@ try {
     postPrepareCooldownMs,
     invalidFinalAttempts,
     httpErrorEvery,
+    httpErrorAttemptsPerRequest,
     toolName,
     sharedFinalMode,
     processFinalMode,
@@ -164,6 +186,7 @@ try {
   fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 } finally {
+  if (codexProxy) await codexProxy.close();
   await fakeModel.close();
 }
 
@@ -174,6 +197,7 @@ function reproductionSummary({
   comparePath,
   fakeModelLogPath,
   fakeModelBaseUrl,
+  codexProxy,
   caseCount,
   concurrency,
   sessions,
@@ -187,6 +211,7 @@ function reproductionSummary({
   postPrepareCooldownMs,
   invalidFinalAttempts,
   httpErrorEvery,
+  httpErrorAttemptsPerRequest,
   toolName,
   sharedFinalMode,
   processFinalMode,
@@ -220,6 +245,16 @@ function reproductionSummary({
     comparePath,
     fakeModelLogPath,
     fakeModelBaseUrl,
+    codexProxy: codexProxy
+      ? {
+          baseUrl: codexProxy.baseUrl,
+          port: codexProxy.port,
+          authFile: codexProxy.authFile,
+          logPath: codexProxy.logPath,
+          upstream: codexProxy.upstream,
+          reasoningEffort: codexProxy.reasoningEffort,
+        }
+      : null,
     config: {
       caseCount,
       concurrency,
@@ -234,11 +269,13 @@ function reproductionSummary({
       postPrepareCooldownMs,
       invalidFinalAttempts,
       httpErrorEvery,
+      httpErrorAttemptsPerRequest,
       toolName,
       sharedFinalMode,
       processFinalMode,
       sharedValidationStatus,
       processValidationStatus,
+      viaCodexProxy: Boolean(codexProxy),
     },
     exhaustedMaxToolCalls: {
       shared: sharedExhausted.length,
@@ -264,6 +301,113 @@ function reproductionSummary({
       delta: entry.delta,
     })),
   };
+}
+
+async function startCodexProxy({ outputDir, script, upstream, reasoningEffort }) {
+  if (!fs.existsSync(script)) {
+    throw new Error(`Codex proxy script not found at ${script}`);
+  }
+  const port = await getFreePort();
+  const authFile = path.join(outputDir, "fake-codex-proxy-auth.json");
+  const logPath = path.join(outputDir, "codex-proxy.log");
+  fs.writeFileSync(
+    authFile,
+    `${JSON.stringify(
+      {
+        type: "oauth",
+        refresh: "fake-refresh-token",
+        access: "fake-access-token",
+        expires: Date.now() + 60 * 60 * 1000,
+        accountId: "fake-chatgpt-account",
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+  const proc = spawn(
+    "node",
+    [
+      script,
+      "serve",
+      "--port",
+      String(port),
+      "--auth-file",
+      authFile,
+      "--upstream",
+      upstream,
+      "--reasoning-effort",
+      reasoningEffort,
+    ],
+    { cwd: process.cwd(), env: process.env },
+  );
+  const log = fs.createWriteStream(logPath, { flags: "a" });
+  proc.stdout.pipe(log);
+  proc.stderr.pipe(log);
+  const baseUrl = `http://127.0.0.1:${port}/v1`;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) {
+      log.end();
+      throw new Error(`Codex proxy exited before becoming ready; see ${logPath}`);
+    }
+    const health = await proxyHealth(port);
+    if (health?.ok) {
+      return {
+        baseUrl,
+        port,
+        authFile,
+        logPath,
+        upstream,
+        reasoningEffort,
+        close: () =>
+          new Promise((resolve) => {
+            proc.once("exit", () => {
+              log.end();
+              resolve();
+            });
+            proc.kill();
+            setTimeout(() => {
+              if (proc.exitCode === null) proc.kill("SIGKILL");
+              log.end();
+              resolve();
+            }, 1_000).unref();
+          }),
+      };
+    }
+    await sleep(100);
+  }
+  proc.kill();
+  log.end();
+  throw new Error(`Codex proxy did not become ready; see ${logPath}`);
+}
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function proxyHealth(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(500),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function summarizeHarnessOverhead({ compare, admission }) {
@@ -912,10 +1056,16 @@ function nonnegativeInt(value, name) {
   return parsed;
 }
 
+function booleanArg(value, name) {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  throw new Error(`${name} must be true or false`);
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 3000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 3000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence] [--http-error-attempts-per-request N] [--via-codex-proxy true|false]\n`);
 }

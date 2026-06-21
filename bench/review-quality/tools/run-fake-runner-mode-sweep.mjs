@@ -33,7 +33,12 @@ const invalidFinalAttempts = nonnegativeInt(
   "--invalid-final-attempts",
 );
 const httpErrorEvery = nonnegativeInt(args.httpErrorEvery || "0", "--http-error-every");
+const httpErrorAttemptsPerRequest = nonnegativeInt(
+  args.httpErrorAttemptsPerRequest || "0",
+  "--http-error-attempts-per-request",
+);
 const toolName = args.toolName || "diff";
+const viaCodexProxy = booleanArg(args.viaCodexProxy || "false", "--via-codex-proxy");
 const postPrepareCooldownMs = nonnegativeInt(
   args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
@@ -77,8 +82,12 @@ for (const concurrency of concurrencies) {
       String(invalidFinalAttempts),
       "--http-error-every",
       String(httpErrorEvery),
+      "--http-error-attempts-per-request",
+      String(httpErrorAttemptsPerRequest),
       "--tool-name",
       toolName,
+      "--via-codex-proxy",
+      String(viaCodexProxy),
       "--latency-ms",
       String(latencyMs),
       "--jitter-ms",
@@ -133,7 +142,9 @@ const report = {
     processValidationStatus,
     invalidFinalAttempts,
     httpErrorEvery,
+    httpErrorAttemptsPerRequest,
     toolName,
+    viaCodexProxy,
     postPrepareCooldownMs,
   },
   regressions: summarizeRegressions(runs),
@@ -176,6 +187,7 @@ function compactRun(summary, { concurrency, outputDir }) {
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
     observedRuns: summary.observedRuns,
     fakeModel: compactFakeModel(summary.fakeModel),
+    codexProxy: summary.codexProxy,
     parity: {
       modelCalls: totals.shared?.modelCalls === totals.process?.modelCalls,
       toolCalls: totals.shared?.toolCalls === totals.process?.toolCalls,
@@ -315,6 +327,12 @@ function nonnegativeInt(value, name) {
   return parsed;
 }
 
+function booleanArg(value, name) {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  fail(`${name} must be true or false`);
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
@@ -326,6 +344,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--post-prepare-cooldown-ms 3000]\n",
+    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--post-prepare-cooldown-ms 3000]\n",
   );
 }
