@@ -152,6 +152,9 @@ function compactCase(root, name, report) {
   });
   const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   const completionDiagnostics = report.review?.completionDiagnostics ?? [];
+  const exhaustedToolBudget = completionDiagnostics.some(
+    (diagnostic) => diagnostic.exhaustedToolBudget === true,
+  );
   const completionFinalOutput = summarizeCompletionFinalOutput(completionDiagnostics);
   const jobBuild = report.benchmark?.jobBuild ?? null;
   const runnerInvocation = report.benchmark?.runnerInvocation ?? null;
@@ -232,9 +235,7 @@ function compactCase(root, name, report) {
       publicationSkipped: orchestrator.publicationSkipped ?? 0,
       publicationSkippedBudgetExhausted:
         orchestrator.publicationSkippedBudgetExhausted ?? 0,
-      exhaustedMaxToolCalls:
-        (orchestrator.toolCallsCompleted ?? 0) >= maxToolCalls ||
-        (orchestrator.toolCallsRequested ?? 0) >= maxToolCalls,
+      exhaustedMaxToolCalls: exhaustedToolBudget,
     },
     instrumentation: compactInstrumentation,
   };

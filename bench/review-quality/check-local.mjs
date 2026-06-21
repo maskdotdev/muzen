@@ -20,6 +20,22 @@ const outputRoot = path.resolve(
 );
 fs.mkdirSync(outputRoot, { recursive: true });
 const includeCodexProxy = booleanArg(args.includeCodexProxy || "false", "--include-codex-proxy");
+const includeProtocolPressure = booleanArg(
+  args.includeProtocolPressure || "false",
+  "--include-protocol-pressure",
+);
+const protocolPressureIterations = positiveInt(
+  args.protocolPressureIterations || "2",
+  "--protocol-pressure-iterations",
+);
+const protocolPressureFixtureExtraLines = nonnegativeInt(
+  args.protocolPressureFixtureExtraLines || "400",
+  "--protocol-pressure-fixture-extra-lines",
+);
+const protocolPressureFixtureLineBytes = positiveInt(
+  args.protocolPressureFixtureLineBytes || "160",
+  "--protocol-pressure-fixture-line-bytes",
+);
 const startup = runStartupProbe({
   runnerPath,
   samples: args.startupSamples || args.concurrency || "5",
@@ -45,6 +61,7 @@ const probes = [
   },
   {
     name: "candidate-publication",
+    sessions: "0",
     toolsBeforeFinal: "1",
     finalMode: "candidate",
     expectSharedOnlyExhaustion: 0,
@@ -65,6 +82,7 @@ const probes = [
   },
   {
     name: "schema-repair-per-conversation",
+    sessions: "0",
     toolsBeforeFinal: "1",
     invalidFinalAttempts: "1",
     expectSharedOnlyExhaustion: 0,
@@ -190,6 +208,15 @@ for (const probe of probes) {
     isolation: compactIsolation(summary.isolation),
   });
 }
+const protocolPressure = includeProtocolPressure
+  ? runProtocolPressureSweep({
+      runnerPath,
+      outputDir: path.join(outputRoot, "protocol-mixed-pressure"),
+      iterations: protocolPressureIterations,
+      fixtureExtraLines: protocolPressureFixtureExtraLines,
+      fixtureLineBytes: protocolPressureFixtureLineBytes,
+    })
+  : null;
 
 process.stdout.write(
   `${JSON.stringify(
@@ -200,14 +227,73 @@ process.stdout.write(
       runnerPath,
       config: {
         includeCodexProxy,
+        includeProtocolPressure,
+        protocolPressureIterations,
+        protocolPressureFixtureExtraLines,
+        protocolPressureFixtureLineBytes,
       },
       startup,
       probes: results,
+      protocolPressure,
     },
     null,
     2,
   )}\n`,
 );
+
+function runProtocolPressureSweep({
+  runnerPath,
+  outputDir,
+  iterations,
+  fixtureExtraLines,
+  fixtureLineBytes,
+}) {
+  const result = spawnSync(
+    "node",
+    [
+      "bench/review-quality/tools/run-fake-protocol-mixed-pressure-sweep.mjs",
+      "--runner-path",
+      runnerPath,
+      "--output-dir",
+      outputDir,
+      "--iterations",
+      String(iterations),
+      "--fixture-extra-lines",
+      String(fixtureExtraLines),
+      "--fixture-line-bytes",
+      String(fixtureLineBytes),
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024 * 128,
+    },
+  );
+  if (result.status !== 0) {
+    fail(
+      `protocol pressure sweep failed with status ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+  }
+  let summary;
+  try {
+    summary = JSON.parse(result.stdout);
+  } catch (error) {
+    fail(`protocol pressure sweep did not emit JSON: ${error.message}\nstdout:\n${result.stdout}`);
+  }
+  if (Object.keys(summary.regressions ?? {}).length > 0) {
+    fail(
+      `protocol pressure sweep found regressions; see ${path.join(outputDir, "mixed-pressure-sweep-summary.json")}\n${JSON.stringify(summary.regressions, null, 2)}`,
+    );
+  }
+  return {
+    outputDir,
+    schemaVersion: summary.schemaVersion,
+    config: summary.config,
+    aggregate: summary.aggregate,
+    regressions: summary.regressions,
+  };
+}
 
 function runStartupProbe({ runnerPath, samples, concurrency, timeoutMs }) {
   const result = spawnSync(
@@ -400,22 +486,23 @@ function assertProbe(probe, summary) {
     allowedFrameMissingRunIds: summary.isolation.process.cases,
   });
   if (probe.expectInvalidFinalsPerConversation) {
-    const invalidFinalsByConversation = Object.values(
-      summary.fakeModel.invalidFinalsByConversation ?? {},
+    assertInvalidFinalsPerMode(
+      probe.name,
+      "shared",
+      summary.fakeModel.byRunLabel.shared,
+      summary.config.caseCount,
     );
-    assertEqual(
-      `${probe.name} invalid-final conversation count`,
-      invalidFinalsByConversation.length,
+    assertInvalidFinalsPerMode(
+      probe.name,
+      "process",
+      summary.fakeModel.byRunLabel.process,
       summary.config.caseCount,
     );
     assertEqual(
-      `${probe.name} invalid finals`,
+      `${probe.name} total invalid finals`,
       summary.fakeModel.decisions.invalid_final_text ?? 0,
       summary.config.caseCount * 2,
     );
-    for (const [index, count] of invalidFinalsByConversation.entries()) {
-      assertEqual(`${probe.name} invalid finals conversation ${index + 1}`, count, 2);
-    }
   }
   if (probe.expectFinalOutputRepairAttempts != null) {
     assertFinalOutputRepairDiagnostics(
@@ -534,7 +621,9 @@ function compactTotals(totals) {
 function compactFakeModel(fakeModel) {
   return {
     requests: fakeModel.requests,
+    conversationCount: fakeModel.conversationCount,
     decisions: fakeModel.decisions,
+    invalidFinalsByConversation: fakeModel.invalidFinalsByConversation,
     statuses: fakeModel.statuses,
     queuedMs: fakeModel.queuedMs,
     byRunLabel: Object.fromEntries(
@@ -542,13 +631,35 @@ function compactFakeModel(fakeModel) {
         label,
         {
           requests: summary.requests,
+          conversationCount: summary.conversationCount,
           decisions: summary.decisions,
+          invalidFinalsByConversation: summary.invalidFinalsByConversation,
           statuses: summary.statuses,
           queuedMs: summary.queuedMs,
         },
       ]),
     ),
   };
+}
+
+function assertInvalidFinalsPerMode(probeName, mode, summary, caseCount) {
+  if (!summary) fail(`${probeName} ${mode} fake-model phase metrics missing`);
+  const invalidFinalsByConversation = Object.values(
+    summary.invalidFinalsByConversation ?? {},
+  );
+  assertEqual(
+    `${probeName} ${mode} invalid-final conversation count`,
+    invalidFinalsByConversation.length,
+    caseCount,
+  );
+  assertEqual(
+    `${probeName} ${mode} invalid finals`,
+    summary.decisions.invalid_final_text ?? 0,
+    caseCount,
+  );
+  for (const [index, count] of invalidFinalsByConversation.entries()) {
+    assertEqual(`${probeName} ${mode} invalid finals conversation ${index + 1}`, count, 1);
+  }
 }
 
 function compactTiming(timing) {
@@ -859,12 +970,24 @@ function booleanArg(value, name) {
   fail(`${name} must be true or false`);
 }
 
+function positiveInt(value, name) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) fail(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function nonnegativeInt(value, name) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) fail(`${name} must be a non-negative integer`);
+  return parsed;
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
 
 function usage() {
   process.stderr.write(
-    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local] [--startup-samples 5] [--startup-concurrency 5] [--startup-timeout-ms 10000] [--include-codex-proxy true|false]\n",
+    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local] [--startup-samples 5] [--startup-concurrency 5] [--startup-timeout-ms 10000] [--include-codex-proxy true|false] [--include-protocol-pressure true|false] [--protocol-pressure-iterations 2] [--protocol-pressure-fixture-extra-lines 400] [--protocol-pressure-fixture-line-bytes 160]\n",
   );
 }

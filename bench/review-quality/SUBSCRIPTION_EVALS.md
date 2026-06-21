@@ -28,8 +28,14 @@ retry behavior through the same `OPENAI_BASE_URL` path used by live evals:
 ```sh
 node bench/review-quality/check-local.mjs \
   --runner-path target/release/muzen-runner \
-  --include-codex-proxy true
+  --include-codex-proxy true \
+  --include-protocol-pressure true
 ```
+
+The protocol pressure portion stays fake/local. It repeatedly exercises the
+explicit protocol direct-session path under mixed heartbeat, status polling,
+explicit cancellation, callback-tool budget exhaustion, and large synthetic
+fixture pressure.
 
 For broader fake runner-mode sweeps, `run-fake-runner-mode-sweep.mjs` exits
 nonzero by default when parity, release, or isolation regressions appear. Keep

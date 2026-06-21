@@ -10,7 +10,8 @@ The current fake-first gate sequence is:
 ```sh
 node bench/review-quality/check-local.mjs \
   --runner-path target/release/muzen-runner \
-  --include-codex-proxy true
+  --include-codex-proxy true \
+  --include-protocol-pressure true
 ```
 
 That opt-in gate runs the standard fake local probes plus a Codex-proxy-shaped
@@ -18,6 +19,21 @@ retry probe. The proxy probe starts the real local Codex Responses proxy with a
 temporary fake auth file, points it at the fake Responses server, and exercises
 the same `OPENAI_BASE_URL` path used by live subscription evals without making
 live model calls.
+
+Latest fake/local protocol-pressure-integrated result:
+
+```text
+bench/results-review-quality/check-local-protocol-pressure-20260621T064623Z
+```
+
+This passed all 7 local probes (`finalize-after-one-tool`,
+`symmetric-tool-budget-exhaustion`, `candidate-publication`,
+`schema-repair-per-conversation`, `provider-queue-saturation`,
+`caller-hard-cap-budget`, `adaptive-budget-surface`) plus one fake protocol
+mixed-pressure sweep with no regressions. The protocol sweep produced
+shared/process status parity at 5 completed and 1 cancelled run each, heartbeat
+callbacks above 100 in both modes, running status polls present in both modes,
+and completed-run budget rejection/tool-call minimums of 4 in both modes.
 
 Latest `check-local --include-codex-proxy true` result after removing fake
 validation repair noise:

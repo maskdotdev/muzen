@@ -879,9 +879,18 @@ function summarizeFakeModelLog(logPath) {
 }
 
 function summarizeFakeModelRecords(records) {
+  const conversationKeys = [
+    ...new Set(records.map((record) => record.conversationKey).filter(Boolean)),
+  ].sort();
   return {
     requests: records.length,
+    conversationCount: conversationKeys.length,
     decisions: countObject(records.map((record) => record.decision)),
+    invalidFinalsByConversation: countObject(
+      records
+        .filter((record) => record.decision === "invalid_final_text")
+        .map((record) => record.conversationKey),
+    ),
     statuses: countObject(records.map((record) => record.status)),
     maxActiveAtStart: records.length
       ? Math.max(...records.map((record) => record.activeAtStart ?? 0))

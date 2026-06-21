@@ -95,6 +95,9 @@ function readCase(root, name) {
   const primaryCompletionDiagnostic =
     completionDiagnostics.find((diagnostic) => diagnostic.sessionId === "review-orchestrator") ??
     eventAnalysis.finalizationDiagnostic;
+  const exhaustedToolBudget = completionDiagnostics.some(
+    (diagnostic) => diagnostic.exhaustedToolBudget === true,
+  );
   const instrumentation = optionalInstrumentationSummary({
     audit,
     events,
@@ -138,9 +141,7 @@ function readCase(root, name) {
     orchestrator: {
       ...pickSession(primary),
       maxToolCalls,
-      exhaustedMaxToolCalls:
-        (primary.toolCallsCompleted ?? 0) >= maxToolCalls ||
-        (primary.toolCallsRequested ?? 0) >= maxToolCalls,
+      exhaustedMaxToolCalls: exhaustedToolBudget,
       finalizationCause:
         primaryCompletionDiagnostic?.finalizationReason ??
         instrumentation.finalization.explicitReason ??
