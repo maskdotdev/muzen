@@ -43,6 +43,15 @@ const probes = [
     expectExhausted: 0,
     expectFindings: 5,
   },
+  {
+    name: "schema-repair-per-conversation",
+    toolsBeforeFinal: "1",
+    invalidFinalAttempts: "1",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 0,
+    expectInvalidFinalsPerConversation: true,
+  },
 ];
 
 const results = [];
@@ -52,6 +61,7 @@ for (const probe of probes) {
     runnerPath,
     outputDir,
     toolsBeforeFinal: probe.toolsBeforeFinal,
+    invalidFinalAttempts: probe.invalidFinalAttempts || "0",
     finalMode: probe.finalMode || "clean",
     cases: args.cases || "5",
     concurrency: args.concurrency || "5",
@@ -89,6 +99,7 @@ function runProbe({
   runnerPath,
   outputDir,
   toolsBeforeFinal,
+  invalidFinalAttempts,
   finalMode,
   cases,
   concurrency,
@@ -116,6 +127,8 @@ function runProbe({
       maxTurns,
       "--tools-before-final",
       toolsBeforeFinal,
+      "--invalid-final-attempts",
+      invalidFinalAttempts,
       "--final-mode",
       finalMode,
       "--latency-ms",
@@ -197,6 +210,24 @@ function assertProbe(probe, summary) {
     providerErrors(summary.totals.process),
     0,
   );
+  if (probe.expectInvalidFinalsPerConversation) {
+    const invalidFinalsByConversation = Object.values(
+      summary.fakeModel.invalidFinalsByConversation ?? {},
+    );
+    assertEqual(
+      `${probe.name} invalid-final conversation count`,
+      invalidFinalsByConversation.length,
+      summary.config.caseCount,
+    );
+    assertEqual(
+      `${probe.name} invalid finals`,
+      summary.fakeModel.decisions.invalid_final_text ?? 0,
+      summary.config.caseCount * 2,
+    );
+    for (const [index, count] of invalidFinalsByConversation.entries()) {
+      assertEqual(`${probe.name} invalid finals conversation ${index + 1}`, count, 2);
+    }
+  }
 }
 
 function compactTotals(totals) {

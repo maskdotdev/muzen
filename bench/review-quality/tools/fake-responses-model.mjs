@@ -2,6 +2,7 @@
 
 import http from "node:http";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_CONFIG = {
@@ -26,6 +27,7 @@ export async function startFakeResponsesServer(config = {}) {
     active: 0,
     sequence: 0,
     invalidFinalsUsed: 0,
+    invalidFinalsByConversation: new Map(),
     queue: [],
   };
   const server = http.createServer((req, res) => {
@@ -39,6 +41,7 @@ export async function startFakeResponsesServer(config = {}) {
     reset() {
       state.sequence = 0;
       state.invalidFinalsUsed = 0;
+      state.invalidFinalsByConversation.clear();
     },
     configure(nextConfig = {}) {
       Object.assign(state, nextConfig);
@@ -108,6 +111,7 @@ function decideResponse(state, body, sequence) {
     ? body.input.filter((item) => item?.type === "function_call_output").length
     : 0;
   const responseFormatName = body.text?.format?.name || "";
+  const conversationKey = requestConversationKey(body);
   const finalLike =
     !toolsExposed ||
     Boolean(responseFormatName) ||
@@ -126,11 +130,14 @@ function decideResponse(state, body, sequence) {
       ],
     };
   }
-  if (finalLike && state.invalidFinalsUsed < state.invalidFinalAttempts) {
+  const invalidFinalsUsed = state.invalidFinalsByConversation.get(conversationKey) ?? 0;
+  if (finalLike && invalidFinalsUsed < state.invalidFinalAttempts) {
+    state.invalidFinalsByConversation.set(conversationKey, invalidFinalsUsed + 1);
     state.invalidFinalsUsed += 1;
     return {
       status: 200,
       decision: "invalid_final_text",
+      conversationKey,
       output: [textMessage("this is intentionally not json")],
       output_text: "this is intentionally not json",
     };
@@ -139,6 +146,7 @@ function decideResponse(state, body, sequence) {
   return {
     status: 200,
     decision: "valid_final_text",
+    conversationKey,
     output: [textMessage(content)],
     output_text: content,
   };
@@ -290,6 +298,7 @@ function writeJson(res, status, value) {
 
 function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {}) {
   if (!state.logPath) return;
+  const conversationKey = decision.conversationKey ?? requestConversationKey(body);
   fs.appendFileSync(
     state.logPath,
     `${JSON.stringify({
@@ -300,6 +309,7 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
       activeAtStart: requestMetrics.activeAtStart ?? null,
       maxConcurrent: state.maxConcurrent,
       requestId: body.metadata?.run_id ?? body.metadata?.request_id ?? null,
+      conversationKey,
       decision: decision.decision,
       status: decision.status,
       toolsExposed: Array.isArray(body.tools) ? body.tools.length : 0,
@@ -311,6 +321,36 @@ function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {
       validationStatus: state.validationStatus,
     })}\n`,
   );
+}
+
+function requestConversationKey(body) {
+  const metadataKey = body.metadata?.run_id ?? body.metadata?.request_id;
+  if (metadataKey) return String(metadataKey);
+  const text = userMessageText(body);
+  if (text) return `user:${sha256(text).slice(0, 16)}`;
+  return `body:${sha256(JSON.stringify(body.input ?? [])).slice(0, 16)}`;
+}
+
+function userMessageText(body) {
+  if (!Array.isArray(body.input)) return "";
+  for (const item of body.input) {
+    if (item?.type !== "message" || item.role !== "user") continue;
+    const parts = [];
+    for (const content of item.content ?? []) {
+      const text = content?.text;
+      if (typeof text === "string" && text.trim()) {
+        parts.push(text);
+      }
+    }
+    if (parts.length > 0) {
+      return parts.join("\n\n");
+    }
+  }
+  return "";
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 function deterministicJitter(sequence, max) {
