@@ -79,6 +79,7 @@ for (const probe of probes) {
     process: compactTotals(summary.totals.process),
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
     release: summary.release,
+    isolation: compactIsolation(summary.isolation),
   });
 }
 
@@ -215,6 +216,8 @@ function assertProbe(probe, summary) {
   assertEqual(`${probe.name} shared failed finishes`, summary.release.shared.failedFinishes, 0);
   assertEqual(`${probe.name} process release errors`, summary.release.process.releaseErrors, 0);
   assertEqual(`${probe.name} process failed finishes`, summary.release.process.failedFinishes, 0);
+  assertIsolation(probe.name, "shared", summary.isolation.shared, { requireFrames: true });
+  assertIsolation(probe.name, "process", summary.isolation.process, { requireFrames: false });
   if (probe.expectInvalidFinalsPerConversation) {
     const invalidFinalsByConversation = Object.values(
       summary.fakeModel.invalidFinalsByConversation ?? {},
@@ -235,6 +238,19 @@ function assertProbe(probe, summary) {
   }
 }
 
+function assertIsolation(probeName, mode, isolation, { requireFrames }) {
+  assertEqual(`${probeName} ${mode} duplicate runIds`, isolation.duplicateRunIds, 0);
+  assertEqual(`${probeName} ${mode} orphan frames`, isolation.orphanFrames, 0);
+  assertEqual(`${probeName} ${mode} missing trace files`, isolation.missingTraceFiles, 0);
+  assertEqual(`${probeName} ${mode} trace missing runIds`, isolation.traceMissingRunIds, 0);
+  assertEqual(`${probeName} ${mode} unexpected trace runIds`, isolation.unexpectedTraceRunIds, 0);
+  if (requireFrames) {
+    assertEqual(`${probeName} ${mode} missing frame files`, isolation.missingFrameFiles, 0);
+    assertEqual(`${probeName} ${mode} frame missing runIds`, isolation.frameMissingRunIds, 0);
+    assertEqual(`${probeName} ${mode} unexpected frame runIds`, isolation.unexpectedFrameRunIds, 0);
+  }
+}
+
 function compactTotals(totals) {
   return {
     findings: totals.findings,
@@ -242,6 +258,25 @@ function compactTotals(totals) {
     toolCalls: totals.toolCalls,
     totalTokens: totals.totalTokens,
     providerErrors: providerErrors(totals),
+  };
+}
+
+function compactIsolation(isolation) {
+  return {
+    shared: compactModeIsolation(isolation.shared),
+    process: compactModeIsolation(isolation.process),
+  };
+}
+
+function compactModeIsolation(isolation) {
+  return {
+    cases: isolation.cases,
+    duplicateRunIds: isolation.duplicateRunIds,
+    orphanFrames: isolation.orphanFrames,
+    missingFrameFiles: isolation.missingFrameFiles,
+    unexpectedFrameRunIds: isolation.unexpectedFrameRunIds,
+    missingTraceFiles: isolation.missingTraceFiles,
+    unexpectedTraceRunIds: isolation.unexpectedTraceRunIds,
   };
 }
 

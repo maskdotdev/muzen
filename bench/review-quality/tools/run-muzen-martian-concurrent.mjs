@@ -11,9 +11,10 @@ import {
 } from "../run-production-review.mjs";
 
 class SharedRunnerClient {
-  constructor(runnerPath, { stderrPath, progress = "true" } = {}) {
+  constructor(runnerPath, { stderrPath, metricsPath, progress = "true" } = {}) {
     this.runnerPath = runnerPath;
     this.stderrPath = stderrPath;
+    this.metricsPath = metricsPath;
     this.progress = progress === "1" || progress === "true" || progress === true;
     this.child = null;
     this.nextId = 1;
@@ -116,6 +117,16 @@ class SharedRunnerClient {
     const active = runId ? this.activeRuns.get(runId) : null;
     if (active?.framesPath) {
       fs.appendFileSync(active.framesPath, `${JSON.stringify(frame)}\n`);
+    } else if (runId && this.metricsPath) {
+      appendJsonl(this.metricsPath, {
+        event: "orphan_frame",
+        atUtc: new Date().toISOString(),
+        runId,
+        method: frame.method ?? null,
+        id: frame.id ?? null,
+        hasResult: Boolean(frame.result),
+        hasError: Boolean(frame.error),
+      });
     }
     if (responsePending) {
       this.pending.delete(String(frame.id));
@@ -224,6 +235,7 @@ const runnerClient =
   runnerMode === "shared"
     ? new SharedRunnerClient(runnerPath, {
         stderrPath: path.join(logsDir, "shared-runner.stderr.log"),
+        metricsPath,
         progress: args.progress ?? "true",
       })
     : null;

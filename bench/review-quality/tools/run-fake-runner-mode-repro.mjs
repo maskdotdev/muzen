@@ -185,6 +185,10 @@ function reproductionSummary({
     shared: summarizeRunMetrics(path.join(sharedDir, "metrics.jsonl")),
     process: summarizeRunMetrics(path.join(processDir, "metrics.jsonl")),
   };
+  const isolation = {
+    shared: summarizeRunIsolation(sharedDir),
+    process: summarizeRunIsolation(processDir),
+  };
   return {
     schemaVersion: "muzen.fake-runner-mode-repro.v1",
     generatedAtUtc: new Date().toISOString(),
@@ -222,6 +226,7 @@ function reproductionSummary({
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
     fakeModel: fakeModelMetrics,
     release,
+    isolation,
     totals: compare.totals,
     cases: compare.cases.map((entry) => ({
       name: entry.name,
@@ -242,6 +247,104 @@ function summarizeRunMetrics(metricsPath) {
     failedFinishes: records.filter((record) => record.event === "finish" && record.code !== 0)
       .length,
   };
+}
+
+function summarizeRunIsolation(root) {
+  const metrics = readJsonl(path.join(root, "metrics.jsonl"));
+  const summary = readJson(path.join(root, "summary.json"));
+  const tracesByName = new Map(
+    (summary.results ?? []).map((result) => [result.name, result.traceDir]),
+  );
+  const starts = metrics.filter((record) => record.event === "start");
+  const orphanFrames = metrics.filter((record) => record.event === "orphan_frame");
+  const runIds = starts.map((record) => record.runId).filter(Boolean);
+  const duplicateRunIds = runIds.length - new Set(runIds).size;
+  const cases = starts.map((start) => inspectRunArtifacts(start, tracesByName.get(start.name)));
+  return {
+    cases: cases.length,
+    duplicateRunIds,
+    orphanFrames: orphanFrames.length,
+    missingFrameFiles: cases.filter((item) => item.frameFileMissing).length,
+    frameRecords: sum(cases.map((item) => item.frameRecords)),
+    frameMissingRunIds: sum(cases.map((item) => item.frameMissingRunIds)),
+    unexpectedFrameRunIds: sum(cases.map((item) => item.unexpectedFrameRunIds)),
+    missingTraceFiles: sum(cases.map((item) => item.missingTraceFiles)),
+    traceRecords: sum(cases.map((item) => item.traceRecords)),
+    traceMissingRunIds: sum(cases.map((item) => item.traceMissingRunIds)),
+    unexpectedTraceRunIds: sum(cases.map((item) => item.unexpectedTraceRunIds)),
+    detail: cases,
+  };
+}
+
+function inspectRunArtifacts(start, traceDir) {
+  const expectedRunId = start.runId ?? null;
+  const frameInspection = inspectJsonlRunIds(start.framesPath, expectedRunId, frameRunId);
+  const runtimeInspection = inspectJsonlRunIds(
+    traceDir ? path.join(traceDir, "runtime-events.jsonl") : null,
+    expectedRunId,
+    eventRunId,
+  );
+  const reviewInspection = inspectJsonlRunIds(
+    traceDir ? path.join(traceDir, "review-events.jsonl") : null,
+    expectedRunId,
+    eventRunId,
+  );
+  return {
+    name: start.name,
+    runId: expectedRunId,
+    frameFileMissing: frameInspection.missing,
+    frameRecords: frameInspection.records,
+    frameMissingRunIds: frameInspection.missingRunIds,
+    unexpectedFrameRunIds: frameInspection.unexpectedRunIds,
+    missingTraceFiles: Number(runtimeInspection.missing) + Number(reviewInspection.missing),
+    traceRecords: runtimeInspection.records + reviewInspection.records,
+    traceMissingRunIds: runtimeInspection.missingRunIds + reviewInspection.missingRunIds,
+    unexpectedTraceRunIds:
+      runtimeInspection.unexpectedRunIds + reviewInspection.unexpectedRunIds,
+  };
+}
+
+function inspectJsonlRunIds(file, expectedRunId, extractRunId) {
+  if (!file || !fs.existsSync(file)) {
+    return { missing: true, records: 0, missingRunIds: 0, unexpectedRunIds: 0 };
+  }
+  const records = readJsonl(file);
+  let missingRunIds = 0;
+  let unexpectedRunIds = 0;
+  for (const record of records) {
+    const runId = extractRunId(record);
+    if (!runId) {
+      missingRunIds += 1;
+    } else if (expectedRunId && runId !== expectedRunId) {
+      unexpectedRunIds += 1;
+    }
+  }
+  return {
+    missing: false,
+    records: records.length,
+    missingRunIds,
+    unexpectedRunIds,
+  };
+}
+
+function frameRunId(frame) {
+  return (
+    frame.params?.runId ??
+    frame.params?.context?.runId ??
+    frame.result?.runId ??
+    frame.error?.data?.runId ??
+    null
+  );
+}
+
+function eventRunId(record) {
+  return (
+    record.context?.runId ??
+    record.runId ??
+    record.event?.context?.runId ??
+    record.event?.runId ??
+    null
+  );
 }
 
 function summarizeFakeModelLog(logPath) {
@@ -379,6 +482,10 @@ function countObject(values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return Object.fromEntries([...counts.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))));
+}
+
+function sum(values) {
+  return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }
 
 function parseArgs(argv) {
