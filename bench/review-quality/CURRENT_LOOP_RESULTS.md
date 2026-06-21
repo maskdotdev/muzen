@@ -94,15 +94,16 @@ validation repair noise:
 | codex-proxy-deterministic-retry | 5 | 5 | 36 | 36 | 10 | 10 | 16 | 16 | passed |
 | schema-repair-per-conversation | 0 | 0 | 15 | 15 | 10 | 10 | 0 | 0 | passed |
 
-Candidate publication stress sweep:
+Corrected autonomous candidate publication stress sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --runner-path target/release/muzen-runner \
-  --concurrency 1,4,8,12,16 \
-  --cases 20 \
-  --max-tool-calls 6 \
-  --max-turns 10 \
+  --concurrency 1,4,8,12 \
+  --cases 16 \
+  --sessions 0 \
+  --max-tool-calls 8 \
+  --max-turns 12 \
   --tools-before-final 1 \
   --http-error-attempts-per-request 1 \
   --final-mode candidate \
@@ -115,25 +116,25 @@ node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-sweep-proxy-candidate-stress-20260621T051937Z/sweep-summary.json
+bench/results-review-quality/fake-autonomous-hardcap-candidate-sweep-20260621T072438Z/sweep-summary.json
 ```
 
-| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Final outputs per case | Repair attempts per case | Result |
+| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Accepted candidates per case | Final outputs per case | Result |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
-| 4 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
-| 8 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
-| 12 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
-| 16 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+| 1 | 16 / 16 | 113 / 113 | 32 / 32 | 1152 / 1152 | 49 / 49 | 1 / 1 | 2 / 2 | passed |
+| 4 | 16 / 16 | 113 / 113 | 32 / 32 | 1152 / 1152 | 49 / 49 | 1 / 1 | 2 / 2 | passed |
+| 8 | 16 / 16 | 113 / 113 | 32 / 32 | 1152 / 1152 | 49 / 49 | 1 / 1 | 2 / 2 | passed |
+| 12 | 16 / 16 | 113 / 113 | 32 / 32 | 1152 / 1152 | 49 / 49 | 1 / 1 | 2 / 2 | passed |
 
-Budget exhaustion stress sweep:
+Corrected autonomous budget exhaustion stress sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --runner-path target/release/muzen-runner \
-  --concurrency 1,4,8,12,16 \
-  --cases 20 \
-  --max-tool-calls 3 \
+  --concurrency 1,4,8,12 \
+  --cases 16 \
+  --sessions 0 \
+  --max-tool-calls 4 \
   --max-turns 8 \
   --tools-before-final infinite \
   --http-error-attempts-per-request 1 \
@@ -147,16 +148,15 @@ node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-sweep-budget-exhaustion-20260621T052343Z/sweep-summary.json
+bench/results-review-quality/fake-autonomous-hardcap-budget-sweep-20260621T072733Z/sweep-summary.json
 ```
 
-| Concurrency | Exhausted shared/process | Shared-only exhaustions | Findings shared/process | Model calls shared/process | Tool calls shared/process | Fake 500s shared/process | Result |
-| ---: | --- | ---: | --- | --- | --- | --- | --- |
-| 1 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
-| 4 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
-| 8 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
-| 12 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
-| 16 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+| Concurrency | Exhausted shared/process | Max tool calls shared/process | Tool calls used per case | Shared-only exhaustions | Model calls shared/process | Tool calls shared/process | Fake 500s shared/process | Result |
+| ---: | --- | --- | --- | ---: | --- | --- | --- | --- |
+| 1 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
+| 4 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
+| 8 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
+| 12 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
 
 Large fixture stress sweep:
 
