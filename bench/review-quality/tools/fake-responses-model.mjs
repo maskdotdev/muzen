@@ -169,7 +169,10 @@ function decideResponse(state, body, sequence) {
       output_text: "this is intentionally not json",
     };
   }
-  const content = finalJson(responseFormatName, state.finalMode, state.validationStatus);
+  const content =
+    state.finalMode === "candidate" && requestLooksLikeValidateFinding(body, responseFormatName)
+      ? JSON.stringify(validationPacket(state.validationStatus))
+      : finalJson(responseFormatName, state.finalMode, state.validationStatus);
   return {
     status: 200,
     decision: "valid_final_text",
@@ -177,6 +180,15 @@ function decideResponse(state, body, sequence) {
     output: [textMessage(content)],
     output_text: content,
   };
+}
+
+function requestLooksLikeValidateFinding(body, responseFormatName) {
+  if (String(responseFormatName).includes("validate_finding")) return true;
+  const serialized = JSON.stringify(body);
+  return (
+    serialized.includes("fake_candidate_early_success") ||
+    serialized.includes("Return the final validate_finding packet")
+  );
 }
 
 function responseEnvelope(decision) {
