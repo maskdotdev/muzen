@@ -1,0 +1,66 @@
+# Muzen Eval UI
+
+A zero-dependency local web UI for launching review-quality evals and inspecting
+the **full trace** of a run — sessions, model turns, tool calls, candidate
+decisions, golden coverage, event coverage, and the raw event stream. Styled to
+match the Muzen "Hive Engine" site (void blacks + electric cyan).
+
+It is eval tooling only: it never touches Muzen core, never reads `.env` files,
+never echoes secret values, and binds to loopback.
+
+## Run it
+
+```sh
+node bench/review-quality/eval-ui/server.mjs            # → http://127.0.0.1:7777
+node bench/review-quality/eval-ui/server.mjs --port 8080
+```
+
+No `npm install`, no build step. Requires only Node (24+).
+
+## What you can do
+
+- **Browse runs** — every trace directory and top-level result JSON under
+  `bench/results-review-quality/` is listed, newest first. Filter by text or by
+  kind (trace vs result).
+- **Inspect a run**:
+  - **Summary** — hit rate, golden hits/misses, false positives, model turns,
+    tool calls, sessions, peak RSS, elapsed, tokens, plus the run inputs.
+  - **Findings** — each model finding with location, claim, severity,
+    confidence, challenge/validation status, and expandable evidence.
+  - **Trace** — sessions → turns → entries timeline (model turns, tool-call
+    requests, candidate decisions, synthesis summaries, resource samples…),
+    color-coded by trace kind.
+  - **Coverage** — event-coverage LEDs + counters + trace kinds + audit
+    diagnostics.
+  - **Raw events** — paged, filterable view of `all-events.jsonl`.
+- **Launch a run** — the **New run** button runs a curated preset:
+  - *Local gate (no model)* — `check-local.mjs`; no runner or model needed.
+  - *Synthetic positive / Anti-cheat / Synthetic suite* — need a built
+    `muzen-runner` and a model. Output + trace land under
+    `bench/results-review-quality/eval-ui-runs/…` and the trace opens in place
+    when the run finishes.
+
+  Live stdout/stderr streams into the console while the run executes.
+
+## Model auth
+
+Launching model-bearing presets reuses the server process's environment. To run
+live evals through the owner's ChatGPT subscription (see
+[`../SUBSCRIPTION_EVALS.md`](../SUBSCRIPTION_EVALS.md)), start the Codex proxy
+first and leave the **Route model calls through local Codex proxy** box checked.
+For direct API billing, export `OPENAI_API_KEY` before starting the server.
+
+## Data sources
+
+The UI only reads artifacts that already exist on disk:
+
+| File | Used for |
+| --- | --- |
+| `<run>.json` | summary, findings, benchmark, inputs |
+| `agent-trace.json` | session/turn/entry timeline |
+| `event-coverage.json` | coverage LEDs + counters |
+| `audit-diagnostics.json` | audit panel |
+| `all-events.jsonl` | raw event viewer |
+
+These are produced by the review-quality harness when `--trace-output-dir` is
+passed (see [`../README.md`](../README.md)).

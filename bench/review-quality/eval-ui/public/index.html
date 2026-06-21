@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#02050a" />
+    <title>Muzen · Eval UI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="hex"></span>
+          <b>MUZEN</b>
+          <span class="tag">Eval UI</span>
+        </div>
+        <div class="spacer"></div>
+        <div class="env-flags" id="env-flags"></div>
+        <button class="btn primary" id="launch-btn">＋ New run</button>
+      </header>
+
+      <aside class="sidebar">
+        <div class="sidebar-tools">
+          <input class="input" id="search" placeholder="filter runs…" autocomplete="off" />
+          <div class="seg" id="kind-seg">
+            <button data-kind="all" class="on">All</button>
+            <button data-kind="trace">Traces</button>
+            <button data-kind="result">Results</button>
+          </div>
+        </div>
+        <div class="run-list" id="run-list"></div>
+        <div class="list-foot">
+          <span id="run-count">—</span>
+          <button class="btn ghost" id="refresh-btn" title="Rescan results dir">⟳</button>
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <div class="empty">
+          <div class="hex-big"></div>
+          <div class="kicker">select a run</div>
+          <p class="dim">
+            Pick a run from the left to inspect its full trace,<br />
+            or launch a fresh eval with <b>New run</b>.
+          </p>
+        </div>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
