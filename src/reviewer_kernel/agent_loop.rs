@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Instant;
 
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -8,10 +7,10 @@ use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::effects::{ToolResultBatchState, ToolResultEffectProcessor};
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
-use crate::reviewer_kernel::model_retry::complete_model_turn;
+use crate::reviewer_kernel::model_retry::{complete_model_turn, ModelTurnOutcome};
 use crate::reviewer_kernel::policy::{ReviewerPolicy, SessionEvidence};
 use crate::reviewer_kernel::review_contract::{AgentBudget, TokenUsage, ToolCounts};
-use crate::reviewer_kernel::session_metrics::{elapsed_ms, record_usage};
+use crate::reviewer_kernel::session_metrics::record_usage;
 use crate::reviewer_kernel::system::peak_rss_bytes;
 use crate::reviewer_kernel::tool_batch::ToolBatchRunner;
 use crate::reviewer_kernel::tool_engine::ToolEngine;
@@ -180,7 +179,6 @@ impl AgentLoopRuntime {
                         "peakRssBytes": peak_rss_bytes(),
                     }),
                 ));
-            let model_started = Instant::now();
             let outcome = complete_model_turn(
                 &*model,
                 &self.policy,
@@ -194,28 +192,16 @@ impl AgentLoopRuntime {
             )
             .await;
             model_calls += outcome.attempts;
-            model_metrics.calls += outcome.attempts;
-            model_metrics.retries += outcome.attempts.saturating_sub(1);
-            model_metrics.limiter_wait_ms += outcome.limiter_wait.total_wait_ms;
-            model_metrics.max_limiter_wait_ms = model_metrics
-                .max_limiter_wait_ms
-                .max(outcome.limiter_wait.max_bucket_wait_ms);
+            record_model_turn_metrics(&mut model_metrics, &outcome);
+            emit_model_turn_diagnostics(&self.policy, &self.events, &scope, turn_id, &outcome);
             let turn = match outcome.result {
-                Ok(turn) => {
-                    model_metrics.errors += outcome.attempts - 1;
-                    turn
-                }
+                Ok(turn) => turn,
                 Err(_) => {
-                    model_metrics.errors += outcome.attempts;
                     status = "failed".to_string();
                     finalization_reason = "model_failed".to_string();
                     break;
                 }
             };
-            model_metrics.successes += 1;
-            model_metrics.latency_ms += elapsed_ms(model_started);
-            model_metrics.max_latency_ms =
-                model_metrics.max_latency_ms.max(elapsed_ms(model_started));
             match turn {
                 ModelTurn::Text { content, usage } => {
                     record_usage(&mut tokens, &mut model_metrics, &*model, usage);
@@ -320,7 +306,6 @@ impl AgentLoopRuntime {
                             "estimatedPromptTokens": estimate_prompt_tokens(&transcript),
                         }),
                     ));
-                let model_started = Instant::now();
                 let outcome = complete_model_turn(
                     &*model,
                     &self.policy,
@@ -334,28 +319,16 @@ impl AgentLoopRuntime {
                 )
                 .await;
                 model_calls += outcome.attempts;
-                model_metrics.calls += outcome.attempts;
-                model_metrics.retries += outcome.attempts.saturating_sub(1);
-                model_metrics.limiter_wait_ms += outcome.limiter_wait.total_wait_ms;
-                model_metrics.max_limiter_wait_ms = model_metrics
-                    .max_limiter_wait_ms
-                    .max(outcome.limiter_wait.max_bucket_wait_ms);
+                record_model_turn_metrics(&mut model_metrics, &outcome);
+                emit_model_turn_diagnostics(&self.policy, &self.events, &scope, turn_id, &outcome);
                 let turn = match outcome.result {
-                    Ok(turn) => {
-                        model_metrics.errors += outcome.attempts - 1;
-                        turn
-                    }
+                    Ok(turn) => turn,
                     Err(_) => {
-                        model_metrics.errors += outcome.attempts;
                         status = "incomplete".to_string();
                         finalization_reason = "model_failed".to_string();
                         break;
                     }
                 };
-                model_metrics.successes += 1;
-                model_metrics.latency_ms += elapsed_ms(model_started);
-                model_metrics.max_latency_ms =
-                    model_metrics.max_latency_ms.max(elapsed_ms(model_started));
                 match turn {
                     ModelTurn::Text { content, usage } => {
                         record_usage(&mut tokens, &mut model_metrics, &*model, usage);
@@ -445,6 +418,107 @@ impl AgentLoopRuntime {
             tokens,
         }
     }
+}
+
+fn record_model_turn_metrics(model_metrics: &mut ModelMetricsSnapshot, outcome: &ModelTurnOutcome) {
+    let diagnostics = &outcome.diagnostics;
+    model_metrics.calls += outcome.attempts;
+    model_metrics.retries += outcome.attempts.saturating_sub(1);
+    if outcome.result.is_ok() {
+        model_metrics.successes += 1;
+        model_metrics.errors += outcome.attempts - 1;
+    } else {
+        model_metrics.errors += outcome.attempts;
+    }
+    model_metrics.timeout_errors += diagnostics.timeout_errors;
+    model_metrics.cancellation_errors += diagnostics.cancellation_errors;
+    model_metrics.retryable_provider_errors += diagnostics.retryable_provider_errors;
+    model_metrics.non_retryable_provider_errors += diagnostics.non_retryable_provider_errors;
+    model_metrics.other_errors += diagnostics.other_errors;
+    if let Some(kind) = diagnostics.terminal_failure_kind {
+        match kind {
+            crate::reviewer_kernel::model_retry::ModelFailureKind::Timeout => {
+                model_metrics.terminal_timeout_failures += 1;
+            }
+            crate::reviewer_kernel::model_retry::ModelFailureKind::Cancelled => {
+                model_metrics.terminal_cancelled_failures += 1;
+            }
+            crate::reviewer_kernel::model_retry::ModelFailureKind::ProviderRetryable => {
+                model_metrics.terminal_retryable_provider_failures += 1;
+            }
+            crate::reviewer_kernel::model_retry::ModelFailureKind::ProviderNonRetryable => {
+                model_metrics.terminal_non_retryable_provider_failures += 1;
+            }
+            crate::reviewer_kernel::model_retry::ModelFailureKind::Other => {
+                model_metrics.terminal_other_failures += 1;
+            }
+        }
+    }
+    model_metrics.latency_ms += diagnostics.lifecycle_ms;
+    model_metrics.max_latency_ms = model_metrics.max_latency_ms.max(diagnostics.lifecycle_ms);
+    model_metrics.provider_request_ms += diagnostics.provider_request_ms;
+    model_metrics.max_provider_request_ms = model_metrics
+        .max_provider_request_ms
+        .max(diagnostics.max_provider_request_ms);
+    model_metrics.retry_backoff_ms += diagnostics.retry_backoff_ms;
+    model_metrics.max_retry_backoff_ms = model_metrics
+        .max_retry_backoff_ms
+        .max(diagnostics.max_retry_backoff_ms);
+    model_metrics.limiter_wait_ms += diagnostics.limiter_wait.total_wait_ms;
+    model_metrics.max_limiter_wait_ms = model_metrics
+        .max_limiter_wait_ms
+        .max(diagnostics.limiter_wait.max_bucket_wait_ms);
+    model_metrics.limiter_global_wait_ms += diagnostics.limiter_wait.global_wait_ms;
+    model_metrics.limiter_provider_wait_ms += diagnostics.limiter_wait.provider_wait_ms;
+    model_metrics.limiter_profile_wait_ms += diagnostics.limiter_wait.profile_wait_ms;
+    model_metrics.limiter_key_wait_ms += diagnostics.limiter_wait.key_wait_ms;
+    model_metrics.limiter_session_wait_ms += diagnostics.limiter_wait.session_wait_ms;
+}
+
+fn emit_model_turn_diagnostics(
+    policy: &ReviewerPolicy,
+    events: &RuntimeEventDispatcher,
+    scope: &SessionScope,
+    turn_id: TurnId,
+    outcome: &ModelTurnOutcome,
+) {
+    let diagnostics = &outcome.diagnostics;
+    let status = if outcome.result.is_ok() {
+        "completed"
+    } else {
+        "failed"
+    };
+    events.emit_planned_runtime(policy.plan_agent_trace_event(
+        scope,
+        Some(turn_id),
+        "model_turn_diagnostics",
+        format!("model turn {status} after {} attempt(s)", outcome.attempts),
+        json!({
+            "status": status,
+            "attempts": outcome.attempts,
+            "retries": outcome.attempts.saturating_sub(1),
+            "lifecycleMs": diagnostics.lifecycle_ms,
+            "providerRequestMs": diagnostics.provider_request_ms,
+            "maxProviderRequestMs": diagnostics.max_provider_request_ms,
+            "retryBackoffMs": diagnostics.retry_backoff_ms,
+            "maxRetryBackoffMs": diagnostics.max_retry_backoff_ms,
+            "limiterWaitMs": diagnostics.limiter_wait.total_wait_ms,
+            "maxLimiterWaitMs": diagnostics.limiter_wait.max_bucket_wait_ms,
+            "limiterGlobalWaitMs": diagnostics.limiter_wait.global_wait_ms,
+            "limiterProviderWaitMs": diagnostics.limiter_wait.provider_wait_ms,
+            "limiterProfileWaitMs": diagnostics.limiter_wait.profile_wait_ms,
+            "limiterKeyWaitMs": diagnostics.limiter_wait.key_wait_ms,
+            "limiterSessionWaitMs": diagnostics.limiter_wait.session_wait_ms,
+            "timeoutErrors": diagnostics.timeout_errors,
+            "cancellationErrors": diagnostics.cancellation_errors,
+            "retryableProviderErrors": diagnostics.retryable_provider_errors,
+            "nonRetryableProviderErrors": diagnostics.non_retryable_provider_errors,
+            "otherErrors": diagnostics.other_errors,
+            "terminalFailureKind": diagnostics
+                .terminal_failure_kind
+                .map(|kind| kind.as_str()),
+        }),
+    ));
 }
 
 fn initial_transcript(scope: &SessionScope) -> Vec<ConversationItem> {

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::reviewer_kernel::kernel_types::ArtifactView;
+use crate::reviewer_kernel::kernel_types::{ArtifactView, ModelMetricsSnapshot};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -122,6 +122,8 @@ pub struct RunnerRunSummary {
     pub snapshot_count: usize,
     #[serde(default)]
     pub completion_diagnostics: Vec<RunnerSessionCompletionDiagnostic>,
+    #[serde(default)]
+    pub model_metrics: ModelMetricsSnapshot,
     pub quality_diagnostics: RunnerReviewQualityDiagnostics,
 }
 
@@ -134,6 +136,9 @@ pub struct RunnerSessionCompletionDiagnostic {
     pub completion_summary: Option<String>,
     pub finalization_reason: String,
     pub final_output: RunnerFinalOutputDiagnostic,
+    pub tool_calls_used: usize,
+    pub max_tool_calls: usize,
+    pub exhausted_tool_budget: bool,
     pub saw_diff: bool,
     pub saw_file: bool,
     pub saw_search: bool,

@@ -105,6 +105,15 @@ function readCase(root, name) {
       modelCalls: result.review?.modelCalls ?? 0,
       toolCalls: result.review?.toolCalls ?? 0,
       totalTokens: result.review?.tokens?.totalTokens ?? 0,
+      modelMetrics: result.review?.modelMetrics ?? {},
+      modelProviderRequestMs: result.review?.modelMetrics?.providerRequestMs ?? 0,
+      modelRetryBackoffMs: result.review?.modelMetrics?.retryBackoffMs ?? 0,
+      modelLimiterWaitMs: result.review?.modelMetrics?.limiterWaitMs ?? 0,
+      modelTimeoutErrors: result.review?.modelMetrics?.timeoutErrors ?? 0,
+      modelRetryableProviderErrors:
+        result.review?.modelMetrics?.retryableProviderErrors ?? 0,
+      modelNonRetryableProviderErrors:
+        result.review?.modelMetrics?.nonRetryableProviderErrors ?? 0,
       elapsedMs: result.review?.elapsedMs ?? null,
     },
     orchestrator: {
@@ -469,6 +478,20 @@ function caseDelta(shared, process) {
     modelCalls: shared.review.modelCalls - process.review.modelCalls,
     toolCalls: shared.review.toolCalls - process.review.toolCalls,
     totalTokens: shared.review.totalTokens - process.review.totalTokens,
+    modelProviderRequestMs:
+      shared.review.modelProviderRequestMs - process.review.modelProviderRequestMs,
+    modelRetryBackoffMs:
+      shared.review.modelRetryBackoffMs - process.review.modelRetryBackoffMs,
+    modelLimiterWaitMs:
+      shared.review.modelLimiterWaitMs - process.review.modelLimiterWaitMs,
+    modelTimeoutErrors:
+      shared.review.modelTimeoutErrors - process.review.modelTimeoutErrors,
+    modelRetryableProviderErrors:
+      shared.review.modelRetryableProviderErrors -
+      process.review.modelRetryableProviderErrors,
+    modelNonRetryableProviderErrors:
+      shared.review.modelNonRetryableProviderErrors -
+      process.review.modelNonRetryableProviderErrors,
     findings: shared.review.findings - process.review.findings,
     candidates: shared.review.candidates - process.review.candidates,
     hits: shared.review.hits - process.review.hits,
@@ -496,6 +519,20 @@ function totalsDelta(shared, process) {
     modelCalls: shared.modelCalls - process.modelCalls,
     toolCalls: shared.toolCalls - process.toolCalls,
     totalTokens: shared.totalTokens - process.totalTokens,
+    modelProviderRequestMs:
+      (shared.modelProviderRequestMs ?? 0) - (process.modelProviderRequestMs ?? 0),
+    modelRetryBackoffMs:
+      (shared.modelRetryBackoffMs ?? 0) - (process.modelRetryBackoffMs ?? 0),
+    modelLimiterWaitMs:
+      (shared.modelLimiterWaitMs ?? 0) - (process.modelLimiterWaitMs ?? 0),
+    modelTimeoutErrors:
+      (shared.modelTimeoutErrors ?? 0) - (process.modelTimeoutErrors ?? 0),
+    modelRetryableProviderErrors:
+      (shared.modelRetryableProviderErrors ?? 0) -
+      (process.modelRetryableProviderErrors ?? 0),
+    modelNonRetryableProviderErrors:
+      (shared.modelNonRetryableProviderErrors ?? 0) -
+      (process.modelNonRetryableProviderErrors ?? 0),
     findings: shared.findings - process.findings,
     hits: shared.hits - process.hits,
     misses: shared.misses - process.misses,
@@ -590,8 +627,10 @@ function summarizeRunnerTimeline(root) {
 
 function missingTraceFields() {
   return [
-    "Provider request lifecycle timing split into queued_at, request_started_at, first_token_at, completed_at, retry_count, and rate_limit/backoff_ms. Current timestamps only support event-to-event latency.",
+    "Provider stream milestones such as firstTokenAt and completedAt. Aggregate provider duration, limiter wait, retry count, retry backoff, and failure classes are available in modelMetrics.",
+    "Schema validation error details and per-repair output metadata. Current final output diagnostics report parse/schema booleans, repair count, and accepted/rejected status.",
     "Transcript compaction provenance: exact evicted toolCallIds/artifactIds/itemIds and retained evidence identifiers. Current instrumentation records counts by kind and turn linkage.",
+    "Candidate lifecycle timestamps linking primary candidate emission to validation-session start/end. Current lifecycle traces record phases and decisions without explicit durations.",
   ];
 }
 
@@ -605,16 +644,16 @@ function renderMarkdown(report) {
   lines.push("## Totals");
   lines.push("");
   lines.push(
-    "| mode | model calls | tool calls | total tokens | findings | hits | misses | elapsed ms |",
+    "| mode | model calls | tool calls | total tokens | provider ms | backoff ms | limiter ms | findings | hits | misses | elapsed ms |",
   );
-  lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+  lines.push("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const [label, totals] of [
     ["shared", report.totals.shared],
     ["process", report.totals.process],
     ["delta", report.totals.delta],
   ]) {
     lines.push(
-      `| ${label} | ${totals.modelCalls} | ${totals.toolCalls} | ${totals.totalTokens} | ${totals.findings} | ${totals.hits} | ${totals.misses} | ${totals.reviewElapsedMs ?? ""} |`,
+      `| ${label} | ${totals.modelCalls} | ${totals.toolCalls} | ${totals.totalTokens} | ${totals.modelProviderRequestMs ?? 0} | ${totals.modelRetryBackoffMs ?? 0} | ${totals.modelLimiterWaitMs ?? 0} | ${totals.findings} | ${totals.hits} | ${totals.misses} | ${totals.reviewElapsedMs ?? ""} |`,
     );
   }
   lines.push("");

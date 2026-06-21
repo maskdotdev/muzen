@@ -445,6 +445,9 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
                     accepted: diagnostic.final_output.accepted,
                     rejected: diagnostic.final_output.rejected,
                 },
+                tool_calls_used: diagnostic.tool_calls_used,
+                max_tool_calls: diagnostic.max_tool_calls,
+                exhausted_tool_budget: diagnostic.exhausted_tool_budget,
                 saw_diff: diagnostic.saw_diff,
                 saw_file: diagnostic.saw_file,
                 saw_search: diagnostic.saw_search,
@@ -464,6 +467,7 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
                 },
             })
             .collect(),
+        model_metrics: summary.model_metrics.clone(),
         quality_diagnostics: RunnerReviewQualityDiagnostics {
             contract_risk_units: summary.quality_diagnostics.contract_risk_units,
             contract_seed_count: summary.quality_diagnostics.contract_seed_count,

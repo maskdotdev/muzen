@@ -1949,6 +1949,12 @@
           "default": "[]"
         },
         {
+          "name": "modelMetrics",
+          "type": "ModelMetricsSnapshot",
+          "required": false,
+          "default": "{}"
+        },
+        {
           "name": "qualityDiagnostics",
           "type": "RunnerReviewQualityDiagnostics",
           "required": true
@@ -1989,6 +1995,21 @@
         {
           "name": "finalOutput",
           "type": "RunnerFinalOutputDiagnostic",
+          "required": true
+        },
+        {
+          "name": "toolCallsUsed",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxToolCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "exhaustedToolBudget",
+          "type": "boolean",
           "required": true
         },
         {
@@ -2110,6 +2131,192 @@
         },
         {
           "name": "listImports",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ModelMetricsSnapshot",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "calls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "successes",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "errors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "retries",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "timeoutErrors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "cancellationErrors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "retryableProviderErrors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "nonRetryableProviderErrors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "otherErrors",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "terminalTimeoutFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "terminalCancelledFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "terminalRetryableProviderFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "terminalNonRetryableProviderFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "terminalOtherFailures",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "costedCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "unpricedCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "latencyMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxLatencyMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "providerRequestMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxProviderRequestMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "retryBackoffMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxRetryBackoffMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "maxLimiterWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterGlobalWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterProviderWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterProfileWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterKeyWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "limiterSessionWaitMs",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "estimatedInputCostMicroUsd",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "estimatedOutputCostMicroUsd",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "estimatedTotalCostMicroUsd",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "inputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "outputTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "totalTokens",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "cachedInputTokens",
           "type": "integer",
           "required": true
         }

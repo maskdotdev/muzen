@@ -162,6 +162,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
           findings: finalResult.findings?.length || 0,
           modelCalls: finalResult.summary?.modelCalls,
           toolCalls: finalResult.summary?.toolCalls,
+          modelMetrics: finalResult.summary?.modelMetrics ?? null,
           tokens: {
             inputTokens: finalResult.summary?.inputTokens,
             outputTokens: finalResult.summary?.outputTokens,

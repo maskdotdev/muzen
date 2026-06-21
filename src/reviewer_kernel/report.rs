@@ -119,12 +119,33 @@ fn merge_model_metrics(left: &mut ModelMetricsSnapshot, right: ModelMetricsSnaps
     left.successes += right.successes;
     left.errors += right.errors;
     left.retries += right.retries;
+    left.timeout_errors += right.timeout_errors;
+    left.cancellation_errors += right.cancellation_errors;
+    left.retryable_provider_errors += right.retryable_provider_errors;
+    left.non_retryable_provider_errors += right.non_retryable_provider_errors;
+    left.other_errors += right.other_errors;
+    left.terminal_timeout_failures += right.terminal_timeout_failures;
+    left.terminal_cancelled_failures += right.terminal_cancelled_failures;
+    left.terminal_retryable_provider_failures += right.terminal_retryable_provider_failures;
+    left.terminal_non_retryable_provider_failures += right.terminal_non_retryable_provider_failures;
+    left.terminal_other_failures += right.terminal_other_failures;
     left.costed_calls += right.costed_calls;
     left.unpriced_calls += right.unpriced_calls;
     left.latency_ms += right.latency_ms;
     left.max_latency_ms = left.max_latency_ms.max(right.max_latency_ms);
+    left.provider_request_ms += right.provider_request_ms;
+    left.max_provider_request_ms = left
+        .max_provider_request_ms
+        .max(right.max_provider_request_ms);
+    left.retry_backoff_ms += right.retry_backoff_ms;
+    left.max_retry_backoff_ms = left.max_retry_backoff_ms.max(right.max_retry_backoff_ms);
     left.limiter_wait_ms += right.limiter_wait_ms;
     left.max_limiter_wait_ms = left.max_limiter_wait_ms.max(right.max_limiter_wait_ms);
+    left.limiter_global_wait_ms += right.limiter_global_wait_ms;
+    left.limiter_provider_wait_ms += right.limiter_provider_wait_ms;
+    left.limiter_profile_wait_ms += right.limiter_profile_wait_ms;
+    left.limiter_key_wait_ms += right.limiter_key_wait_ms;
+    left.limiter_session_wait_ms += right.limiter_session_wait_ms;
     left.estimated_input_cost_micro_usd += right.estimated_input_cost_micro_usd;
     left.estimated_output_cost_micro_usd += right.estimated_output_cost_micro_usd;
     left.estimated_total_cost_micro_usd += right.estimated_total_cost_micro_usd;
@@ -185,6 +206,7 @@ pub struct ReviewRunSummary {
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
     pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
+    pub model_metrics: ModelMetricsSnapshot,
     pub quality_diagnostics: ReviewQualityDiagnostics,
 }
 
@@ -206,6 +228,7 @@ impl ReviewRunSummary {
             artifact_bytes: metrics.artifact_bytes,
             snapshot_count: metrics.snapshot_metrics.len(),
             completion_diagnostics: metrics.completion_diagnostics.clone(),
+            model_metrics: metrics.model_metrics.clone(),
             quality_diagnostics: metrics.quality_diagnostics.clone(),
         }
     }
@@ -431,5 +454,68 @@ impl EvidenceView {
             content_hash: evidence.content_hash.clone(),
             producing_tool_call_id: ToolCallId(evidence.producing_tool_call_id.clone()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_model_metrics_preserves_request_lifecycle_fields() {
+        let mut left = ModelMetricsSnapshot {
+            calls: 1,
+            retryable_provider_errors: 1,
+            terminal_retryable_provider_failures: 1,
+            latency_ms: 10,
+            max_latency_ms: 10,
+            provider_request_ms: 7,
+            max_provider_request_ms: 7,
+            retry_backoff_ms: 2,
+            max_retry_backoff_ms: 2,
+            limiter_wait_ms: 1,
+            max_limiter_wait_ms: 1,
+            limiter_global_wait_ms: 1,
+            ..Default::default()
+        };
+        let right = ModelMetricsSnapshot {
+            calls: 2,
+            timeout_errors: 1,
+            terminal_timeout_failures: 1,
+            latency_ms: 20,
+            max_latency_ms: 12,
+            provider_request_ms: 13,
+            max_provider_request_ms: 9,
+            retry_backoff_ms: 4,
+            max_retry_backoff_ms: 3,
+            limiter_wait_ms: 6,
+            max_limiter_wait_ms: 4,
+            limiter_provider_wait_ms: 2,
+            limiter_profile_wait_ms: 1,
+            limiter_key_wait_ms: 2,
+            limiter_session_wait_ms: 1,
+            ..Default::default()
+        };
+
+        merge_model_metrics(&mut left, right);
+
+        assert_eq!(left.calls, 3);
+        assert_eq!(left.retryable_provider_errors, 1);
+        assert_eq!(left.timeout_errors, 1);
+        assert_eq!(left.terminal_retryable_provider_failures, 1);
+        assert_eq!(left.terminal_timeout_failures, 1);
+        assert_eq!(left.latency_ms, 30);
+        assert_eq!(left.max_latency_ms, 12);
+        assert_eq!(left.provider_request_ms, 20);
+        assert_eq!(left.max_provider_request_ms, 9);
+        assert_eq!(left.retry_backoff_ms, 6);
+        assert_eq!(left.max_retry_backoff_ms, 3);
+        assert_eq!(left.limiter_wait_ms, 7);
+        assert_eq!(left.max_limiter_wait_ms, 4);
+        assert_eq!(left.limiter_global_wait_ms, 1);
+        assert_eq!(left.limiter_provider_wait_ms, 2);
+        assert_eq!(left.limiter_profile_wait_ms, 1);
+        assert_eq!(left.limiter_key_wait_ms, 2);
+        assert_eq!(left.limiter_session_wait_ms, 1);
     }
 }

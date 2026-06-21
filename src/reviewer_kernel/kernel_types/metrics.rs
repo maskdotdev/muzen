@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{ArtifactId, SnapshotId, ToolMetricKey, ToolProviderId};
 use crate::reviewer_kernel::review_contract::ToolCounts;
@@ -56,19 +56,38 @@ pub struct ToolProviderHealthSnapshot {
     pub consecutive_errors: usize,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelMetricsSnapshot {
     pub calls: usize,
     pub successes: usize,
     pub errors: usize,
     pub retries: usize,
+    pub timeout_errors: usize,
+    pub cancellation_errors: usize,
+    pub retryable_provider_errors: usize,
+    pub non_retryable_provider_errors: usize,
+    pub other_errors: usize,
+    pub terminal_timeout_failures: usize,
+    pub terminal_cancelled_failures: usize,
+    pub terminal_retryable_provider_failures: usize,
+    pub terminal_non_retryable_provider_failures: usize,
+    pub terminal_other_failures: usize,
     pub costed_calls: usize,
     pub unpriced_calls: usize,
     pub latency_ms: u64,
     pub max_latency_ms: u64,
+    pub provider_request_ms: u64,
+    pub max_provider_request_ms: u64,
+    pub retry_backoff_ms: u64,
+    pub max_retry_backoff_ms: u64,
     pub limiter_wait_ms: u64,
     pub max_limiter_wait_ms: u64,
+    pub limiter_global_wait_ms: u64,
+    pub limiter_provider_wait_ms: u64,
+    pub limiter_profile_wait_ms: u64,
+    pub limiter_key_wait_ms: u64,
+    pub limiter_session_wait_ms: u64,
     pub estimated_input_cost_micro_usd: u64,
     pub estimated_output_cost_micro_usd: u64,
     pub estimated_total_cost_micro_usd: u64,

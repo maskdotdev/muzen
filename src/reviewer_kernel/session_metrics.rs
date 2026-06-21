@@ -34,12 +34,34 @@ pub(crate) fn add_model_metrics(target: &mut ModelMetricsSnapshot, report: &Mode
     target.successes += report.successes;
     target.errors += report.errors;
     target.retries += report.retries;
+    target.timeout_errors += report.timeout_errors;
+    target.cancellation_errors += report.cancellation_errors;
+    target.retryable_provider_errors += report.retryable_provider_errors;
+    target.non_retryable_provider_errors += report.non_retryable_provider_errors;
+    target.other_errors += report.other_errors;
+    target.terminal_timeout_failures += report.terminal_timeout_failures;
+    target.terminal_cancelled_failures += report.terminal_cancelled_failures;
+    target.terminal_retryable_provider_failures += report.terminal_retryable_provider_failures;
+    target.terminal_non_retryable_provider_failures +=
+        report.terminal_non_retryable_provider_failures;
+    target.terminal_other_failures += report.terminal_other_failures;
     target.costed_calls += report.costed_calls;
     target.unpriced_calls += report.unpriced_calls;
     target.latency_ms += report.latency_ms;
     target.max_latency_ms = target.max_latency_ms.max(report.max_latency_ms);
+    target.provider_request_ms += report.provider_request_ms;
+    target.max_provider_request_ms = target
+        .max_provider_request_ms
+        .max(report.max_provider_request_ms);
+    target.retry_backoff_ms += report.retry_backoff_ms;
+    target.max_retry_backoff_ms = target.max_retry_backoff_ms.max(report.max_retry_backoff_ms);
     target.limiter_wait_ms += report.limiter_wait_ms;
     target.max_limiter_wait_ms = target.max_limiter_wait_ms.max(report.max_limiter_wait_ms);
+    target.limiter_global_wait_ms += report.limiter_global_wait_ms;
+    target.limiter_provider_wait_ms += report.limiter_provider_wait_ms;
+    target.limiter_profile_wait_ms += report.limiter_profile_wait_ms;
+    target.limiter_key_wait_ms += report.limiter_key_wait_ms;
+    target.limiter_session_wait_ms += report.limiter_session_wait_ms;
     target.estimated_input_cost_micro_usd += report.estimated_input_cost_micro_usd;
     target.estimated_output_cost_micro_usd += report.estimated_output_cost_micro_usd;
     target.estimated_total_cost_micro_usd += report.estimated_total_cost_micro_usd;

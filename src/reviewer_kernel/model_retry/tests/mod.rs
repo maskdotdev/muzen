@@ -20,6 +20,10 @@ struct LimiterBackedModel {
     limiter: Arc<ModelLimiter>,
 }
 
+struct SlowModel {
+    delay: std::time::Duration,
+}
+
 #[async_trait]
 impl ConcurrentModelClient for FlakyModel {
     async fn complete(
@@ -53,6 +57,23 @@ impl ConcurrentModelClient for LimiterBackedModel {
             .limiter
             .acquire_for_model("provider", "profile", "credential", &scope.id)
             .await?;
+        Ok(ModelTurn::Text {
+            content: "ok".to_string(),
+            usage: Default::default(),
+        })
+    }
+}
+
+#[async_trait]
+impl ConcurrentModelClient for SlowModel {
+    async fn complete(
+        &self,
+        _scope: &SessionScope,
+        _transcript: &[ConversationItem],
+        _turn_id: TurnId,
+        _cancel: CancellationToken,
+    ) -> RuntimeResult<ModelTurn> {
+        tokio::time::sleep(self.delay).await;
         Ok(ModelTurn::Text {
             content: "ok".to_string(),
             usage: Default::default(),
@@ -160,6 +181,10 @@ async fn retries_retryable_errors_until_success() {
     let outcome = run_complete(&model, &fast_retry_limits(3), Arc::clone(&sink)).await;
     assert!(outcome.result.is_ok());
     assert_eq!(outcome.attempts, 3);
+    assert_eq!(outcome.diagnostics.retryable_provider_errors, 2);
+    assert_eq!(outcome.diagnostics.non_retryable_provider_errors, 0);
+    assert_eq!(outcome.diagnostics.terminal_failure_kind, None);
+    assert!(outcome.diagnostics.retry_backoff_ms >= 1);
     assert_eq!(model_failed_flags(&sink), vec![(1, true), (2, true)]);
 }
 
@@ -174,6 +199,11 @@ async fn exhausted_attempts_fail_with_final_event() {
     let outcome = run_complete(&model, &fast_retry_limits(3), Arc::clone(&sink)).await;
     assert!(outcome.result.is_err());
     assert_eq!(outcome.attempts, 3);
+    assert_eq!(outcome.diagnostics.retryable_provider_errors, 3);
+    assert_eq!(
+        outcome.diagnostics.terminal_failure_kind,
+        Some(ModelFailureKind::ProviderRetryable)
+    );
     assert_eq!(
         model_failed_flags(&sink),
         vec![(1, true), (2, true), (3, false)]
@@ -191,7 +221,45 @@ async fn non_retryable_errors_fail_immediately() {
     let outcome = run_complete(&model, &fast_retry_limits(3), Arc::clone(&sink)).await;
     assert!(outcome.result.is_err());
     assert_eq!(outcome.attempts, 1);
+    assert_eq!(outcome.diagnostics.non_retryable_provider_errors, 1);
+    assert_eq!(
+        outcome.diagnostics.terminal_failure_kind,
+        Some(ModelFailureKind::ProviderNonRetryable)
+    );
     assert_eq!(model_failed_flags(&sink), vec![(1, false)]);
+}
+
+#[tokio::test]
+async fn records_provider_request_duration_from_mock_client() {
+    let scope = test_scope();
+    let model = SlowModel {
+        delay: std::time::Duration::from_millis(10),
+    };
+    let events = RuntimeEventDispatcher::new(None);
+    let mut limits = fast_retry_limits(1);
+    limits.max_model_turn_ms = 500;
+
+    let outcome = complete_model_turn(
+        &model,
+        &ReviewerPolicy::new(),
+        &events,
+        &limits,
+        &scope,
+        &scope,
+        &[],
+        TurnId(0),
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert!(outcome.result.is_ok());
+    assert_eq!(outcome.attempts, 1);
+    assert!(
+        outcome.diagnostics.provider_request_ms >= 1,
+        "expected provider request duration, got {:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(outcome.diagnostics.limiter_wait.total_wait_ms, 0);
 }
 
 #[tokio::test]
@@ -230,14 +298,19 @@ async fn records_successful_model_limiter_waits() {
     assert!(outcome.result.is_ok());
     assert_eq!(outcome.attempts, 1);
     assert!(
-        outcome.limiter_wait.total_wait_ms >= 1,
+        outcome.diagnostics.limiter_wait.total_wait_ms >= 1,
         "expected limiter wait to be recorded, got {:?}",
-        outcome.limiter_wait
+        outcome.diagnostics.limiter_wait
     );
     assert!(
-        outcome.limiter_wait.max_bucket_wait_ms >= 1,
+        outcome.diagnostics.limiter_wait.max_bucket_wait_ms >= 1,
         "expected max limiter bucket wait to be recorded, got {:?}",
-        outcome.limiter_wait
+        outcome.diagnostics.limiter_wait
+    );
+    assert!(
+        outcome.diagnostics.limiter_wait.global_wait_ms >= 1,
+        "expected global limiter wait to be recorded, got {:?}",
+        outcome.diagnostics.limiter_wait
     );
 }
 
@@ -273,6 +346,11 @@ async fn limiter_queue_wait_counts_against_model_turn_timeout() {
 
     assert!(matches!(outcome.result, Err(RuntimeError::Timeout)));
     assert_eq!(outcome.attempts, 1);
+    assert_eq!(outcome.diagnostics.timeout_errors, 1);
+    assert_eq!(
+        outcome.diagnostics.terminal_failure_kind,
+        Some(ModelFailureKind::Timeout)
+    );
     assert_eq!(model_failed_flags(&sink), vec![(1, false)]);
 }
 

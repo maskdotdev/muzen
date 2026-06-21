@@ -44,10 +44,22 @@ function compareRunnerModes(sharedRoot, processRoot) {
         modelCalls: sharedCase.modelCalls - processCase.modelCalls,
         toolCalls: sharedCase.toolCalls - processCase.toolCalls,
         totalTokens: sharedCase.totalTokens - processCase.totalTokens,
+        modelProviderRequestMs:
+          sharedCase.modelProviderRequestMs - processCase.modelProviderRequestMs,
+        modelRetryBackoffMs:
+          sharedCase.modelRetryBackoffMs - processCase.modelRetryBackoffMs,
         modelLimiterWaitMs:
           sharedCase.modelLimiterWaitMs - processCase.modelLimiterWaitMs,
         maxModelLimiterWaitMs:
           sharedCase.maxModelLimiterWaitMs - processCase.maxModelLimiterWaitMs,
+        modelTimeoutErrors:
+          sharedCase.modelTimeoutErrors - processCase.modelTimeoutErrors,
+        modelRetryableProviderErrors:
+          sharedCase.modelRetryableProviderErrors -
+          processCase.modelRetryableProviderErrors,
+        modelNonRetryableProviderErrors:
+          sharedCase.modelNonRetryableProviderErrors -
+          processCase.modelNonRetryableProviderErrors,
         findings: sharedCase.findings - processCase.findings,
         candidates: sharedCase.candidates - processCase.candidates,
         hits: sharedCase.hits - processCase.hits,
@@ -77,9 +89,24 @@ function compareRunnerModes(sharedRoot, processRoot) {
         modelCalls: sharedSummary.totals.modelCalls - processSummary.totals.modelCalls,
         toolCalls: sharedSummary.totals.toolCalls - processSummary.totals.toolCalls,
         totalTokens: sharedSummary.totals.totalTokens - processSummary.totals.totalTokens,
+        modelProviderRequestMs:
+          (sharedSummary.totals.modelProviderRequestMs ?? 0) -
+          (processSummary.totals.modelProviderRequestMs ?? 0),
+        modelRetryBackoffMs:
+          (sharedSummary.totals.modelRetryBackoffMs ?? 0) -
+          (processSummary.totals.modelRetryBackoffMs ?? 0),
         modelLimiterWaitMs:
           (sharedSummary.totals.modelLimiterWaitMs ?? 0) -
           (processSummary.totals.modelLimiterWaitMs ?? 0),
+        modelTimeoutErrors:
+          (sharedSummary.totals.modelTimeoutErrors ?? 0) -
+          (processSummary.totals.modelTimeoutErrors ?? 0),
+        modelRetryableProviderErrors:
+          (sharedSummary.totals.modelRetryableProviderErrors ?? 0) -
+          (processSummary.totals.modelRetryableProviderErrors ?? 0),
+        modelNonRetryableProviderErrors:
+          (sharedSummary.totals.modelNonRetryableProviderErrors ?? 0) -
+          (processSummary.totals.modelNonRetryableProviderErrors ?? 0),
         findings: sharedSummary.totals.findings - processSummary.totals.findings,
         hits: sharedSummary.totals.hits - processSummary.totals.hits,
         misses: sharedSummary.totals.misses - processSummary.totals.misses,
@@ -101,8 +128,14 @@ function compactCase(root, name, report) {
     modelCalls: report.review?.modelCalls ?? 0,
     toolCalls: report.review?.toolCalls ?? 0,
     totalTokens: report.review?.tokens?.totalTokens ?? 0,
+    modelProviderRequestMs: report.review?.modelMetrics?.providerRequestMs ?? 0,
+    modelRetryBackoffMs: report.review?.modelMetrics?.retryBackoffMs ?? 0,
     modelLimiterWaitMs: report.review?.modelMetrics?.limiterWaitMs ?? 0,
     maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
+    modelTimeoutErrors: report.review?.modelMetrics?.timeoutErrors ?? 0,
+    modelRetryableProviderErrors: report.review?.modelMetrics?.retryableProviderErrors ?? 0,
+    modelNonRetryableProviderErrors:
+      report.review?.modelMetrics?.nonRetryableProviderErrors ?? 0,
     findings: report.review?.findings ?? 0,
     candidates: report.benchmark?.candidateCount ?? 0,
     rejectedCandidates: report.benchmark?.rejectedCandidateCount ?? 0,
