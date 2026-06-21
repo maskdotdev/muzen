@@ -22,6 +22,8 @@ const caseCount = positiveInt(args.cases || "5", "--cases");
 const concurrency = positiveInt(args.concurrency || "5", "--concurrency");
 const sessions = nonnegativeInt(args.sessions || "1", "--sessions");
 const maxActive = positiveInt(args.maxActive || "1", "--max-active");
+const fixtureExtraLines = nonnegativeInt(args.fixtureExtraLines || "0", "--fixture-extra-lines");
+const fixtureLineBytes = positiveInt(args.fixtureLineBytes || "80", "--fixture-line-bytes");
 const maxToolCalls = positiveInt(args.maxToolCalls || "6", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || String(maxToolCalls + 4), "--max-turns");
 const toolsBeforeFinal =
@@ -57,7 +59,14 @@ fs.mkdirSync(outputDir, { recursive: true });
 fs.rmSync(fixtureRoot, { recursive: true, force: true });
 fs.mkdirSync(worktreeRoot, { recursive: true });
 fs.mkdirSync(goldenDir, { recursive: true });
-createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource });
+createFixtures({
+  caseCount,
+  fixtureExtraLines,
+  fixtureLineBytes,
+  worktreeRoot,
+  goldenDir,
+  caseSource,
+});
 
 const fakeModel = await startFakeResponsesServer({
   latencyMs,
@@ -165,6 +174,8 @@ try {
     concurrency,
     sessions,
     maxActive,
+    fixtureExtraLines,
+    fixtureLineBytes,
     maxToolCalls,
     maxTurns,
     toolsBeforeFinal: Number.isFinite(toolsBeforeFinal) ? toolsBeforeFinal : "infinite",
@@ -202,6 +213,8 @@ function reproductionSummary({
   concurrency,
   sessions,
   maxActive,
+  fixtureExtraLines,
+  fixtureLineBytes,
   maxToolCalls,
   maxTurns,
   toolsBeforeFinal,
@@ -260,6 +273,8 @@ function reproductionSummary({
       concurrency,
       sessions,
       maxActive,
+      fixtureExtraLines,
+      fixtureLineBytes,
       maxToolCalls,
       maxTurns,
       toolsBeforeFinal,
@@ -930,7 +945,14 @@ function summarizeRequestWave(records) {
   };
 }
 
-function createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource }) {
+function createFixtures({
+  caseCount,
+  fixtureExtraLines,
+  fixtureLineBytes,
+  worktreeRoot,
+  goldenDir,
+  caseSource,
+}) {
   const results = [];
   for (let index = 1; index <= caseCount; index += 1) {
     const owner = "fake";
@@ -942,11 +964,17 @@ function createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource }) {
     runChecked("git", ["init", "-q"], process.env, worktree);
     runChecked("git", ["config", "user.name", "Muzen Fake Repro"], process.env, worktree);
     runChecked("git", ["config", "user.email", "muzen-fake-repro@example.invalid"], process.env, worktree);
-    fs.writeFileSync(path.join(worktree, "src", "example.txt"), `base value ${index}\n`);
+    fs.writeFileSync(
+      path.join(worktree, "src", "example.txt"),
+      baseFixtureText(index, { fixtureExtraLines, fixtureLineBytes }),
+    );
     runChecked("git", ["add", "src/example.txt"], process.env, worktree);
     runChecked("git", ["commit", "-q", "-m", "base"], process.env, worktree);
     runChecked("git", ["branch", `hagent-martian/pr-${number}-base`], process.env, worktree);
-    fs.writeFileSync(path.join(worktree, "src", "example.txt"), `base value ${index}\nhead value ${index}\n`);
+    fs.writeFileSync(
+      path.join(worktree, "src", "example.txt"),
+      headFixtureText(index, { fixtureExtraLines, fixtureLineBytes }),
+    );
     runChecked("git", ["add", "src/example.txt"], process.env, worktree);
     runChecked("git", ["commit", "-q", "-m", "head"], process.env, worktree);
     fs.writeFileSync(path.join(goldenDir, `${baseName}.json`), `${JSON.stringify({ issues: [] }, null, 2)}\n`);
@@ -956,6 +984,28 @@ function createFixtures({ caseCount, worktreeRoot, goldenDir, caseSource }) {
     });
   }
   fs.writeFileSync(caseSource, `${JSON.stringify({ results }, null, 2)}\n`);
+}
+
+function baseFixtureText(index, { fixtureExtraLines, fixtureLineBytes }) {
+  const lines = [`base value ${index}`];
+  for (let line = 1; line <= fixtureExtraLines; line += 1) {
+    lines.push(fixtureLine("base", index, line, fixtureLineBytes));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function headFixtureText(index, { fixtureExtraLines, fixtureLineBytes }) {
+  const lines = [`base value ${index}`, `head value ${index}`];
+  for (let line = 1; line <= fixtureExtraLines; line += 1) {
+    lines.push(fixtureLine("head", index, line, fixtureLineBytes));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function fixtureLine(prefix, index, line, fixtureLineBytes) {
+  const seed = `${prefix} case=${index} line=${line} `;
+  if (seed.length >= fixtureLineBytes) return seed.slice(0, fixtureLineBytes);
+  return `${seed}${"x".repeat(fixtureLineBytes - seed.length)}`;
 }
 
 function runChecked(command, commandArgs, env, cwd = process.cwd()) {
@@ -1105,5 +1155,5 @@ function timestamp() {
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 3000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence] [--http-error-attempts-per-request N] [--via-codex-proxy true|false]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--fixture-extra-lines N] [--fixture-line-bytes N] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 3000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence] [--http-error-attempts-per-request N] [--via-codex-proxy true|false]\n`);
 }

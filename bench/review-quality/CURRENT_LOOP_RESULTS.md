@@ -92,6 +92,39 @@ bench/results-review-quality/fake-sweep-budget-exhaustion-20260621T052343Z/sweep
 | 12 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
 | 16 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
 
+Large fixture stress sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
+  --runner-path target/release/muzen-runner \
+  --concurrency 4,8 \
+  --cases 8 \
+  --sessions 3 \
+  --max-active 2 \
+  --fixture-extra-lines 400 \
+  --fixture-line-bytes 160 \
+  --max-tool-calls 6 \
+  --max-turns 10 \
+  --tools-before-final 1 \
+  --http-error-attempts-per-request 1 \
+  --final-mode candidate \
+  --latency-ms 25 \
+  --jitter-ms 0 \
+  --max-concurrent 1 \
+  --via-codex-proxy true
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-sweep-large-fixture-sessions-20260621T053310Z/sweep-summary.json
+```
+
+| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Artifact bytes per case | Observed sessions shared/process | Result |
+| ---: | --- | --- | --- | --- | --- | ---: | --- | --- |
+| 4 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
+| 8 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
@@ -103,11 +136,19 @@ Interpretation:
   concurrency regression. Shared and process modes match on findings, model
   calls, tool calls, token totals, retry counts, and terminal completion across
   queue pressure, candidate publication, schema repair, proxy-shaped retry, and
-  forced max-tool-call exhaustion up to concurrency 16.
+  forced max-tool-call exhaustion up to concurrency 16. They also match under a
+  larger synthetic diff path with 130312 artifact bytes per case.
 - The forced exhaustion probe answers the budget-scope concern for this harness:
   `maxToolCalls` is enforced per case in both modes. Every case exhausts exactly
   once when the fake model keeps requesting tools, and `sharedOnly` exhaustion is
   0 at every tested concurrency.
+- The fake sweep now accepts `--sessions`, `--max-active`,
+  `--fixture-extra-lines`, and `--fixture-line-bytes`. The large-fixture run
+  confirms the fixture sizing path works, but it also exposes a coverage gap:
+  even with three explicit `RunStartParams.sessions`, the autonomous review
+  result reports only two sessions per case (orchestrator plus validator). Do
+  not claim this path covers explicit multi-session fan-out until a protocol
+  session harness verifies the requested sessions actually run.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -120,12 +161,11 @@ Interpretation:
   unexpected run IDs.
 
 Current recommendation: do not run live evals for this runner investigation yet.
-The next useful step is to keep broadening deterministic fake coverage around
-the live-shaped inputs that are still missing from the harness: multi-session
-cases per review, larger tool result payloads, and intentionally delayed tool
-responses. If a live eval becomes necessary after those pass, it should be a
-deliberately approved, small runner-mode diagnostic through the subscription
-proxy with semantic scoring disabled first.
+The next useful step is a deterministic protocol-level harness for explicit
+multi-session fan-out and intentionally delayed callback tools. If a live eval
+becomes necessary after those pass, it should be a deliberately approved, small
+runner-mode diagnostic through the subscription proxy with semantic scoring
+disabled first.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.

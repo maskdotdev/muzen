@@ -16,6 +16,10 @@ const outputDir = path.resolve(
 const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
 const concurrencies = listOfPositiveInts(args.concurrency || "1,2,3,5,8", "--concurrency");
 const cases = positiveInt(args.cases || String(Math.max(...concurrencies)), "--cases");
+const sessions = nonnegativeInt(args.sessions || "1", "--sessions");
+const maxActive = positiveInt(args.maxActive || "1", "--max-active");
+const fixtureExtraLines = nonnegativeInt(args.fixtureExtraLines || "0", "--fixture-extra-lines");
+const fixtureLineBytes = positiveInt(args.fixtureLineBytes || "80", "--fixture-line-bytes");
 const latencyMs = nonnegativeInt(args.latencyMs || "25", "--latency-ms");
 const jitterMs = nonnegativeInt(args.jitterMs || "0", "--jitter-ms");
 const maxConcurrent = positiveInt(args.maxConcurrent || "1", "--max-concurrent");
@@ -65,6 +69,14 @@ for (const concurrency of concurrencies) {
       String(cases),
       "--concurrency",
       String(concurrency),
+      "--sessions",
+      String(sessions),
+      "--max-active",
+      String(maxActive),
+      "--fixture-extra-lines",
+      String(fixtureExtraLines),
+      "--fixture-line-bytes",
+      String(fixtureLineBytes),
       "--max-tool-calls",
       String(maxToolCalls),
       "--max-turns",
@@ -131,6 +143,10 @@ const report = {
   config: {
     concurrencies,
     cases,
+    sessions,
+    maxActive,
+    fixtureExtraLines,
+    fixtureLineBytes,
     latencyMs,
     jitterMs,
     maxConcurrent,
@@ -361,6 +377,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--fail-on-regression true|false] [--post-prepare-cooldown-ms 3000]\n",
+    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--sessions N] [--max-active N] [--fixture-extra-lines N] [--fixture-line-bytes N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--fail-on-regression true|false] [--post-prepare-cooldown-ms 3000]\n",
   );
 }
