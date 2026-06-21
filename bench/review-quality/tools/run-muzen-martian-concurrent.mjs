@@ -262,6 +262,26 @@ try {
       throw error;
     }
   }
+  // Keep shared-mode admission focused on runner behavior; synchronous git/job
+  // preparation here would otherwise serialize run.start writes from the harness.
+  const preparedJobs =
+    runnerMode === "shared"
+      ? prepareSharedReviewJobs(cases, {
+          outputDir,
+          traceRoot,
+          logsDir,
+          jobsDir,
+          model,
+          runnerPath,
+          sessions: args.sessions || "1",
+          maxActive: args.maxActive || "1",
+          maxTurns: args.maxTurns || "60",
+          maxToolCalls: args.maxToolCalls || "50",
+          maxPromptTokens: args.maxPromptTokens || "64000",
+          maxOutputTokens: args.maxOutputTokens || null,
+          maxCapturedTextBytes,
+        })
+      : null;
   await runPool(cases, concurrency, (testCase) =>
     runReviewCase(testCase, {
       outputDir,
@@ -282,6 +302,7 @@ try {
       progress: args.progress ?? "true",
       state,
       metricsPath,
+      preparedJobs,
     }),
   );
 } finally {
@@ -369,28 +390,34 @@ async function runPool(items, width, worker) {
   await Promise.all(workers);
 }
 
-async function runReviewCase(testCase, options) {
-  if (options.runnerMode === "process") {
-    return await runReviewCaseProcess(testCase, options);
+function prepareSharedReviewJobs(cases, options) {
+  const prepared = new Map();
+  for (const testCase of cases) {
+    prepared.set(testCase.outputName, prepareReviewCaseJob(testCase, options));
   }
+  return prepared;
+}
+
+function prepareReviewCaseJob(testCase, options) {
   const outputPath = path.join(options.outputDir, `${testCase.outputName}.json`);
   const traceDir = path.join(options.traceRoot, testCase.outputName);
   const stderrPath = path.join(options.logsDir, `${testCase.outputName}.stderr.log`);
   const stdoutPath = path.join(options.logsDir, `${testCase.outputName}.stdout.log`);
-  const startedAt = Date.now();
-  const runId = `review-quality-${testCase.outputName}-${startedAt}`;
+  const runId = `review-quality-${testCase.outputName}-${Date.now()}`;
   const job = buildProductionReviewJob({
     repo: testCase.worktree,
     baseRef: testCase.baseRef,
     runnerPath: options.runnerPath,
     goldenPath: testCase.golden,
     mode: "review",
-    sessions: positiveInt(options.sessions, "--sessions"),
+    sessions: nonnegativeInt(options.sessions, "--sessions"),
     maxActive: positiveInt(options.maxActive, "--max-active"),
     maxTurns: positiveInt(options.maxTurns, "--max-turns"),
     maxToolCalls: positiveInt(options.maxToolCalls, "--max-tool-calls"),
     maxPromptTokens: positiveInt(options.maxPromptTokens, "--max-prompt-tokens"),
-    maxOutputTokens: options.maxOutputTokens ? positiveInt(options.maxOutputTokens, "--max-output-tokens") : 8000,
+    maxOutputTokens: options.maxOutputTokens
+      ? positiveInt(options.maxOutputTokens, "--max-output-tokens")
+      : 8000,
     model: options.model,
     outputPath,
     traceOutputDir: traceDir,
@@ -398,6 +425,24 @@ async function runReviewCase(testCase, options) {
     maxCapturedTextBytes: options.maxCapturedTextBytes,
     tempDir: path.join(options.jobsDir, testCase.outputName),
   });
+  return {
+    job,
+    outputPath,
+    traceDir,
+    stderrPath,
+    stdoutPath,
+  };
+}
+
+async function runReviewCase(testCase, options) {
+  if (options.runnerMode === "process") {
+    return await runReviewCaseProcess(testCase, options);
+  }
+  const prepared =
+    options.preparedJobs?.get(testCase.outputName) ?? prepareReviewCaseJob(testCase, options);
+  const { job, outputPath, stderrPath, stdoutPath } = prepared;
+  const startedAt = Date.now();
+  const runId = job.runId;
   process.stderr.write(`[muzen-concurrent] ${new Date(startedAt).toISOString()} start ${testCase.name}\n`);
   options.state.active.set(runId, {
     name: testCase.name,
@@ -1040,6 +1085,14 @@ function positiveInt(value, label) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function nonnegativeInt(value, label) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
   }
   return parsed;
 }

@@ -19,6 +19,8 @@ const caseSource = path.join(fixtureRoot, "summary.json");
 const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
 const caseCount = positiveInt(args.cases || "5", "--cases");
 const concurrency = positiveInt(args.concurrency || "5", "--concurrency");
+const sessions = nonnegativeInt(args.sessions || "1", "--sessions");
+const maxActive = positiveInt(args.maxActive || "1", "--max-active");
 const maxToolCalls = positiveInt(args.maxToolCalls || "6", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || String(maxToolCalls + 4), "--max-turns");
 const toolsBeforeFinal =
@@ -74,9 +76,9 @@ try {
     "--limit",
     String(caseCount),
     "--sessions",
-    "1",
+    String(sessions),
     "--max-active",
-    "1",
+    String(maxActive),
     "--max-turns",
     String(maxTurns),
     "--max-tool-calls",
@@ -134,6 +136,8 @@ try {
     fakeModelBaseUrl: fakeModel.baseUrl,
     caseCount,
     concurrency,
+    sessions,
+    maxActive,
     maxToolCalls,
     maxTurns,
     toolsBeforeFinal: Number.isFinite(toolsBeforeFinal) ? toolsBeforeFinal : "infinite",
@@ -165,6 +169,8 @@ function reproductionSummary({
   fakeModelBaseUrl,
   caseCount,
   concurrency,
+  sessions,
+  maxActive,
   maxToolCalls,
   maxTurns,
   toolsBeforeFinal,
@@ -187,6 +193,10 @@ function reproductionSummary({
     shared: summarizeRunMetrics(path.join(sharedDir, "metrics.jsonl")),
     process: summarizeRunMetrics(path.join(processDir, "metrics.jsonl")),
   };
+  const admission = {
+    shared: summarizeRunAdmission(sharedDir),
+    process: summarizeRunAdmission(processDir),
+  };
   const isolation = {
     shared: summarizeRunIsolation(sharedDir),
     process: summarizeRunIsolation(processDir),
@@ -204,6 +214,8 @@ function reproductionSummary({
     config: {
       caseCount,
       concurrency,
+      sessions,
+      maxActive,
       maxToolCalls,
       maxTurns,
       toolsBeforeFinal,
@@ -228,8 +240,10 @@ function reproductionSummary({
     reproducedObservedShape:
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
     timing,
+    observedRuns: summarizeObservedRuns(compare.cases),
     fakeModel: fakeModelMetrics,
     release,
+    admission,
     isolation,
     totals: compare.totals,
     cases: compare.cases.map((entry) => ({
@@ -237,6 +251,88 @@ function reproductionSummary({
       shared: entry.shared.orchestrator,
       process: entry.process.orchestrator,
       delta: entry.delta,
+    })),
+  };
+}
+
+function summarizeObservedRuns(cases) {
+  return {
+    shared: summarizeObservedMode(cases, "shared"),
+    process: summarizeObservedMode(cases, "process"),
+  };
+}
+
+function summarizeObservedMode(cases, mode) {
+  const values = cases.map((entry) => entry[mode] ?? {});
+  return {
+    cases: values.length,
+    sessions: stats(values.map((entry) => entry.sessions)),
+    completedSessions: stats(values.map((entry) => entry.completedSessions)),
+    modelCalls: stats(values.map((entry) => entry.modelCalls)),
+    toolCalls: stats(values.map((entry) => entry.toolCalls)),
+  };
+}
+
+function summarizeRunAdmission(root) {
+  const records = readJsonl(path.join(root, "metrics.jsonl"));
+  const events = [];
+  const runs = new Map();
+  for (const record of records) {
+    if (record.event !== "start" && record.event !== "finish") continue;
+    const atMs = Date.parse(record.atUtc);
+    if (!Number.isFinite(atMs) || !record.runId) continue;
+    const existing = runs.get(record.runId) ?? {
+      name: record.name,
+      runId: record.runId,
+      startMs: null,
+      finishMs: null,
+      elapsedMs: null,
+      code: null,
+    };
+    if (record.event === "start") {
+      existing.startMs = atMs;
+    } else {
+      existing.finishMs = atMs;
+      existing.elapsedMs = record.elapsedMs ?? null;
+      existing.code = record.code ?? null;
+    }
+    runs.set(record.runId, existing);
+    events.push({ event: record.event, atMs, runId: record.runId });
+  }
+  events.sort(
+    (left, right) =>
+      left.atMs - right.atMs || (left.event === "start" ? -1 : 1),
+  );
+  let active = 0;
+  let maxActiveRuns = 0;
+  for (const event of events) {
+    active += event.event === "start" ? 1 : -1;
+    maxActiveRuns = Math.max(maxActiveRuns, active);
+  }
+  const runValues = [...runs.values()].sort(
+    (left, right) =>
+      numberOrZero(left.startMs) - numberOrZero(right.startMs) ||
+      String(left.name).localeCompare(String(right.name)),
+  );
+  const startTimes = runValues.map((run) => run.startMs).filter(Number.isFinite).sort(numericSort);
+  const finishTimes = runValues.map((run) => run.finishMs).filter(Number.isFinite).sort(numericSort);
+  const firstStartMs = startTimes[0] ?? null;
+  const lastStartMs = startTimes.at(-1) ?? null;
+  const firstFinishMs = finishTimes[0] ?? null;
+  const lastFinishMs = finishTimes.at(-1) ?? null;
+  return {
+    runs: runValues.length,
+    maxActiveRuns,
+    startWindowMs: nullableDelta(lastStartMs, firstStartMs),
+    finishWindowMs: nullableDelta(lastFinishMs, firstFinishMs),
+    elapsedMs: stats(runValues.map((run) => run.elapsedMs)),
+    detail: runValues.map((run) => ({
+      name: run.name,
+      runId: run.runId,
+      startOffsetMs: nullableDelta(run.startMs, firstStartMs),
+      finishOffsetMs: nullableDelta(run.finishMs, firstStartMs),
+      elapsedMs: run.elapsedMs,
+      code: run.code,
     })),
   };
 }
@@ -631,6 +727,10 @@ function sum(values) {
   return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }
 
+function numericSort(left, right) {
+  return left - right;
+}
+
 function numberOrZero(value) {
   return Number.isFinite(value) ? value : 0;
 }
@@ -678,5 +778,5 @@ function timestamp() {
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
 }

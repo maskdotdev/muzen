@@ -62,6 +62,7 @@ const probes = [
     expectExhausted: 0,
     expectFindings: 0,
     expectProviderQueue: true,
+    expectConcurrentAdmission: true,
   },
 ];
 
@@ -89,9 +90,11 @@ for (const probe of probes) {
     shared: compactTotals(summary.totals.shared),
     process: compactTotals(summary.totals.process),
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
+    observedRuns: summary.observedRuns,
     timing: compactTiming(summary.timing),
     fakeModel: compactFakeModel(summary.fakeModel),
     release: summary.release,
+    admission: compactAdmission(summary.admission),
     isolation: compactIsolation(summary.isolation),
   });
 }
@@ -253,6 +256,18 @@ function assertProbe(probe, summary) {
     assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
     assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
   }
+  if (probe.expectConcurrentAdmission) {
+    assertGreaterThan(
+      `${probe.name} shared concurrent admission`,
+      summary.admission.shared.maxActiveRuns,
+      1,
+    );
+    assertGreaterThan(
+      `${probe.name} process concurrent admission`,
+      summary.admission.process.maxActiveRuns,
+      1,
+    );
+  }
 }
 
 function assertIsolation(probeName, mode, isolation, { requireFrames }) {
@@ -298,6 +313,23 @@ function compactTiming(timing) {
   return {
     modeTotals: timing.modeTotals,
     fakeProvider: timing.fakeProvider,
+  };
+}
+
+function compactAdmission(admission) {
+  return {
+    shared: compactModeAdmission(admission.shared),
+    process: compactModeAdmission(admission.process),
+  };
+}
+
+function compactModeAdmission(admission) {
+  return {
+    runs: admission.runs,
+    maxActiveRuns: admission.maxActiveRuns,
+    startWindowMs: admission.startWindowMs,
+    finishWindowMs: admission.finishWindowMs,
+    elapsedMs: admission.elapsedMs,
   };
 }
 
