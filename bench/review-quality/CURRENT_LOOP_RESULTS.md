@@ -1,5 +1,75 @@
 # Current Loop Benchmark Results
 
+## Shared/process runner fake-proxy investigation
+
+Generated on 2026-06-21 with `target/release/muzen-runner` while diagnosing
+shared/concurrent runner behavior before any further subscription-backed evals.
+
+The current fake-first gate sequence is:
+
+```sh
+node bench/review-quality/check-local.mjs \
+  --runner-path target/release/muzen-runner \
+  --include-codex-proxy true
+```
+
+That opt-in gate runs the standard fake local probes plus a Codex-proxy-shaped
+retry probe. The proxy probe starts the real local Codex Responses proxy with a
+temporary fake auth file, points it at the fake Responses server, and exercises
+the same `OPENAI_BASE_URL` path used by live subscription evals without making
+live model calls.
+
+Latest `check-local --include-codex-proxy true` result:
+
+| Probe | Shared findings | Process findings | Shared model calls | Process model calls | Shared tool calls | Process tool calls | Shared provider errors | Process provider errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| codex-proxy-deterministic-retry | 5 | 5 | 46 | 46 | 10 | 10 | 21 | 21 | passed |
+
+Stress sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
+  --runner-path target/release/muzen-runner \
+  --concurrency 5,8,12 \
+  --cases 12 \
+  --max-tool-calls 6 \
+  --max-turns 10 \
+  --tools-before-final 1 \
+  --http-error-attempts-per-request 1 \
+  --final-mode candidate \
+  --latency-ms 25 \
+  --jitter-ms 0 \
+  --max-concurrent 1 \
+  --via-codex-proxy true
+```
+
+| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Retry backoff ms shared/process | Provider queue mean delta ms | Provider queue p95 delta ms | Result |
+| ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | --- |
+| 5 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22060 / 22071 | 0.14 | 2 | passed |
+| 8 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22044 / 22058 | -0.10 | 0 | passed |
+| 12 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22061 / 22068 | -3.12 | -1 | passed |
+
+Interpretation:
+
+- The deterministic fake/proxy path does not reproduce a shared-only
+  concurrency regression. Shared and process modes match on findings, model
+  calls, tool calls, token totals, retry counts, and terminal completion across
+  queue pressure, candidate publication, schema repair, and proxy-shaped retry.
+- The earlier global `--http-error-every` stressor is useful only as a chaos
+  probe. It assigns fake 500s by request arrival sequence, so minor shared vs
+  process timing differences can make different conversations absorb retries
+  and create false parity failures. Use `--http-error-attempts-per-request`
+  for parity gates.
+- Process-mode frame logs still contain one pre-`run.start` handshake response
+  frame without a `runId` per case. That is expected protocol metadata rather
+  than mixed-run leakage; isolation gates continue to fail on orphan or
+  unexpected run IDs.
+
+Current recommendation: do not run live evals until the proxy-shaped fake gate
+is clean on the branch under test. If a live eval is needed after this point, it
+should be a deliberately approved, small runner-mode diagnostic through the
+subscription proxy with semantic scoring disabled first.
+
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
 
