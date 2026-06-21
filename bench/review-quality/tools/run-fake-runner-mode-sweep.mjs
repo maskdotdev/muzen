@@ -43,6 +43,7 @@ const postPrepareCooldownMs = nonnegativeInt(
   args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
 );
+const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
 
 if (!fs.existsSync(runnerPath)) {
   fail(`runner not found at ${runnerPath}; run: cargo build --release --bin muzen-runner`);
@@ -146,6 +147,7 @@ const report = {
     toolName,
     viaCodexProxy,
     postPrepareCooldownMs,
+    failOnRegression,
   },
   regressions: summarizeRegressions(runs),
   runs,
@@ -153,6 +155,9 @@ const report = {
 
 fs.writeFileSync(path.join(outputDir, "sweep-summary.json"), `${JSON.stringify(report, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+if (failOnRegression && hasBlockingRegressions(report.regressions)) {
+  fail(`fake runner-mode sweep found regressions; see ${path.join(outputDir, "sweep-summary.json")}`);
+}
 
 function compactRun(summary, { concurrency, outputDir }) {
   const totals = summary.totals ?? {};
@@ -249,6 +254,14 @@ function summarizeRegressions(runs) {
       runs.map((run) => Math.abs(run.fakeProviderQueuedMs.meanDeltaSharedMinusProcess ?? 0)),
     ),
   };
+}
+
+function hasBlockingRegressions(regressions) {
+  return (
+    (regressions.parityFailures?.length ?? 0) > 0 ||
+    (regressions.releaseFailures?.length ?? 0) > 0 ||
+    (regressions.isolationFailures?.length ?? 0) > 0
+  );
 }
 
 function modeIsolationFailures(mode, { allowedFrameMissingRunIds }) {
@@ -348,6 +361,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--post-prepare-cooldown-ms 3000]\n",
+    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--fail-on-regression true|false] [--post-prepare-cooldown-ms 3000]\n",
   );
 }
