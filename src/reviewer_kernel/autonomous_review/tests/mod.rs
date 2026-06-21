@@ -1,6 +1,12 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::reviewer_kernel::agent_loop::budgeted_tool_result_count;
+use crate::reviewer_kernel::review_contract::{
+    ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus, PathPolicyV1,
+    RenameDetection, SnapshotMode,
+};
 
 use super::*;
 
@@ -230,6 +236,58 @@ fn publication_gate_accepts_single_concrete_negative_outcome() {
 }
 
 #[test]
+fn build_findings_records_publication_decisions() {
+    let snapshot = publication_snapshot();
+    let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
+    let tools = ToolEngine::new(Arc::clone(&snapshot), limits).expect("tool engine");
+    let accepted = publication_candidate(
+        "Async callback returns before writes finish",
+        "The changed forEach async callback returns success before delete promises finish, so failed deletes can be silently skipped.",
+    );
+    let missing_validation = publication_candidate(
+        "Missing validator result",
+        "The changed handler returns success before the queued delete is observed by callers.",
+    );
+    let validation = ValidationPacket {
+        candidate_id: accepted.id.clone(),
+        status: "supported".to_string(),
+        summary: "raw diff and file evidence support the candidate".to_string(),
+        artifact_id: None,
+        child_session_id: Some("review-orchestrator/validate-0001".to_string()),
+    };
+
+    let outcome = build_findings(
+        &tools,
+        &snapshot,
+        "head",
+        &[accepted.clone(), missing_validation.clone()],
+        &[validation],
+    );
+
+    assert_eq!(outcome.findings.len(), 1);
+    assert_eq!(outcome.publication_decisions.len(), 2);
+    let accepted_decision = outcome
+        .publication_decisions
+        .iter()
+        .find(|decision| decision.candidate_id == accepted.id)
+        .expect("accepted decision");
+    assert_eq!(accepted_decision.decision, "accepted");
+    assert_eq!(accepted_decision.reason, "published");
+    assert_eq!(
+        accepted_decision.validator_session_id.as_deref(),
+        Some("review-orchestrator/validate-0001")
+    );
+    let rejected_decision = outcome
+        .publication_decisions
+        .iter()
+        .find(|decision| decision.candidate_id == missing_validation.id)
+        .expect("rejected decision");
+    assert_eq!(rejected_decision.decision, "rejected");
+    assert_eq!(rejected_decision.reason, "missing_validation");
+    assert_eq!(outcome.rejection_reasons["missing_validation"], 1);
+}
+
+#[test]
 fn final_output_schema_gate_requires_required_fields() {
     assert!(session_output_valid(
         SessionKind::Orchestrator,
@@ -281,6 +339,49 @@ fn publication_changed_paths() -> std::collections::BTreeSet<String> {
 
 fn publication_changed_ranges() -> BTreeMap<String, Vec<(usize, usize)>> {
     BTreeMap::from([("src/workflow.ts".to_string(), vec![(40, 45)])])
+}
+
+fn publication_snapshot() -> Arc<RepoSnapshot> {
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(temp.path().join("src")).expect("create src");
+    std::fs::write(
+        temp.path().join("src/workflow.ts"),
+        "export async function run(items) {\n  items.forEach(async (item) => deleteItem(item));\n}\n",
+    )
+    .expect("write workflow");
+    let change = ChangeScopeV1 {
+        kind: ChangeKind::LocalDiff,
+        change_id: "publication-test".to_string(),
+        source_ref: "head".to_string(),
+        target_ref: "base".to_string(),
+        base_revision_id: "base".to_string(),
+        head_revision_id: "head".to_string(),
+        merge_base_revision_id: None,
+        changed_files_manifest_ref: None,
+        diff_manifest_ref: None,
+        inline_diff: Some(
+            r#"diff --git a/src/workflow.ts b/src/workflow.ts
+--- a/src/workflow.ts
++++ b/src/workflow.ts
+@@ -42,6 +42,7 @@ export async function run(items) {
++  items.forEach(async (item) => deleteItem(item));
+ }
+"#
+            .to_string(),
+        ),
+        snapshot_mode: SnapshotMode::WorktreeHead,
+        rename_detection: RenameDetection::None,
+        changed_files: vec![ChangedFileEntryV1 {
+            status: ChangedFileStatus::Modified,
+            old_path: Some(PathBuf::from("src/workflow.ts")),
+            new_path: Some(PathBuf::from("src/workflow.ts")),
+            old_content_hash: None,
+            new_content_hash: None,
+            is_binary: false,
+            is_generated: false,
+        }],
+    };
+    RepoSnapshot::build(temp.path(), &PathPolicyV1::bench(64, 20), &change).expect("snapshot")
 }
 
 fn tool_result_for_budget_test(

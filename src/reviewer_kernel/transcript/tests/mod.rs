@@ -5,6 +5,10 @@ use crate::reviewer_kernel::kernel_types::{
 use crate::reviewer_kernel::review_contract::ToolName;
 
 fn tool_result(call: &str, payload_chars: usize) -> ConversationItem {
+    tool_result_with_data(call, json!({ "content": "x".repeat(payload_chars) }))
+}
+
+fn tool_result_with_data(call: &str, data: serde_json::Value) -> ConversationItem {
     ConversationItem::ToolResult {
         call_id: ToolCallId(call.to_string()),
         name: ToolId::from(ToolName::ReadFile),
@@ -20,7 +24,7 @@ fn tool_result(call: &str, payload_chars: usize) -> ConversationItem {
                 key_hash: None,
             },
             limits: LimitInfo::default(),
-            data: Some(json!({ "content": "x".repeat(payload_chars) })),
+            data: Some(data),
             error: None,
         }),
     }
@@ -52,8 +56,8 @@ fn budget_transcript() -> Vec<ConversationItem> {
 fn under_budget_transcripts_stay_untouched() {
     let mut transcript = budget_transcript();
     let before = serde_json::to_string(&transcript).expect("serialize");
-    assert_eq!(enforce_prompt_budget(&mut transcript, 1_000_000), 0);
-    assert_eq!(enforce_prompt_budget(&mut transcript, 0), 0);
+    assert_eq!(enforce_prompt_budget(&mut transcript, 1_000_000), None);
+    assert_eq!(enforce_prompt_budget(&mut transcript, 0), None);
     let after = serde_json::to_string(&transcript).expect("serialize");
     assert_eq!(before, after, "no-op enforcement must keep bytes stable");
 }
@@ -62,8 +66,13 @@ fn under_budget_transcripts_stay_untouched() {
 fn over_budget_evicts_oldest_tool_results_first() {
     let mut transcript = budget_transcript();
     // Fits roughly two payloads: forces eviction of the two oldest.
-    let evicted = enforce_prompt_budget(&mut transcript, 2_300);
-    assert_eq!(evicted, 2);
+    let compaction = enforce_prompt_budget(&mut transcript, 2_300).expect("compaction");
+    assert_eq!(compaction.evicted.tool_results, 2);
+    assert_eq!(compaction.evicted.model_text, 0);
+    assert_eq!(compaction.evicted.artifact_refs, 2);
+    assert_eq!(compaction.transcript_items_before, 6);
+    assert_eq!(compaction.transcript_items_after, 6);
+    assert!(compaction.token_estimate_before > compaction.token_estimate_after);
     assert!(payload_is_evicted(&transcript[2]));
     assert!(payload_is_evicted(&transcript[3]));
     assert!(!payload_is_evicted(&transcript[4]));
@@ -83,9 +92,9 @@ fn over_budget_evicts_oldest_tool_results_first() {
 #[test]
 fn recent_tool_results_survive_even_when_budget_is_tiny() {
     let mut transcript = budget_transcript();
-    let evicted = enforce_prompt_budget(&mut transcript, 1);
+    let evicted = enforce_prompt_budget(&mut transcript, 1).expect("compaction");
     assert_eq!(
-        evicted, 2,
+        evicted.evicted.tool_results, 2,
         "only the unprotected prefix of tool results may be evicted"
     );
     assert!(!payload_is_evicted(&transcript[4]));
@@ -113,10 +122,32 @@ fn repeated_enforcement_is_idempotent() {
     let first = enforce_prompt_budget(&mut transcript, 2_300);
     let snapshot = serde_json::to_string(&transcript).expect("serialize");
     let second = enforce_prompt_budget(&mut transcript, 2_300);
-    assert!(first > 0);
-    assert_eq!(second, 0);
+    assert!(first.is_some());
+    assert_eq!(second, None);
     assert_eq!(
         snapshot,
         serde_json::to_string(&transcript).expect("serialize")
     );
+}
+
+#[test]
+fn compaction_counts_candidate_evidence_payloads() {
+    let mut transcript = vec![
+        ConversationItem::System {
+            content: "system prompt".to_string(),
+        },
+        tool_result_with_data(
+            "call-0",
+            json!({ "candidateCount": 1, "content": "x".repeat(4_000) }),
+        ),
+        tool_result("call-1", 4_000),
+        tool_result("call-2", 4_000),
+        tool_result("call-3", 4_000),
+    ];
+
+    let compaction = enforce_prompt_budget(&mut transcript, 2_300).expect("compaction");
+
+    assert_eq!(compaction.evicted.tool_results, 2);
+    assert_eq!(compaction.evicted.candidate_evidence, 1);
+    assert_eq!(compaction.evicted.artifact_refs, 2);
 }

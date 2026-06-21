@@ -47,6 +47,8 @@ pub(crate) struct AgentLoopReport {
     pub(crate) status: String,
     pub(crate) output: Option<String>,
     pub(crate) model_calls: usize,
+    pub(crate) tool_calls_used: usize,
+    pub(crate) exhausted_tool_budget: bool,
     pub(crate) model_metrics: ModelMetricsSnapshot,
     pub(crate) tool_counts: ToolCounts,
     pub(crate) tokens: TokenUsage,
@@ -99,19 +101,32 @@ impl AgentLoopRuntime {
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
-            let evicted_tool_results =
-                enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
-            if evicted_tool_results > 0 {
+            let compaction = enforce_prompt_budget(&mut transcript, scope.budget.max_prompt_tokens);
+            if let Some(compaction) = compaction {
                 self.events
                     .emit_planned_runtime(self.policy.plan_agent_trace_event(
                         &scope,
                         Some(turn_id),
                         "transcript_compacted",
-                        format!("evicted {evicted_tool_results} old tool result(s)"),
+                        format!(
+                            "evicted {} transcript item reference(s)",
+                            compaction.evicted_total()
+                        ),
                         json!({
-                            "evictedToolResults": evicted_tool_results,
-                            "transcriptItemsAfter": transcript.len(),
-                            "estimatedPromptTokensAfter": estimate_prompt_tokens(&transcript),
+                            "sessionId": scope.id.0,
+                            "turnId": turn_id.0,
+                            "nextModelTurnId": turn_id.0,
+                            "evictedToolResults": compaction.evicted.tool_results,
+                            "evictedItemCounts": {
+                                "toolResult": compaction.evicted.tool_results,
+                                "modelText": compaction.evicted.model_text,
+                                "artifactRef": compaction.evicted.artifact_refs,
+                                "candidateEvidence": compaction.evicted.candidate_evidence,
+                            },
+                            "transcriptItemsBefore": compaction.transcript_items_before,
+                            "transcriptItemsAfter": compaction.transcript_items_after,
+                            "estimatedPromptTokensBefore": compaction.token_estimate_before,
+                            "estimatedPromptTokensAfter": compaction.token_estimate_after,
                             "maxPromptTokens": scope.budget.max_prompt_tokens,
                         }),
                     ));
@@ -416,12 +431,15 @@ impl AgentLoopRuntime {
                 &finalization_reason,
                 final_output.clone(),
                 model_calls,
+                tool_calls_used,
                 tool_counts,
             ),
             completed,
             status,
             output,
             model_calls,
+            tool_calls_used,
+            exhausted_tool_budget: tool_calls_used >= scope.budget.max_tool_calls,
             model_metrics,
             tool_counts,
             tokens,
@@ -451,6 +469,8 @@ fn terminal_report(
         status: status.to_string(),
         output: None,
         model_calls: 0,
+        tool_calls_used: 0,
+        exhausted_tool_budget: false,
         model_metrics: ModelMetricsSnapshot::default(),
         tool_counts: ToolCounts::default(),
         tokens: TokenUsage::default(),
@@ -466,6 +486,7 @@ fn terminal_report(
             },
             FinalOutputDiagnostic::default(),
             0,
+            0,
             ToolCounts::default(),
         ),
     }
@@ -479,6 +500,7 @@ fn session_diagnostic(
     finalization_reason: &str,
     final_output: FinalOutputDiagnostic,
     model_calls: usize,
+    tool_calls_used: usize,
     tool_counts: ToolCounts,
 ) -> SessionCompletionDiagnostic {
     SessionCompletionDiagnostic {
@@ -488,6 +510,9 @@ fn session_diagnostic(
         completion_summary: Some(status.to_string()),
         finalization_reason: finalization_reason.to_string(),
         final_output,
+        tool_calls_used,
+        max_tool_calls: scope.budget.max_tool_calls,
+        exhausted_tool_budget: tool_calls_used >= scope.budget.max_tool_calls,
         saw_diff: tool_counts.read_diff > 0,
         saw_file: tool_counts.read_file + tool_counts.read_file_range + tool_counts.read_head_file
             > 0,

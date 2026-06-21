@@ -24,6 +24,32 @@ const TOOL_RESULT_FRAMING_CHARS: usize = 160;
 /// latest evidence to produce the next turn.
 const PROTECTED_RECENT_TOOL_RESULTS: usize = 2;
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct TranscriptCompaction {
+    pub(crate) token_estimate_before: usize,
+    pub(crate) token_estimate_after: usize,
+    pub(crate) transcript_items_before: usize,
+    pub(crate) transcript_items_after: usize,
+    pub(crate) evicted: EvictedItemCounts,
+}
+
+impl TranscriptCompaction {
+    pub(crate) fn evicted_total(&self) -> usize {
+        self.evicted.tool_results
+            + self.evicted.model_text
+            + self.evicted.artifact_refs
+            + self.evicted.candidate_evidence
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct EvictedItemCounts {
+    pub(crate) tool_results: usize,
+    pub(crate) model_text: usize,
+    pub(crate) artifact_refs: usize,
+    pub(crate) candidate_evidence: usize,
+}
+
 pub(crate) fn estimate_prompt_tokens(transcript: &[ConversationItem]) -> usize {
     transcript.iter().map(estimate_item_tokens).sum()
 }
@@ -62,16 +88,18 @@ fn is_evicted(envelope: &ToolResultEnvelope) -> bool {
 }
 
 /// Evicts oldest tool-result payloads until the transcript fits the budget.
-/// Returns how many results were evicted. A `max_prompt_tokens` of zero is
-/// treated as unbounded.
+/// Returns compaction diagnostics when anything was evicted. A
+/// `max_prompt_tokens` of zero is treated as unbounded.
 pub(crate) fn enforce_prompt_budget(
     transcript: &mut [ConversationItem],
     max_prompt_tokens: u64,
-) -> usize {
+) -> Option<TranscriptCompaction> {
     let max_prompt_tokens = usize::try_from(max_prompt_tokens).unwrap_or(usize::MAX);
-    if max_prompt_tokens == 0 || estimate_prompt_tokens(transcript) <= max_prompt_tokens {
-        return 0;
+    let token_estimate_before = estimate_prompt_tokens(transcript);
+    if max_prompt_tokens == 0 || token_estimate_before <= max_prompt_tokens {
+        return None;
     }
+    let transcript_items_before = transcript.len();
     let tool_result_indices: Vec<usize> = transcript
         .iter()
         .enumerate()
@@ -81,7 +109,7 @@ pub(crate) fn enforce_prompt_budget(
     let evictable = tool_result_indices
         .len()
         .saturating_sub(PROTECTED_RECENT_TOOL_RESULTS);
-    let mut evicted = 0usize;
+    let mut evicted = EvictedItemCounts::default();
     for &index in tool_result_indices.iter().take(evictable) {
         if estimate_prompt_tokens(transcript) <= max_prompt_tokens {
             break;
@@ -92,14 +120,42 @@ pub(crate) fn enforce_prompt_budget(
         if is_evicted(content) {
             continue;
         }
+        evicted.tool_results += 1;
+        if content.artifact_id.is_some() {
+            evicted.artifact_refs += 1;
+        }
+        if carries_candidate_evidence(content) {
+            evicted.candidate_evidence += 1;
+        }
         content.data = Some(json!({
             "evicted": true,
             "note": "Tool result evicted to fit the prompt budget. Re-run the tool or fetch the retained artifact if this evidence is still needed.",
             "artifactId": content.artifact_id.as_ref().map(|id| id.0.clone()),
         }));
-        evicted += 1;
     }
-    evicted
+    if evicted.tool_results == 0 {
+        return None;
+    }
+    Some(TranscriptCompaction {
+        token_estimate_before,
+        token_estimate_after: estimate_prompt_tokens(transcript),
+        transcript_items_before,
+        transcript_items_after: transcript.len(),
+        evicted,
+    })
+}
+
+fn carries_candidate_evidence(envelope: &ToolResultEnvelope) -> bool {
+    let Some(data) = envelope.data.as_ref() else {
+        return false;
+    };
+    data.get("candidateCount")
+        .and_then(Value::as_u64)
+        .is_some_and(|count| count > 0)
+        || data
+            .get("candidateFindings")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
 }
 
 #[cfg(test)]

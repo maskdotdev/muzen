@@ -119,6 +119,7 @@ function readCase(root, name) {
       finalTurn: eventAnalysis.finalTurn,
       toolCallsPerTurn: eventAnalysis.toolCallsPerTurn,
       compactions: eventAnalysis.compactions,
+      compactionDetails: eventAnalysis.compactionDetails,
       repairs: eventAnalysis.repairs,
       latency: eventAnalysis.latency,
     },
@@ -198,6 +199,7 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
           sessionId: traceSessionId,
           turn: traceTurn,
           finalTurn: details.finalTurn ?? false,
+          finalTurnReason: details.finalTurnReason ?? null,
           toolCallsUsed: details.toolCallsUsed ?? details.builtinToolCallsUsed ?? null,
           maxToolCalls: details.maxToolCalls ?? null,
           maxTurns: details.maxTurns ?? null,
@@ -211,11 +213,16 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
           details.calls?.length ?? 0,
         );
       } else if (traceKind === "transcript_compacted") {
+        const nextTurn = details.nextModelTurnId ?? traceTurn;
         compactions.push({
           sessionId: traceSessionId,
           turn: traceTurn,
+          nextModelTurnId: nextTurn,
           evictedToolResults: details.evictedToolResults ?? null,
+          evictedItemCounts: details.evictedItemCounts ?? {},
+          estimatedPromptTokensBefore: details.estimatedPromptTokensBefore ?? null,
           estimatedPromptTokensAfter: details.estimatedPromptTokensAfter ?? null,
+          transcriptItemsBefore: details.transcriptItemsBefore ?? null,
           transcriptItemsAfter: details.transcriptItemsAfter ?? null,
         });
       } else if (traceKind === "schema_repair") {
@@ -259,6 +266,15 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
   const primaryCompactions = compactions.filter(
     (compaction) => compaction.sessionId === primarySessionId,
   );
+  for (const compaction of compactions) {
+    compaction.nextTurnRequestedToolCalls =
+      requestedByTurn.get(`${compaction.sessionId ?? ""}\u0000${compaction.nextModelTurnId ?? ""}`) ??
+      null;
+    compaction.nextTurnRequestedAnotherTool =
+      compaction.nextTurnRequestedToolCalls == null
+        ? null
+        : compaction.nextTurnRequestedToolCalls > 0;
+  }
   const primarySchemaRepairs = schemaRepairs.filter(
     (repair) => repair.sessionId === primarySessionId,
   );
@@ -275,6 +291,7 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
       ? {
           turn: lastPrepared.turn,
           finalTurn: lastPrepared.finalTurn,
+          finalTurnReason: lastPrepared.finalTurnReason,
           modelCompletedToolCallCount: lastCompleted?.toolCallCount ?? null,
           toolCallsUsed: lastPrepared.toolCallsUsed,
           maxToolCalls: lastPrepared.maxToolCalls,
@@ -295,10 +312,22 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
     compactions: {
       count: primaryCompactions.length,
       evictedToolResults: sum(primaryCompactions.map((item) => item.evictedToolResults ?? 0)),
+      evictedItemCounts: sumEvictedItemCounts(primaryCompactions),
+      nextTurnRequestedAnotherTool: countObject(
+        primaryCompactions.map((item) =>
+          item.nextTurnRequestedAnotherTool == null
+            ? null
+            : String(item.nextTurnRequestedAnotherTool),
+        ),
+      ),
       firstTurn: primaryCompactions[0]?.turn ?? null,
       lastTurn: primaryCompactions.at(-1)?.turn ?? null,
+      promptTokensBefore: stats(
+        primaryCompactions.map((item) => item.estimatedPromptTokensBefore),
+      ),
       promptTokensAfter: stats(primaryCompactions.map((item) => item.estimatedPromptTokensAfter)),
     },
+    compactionDetails: primaryCompactions,
     repairs: {
       schemaRepairAttempts: schemaRepairs.length,
       primarySchemaRepairAttempts: primarySchemaRepairs.length,
@@ -333,6 +362,7 @@ function latencyForTurn(sessionId, turn, events) {
 
 function inferFinalizationCause(lastPrepared, lastCompleted, configuredMaxToolCalls) {
   if (!lastPrepared) return "missing_model_turn";
+  if (lastPrepared.finalTurnReason) return lastPrepared.finalTurnReason;
   const maxToolCalls = lastPrepared.maxToolCalls ?? configuredMaxToolCalls;
   if (lastPrepared.finalTurn && (lastPrepared.toolCallsUsed ?? 0) >= maxToolCalls) {
     return "max_tool_calls_final_turn";
@@ -343,25 +373,73 @@ function inferFinalizationCause(lastPrepared, lastCompleted, configuredMaxToolCa
 }
 
 function candidateSummary(audit, events) {
+  const emitted = [];
+  const validations = [];
   const decisions = [];
+  const skipped = [];
   for (const record of events) {
     const trace = record.event?.agentTrace;
-    if (trace?.traceKind !== "candidate_finding_decision") continue;
-    decisions.push({
-      candidateId: trace.details?.candidateId ?? null,
-      decision: trace.details?.decision ?? null,
-      reason: trace.details?.reason ?? null,
-      phase: trace.details?.phase ?? null,
-      validatorStatus: trace.details?.validatorStatus ?? null,
-      validatorSessionId: trace.details?.validatorSessionId ?? null,
-    });
+    if (!trace) continue;
+    if (trace.traceKind === "candidate_finding_emitted") {
+      emitted.push({
+        candidateId: trace.details?.candidateId ?? null,
+        index: trace.details?.index ?? null,
+        path: trace.details?.path ?? null,
+        evidenceArtifacts: Array.isArray(trace.details?.evidenceArtifactIds)
+          ? trace.details.evidenceArtifactIds.length
+          : 0,
+        orchestratorStatus: trace.details?.orchestratorStatus ?? null,
+        orchestratorExhaustedToolBudget:
+          trace.details?.orchestratorExhaustedToolBudget ?? null,
+      });
+    } else if (
+      trace.traceKind === "candidate_validation_started" ||
+      trace.traceKind === "candidate_validation_completed"
+    ) {
+      validations.push({
+        candidateId: trace.details?.candidateId ?? null,
+        phase: trace.traceKind.replace("candidate_validation_", ""),
+        status: trace.details?.status ?? null,
+        validatorSessionId: trace.details?.validatorSessionId ?? null,
+        artifactId: trace.details?.artifactId ?? null,
+      });
+    } else if (trace.traceKind === "candidate_finding_decision") {
+      decisions.push({
+        candidateId: trace.details?.candidateId ?? null,
+        decision: trace.details?.decision ?? null,
+        reason: trace.details?.reason ?? null,
+        phase: trace.details?.phase ?? null,
+        validatorStatus: trace.details?.validatorStatus ?? null,
+        validatorSessionId: trace.details?.validatorSessionId ?? null,
+        publicationSkippedBudgetExhausted:
+          trace.details?.publicationSkippedBudgetExhausted ?? false,
+      });
+    } else if (trace.traceKind === "candidate_publication_skipped") {
+      skipped.push({
+        reason: trace.details?.reason ?? null,
+        orchestratorStatus: trace.details?.orchestratorStatus ?? null,
+        publicationSkippedBudgetExhausted:
+          trace.details?.publicationSkippedBudgetExhausted ?? false,
+      });
+    }
   }
   return {
+    emitted: emitted.length,
+    validationsStarted: validations.filter((validation) => validation.phase === "started").length,
+    validationsCompleted: validations.filter((validation) => validation.phase === "completed")
+      .length,
     decisions: decisions.length,
     accepted: decisions.filter((decision) => decision.decision === "accepted").length,
     rejected: decisions.filter((decision) => decision.decision === "rejected").length,
     reasons: countObject(decisions.map((decision) => decision.reason)),
+    publicationSkippedBudgetExhausted: decisions.filter(
+      (decision) => decision.publicationSkippedBudgetExhausted,
+    ).length + skipped.filter((item) => item.publicationSkippedBudgetExhausted).length,
+    publicationSkipped: skipped.length,
     synthesis: audit.candidates?.synthesis ?? null,
+    emittedDetail: emitted,
+    validationDetail: validations,
+    skippedDetail: skipped,
     detail: decisions,
   };
 }
@@ -513,8 +591,7 @@ function summarizeRunnerTimeline(root) {
 function missingTraceFields() {
   return [
     "Provider request lifecycle timing split into queued_at, request_started_at, first_token_at, completed_at, retry_count, and rate_limit/backoff_ms. Current timestamps only support event-to-event latency.",
-    "Transcript compaction provenance: evicted toolCallIds/artifactIds/itemIds and retained evidence identifiers, not only evicted counts.",
-    "Candidate lifecycle timestamps linking primary candidate emission to validation-session start/end; current candidate decisions are available only after validation completes.",
+    "Transcript compaction provenance: exact evicted toolCallIds/artifactIds/itemIds and retained evidence identifiers. Current instrumentation records counts by kind and turn linkage.",
   ];
 }
 
@@ -548,6 +625,9 @@ function renderMarkdown(report) {
   );
   lines.push(
     `- Primary transcript compactions: shared ${report.patterns.sharedPrimaryCompactions}, process ${report.patterns.processPrimaryCompactions}.`,
+  );
+  lines.push(
+    `- Candidate lifecycle: shared emitted/validated/accepted ${sum(report.cases.map((item) => item.shared.candidates.emitted))}/${sum(report.cases.map((item) => item.shared.candidates.validationsCompleted))}/${sum(report.cases.map((item) => item.shared.candidates.accepted))}; process ${sum(report.cases.map((item) => item.process.candidates.emitted))}/${sum(report.cases.map((item) => item.process.candidates.validationsCompleted))}/${sum(report.cases.map((item) => item.process.candidates.accepted))}.`,
   );
   lines.push(
     `- Cases where process accepted more candidates: ${formatList(report.patterns.processAcceptedMoreCandidatesCases)}.`,
@@ -642,6 +722,16 @@ function histogram(values) {
 
 function countObject(values) {
   return Object.fromEntries(countMap(values));
+}
+
+function sumEvictedItemCounts(compactions) {
+  const totals = {};
+  for (const compaction of compactions) {
+    for (const [kind, count] of Object.entries(compaction.evictedItemCounts ?? {})) {
+      totals[kind] = (totals[kind] ?? 0) + (Number.isFinite(count) ? count : 0);
+    }
+  }
+  return totals;
 }
 
 function countMap(values) {

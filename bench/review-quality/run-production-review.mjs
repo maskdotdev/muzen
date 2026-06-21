@@ -369,15 +369,35 @@ function buildRuntimeDiagnostics(frames) {
         session.modelTurnsPrepared += 1;
       } else if (traceKind === "transcript_compacted") {
         session.transcriptCompactions += 1;
+        session.evictedToolResults += Number(details.evictedToolResults || 0);
+        for (const [kind, count] of Object.entries(details.evictedItemCounts || {})) {
+          session.evictedItemCounts[kind] =
+            (session.evictedItemCounts[kind] || 0) + Number(count || 0);
+        }
       } else if (traceKind === "tool_calls_requested") {
         session.toolCallsRequested += Array.isArray(details.calls) ? details.calls.length : 0;
       } else if (traceKind === "tool_batch_planned") {
         session.toolCallsCompleted += Number(details.scheduledCount || 0);
         session.toolCallsDenied += Number(details.deniedCount || 0);
-      } else if (traceKind === "candidate_decision") {
+      } else if (traceKind === "candidate_finding_emitted") {
+        session.candidatesEmitted += 1;
+      } else if (traceKind === "candidate_validation_started") {
+        session.candidateValidationsStarted += 1;
+      } else if (traceKind === "candidate_validation_completed") {
+        session.candidateValidationsCompleted += 1;
+      } else if (traceKind === "candidate_finding_decision") {
         session.candidateDecisions += 1;
-        if (String(payload.summary || "").toLowerCase().includes("reject")) {
+        if (details.decision === "rejected") {
           session.rejectedCandidates += 1;
+        }
+        if (details.decision === "accepted") session.acceptedCandidates += 1;
+        if (details.publicationSkippedBudgetExhausted) {
+          session.publicationSkippedBudgetExhausted += 1;
+        }
+      } else if (traceKind === "candidate_publication_skipped") {
+        session.publicationSkipped += 1;
+        if (details.publicationSkippedBudgetExhausted) {
+          session.publicationSkippedBudgetExhausted += 1;
         }
       }
     } else if (eventName === "sessionFinished") {
@@ -401,8 +421,16 @@ function sessionDiagnostics(sessions, sessionId) {
       toolCallsCompleted: 0,
       toolCallsDenied: 0,
       transcriptCompactions: 0,
+      evictedToolResults: 0,
+      evictedItemCounts: {},
+      candidatesEmitted: 0,
+      candidateValidationsStarted: 0,
+      candidateValidationsCompleted: 0,
       candidateDecisions: 0,
+      acceptedCandidates: 0,
       rejectedCandidates: 0,
+      publicationSkipped: 0,
+      publicationSkippedBudgetExhausted: 0,
     });
   }
   return sessions.get(sessionId);

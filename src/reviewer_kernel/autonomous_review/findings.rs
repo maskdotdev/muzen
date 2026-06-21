@@ -159,6 +159,17 @@ pub(super) struct ValidationPacket {
 pub(super) struct FindingBuildOutcome {
     pub(super) findings: Vec<FindingV1>,
     pub(super) rejection_reasons: BTreeMap<String, usize>,
+    pub(super) publication_decisions: Vec<CandidatePublicationDecision>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CandidatePublicationDecision {
+    pub(super) candidate_id: String,
+    pub(super) decision: &'static str,
+    pub(super) reason: String,
+    pub(super) validator_status: Option<String>,
+    pub(super) validator_session_id: Option<String>,
 }
 
 pub(super) fn build_findings(
@@ -177,27 +188,46 @@ pub(super) fn build_findings(
     let mut seen_candidate_keys = BTreeSet::new();
     let mut findings = Vec::new();
     let mut rejection_reasons = BTreeMap::new();
+    let mut publication_decisions = Vec::new();
     for candidate in candidates {
         let key = stable_id(&[&candidate.path, &candidate.claim, &candidate.title]);
         if !seen_candidate_keys.insert(key) {
             record_candidate_rejection(&mut rejection_reasons, "duplicate_candidate");
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                "duplicate_candidate",
+                None,
+            ));
             continue;
         }
         let Some(validation) = validation_by_candidate.get(candidate.id.as_str()) else {
             record_candidate_rejection(&mut rejection_reasons, "missing_validation");
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                "missing_validation",
+                None,
+            ));
             continue;
         };
         if !validation.status.trim().eq_ignore_ascii_case("supported") {
-            record_candidate_rejection(
-                &mut rejection_reasons,
-                validation_rejection_reason(&validation.status),
-            );
+            let reason = validation_rejection_reason(&validation.status);
+            record_candidate_rejection(&mut rejection_reasons, &reason);
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                reason,
+                Some(validation),
+            ));
             continue;
         }
         if let Some(reason) =
             autonomous_candidate_rejection_reason(candidate, &changed_paths, &changed_ranges)
         {
             record_candidate_rejection(&mut rejection_reasons, reason);
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                reason,
+                Some(validation),
+            ));
             continue;
         }
         let validation_has_summary = !validation.summary.trim().is_empty();
@@ -208,10 +238,32 @@ pub(super) fn build_findings(
             validation,
             validation_has_summary,
         ));
+        publication_decisions.push(CandidatePublicationDecision {
+            candidate_id: candidate.id.clone(),
+            decision: "accepted",
+            reason: "published".to_string(),
+            validator_status: Some(validation.status.clone()),
+            validator_session_id: validation.child_session_id.clone(),
+        });
     }
     FindingBuildOutcome {
         findings,
         rejection_reasons,
+        publication_decisions,
+    }
+}
+
+fn rejected_publication_decision(
+    candidate: &CandidateFinding,
+    reason: impl Into<String>,
+    validation: Option<&ValidationPacket>,
+) -> CandidatePublicationDecision {
+    CandidatePublicationDecision {
+        candidate_id: candidate.id.clone(),
+        decision: "rejected",
+        reason: reason.into(),
+        validator_status: validation.map(|validation| validation.status.clone()),
+        validator_session_id: validation.and_then(|validation| validation.child_session_id.clone()),
     }
 }
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
@@ -85,6 +85,7 @@ impl AutonomousReviewRuntime {
 
         let template = sessions.into_iter().next();
         let scope = self.orchestrator_scope(template);
+        let trace_scope = scope.clone();
         let report = run_session_loop(
             Arc::clone(&state),
             SessionRunConfig {
@@ -98,8 +99,34 @@ impl AutonomousReviewRuntime {
         )
         .await;
         let parsed = parse_orchestrator_output(report.output.as_deref());
+        for (index, candidate) in parsed.candidates.iter().enumerate() {
+            self.emit_candidate_lifecycle_trace(
+                &trace_scope,
+                "candidate_finding_emitted",
+                format!("candidate {} emitted", candidate.id),
+                json!({
+                    "candidateId": candidate.id,
+                    "index": index,
+                    "path": candidate.path,
+                    "startLine": candidate.start_line,
+                    "endLine": candidate.end_line,
+                    "evidenceArtifactIds": candidate.evidence_artifact_ids,
+                    "relatedPaths": candidate.related_paths,
+                    "orchestratorStatus": report.status,
+                    "orchestratorCompleted": report.completed,
+                    "orchestratorToolCallsUsed": report.tool_calls_used,
+                    "orchestratorMaxToolCalls": trace_scope.budget.max_tool_calls,
+                    "orchestratorExhaustedToolBudget": report.exhausted_tool_budget,
+                }),
+            );
+        }
         let validations = self
-            .run_mandatory_validations(Arc::clone(&state), &parsed.candidates, &cancel)
+            .run_mandatory_validations(
+                Arc::clone(&state),
+                &trace_scope,
+                &parsed.candidates,
+                &cancel,
+            )
             .await;
 
         let finding_outcome = build_findings(
@@ -109,8 +136,52 @@ impl AutonomousReviewRuntime {
             &parsed.candidates,
             &validations,
         );
+        if parsed.candidates.is_empty() && report.exhausted_tool_budget && !report.completed {
+            self.emit_candidate_lifecycle_trace(
+                &trace_scope,
+                "candidate_publication_skipped",
+                "candidate publication skipped after orchestrator exhausted tool budget"
+                    .to_string(),
+                json!({
+                    "reason": "orchestrator_exhausted_tool_budget",
+                    "orchestratorStatus": report.status,
+                    "orchestratorCompleted": report.completed,
+                    "orchestratorToolCallsUsed": report.tool_calls_used,
+                    "orchestratorMaxToolCalls": trace_scope.budget.max_tool_calls,
+                    "orchestratorExhaustedToolBudget": report.exhausted_tool_budget,
+                    "publicationSkippedBudgetExhausted": true,
+                }),
+            );
+        }
         let findings = finding_outcome.findings;
         let rejection_reasons = finding_outcome.rejection_reasons;
+        for decision in &finding_outcome.publication_decisions {
+            let publication_skipped_budget_exhausted = decision.decision == "rejected"
+                && decision.reason == "missing_validation"
+                && report.exhausted_tool_budget;
+            self.emit_candidate_lifecycle_trace(
+                &trace_scope,
+                "candidate_finding_decision",
+                format!(
+                    "candidate {} {}: {}",
+                    decision.candidate_id, decision.decision, decision.reason
+                ),
+                json!({
+                    "candidateId": decision.candidate_id,
+                    "decision": decision.decision,
+                    "reason": decision.reason,
+                    "phase": "publication",
+                    "validatorStatus": decision.validator_status,
+                    "validatorSessionId": decision.validator_session_id,
+                    "orchestratorStatus": report.status,
+                    "orchestratorCompleted": report.completed,
+                    "orchestratorToolCallsUsed": report.tool_calls_used,
+                    "orchestratorMaxToolCalls": trace_scope.budget.max_tool_calls,
+                    "orchestratorExhaustedToolBudget": report.exhausted_tool_budget,
+                    "publicationSkippedBudgetExhausted": publication_skipped_budget_exhausted,
+                }),
+            );
+        }
         for finding in &findings {
             let tool_call_id = ToolCallId(format!("{}-autonomous-review", finding.id));
             self.events.emit_runtime_with_context(
@@ -195,6 +266,7 @@ impl AutonomousReviewRuntime {
     async fn run_mandatory_validations(
         &self,
         state: Arc<AutonomousDelegateState>,
+        trace_scope: &SessionScope,
         candidates: &[CandidateFinding],
         cancel: &CancellationToken,
     ) -> Vec<ValidationPacket> {
@@ -203,13 +275,22 @@ impl AutonomousReviewRuntime {
             if cancel.is_cancelled() {
                 break;
             }
+            self.emit_candidate_lifecycle_trace(
+                trace_scope,
+                "candidate_validation_started",
+                format!("validation started for candidate {}", candidate.id),
+                json!({
+                    "candidateId": candidate.id,
+                    "path": candidate.path,
+                }),
+            );
             let task = DelegateTaskRequest {
                 objective: format!("Validate candidate finding {}", candidate.id),
                 prompt: serde_json::to_string(candidate)
                     .unwrap_or_else(|_| candidate.claim.clone()),
                 candidate: Some(serde_json::to_value(candidate).unwrap_or(Value::Null)),
             };
-            match run_child_delegate(
+            let validation = match run_child_delegate(
                 Arc::clone(&state),
                 DelegateTaskKind::ValidateFinding,
                 task,
@@ -217,23 +298,52 @@ impl AutonomousReviewRuntime {
             )
             .await
             {
-                Ok(packet) => validations.push(ValidationPacket {
+                Ok(packet) => ValidationPacket {
                     candidate_id: candidate.id.clone(),
                     status: packet.status,
                     summary: packet.summary,
                     artifact_id: packet.artifact_id,
                     child_session_id: Some(packet.session_id),
-                }),
-                Err(error) => validations.push(ValidationPacket {
+                },
+                Err(error) => ValidationPacket {
                     candidate_id: candidate.id.clone(),
                     status: "insufficient".to_string(),
                     summary: format!("validation failed: {error}"),
                     artifact_id: None,
                     child_session_id: None,
+                },
+            };
+            self.emit_candidate_lifecycle_trace(
+                trace_scope,
+                "candidate_validation_completed",
+                format!(
+                    "validation completed for candidate {}: {}",
+                    candidate.id, validation.status
+                ),
+                json!({
+                    "candidateId": candidate.id,
+                    "status": validation.status,
+                    "validatorSessionId": validation.child_session_id,
+                    "artifactId": validation.artifact_id.as_ref().map(|artifact_id| artifact_id.0.clone()),
+                    "summaryBytes": validation.summary.len(),
                 }),
-            }
+            );
+            validations.push(validation);
         }
         validations
+    }
+
+    fn emit_candidate_lifecycle_trace(
+        &self,
+        scope: &SessionScope,
+        trace_kind: &'static str,
+        summary: String,
+        details: Value,
+    ) {
+        self.events.emit_planned_runtime(
+            self.policy
+                .plan_agent_trace_event(scope, None, trace_kind, summary, details),
+        );
     }
 }
 

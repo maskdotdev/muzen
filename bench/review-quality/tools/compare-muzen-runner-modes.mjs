@@ -126,8 +126,17 @@ function compactCase(root, name, report) {
       toolCallsCompleted: orchestrator.toolCallsCompleted ?? 0,
       toolCallsDenied: orchestrator.toolCallsDenied ?? 0,
       transcriptCompactions: orchestrator.transcriptCompactions ?? 0,
+      evictedToolResults: orchestrator.evictedToolResults ?? 0,
+      evictedItemCounts: orchestrator.evictedItemCounts ?? {},
+      candidatesEmitted: orchestrator.candidatesEmitted ?? 0,
+      candidateValidationsStarted: orchestrator.candidateValidationsStarted ?? 0,
+      candidateValidationsCompleted: orchestrator.candidateValidationsCompleted ?? 0,
       candidateDecisions: orchestrator.candidateDecisions ?? 0,
+      acceptedCandidates: orchestrator.acceptedCandidates ?? 0,
       rejectedCandidates: orchestrator.rejectedCandidates ?? 0,
+      publicationSkipped: orchestrator.publicationSkipped ?? 0,
+      publicationSkippedBudgetExhausted:
+        orchestrator.publicationSkippedBudgetExhausted ?? 0,
       exhaustedMaxToolCalls:
         (orchestrator.toolCallsCompleted ?? 0) >= maxToolCalls ||
         (orchestrator.toolCallsRequested ?? 0) >= maxToolCalls,
