@@ -17,6 +17,8 @@ import http from "node:http";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -26,6 +28,25 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const RESULTS_ROOT = path.join(REPO_ROOT, "bench", "results-review-quality");
 const REVIEW_QUALITY_DIR = path.join(REPO_ROOT, "bench", "review-quality");
+
+// Codex ChatGPT subscription proxy. The proxy fixes its account at `serve`
+// time, so to let a run pick an account the UI manages one proxy process per
+// account and points OPENAI_BASE_URL at it.
+const CODEX_PROXY_SCRIPT = path.join(
+  REPO_ROOT,
+  "experiments",
+  "codex-chatgpt-proxy",
+  "codex-chatgpt-responses-proxy.mjs",
+);
+const CODEXBAR_ACCOUNTS_FILE = path.join(
+  os.homedir(),
+  "Library",
+  "Application Support",
+  "CodexBar",
+  "managed-codex-accounts.json",
+);
+const CODEX_PROXY_REASONING_EFFORT = "low";
+const MANUAL_PROXY_BASE_URL = "http://127.0.0.1:4141/v1";
 
 // Filenames the trace harness writes into a trace directory.
 const TRACE_MARKER = "agent-trace.json";
@@ -441,6 +462,162 @@ function apiSuites(res) {
       hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
       hasOpenAiBaseUrl: Boolean(process.env.OPENAI_BASE_URL),
     },
+    codex: {
+      available: readCodexAccounts().length > 0,
+      accounts: readCodexAccounts(),
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Codex proxy accounts + managed proxy lifecycle
+// ---------------------------------------------------------------------------
+
+// Read CodexBar-managed accounts, exposing only non-secret identifying fields
+// (never the managed home path, auth file, or fingerprint).
+function readCodexAccounts() {
+  try {
+    const data = JSON.parse(fs.readFileSync(CODEXBAR_ACCOUNTS_FILE, "utf8"));
+    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    return accounts
+      .map((a) => ({
+        id: a.id || null,
+        email: a.email || null,
+        workspaceLabel: a.workspaceLabel || null,
+        workspaceAccountID: a.workspaceAccountID || null,
+      }))
+      .filter((a) => a.id || a.email);
+  } catch {
+    return [];
+  }
+}
+
+function apiCodexAccounts(res) {
+  const accounts = readCodexAccounts();
+  sendJson(res, 200, {
+    available: accounts.length > 0,
+    accountsFileExists: fs.existsSync(CODEXBAR_ACCOUNTS_FILE),
+    proxyScriptExists: fs.existsSync(CODEX_PROXY_SCRIPT),
+    accounts,
+    proxies: [...codexProxies.values()].map((p) => ({
+      account: p.account.email || p.account.id,
+      port: p.port,
+      alive: p.proc.exitCode === null,
+    })),
+  });
+}
+
+const codexProxies = new Map(); // accountKey -> { proc, port, account, startedAt, logTail }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function proxyHealth(port) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+// Resolve `selector` to a known CodexBar account, then return a live managed
+// proxy bound to it (reusing one if already healthy). Throws with the proxy's
+// own diagnostics if it cannot become ready.
+async function ensureCodexProxy(selector) {
+  const accounts = readCodexAccounts();
+  const acct = accounts.find((a) =>
+    [a.id, a.email, a.workspaceAccountID]
+      .filter(Boolean)
+      .some((v) => String(v).toLowerCase() === String(selector).toLowerCase()),
+  );
+  if (!acct) throw new Error(`unknown Codex account: ${selector}`);
+  const key = acct.id || acct.email;
+
+  const existing = codexProxies.get(key);
+  if (existing && existing.proc.exitCode === null) {
+    const health = await proxyHealth(existing.port);
+    if (health) return { port: existing.port, account: acct, health };
+    try {
+      existing.proc.kill();
+    } catch {
+      /* noop */
+    }
+    codexProxies.delete(key);
+  }
+
+  const port = await getFreePort();
+  const selectorArg = acct.email || acct.id;
+  const proc = spawn(
+    "node",
+    [
+      CODEX_PROXY_SCRIPT,
+      "serve",
+      "--port",
+      String(port),
+      "--reasoning-effort",
+      CODEX_PROXY_REASONING_EFFORT,
+      "--codexbar-account",
+      selectorArg,
+    ],
+    { cwd: REPO_ROOT, env: process.env },
+  );
+  const entry = { proc, port, account: acct, startedAt: Date.now(), logTail: [] };
+  codexProxies.set(key, entry);
+  const capture = (d) => {
+    entry.logTail.push(...splitLines(d));
+    if (entry.logTail.length > 50) entry.logTail.splice(0, entry.logTail.length - 50);
+  };
+  proc.stdout.on("data", capture);
+  proc.stderr.on("data", capture);
+  proc.on("exit", () => {
+    if (codexProxies.get(key) === entry) codexProxies.delete(key);
+  });
+
+  const deadline = Date.now() + 9000;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) {
+      throw new Error(`Codex proxy exited: ${entry.logTail.slice(-3).join(" | ") || "no output"}`);
+    }
+    const health = await proxyHealth(port);
+    if (health) return { port, account: acct, health };
+    await sleep(300);
+  }
+  try {
+    proc.kill();
+  } catch {
+    /* noop */
+  }
+  codexProxies.delete(key);
+  throw new Error(`Codex proxy for ${selectorArg} did not become ready: ${entry.logTail.slice(-3).join(" | ")}`);
+}
+
+function killCodexProxies() {
+  for (const { proc } of codexProxies.values()) {
+    try {
+      proc.kill();
+    } catch {
+      /* noop */
+    }
+  }
+}
+process.on("exit", killCodexProxies);
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    killCodexProxies();
+    process.exit(0);
   });
 }
 
@@ -484,13 +661,27 @@ async function apiLaunch(req, res) {
   ctx.traceDir = path.join(RESULTS_ROOT, runDir, "trace");
 
   const env = { ...process.env };
+  let proxyInfo = null;
   if (preset.needsModel) {
     const model = payload.model || process.env.MODEL || "gpt-5.4-mini";
     if (!SAFE_TOKEN.test(model)) return sendJson(res, 400, { error: "invalid model" });
     env.MODEL = model;
     if (payload.useProxy) {
-      env.OPENAI_BASE_URL = "http://127.0.0.1:4141/v1";
       env.OPENAI_API_KEY = env.OPENAI_API_KEY || "muzen-codex-proxy";
+      if (payload.codexAccount) {
+        // Spin up (or reuse) a managed proxy bound to the chosen account.
+        try {
+          const { port, account, health } = await ensureCodexProxy(payload.codexAccount);
+          env.OPENAI_BASE_URL = `http://127.0.0.1:${port}/v1`;
+          proxyInfo = { account: account.email || account.id, port, hasAuth: !!(health && health.hasAuth) };
+        } catch (e) {
+          return sendJson(res, 400, { error: `Codex proxy: ${e.message}` });
+        }
+      } else {
+        // Fall back to whatever proxy the user already started on :4141.
+        env.OPENAI_BASE_URL = MANUAL_PROXY_BASE_URL;
+        proxyInfo = { account: "already-running proxy", port: 4141, hasAuth: null };
+      }
     }
   }
 
@@ -512,6 +703,13 @@ async function apiLaunch(req, res) {
 
   const child = spawn("node", cmdArgs, { cwd: REPO_ROOT, env });
   pushJobLine(job, `$ MODEL=${env.MODEL || "(none)"} node ${cmdArgs.join(" ")}`, "cmd");
+  if (proxyInfo) {
+    pushJobLine(
+      job,
+      `↳ Codex proxy: ${proxyInfo.account} on :${proxyInfo.port}${proxyInfo.hasAuth === false ? " (no cached auth — run proxy login)" : ""}`,
+      "cmd",
+    );
+  }
   child.stdout.on("data", (d) => splitLines(d).forEach((l) => pushJobLine(job, l, "out")));
   child.stderr.on("data", (d) => splitLines(d).forEach((l) => pushJobLine(job, l, "err")));
   child.on("error", (e) => {
@@ -520,7 +718,7 @@ async function apiLaunch(req, res) {
   });
   child.on("close", (code) => finishJob(job, code));
 
-  sendJson(res, 200, { jobId, traceDir: job.traceDir, command: job.command });
+  sendJson(res, 200, { jobId, traceDir: job.traceDir, command: job.command, proxy: proxyInfo });
 }
 
 function splitLines(buf) {
@@ -631,6 +829,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/run") return await apiRunDetail(url, res);
     if (pathname === "/api/events") return await apiEvents(url, res);
     if (pathname === "/api/suites") return apiSuites(res);
+    if (pathname === "/api/codex/accounts") return apiCodexAccounts(res);
     if (pathname === "/api/launch" && req.method === "POST") return await apiLaunch(req, res);
     if (pathname === "/api/launch/stream") return apiLaunchStream(url, req, res);
     if (pathname.startsWith("/api/")) return sendJson(res, 404, { error: "not found" });

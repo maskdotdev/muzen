@@ -44,11 +44,24 @@ No `npm install`, no build step. Requires only Node (24+).
 
 ## Model auth
 
-Launching model-bearing presets reuses the server process's environment. To run
-live evals through the owner's ChatGPT subscription (see
-[`../SUBSCRIPTION_EVALS.md`](../SUBSCRIPTION_EVALS.md)), start the Codex proxy
-first and leave the **Route model calls through local Codex proxy** box checked.
-For direct API billing, export `OPENAI_API_KEY` before starting the server.
+Launching model-bearing presets reuses the server process's environment. For
+direct API billing, export `OPENAI_API_KEY` before starting the server.
+
+To run live evals through a ChatGPT subscription (see
+[`../SUBSCRIPTION_EVALS.md`](../SUBSCRIPTION_EVALS.md)), check **Route model
+calls through local Codex proxy** and pick a **Codex account**:
+
+- **Already-running proxy (:4141)** — use a proxy you started yourself; the run
+  points at `http://127.0.0.1:4141/v1`.
+- **A specific CodexBar account** — muzen starts (and reuses) a managed Codex
+  proxy bound to that account on its own free port and points the run at it. The
+  account fixes at proxy-startup, so each account gets its own proxy process;
+  they are torn down when the eval-ui server stops. The accounts list comes from
+  CodexBar's `managed-codex-accounts.json` (only the email + workspace label are
+  surfaced — never auth files or home paths).
+
+If an account has no cached auth, the run will say so; refresh it with
+`node experiments/codex-chatgpt-proxy/codex-chatgpt-responses-proxy.mjs login`.
 
 ## Data sources
 

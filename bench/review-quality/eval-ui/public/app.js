@@ -546,6 +546,15 @@ async function openLaunch() {
   const presetOpts = s.presets
     .map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`)
     .join("");
+  const codex = s.codex || { available: false, accounts: [] };
+  const codexOpts = ['<option value="">Already-running proxy (:4141)</option>']
+    .concat(
+      (codex.accounts || []).map((a) => {
+        const label = (a.email || a.id) + (a.workspaceLabel ? ` · ${a.workspaceLabel}` : "");
+        return `<option value="${esc(a.id || a.email)}">${esc(label)}</option>`;
+      }),
+    )
+    .join("");
 
   root.innerHTML = `<div class="overlay" id="overlay">
     <div class="dialog" id="dialog">
@@ -571,7 +580,11 @@ async function openLaunch() {
         </div>
         <label class="check field" id="f-proxy-wrap">
           <input type="checkbox" id="f-proxy" ${s.env.hasOpenAiBaseUrl ? "" : "checked"} />
-          <span>Route model calls through local Codex proxy (127.0.0.1:4141)</span>
+          <span>Route model calls through local Codex proxy</span>
+        </label>
+        <label class="field" id="f-codex-acct-wrap"><span class="label">Codex account</span>
+          <select class="select" id="f-codex-acct">${codexOpts}</select>
+          <span class="faint" id="f-codex-note" style="font-size:11px;margin-top:6px;display:block"></span>
         </label>
         <div id="f-warn"></div>
       </div>
@@ -591,6 +604,17 @@ async function openLaunch() {
     $("#f-fixture-wrap").style.display = showFixture ? "" : "none";
     $("#f-model-wrap").style.display = p && p.needsModel ? "" : "none";
     $("#f-proxy-wrap").style.display = p && p.needsModel ? "" : "none";
+    const proxyOn = $("#f-proxy").checked;
+    const showCodexAcct = p && p.needsModel && proxyOn;
+    $("#f-codex-acct-wrap").style.display = showCodexAcct ? "" : "none";
+    if (showCodexAcct) {
+      const acctVal = $("#f-codex-acct").value;
+      $("#f-codex-note").textContent = acctVal
+        ? "muzen starts (and reuses) a managed proxy bound to this account."
+        : codex.available
+        ? "Uses a proxy you started yourself on :4141. Pick an account above to let muzen manage it."
+        : "No CodexBar accounts found — uses a proxy you started yourself on :4141.";
+    }
     if (showFixture) {
       const list = (s.fixtures && s.fixtures[p.fixtureSet]) || [];
       fixtureSel.innerHTML = list.map((f) => `<option>${esc(f)}</option>`).join("");
@@ -599,7 +623,7 @@ async function openLaunch() {
     if (p && p.needsRunner && (!s.env.runners || !s.env.runners.length)) {
       warn.push(`Runner not built. Run <span class="mono">cargo build --release --bin muzen-runner</span> first.`);
     }
-    if (p && p.needsModel && !s.env.hasOpenAiKey && !$("#f-proxy").checked) {
+    if (p && p.needsModel && !s.env.hasOpenAiKey && !proxyOn) {
       warn.push(`No <span class="mono">OPENAI_API_KEY</span> in the server env — model calls may fail without the proxy.`);
     }
     $("#f-warn").innerHTML = warn.map((w) => `<div class="hint bad">${w}</div>`).join("");
@@ -608,6 +632,7 @@ async function openLaunch() {
   };
   presetSel.onchange = syncPreset;
   $("#f-proxy").onchange = syncPreset;
+  $("#f-codex-acct").onchange = syncPreset;
   syncPreset();
 
   $("#f-cancel").onclick = closeModal;
@@ -630,8 +655,16 @@ async function doLaunch() {
   if (p.needsModel) {
     payload.model = $("#f-model").value.trim();
     payload.useProxy = $("#f-proxy").checked;
+    if (payload.useProxy) {
+      const acct = $("#f-codex-acct") ? $("#f-codex-acct").value : "";
+      if (acct) payload.codexAccount = acct;
+    }
   }
   if (p.needsRunner) payload.runnerPath = $("#f-runner").value;
+
+  const launchBtn = $("#f-launch");
+  launchBtn.disabled = true;
+  launchBtn.textContent = payload.codexAccount ? "Starting proxy…" : "Launching…";
 
   let resp;
   try {
@@ -644,6 +677,8 @@ async function doLaunch() {
     if (!r.ok) throw new Error(resp.error || "launch failed");
   } catch (err) {
     $("#f-warn").innerHTML = `<div class="hint bad">${esc(err.message)}</div>`;
+    launchBtn.disabled = false;
+    launchBtn.textContent = "Launch ▸";
     return;
   }
   closeModal();
