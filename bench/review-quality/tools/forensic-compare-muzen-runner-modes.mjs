@@ -81,6 +81,10 @@ function readCase(root, name) {
     (session) => session.sessionId === "review-orchestrator",
   ) ?? {};
   const eventAnalysis = analyzeEvents(events, "review-orchestrator", maxToolCalls);
+  const completionDiagnostics = result.review?.completionDiagnostics ?? [];
+  const primaryCompletionDiagnostic =
+    completionDiagnostics.find((diagnostic) => diagnostic.sessionId === "review-orchestrator") ??
+    eventAnalysis.finalizationDiagnostic;
   const candidates = candidateSummary(audit, events);
 
   return {
@@ -109,14 +113,21 @@ function readCase(root, name) {
       exhaustedMaxToolCalls:
         (primarySession.toolCallsCompleted ?? 0) >= maxToolCalls ||
         (primarySession.toolCallsRequested ?? 0) >= maxToolCalls,
-      finalizationCause: eventAnalysis.finalizationCause,
+      finalizationCause:
+        primaryCompletionDiagnostic?.finalizationReason ?? eventAnalysis.finalizationCause,
+      finalOutput: primaryCompletionDiagnostic?.finalOutput ?? null,
       finalTurn: eventAnalysis.finalTurn,
       toolCallsPerTurn: eventAnalysis.toolCallsPerTurn,
       compactions: eventAnalysis.compactions,
       repairs: eventAnalysis.repairs,
       latency: eventAnalysis.latency,
     },
-    sessions: (audit.sessions ?? []).map(pickSession),
+    sessions: (audit.sessions ?? []).map((session) =>
+      pickSession(
+        session,
+        completionDiagnostics.find((diagnostic) => diagnostic.sessionId === session.sessionId),
+      ),
+    ),
     toolCalls: {
       requestedByTool: audit.toolCalls?.requestedByTool ?? {},
       completedByTool: audit.toolCalls?.completedByTool ?? {},
@@ -141,6 +152,7 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
   const compactions = [];
   const schemaRepairs = [];
   const toolRepairs = [];
+  const finalizations = [];
 
   for (const record of events) {
     const event = record.event ?? {};
@@ -225,6 +237,14 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
           repairAccepted: details.repairAccepted ?? null,
           reason: details.reason ?? null,
         });
+      } else if (traceKind === "session_finalization") {
+        finalizations.push({
+          sessionId: traceSessionId,
+          status: details.status ?? null,
+          completed: details.completed ?? null,
+          finalizationReason: details.finalizationReason ?? null,
+          finalOutput: details.finalOutput ?? null,
+        });
       }
     }
   }
@@ -243,9 +263,14 @@ function analyzeEvents(events, primarySessionId, maxToolCalls) {
     (repair) => repair.sessionId === primarySessionId,
   );
   const primaryToolRepairs = toolRepairs.filter((repair) => repair.sessionId === primarySessionId);
+  const finalizationDiagnostic =
+    finalizations.find((finalization) => finalization.sessionId === primarySessionId) ?? null;
 
   return {
-    finalizationCause: inferFinalizationCause(lastPrepared, lastCompleted, maxToolCalls),
+    finalizationCause:
+      finalizationDiagnostic?.finalizationReason ??
+      inferFinalizationCause(lastPrepared, lastCompleted, maxToolCalls),
+    finalizationDiagnostic,
     finalTurn: lastPrepared
       ? {
           turn: lastPrepared.turn,
@@ -341,9 +366,11 @@ function candidateSummary(audit, events) {
   };
 }
 
-function pickSession(session) {
+function pickSession(session, completionDiagnostic = null) {
   return {
     sessionId: session.sessionId ?? null,
+    finalizationReason: completionDiagnostic?.finalizationReason ?? null,
+    finalOutput: completionDiagnostic?.finalOutput ?? null,
     turns: session.turns ?? 0,
     modelTurnsPrepared: session.modelTurnsPrepared ?? 0,
     modelTurnsCompleted: session.modelTurnsCompleted ?? 0,
@@ -485,8 +512,6 @@ function summarizeRunnerTimeline(root) {
 
 function missingTraceFields() {
   return [
-    "Explicit session finalization reason enum, e.g. model_no_tool_calls, max_tool_calls, max_turns, schema_repair_exhausted, validation_complete.",
-    "Raw final model output metadata: parse success/failure, schema validation errors, and whether each schema repair produced valid JSON.",
     "Provider request lifecycle timing split into queued_at, request_started_at, first_token_at, completed_at, retry_count, and rate_limit/backoff_ms. Current timestamps only support event-to-event latency.",
     "Transcript compaction provenance: evicted toolCallIds/artifactIds/itemIds and retained evidence identifiers, not only evicted counts.",
     "Candidate lifecycle timestamps linking primary candidate emission to validation-session start/end; current candidate decisions are available only after validation completes.",

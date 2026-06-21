@@ -171,6 +171,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
             artifacts: finalResult.summary?.artifacts,
             artifactBytes: finalResult.summary?.artifactBytes,
           },
+          completionDiagnostics: finalResult.summary?.completionDiagnostics ?? [],
           elapsedMs: finalResult.summary?.elapsedMs,
         }
       : null,

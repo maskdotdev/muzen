@@ -17,8 +17,9 @@ use crate::reviewer_kernel::runtime_events::EventSink as RuntimeEventSink;
 use super::event_stream::StreamingRunnerEventSink;
 use super::planning::plan_run_start;
 use super::results::{
-    RunnerFileReview, RunnerFinding, RunnerFindingEvidence, RunnerFindingLocation,
-    RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary, RunnerSnapshotSummary,
+    RunnerFileReview, RunnerFinalOutputDiagnostic, RunnerFinding, RunnerFindingEvidence,
+    RunnerFindingLocation, RunnerReviewQualityDiagnostics, RunnerRunResult, RunnerRunSummary,
+    RunnerSessionCompletionDiagnostic, RunnerSnapshotSummary, RunnerToolCounts,
 };
 use super::stored::RunnerStoredRun;
 use super::transport::RunnerCallbackTransport;
@@ -427,6 +428,42 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
         artifacts: summary.artifacts,
         artifact_bytes: summary.artifact_bytes,
         snapshot_count: summary.snapshot_count,
+        completion_diagnostics: summary
+            .completion_diagnostics
+            .iter()
+            .map(|diagnostic| RunnerSessionCompletionDiagnostic {
+                session_id: diagnostic.session_id.clone(),
+                completed: diagnostic.completed,
+                completion_kind: diagnostic.completion_kind.clone(),
+                completion_summary: diagnostic.completion_summary.clone(),
+                finalization_reason: diagnostic.finalization_reason.clone(),
+                final_output: RunnerFinalOutputDiagnostic {
+                    attempted: diagnostic.final_output.attempted,
+                    parse_success: diagnostic.final_output.parse_success,
+                    schema_validation_success: diagnostic.final_output.schema_validation_success,
+                    repair_attempt_count: diagnostic.final_output.repair_attempt_count,
+                    accepted: diagnostic.final_output.accepted,
+                    rejected: diagnostic.final_output.rejected,
+                },
+                saw_diff: diagnostic.saw_diff,
+                saw_file: diagnostic.saw_file,
+                saw_search: diagnostic.saw_search,
+                model_calls: diagnostic.model_calls,
+                tool_counts: RunnerToolCounts {
+                    list_changed_files: diagnostic.tool_counts.list_changed_files,
+                    read_diff: diagnostic.tool_counts.read_diff,
+                    list_files: diagnostic.tool_counts.list_files,
+                    read_file: diagnostic.tool_counts.read_file,
+                    read_file_range: diagnostic.tool_counts.read_file_range,
+                    read_base_file: diagnostic.tool_counts.read_base_file,
+                    read_head_file: diagnostic.tool_counts.read_head_file,
+                    search_text: diagnostic.tool_counts.search_text,
+                    find_related_files: diagnostic.tool_counts.find_related_files,
+                    find_tests_for_file: diagnostic.tool_counts.find_tests_for_file,
+                    list_imports: diagnostic.tool_counts.list_imports,
+                },
+            })
+            .collect(),
         quality_diagnostics: RunnerReviewQualityDiagnostics {
             contract_risk_units: summary.quality_diagnostics.contract_risk_units,
             contract_seed_count: summary.quality_diagnostics.contract_seed_count,

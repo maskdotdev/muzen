@@ -1943,8 +1943,174 @@
           "required": true
         },
         {
+          "name": "completionDiagnostics",
+          "type": "RunnerSessionCompletionDiagnostic[]",
+          "required": false,
+          "default": "[]"
+        },
+        {
           "name": "qualityDiagnostics",
           "type": "RunnerReviewQualityDiagnostics",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerSessionCompletionDiagnostic",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "completed",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "completionKind",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "completionSummary",
+          "type": "string",
+          "required": false,
+          "default": "null"
+        },
+        {
+          "name": "finalizationReason",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "finalOutput",
+          "type": "RunnerFinalOutputDiagnostic",
+          "required": true
+        },
+        {
+          "name": "sawDiff",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "sawFile",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "sawSearch",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "modelCalls",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "toolCounts",
+          "type": "RunnerToolCounts",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerFinalOutputDiagnostic",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "attempted",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "parseSuccess",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "schemaValidationSuccess",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "repairAttemptCount",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "accepted",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "rejected",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "RunnerToolCounts",
+      "shape": "object",
+      "fields": [
+        {
+          "name": "listChangedFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "readDiff",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "listFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "readFile",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "readFileRange",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "readBaseFile",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "readHeadFile",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "searchText",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "findRelatedFiles",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "findTestsForFile",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "listImports",
+          "type": "integer",
           "required": true
         }
       ]

@@ -102,11 +102,24 @@ pub struct SessionCompletionDiagnostic {
     pub completed: bool,
     pub completion_kind: Option<String>,
     pub completion_summary: Option<String>,
+    pub finalization_reason: String,
+    pub final_output: FinalOutputDiagnostic,
     pub saw_diff: bool,
     pub saw_file: bool,
     pub saw_search: bool,
     pub model_calls: usize,
     pub tool_counts: ToolCounts,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinalOutputDiagnostic {
+    pub attempted: bool,
+    pub parse_success: bool,
+    pub schema_validation_success: bool,
+    pub repair_attempt_count: usize,
+    pub accepted: bool,
+    pub rejected: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -120,7 +120,52 @@ pub struct RunnerRunSummary {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
+    #[serde(default)]
+    pub completion_diagnostics: Vec<RunnerSessionCompletionDiagnostic>,
     pub quality_diagnostics: RunnerReviewQualityDiagnostics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerSessionCompletionDiagnostic {
+    pub session_id: String,
+    pub completed: bool,
+    pub completion_kind: Option<String>,
+    pub completion_summary: Option<String>,
+    pub finalization_reason: String,
+    pub final_output: RunnerFinalOutputDiagnostic,
+    pub saw_diff: bool,
+    pub saw_file: bool,
+    pub saw_search: bool,
+    pub model_calls: usize,
+    pub tool_counts: RunnerToolCounts,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerToolCounts {
+    pub list_changed_files: usize,
+    pub read_diff: usize,
+    pub list_files: usize,
+    pub read_file: usize,
+    pub read_file_range: usize,
+    pub read_base_file: usize,
+    pub read_head_file: usize,
+    pub search_text: usize,
+    pub find_related_files: usize,
+    pub find_tests_for_file: usize,
+    pub list_imports: usize,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerFinalOutputDiagnostic {
+    pub attempted: bool,
+    pub parse_success: bool,
+    pub schema_validation_success: bool,
+    pub repair_attempt_count: usize,
+    pub accepted: bool,
+    pub rejected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

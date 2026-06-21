@@ -88,11 +88,14 @@ impl AgentLoopRuntime {
         let mut status = "partial".to_string();
         let mut output = None;
         let mut next_turn_index = 0usize;
+        let mut finalization_reason = "max_turns".to_string();
+        let mut repair_attempt_count = 0usize;
 
         for turn_index in 0..config.turn_guard {
             next_turn_index = turn_index + 1;
             if cancel.is_cancelled() {
                 status = "cancelled".to_string();
+                finalization_reason = "cancelled".to_string();
                 break;
             }
             let turn_id = TurnId(turn_index as u32);
@@ -115,6 +118,8 @@ impl AgentLoopRuntime {
             }
             let final_turn =
                 (config.should_force_final_turn)(turn_index, tool_calls_used, &scope.budget);
+            let final_turn_reason = final_turn
+                .then(|| forced_finalization_reason(turn_index, tool_calls_used, &scope.budget));
             let mut call_scope = scope.clone();
             if final_turn {
                 call_scope.capabilities.tool_grants.clear();
@@ -148,6 +153,7 @@ impl AgentLoopRuntime {
                     json!({
                         "sessionKind": config.trace_kind,
                         "finalTurn": final_turn,
+                        "finalTurnReason": final_turn_reason,
                         "turnGuard": config.turn_guard,
                         "maxTurns": scope.budget.max_turns,
                         "maxToolCalls": scope.budget.max_tool_calls,
@@ -187,6 +193,7 @@ impl AgentLoopRuntime {
                 Err(_) => {
                     model_metrics.errors += outcome.attempts;
                     status = "failed".to_string();
+                    finalization_reason = "model_failed".to_string();
                     break;
                 }
             };
@@ -205,6 +212,9 @@ impl AgentLoopRuntime {
                         content: content.clone(),
                     });
                     output = Some(content);
+                    finalization_reason = final_turn_reason
+                        .unwrap_or("model_no_tool_calls")
+                        .to_string();
                     status = "done".to_string();
                     break;
                 }
@@ -218,6 +228,9 @@ impl AgentLoopRuntime {
                         ),
                     );
                     if calls.is_empty() {
+                        finalization_reason = final_turn_reason
+                            .unwrap_or("model_no_tool_calls")
+                            .to_string();
                         status = "done".to_string();
                         break;
                     }
@@ -264,8 +277,10 @@ impl AgentLoopRuntime {
             for repair_index in 0..config.schema_repair_attempts {
                 if cancel.is_cancelled() {
                     status = "cancelled".to_string();
+                    finalization_reason = "cancelled".to_string();
                     break;
                 }
+                repair_attempt_count += 1;
                 let turn_id = TurnId((next_turn_index + repair_index) as u32);
                 let mut repair_scope = scope.clone();
                 repair_scope.capabilities.tool_grants.clear();
@@ -318,6 +333,7 @@ impl AgentLoopRuntime {
                     Err(_) => {
                         model_metrics.errors += outcome.attempts;
                         status = "incomplete".to_string();
+                        finalization_reason = "model_failed".to_string();
                         break;
                     }
                 };
@@ -337,6 +353,9 @@ impl AgentLoopRuntime {
                         } else {
                             "incomplete".to_string()
                         };
+                        if status != "done" {
+                            finalization_reason = "schema_repair_exhausted".to_string();
+                        }
                         if status == "done" {
                             break;
                         }
@@ -344,6 +363,7 @@ impl AgentLoopRuntime {
                     ModelTurn::ToolCalls { usage, .. } => {
                         record_usage(&mut tokens, &mut model_metrics, &*model, usage);
                         status = "incomplete".to_string();
+                        finalization_reason = "schema_repair_exhausted".to_string();
                         break;
                     }
                 }
@@ -351,8 +371,38 @@ impl AgentLoopRuntime {
         }
         if status == "done" && !(config.output_valid)(output.as_deref()) {
             status = "incomplete".to_string();
+            finalization_reason = "schema_repair_exhausted".to_string();
+        }
+        let final_output = final_output_diagnostic(
+            output.as_deref(),
+            &config.output_valid,
+            repair_attempt_count,
+        );
+        if status == "partial" {
+            finalization_reason = "max_turns".to_string();
         }
         let completed = status == "done";
+        if completed && config.trace_kind == "validate_finding" {
+            finalization_reason = "validation_complete".to_string();
+        }
+        self.events
+            .emit_planned_runtime(self.policy.plan_agent_trace_event(
+                &scope,
+                None,
+                "session_finalization",
+                format!("session finalized: {finalization_reason}"),
+                json!({
+                    "sessionKind": config.trace_kind,
+                    "status": status,
+                    "completed": completed,
+                    "finalizationReason": finalization_reason,
+                    "finalOutput": final_output,
+                    "modelCalls": model_calls,
+                    "toolCallsUsed": tool_calls_used,
+                    "maxTurns": scope.budget.max_turns,
+                    "maxToolCalls": scope.budget.max_tool_calls,
+                }),
+            ));
         self.events.emit_planned_runtime(
             self.policy
                 .plan_session_finished_runtime_event(&scope, &status),
@@ -363,6 +413,8 @@ impl AgentLoopRuntime {
                 config.completion_kind,
                 completed,
                 &status,
+                &finalization_reason,
+                final_output.clone(),
                 model_calls,
                 tool_counts,
             ),
@@ -407,6 +459,12 @@ fn terminal_report(
             completion_kind,
             false,
             status,
+            if status == "cancelled" {
+                "cancelled"
+            } else {
+                "model_failed"
+            },
+            FinalOutputDiagnostic::default(),
             0,
             ToolCounts::default(),
         ),
@@ -418,6 +476,8 @@ fn session_diagnostic(
     completion_kind: &'static str,
     completed: bool,
     status: &str,
+    finalization_reason: &str,
+    final_output: FinalOutputDiagnostic,
     model_calls: usize,
     tool_counts: ToolCounts,
 ) -> SessionCompletionDiagnostic {
@@ -426,12 +486,48 @@ fn session_diagnostic(
         completed,
         completion_kind: Some(completion_kind.to_string()),
         completion_summary: Some(status.to_string()),
+        finalization_reason: finalization_reason.to_string(),
+        final_output,
         saw_diff: tool_counts.read_diff > 0,
         saw_file: tool_counts.read_file + tool_counts.read_file_range + tool_counts.read_head_file
             > 0,
         saw_search: tool_counts.search_text + tool_counts.list_files > 0,
         model_calls,
         tool_counts,
+    }
+}
+
+fn forced_finalization_reason(
+    turn_index: usize,
+    tool_calls_used: usize,
+    budget: &AgentBudget,
+) -> &'static str {
+    if tool_calls_used >= budget.max_tool_calls {
+        "max_tool_calls"
+    } else if turn_index >= budget.max_turns.saturating_sub(1) {
+        "max_turns"
+    } else {
+        "max_turns"
+    }
+}
+
+fn final_output_diagnostic(
+    output: Option<&str>,
+    output_valid: &(dyn Fn(Option<&str>) -> bool + Send + Sync),
+    repair_attempt_count: usize,
+) -> FinalOutputDiagnostic {
+    let attempted = output.is_some();
+    let parse_success = output
+        .map(|output| serde_json::from_str::<serde_json::Value>(output).is_ok())
+        .unwrap_or(false);
+    let schema_validation_success = parse_success && output_valid(output);
+    FinalOutputDiagnostic {
+        attempted,
+        parse_success,
+        schema_validation_success,
+        repair_attempt_count,
+        accepted: schema_validation_success,
+        rejected: attempted && !schema_validation_success,
     }
 }
 
@@ -445,4 +541,61 @@ pub(crate) fn budgeted_tool_result_count(results: &[ToolResultEnvelope]) -> usiz
             )
         })
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reviewer_kernel::review_contract::BudgetSource;
+
+    #[test]
+    fn final_output_diagnostic_records_parse_and_schema_success() {
+        let valid = |output: Option<&str>| {
+            output
+                .and_then(|output| serde_json::from_str::<serde_json::Value>(output).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false)
+        };
+
+        let diagnostic = final_output_diagnostic(Some(r#"{"ok":true}"#), &valid, 1);
+
+        assert!(diagnostic.attempted);
+        assert!(diagnostic.parse_success);
+        assert!(diagnostic.schema_validation_success);
+        assert_eq!(diagnostic.repair_attempt_count, 1);
+        assert!(diagnostic.accepted);
+        assert!(!diagnostic.rejected);
+    }
+
+    #[test]
+    fn final_output_diagnostic_separates_parse_failure_from_schema_rejection() {
+        let valid = |output: Option<&str>| output == Some(r#"{"ok":true}"#);
+
+        let parse_failure = final_output_diagnostic(Some("not json"), &valid, 0);
+        assert!(parse_failure.attempted);
+        assert!(!parse_failure.parse_success);
+        assert!(!parse_failure.schema_validation_success);
+        assert!(!parse_failure.accepted);
+        assert!(parse_failure.rejected);
+
+        let schema_rejection = final_output_diagnostic(Some(r#"{"ok":false}"#), &valid, 2);
+        assert!(schema_rejection.parse_success);
+        assert!(!schema_rejection.schema_validation_success);
+        assert_eq!(schema_rejection.repair_attempt_count, 2);
+        assert!(schema_rejection.rejected);
+    }
+
+    #[test]
+    fn forced_finalization_reason_prefers_tool_budget_exhaustion() {
+        let budget = AgentBudget {
+            max_turns: 4,
+            max_tool_calls: 3,
+            max_prompt_tokens: 10_000,
+            max_output_tokens: 512,
+            budget_source: BudgetSource::PlannedDefault,
+        };
+
+        assert_eq!(forced_finalization_reason(1, 3, &budget), "max_tool_calls");
+        assert_eq!(forced_finalization_reason(3, 0, &budget), "max_turns");
+    }
 }

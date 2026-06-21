@@ -6,8 +6,9 @@ use std::sync::Arc;
 use crate::reviewer_kernel::kernel_types::SnapshotId;
 use crate::reviewer_kernel::kernel_types::{
     ArtifactId, ConcurrentCounters, ConcurrentRunReport, ModelMetricsSnapshot,
-    ReviewQualityDiagnostics, RuntimeEvent, RuntimeEventContext, RuntimeEventSink, ToolCallId,
-    ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
+    ReviewQualityDiagnostics, RuntimeEvent, RuntimeEventContext, RuntimeEventSink,
+    SessionCompletionDiagnostic, ToolCallId, ToolMetricKey, ToolMetricsSnapshot,
+    ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
 
@@ -183,6 +184,7 @@ pub struct ReviewRunSummary {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
+    pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
     pub quality_diagnostics: ReviewQualityDiagnostics,
 }
 
@@ -203,6 +205,7 @@ impl ReviewRunSummary {
             artifacts: metrics.artifacts,
             artifact_bytes: metrics.artifact_bytes,
             snapshot_count: metrics.snapshot_metrics.len(),
+            completion_diagnostics: metrics.completion_diagnostics.clone(),
             quality_diagnostics: metrics.quality_diagnostics.clone(),
         }
     }
