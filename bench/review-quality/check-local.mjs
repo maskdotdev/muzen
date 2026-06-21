@@ -50,6 +50,16 @@ const probes = [
     expectSharedOnlyExhaustion: 0,
     expectExhausted: 0,
     expectFindings: 5,
+    expectCandidateLifecycle: {
+      emitted: 1,
+      validationsStarted: 1,
+      validationsCompleted: 1,
+      decisions: 1,
+      accepted: 1,
+      rejected: 0,
+      publicationSkipped: 0,
+      publicationSkippedBudgetExhausted: 0,
+    },
   },
   {
     name: "schema-repair-per-conversation",
@@ -405,6 +415,22 @@ function assertProbe(probe, summary) {
       probe.expectFinalOutputRepairAttempts,
     );
   }
+  if (probe.expectCandidateLifecycle) {
+    assertCandidateLifecycle(
+      probe.name,
+      "shared",
+      summary.observedRuns.shared,
+      summary.config.caseCount,
+      probe.expectCandidateLifecycle,
+    );
+    assertCandidateLifecycle(
+      probe.name,
+      "process",
+      summary.observedRuns.process,
+      summary.config.caseCount,
+      probe.expectCandidateLifecycle,
+    );
+  }
   if (probe.expectProviderQueue) {
     assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
     assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
@@ -633,6 +659,16 @@ function assertFinalOutputRepairDiagnostics(
     finalOutput.maxRepairAttemptCount.max,
     expectedRepairAttempts,
   );
+}
+
+function assertCandidateLifecycle(probeName, mode, observedRuns, expectedCases, expected) {
+  const lifecycle = observedRuns.candidateLifecycle;
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    const stats = lifecycle[field];
+    assertEqual(`${probeName} ${mode} candidate ${field} cases`, stats.count, expectedCases);
+    assertEqual(`${probeName} ${mode} candidate ${field} min`, stats.min, expectedValue);
+    assertEqual(`${probeName} ${mode} candidate ${field} max`, stats.max, expectedValue);
+  }
 }
 
 function compactIsolation(isolation) {

@@ -553,6 +553,9 @@ function summarizeObservedMode(cases, mode) {
     completionFinalOutput: summarizeCompletionFinalOutputStats(
       values.map((entry) => entry.completionFinalOutput),
     ),
+    candidateLifecycle: summarizeCandidateLifecycleStats(
+      values.map((entry) => entry.orchestrator),
+    ),
     modelCalls: stats(values.map((entry) => entry.modelCalls)),
     toolCalls: stats(values.map((entry) => entry.toolCalls)),
   };
@@ -568,6 +571,25 @@ function summarizeCompletionFinalOutputStats(values) {
     rejected: stats(values.map((entry) => entry?.rejected)),
     repairAttemptCount: stats(values.map((entry) => entry?.repairAttemptCount)),
     maxRepairAttemptCount: stats(values.map((entry) => entry?.maxRepairAttemptCount)),
+  };
+}
+
+function summarizeCandidateLifecycleStats(orchestrators) {
+  return {
+    emitted: stats(orchestrators.map((entry) => entry?.candidatesEmitted)),
+    validationsStarted: stats(
+      orchestrators.map((entry) => entry?.candidateValidationsStarted),
+    ),
+    validationsCompleted: stats(
+      orchestrators.map((entry) => entry?.candidateValidationsCompleted),
+    ),
+    decisions: stats(orchestrators.map((entry) => entry?.candidateDecisions)),
+    accepted: stats(orchestrators.map((entry) => entry?.acceptedCandidates)),
+    rejected: stats(orchestrators.map((entry) => entry?.rejectedCandidates)),
+    publicationSkipped: stats(orchestrators.map((entry) => entry?.publicationSkipped)),
+    publicationSkippedBudgetExhausted: stats(
+      orchestrators.map((entry) => entry?.publicationSkippedBudgetExhausted),
+    ),
   };
 }
 
