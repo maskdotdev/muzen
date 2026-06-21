@@ -17,6 +17,7 @@ use crate::reviewer_kernel::model::{
     observe_model_limiter_waits, ConcurrentModelClient, ModelLimiterWaitSnapshot,
 };
 use crate::reviewer_kernel::policy::ReviewerPolicy;
+use crate::reviewer_kernel::system::timestamp_utc;
 
 pub(crate) struct ModelTurnOutcome {
     pub(crate) result: RuntimeResult<ModelTurn>,
@@ -28,6 +29,9 @@ pub(crate) struct ModelTurnOutcome {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct ModelTurnDiagnostics {
+    pub(crate) lifecycle_started_at_utc: Option<String>,
+    pub(crate) queued_at_utc: Option<String>,
+    pub(crate) completed_at_utc: Option<String>,
     pub(crate) lifecycle_ms: u64,
     pub(crate) limiter_wait: ModelLimiterWaitSnapshot,
     pub(crate) provider_request_ms: u64,
@@ -64,7 +68,15 @@ impl ModelFailureKind {
 }
 
 impl ModelTurnDiagnostics {
-    fn record_attempt(&mut self, limiter_wait: ModelLimiterWaitSnapshot, attempt_ms: u64) {
+    fn record_attempt(
+        &mut self,
+        queued_at_utc: String,
+        limiter_wait: ModelLimiterWaitSnapshot,
+        attempt_ms: u64,
+    ) {
+        if self.queued_at_utc.is_none() {
+            self.queued_at_utc = Some(queued_at_utc);
+        }
         self.limiter_wait.add(limiter_wait);
         let provider_request_ms = attempt_ms.saturating_sub(limiter_wait.total_wait_ms);
         self.provider_request_ms += provider_request_ms;
@@ -104,16 +116,24 @@ pub(crate) async fn complete_model_turn(
     let lifecycle_started = Instant::now();
     let max_attempts = limits.model_retry_max_attempts.max(1);
     let mut attempt = 0usize;
-    let mut diagnostics = ModelTurnDiagnostics::default();
+    let mut diagnostics = ModelTurnDiagnostics {
+        lifecycle_started_at_utc: Some(timestamp_utc()),
+        ..ModelTurnDiagnostics::default()
+    };
     loop {
         attempt += 1;
+        let attempt_queued_at_utc = timestamp_utc();
         let attempt_started = Instant::now();
         let (outcome, attempt_limiter_wait) = observe_model_limiter_waits(tokio::time::timeout(
             Duration::from_millis(limits.max_model_turn_ms.max(1)),
             model.complete(call_scope, transcript, turn_id, cancel.child_token()),
         ))
         .await;
-        diagnostics.record_attempt(attempt_limiter_wait, elapsed_ms(attempt_started));
+        diagnostics.record_attempt(
+            attempt_queued_at_utc,
+            attempt_limiter_wait,
+            elapsed_ms(attempt_started),
+        );
         let error = match outcome {
             Ok(Ok(turn)) => {
                 return finish_model_turn(Ok(turn), attempt, diagnostics, lifecycle_started)
@@ -162,6 +182,7 @@ fn finish_model_turn(
     lifecycle_started: Instant,
 ) -> ModelTurnOutcome {
     diagnostics.lifecycle_ms = elapsed_ms(lifecycle_started);
+    diagnostics.completed_at_utc = Some(timestamp_utc());
     ModelTurnOutcome {
         result,
         attempts,

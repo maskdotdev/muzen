@@ -19,6 +19,7 @@ pub(crate) use delegates::{register_autonomous_delegate_tools, AutonomousDelegat
 use delegates::{run_child_delegate, AutonomousDelegateState};
 #[cfg(test)]
 use diff_risk::diff_risk_inventory;
+use diff_risk::truncate_chars;
 #[cfg(test)]
 use finding_filters::autonomous_candidate_rejection_reason;
 use findings::{
@@ -107,9 +108,24 @@ impl AutonomousReviewRuntime {
                 json!({
                     "candidateId": candidate.id,
                     "index": index,
+                    "title": truncate_chars(&candidate.title, 240),
+                    "claim": truncate_chars(&candidate.claim, 600),
+                    "severity": candidate.severity,
                     "path": candidate.path,
                     "startLine": candidate.start_line,
                     "endLine": candidate.end_line,
+                    "behaviorBefore": candidate
+                        .behavior_before
+                        .as_deref()
+                        .map(|value| truncate_chars(value, 600)),
+                    "behaviorAfter": candidate
+                        .behavior_after
+                        .as_deref()
+                        .map(|value| truncate_chars(value, 600)),
+                    "candidateTextBytes": candidate.title.len()
+                        + candidate.claim.len()
+                        + candidate.behavior_before.as_deref().unwrap_or_default().len()
+                        + candidate.behavior_after.as_deref().unwrap_or_default().len(),
                     "evidenceArtifactIds": candidate.evidence_artifact_ids,
                     "relatedPaths": candidate.related_paths,
                     "orchestratorStatus": report.status,

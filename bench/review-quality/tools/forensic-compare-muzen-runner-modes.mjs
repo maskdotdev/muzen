@@ -681,7 +681,7 @@ function summarizeInterpretation(patterns) {
     `published findings were shared/process ${patterns.sharedFindings}/${patterns.processFindings}`,
   );
   observations.push(
-    "the available traces do not show mixed runIds or artifact collisions and still lack provider stream milestone timestamps",
+    "the available traces do not show mixed runIds or artifact collisions; model-turn traces include queued/completed timing but not first-token stream timing",
   );
   return `Saved traces point to runner-mode differences in exploration depth, compaction, and candidate publication: ${observations.join("; ")}.`;
 }
@@ -726,10 +726,10 @@ function summarizeRunnerTimeline(root) {
 
 function missingTraceFields() {
   return [
-    "Provider stream milestones such as firstTokenAt and completedAt. Aggregate provider duration, limiter wait, retry count, retry backoff, and failure classes are available in modelMetrics.",
+    "First-token stream milestones. Model-turn diagnostics include queued/completed timing plus aggregate provider duration, limiter wait, retry count, retry backoff, and failure classes.",
     "Schema validation error details and per-repair output metadata. Current final output diagnostics report parse/schema booleans, repair count, and accepted/rejected status.",
     "Transcript compaction provenance: exact evicted toolCallIds/artifactIds/itemIds and retained evidence identifiers. Current instrumentation records counts by kind and turn linkage.",
-    "Candidate lifecycle timestamps linking primary candidate emission to validation-session start/end. Current lifecycle traces record phases and decisions without explicit durations.",
+    "Explicit candidate validation durations. Candidate lifecycle traces now carry event timestamps and emitted candidate title/claim/behavior snapshots, but do not compute duration fields.",
   ];
 }
 
