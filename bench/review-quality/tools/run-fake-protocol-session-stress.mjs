@@ -526,6 +526,7 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
       cancelAccepted: result.protocolPressure?.cancelResult?.cancelled === true,
     };
   });
+  const completedRunResults = runResults.filter((result) => result.status === "completed");
   const callbacksByRun = groupBy(callbacks, (record) => record.runId ?? "unknown");
   const runCallbackSummaries = Object.fromEntries(
     Object.entries(callbacksByRun).map(([runId, records]) => [
@@ -549,6 +550,25 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
     wallMs: completedAt - startedAt,
     runs: runResults.length,
     statuses: countObject(runResults.map((result) => result.status)),
+    completedRuns: {
+      count: completedRunResults.length,
+      sessions: stats(completedRunResults.map((result) => result.sessions)),
+      completedSessions: stats(completedRunResults.map((result) => result.completedSessions)),
+      toolCalls: stats(completedRunResults.map((result) => result.toolCalls)),
+      diagnosticToolCallsUsed: stats(
+        completedRunResults.map((result) => result.diagnosticToolCallsUsed),
+      ),
+      diagnosticCustomToolCalls: stats(
+        completedRunResults.map((result) => result.diagnosticCustomToolCalls),
+      ),
+      diagnosticExhaustedSessions: stats(
+        completedRunResults.map((result) => result.diagnosticExhaustedSessions),
+      ),
+      budgetRejectedToolCalls: stats(
+        completedRunResults.map((result) => result.budgetRejectedToolCalls),
+      ),
+      sessionOutputs: stats(completedRunResults.map((result) => result.sessionOutputs)),
+    },
     sessions: stats(runResults.map((result) => result.sessions)),
     completedSessions: stats(runResults.map((result) => result.completedSessions)),
     modelCalls: stats(runResults.map((result) => result.modelCalls)),
@@ -739,10 +759,10 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       ...(config.heartbeatMode !== "none" && !process.callbacks.byMethod["run.heartbeat"]
         ? ["process.missingHeartbeatCallbacks"]
         : []),
-      ...(config.heartbeatMode === "continue" && (shared.statuses.completed !== config.cases)
+      ...(config.heartbeatMode === "continue" && !expectsCancellationRun && (shared.statuses.completed !== config.cases)
         ? ["shared.expectedCompletedHeartbeatRuns"]
         : []),
-      ...(config.heartbeatMode === "continue" && (process.statuses.completed !== config.cases)
+      ...(config.heartbeatMode === "continue" && !expectsCancellationRun && (process.statuses.completed !== config.cases)
         ? ["process.expectedCompletedHeartbeatRuns"]
         : []),
       ...(config.heartbeatMode === "cancel-first" && shared.statuses.cancelled !== 1
@@ -800,6 +820,80 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
         ? ["process.missingStoredCancelledSessionOutputs"]
         : []),
     ],
+    completedRunAccountingFailures: [
+      ...(expectsCancellationRun && shared.completedRuns.count !== config.cases - 1
+        ? ["shared.completedRunCount"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.count !== config.cases - 1
+        ? ["process.completedRunCount"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.toolCalls.min !== expectedToolCallsPerRun
+        ? ["shared.completedRunToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.toolCalls.max !== expectedToolCallsPerRun
+        ? ["shared.completedRunToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.toolCalls.min !== expectedToolCallsPerRun
+        ? ["process.completedRunToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.toolCalls.max !== expectedToolCallsPerRun
+        ? ["process.completedRunToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun
+        ? ["shared.completedRunDiagnosticToolCallsUsed"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+        ? ["shared.completedRunDiagnosticToolCallsUsed"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticToolCallsUsed.min !== expectedToolCallsPerRun
+        ? ["process.completedRunDiagnosticToolCallsUsed"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticToolCallsUsed.max !== expectedToolCallsPerRun
+        ? ["process.completedRunDiagnosticToolCallsUsed"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun
+        ? ["shared.completedRunDiagnosticCustomToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+        ? ["shared.completedRunDiagnosticCustomToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun
+        ? ["process.completedRunDiagnosticCustomToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
+        ? ["process.completedRunDiagnosticCustomToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun
+        ? ["shared.completedRunDiagnosticExhaustedSessions"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+        ? ["shared.completedRunDiagnosticExhaustedSessions"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun
+        ? ["process.completedRunDiagnosticExhaustedSessions"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+        ? ["process.completedRunDiagnosticExhaustedSessions"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun
+        ? ["shared.completedRunBudgetRejectedToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+        ? ["shared.completedRunBudgetRejectedToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun
+        ? ["process.completedRunBudgetRejectedToolCalls"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+        ? ["process.completedRunBudgetRejectedToolCalls"]
+        : []),
+      ...(expectsCancellationRun && shared.completedRuns.sessionOutputs.min !== config.sessions
+        ? ["shared.completedRunSessionOutputs"]
+        : []),
+      ...(expectsCancellationRun && process.completedRuns.sessionOutputs.min !== config.sessions
+        ? ["process.completedRunSessionOutputs"]
+        : []),
+    ],
   };
   return {
     schemaVersion: "muzen.fake-protocol-session-stress.v1",
@@ -822,7 +916,8 @@ function hasBlockingRegression(report) {
     report.regressions.explicitSessionFailures.length > 0 ||
     report.regressions.heartbeatFailures.length > 0 ||
     report.regressions.requestPressureFailures.length > 0 ||
-    report.regressions.cancellationResultFailures.length > 0
+    report.regressions.cancellationResultFailures.length > 0 ||
+    report.regressions.completedRunAccountingFailures.length > 0
   );
 }
 

@@ -313,6 +313,42 @@ bench/results-review-quality/fake-protocol-request-cancel-result-20260621T062331
 | shared | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
 | process | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
 
+Protocol mixed pressure sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-mixed-pressure-20260621T062610Z \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --max-tool-calls 1 \
+  --max-turns 5 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 2 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --heartbeat-mode continue \
+  --heartbeat-interval-ms 25 \
+  --heartbeat-lease-seconds 1 \
+  --status-poll-interval-ms 25 \
+  --request-cancel-mode cancel-first \
+  --request-cancel-after-status 1 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-mixed-pressure-20260621T062610Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Completed runs | Cancelled runs | Stored cancelled results | Accepted cancel requests | Heartbeat callbacks | Running status polls per run min | Completed-run tool calls | Completed-run exhausted sessions | Completed-run budget rejections | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 6 | 5 | 1 | 1 | 1 | 104 | 6 | 4 | 4 | 4 | passed |
+| process | 6 | 5 | 1 | 1 | 1 | 105 | 6 | 4 | 4 | 4 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
@@ -370,6 +406,11 @@ Interpretation:
   for the intentionally cancelled run are timing-sensitive, so cancellation
   gates assert containment, stored result shape, and ownership instead of exact
   model/tool parity at the cancellation boundary.
+- Mixed protocol pressure is covered. The combined sweep runs heartbeat
+  callbacks, in-flight status polling, one explicit cancellation, and forced
+  callback-tool budget exhaustion together. It still requires shared/process
+  agreement on terminal status counts and validates exact tool/budget accounting
+  on the five completed runs.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -386,10 +427,9 @@ The deterministic shared/process protocol path is now covered for explicit
 multi-session fan-out, delayed callback tools, callback/custom tool accounting,
 session-budget reporting, direct-session budget exhaustion, active-session
 heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
-explicit cancel requests. The next useful fake-first step is adding a
-higher-volume mixed pressure sweep that combines heartbeats, status polling,
-explicit cancellation, and tool-budget exhaustion in one run while preserving
-shared/process parity.
+explicit cancel requests, including a combined mixed-pressure run. The next
+useful fake-first step is a higher-volume repeat/sweep of that mixed gate to
+raise confidence against timing-sensitive shared/process regressions.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
