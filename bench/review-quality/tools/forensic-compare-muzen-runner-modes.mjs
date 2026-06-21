@@ -586,6 +586,12 @@ function summarizePatterns(cases, sharedRoot, processRoot) {
     maxToolCallBudgets.length === 1
       ? `${maxToolCallBudgets[0]}-tool`
       : "configured max-tool";
+  const sharedPrimaryCompactions = sum(
+    cases.map((item) => item.shared.orchestrator.transcriptCompactions),
+  );
+  const processPrimaryCompactions = sum(
+    cases.map((item) => item.process.orchestrator.transcriptCompactions),
+  );
 
   return {
     maxToolCallBudgets,
@@ -596,12 +602,8 @@ function summarizePatterns(cases, sharedRoot, processRoot) {
     processMaxToolCases: processExhausted.map((item) => item.name),
     sharedNoCandidateCases: sharedNoCandidate.map((item) => item.name),
     processAcceptedMoreCandidatesCases: processPublishedMore.map((item) => item.name),
-    sharedPrimaryCompactions: sum(
-      cases.map((item) => item.shared.orchestrator.transcriptCompactions),
-    ),
-    processPrimaryCompactions: sum(
-      cases.map((item) => item.process.orchestrator.transcriptCompactions),
-    ),
+    sharedPrimaryCompactions,
+    processPrimaryCompactions,
     sharedPrimarySchemaRepairs: sum(
       cases.map((item) => item.shared.orchestrator.repairs.primarySchemaRepairAttempts),
     ),
@@ -618,9 +620,41 @@ function summarizePatterns(cases, sharedRoot, processRoot) {
       process: availabilityCounts(cases.map((item) => item.process.orchestrator.instrumentation)),
     },
     runnerTimelines,
-    interpretation:
-      "Saved traces point first to prompt-budget/compaction and finalization behavior: shared primary orchestrators usually spend the full configured max-tool session budget before a no-tool final turn, while process primary orchestrators usually finalize or emit candidates earlier. The available traces do not show mixed runIds or artifact collisions and do not isolate provider latency from scheduler wait.",
+    interpretation: summarizeInterpretation({
+      sharedMaxToolFinalizations: sharedExhausted.length,
+      processMaxToolFinalizations: processExhausted.length,
+      sharedPrimaryCompactions,
+      processPrimaryCompactions,
+      sharedAcceptedCandidates: sum(cases.map((item) => item.shared.candidates.accepted)),
+      processAcceptedCandidates: sum(cases.map((item) => item.process.candidates.accepted)),
+      sharedFindings: sum(cases.map((item) => item.shared.review.findings)),
+      processFindings: sum(cases.map((item) => item.process.review.findings)),
+    }),
   };
+}
+
+function summarizeInterpretation(patterns) {
+  const observations = [];
+  if (patterns.sharedMaxToolFinalizations || patterns.processMaxToolFinalizations) {
+    observations.push(
+      `max-tool finalization appeared in shared/process ${patterns.sharedMaxToolFinalizations}/${patterns.processMaxToolFinalizations} cases`,
+    );
+  } else {
+    observations.push("neither mode exhausted the configured max-tool final turn");
+  }
+  observations.push(
+    `primary transcript compactions were shared/process ${patterns.sharedPrimaryCompactions}/${patterns.processPrimaryCompactions}`,
+  );
+  observations.push(
+    `accepted candidate counts were shared/process ${patterns.sharedAcceptedCandidates}/${patterns.processAcceptedCandidates}`,
+  );
+  observations.push(
+    `published findings were shared/process ${patterns.sharedFindings}/${patterns.processFindings}`,
+  );
+  observations.push(
+    "the available traces do not show mixed runIds or artifact collisions and still lack provider stream milestone timestamps",
+  );
+  return `Saved traces point to runner-mode differences in exploration depth, compaction, and candidate publication: ${observations.join("; ")}.`;
 }
 
 function availabilityCounts(instrumentation) {
