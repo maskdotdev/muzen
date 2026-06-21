@@ -202,6 +202,7 @@ function reproductionSummary({
     process: summarizeRunIsolation(processDir),
   };
   const timing = summarizeTiming({ compare, fakeModelMetrics });
+  const harnessOverhead = summarizeHarnessOverhead({ compare, admission });
   return {
     schemaVersion: "muzen.fake-runner-mode-repro.v1",
     generatedAtUtc: new Date().toISOString(),
@@ -240,6 +241,7 @@ function reproductionSummary({
     reproducedObservedShape:
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
     timing,
+    harnessOverhead,
     observedRuns: summarizeObservedRuns(compare.cases),
     fakeModel: fakeModelMetrics,
     release,
@@ -252,6 +254,69 @@ function reproductionSummary({
       process: entry.process.orchestrator,
       delta: entry.delta,
     })),
+  };
+}
+
+function summarizeHarnessOverhead({ compare, admission }) {
+  const shared = summarizeHarnessOverheadMode(compare.cases, "shared", admission.shared);
+  const process = summarizeHarnessOverheadMode(compare.cases, "process", admission.process);
+  return {
+    shared,
+    process,
+    deltaSharedMinusProcess: harnessOverheadDelta(shared, process),
+  };
+}
+
+function summarizeHarnessOverheadMode(cases, mode, admission) {
+  const admissionByName = new Map((admission.detail ?? []).map((run) => [run.name, run]));
+  const rows = cases.map((entry) => {
+    const caseSummary = entry[mode] ?? {};
+    const admitted = admissionByName.get(entry.name) ?? {};
+    const parentElapsedMs = admitted.elapsedMs ?? null;
+    const reviewElapsedMs = numberOrNull(caseSummary.reviewElapsedMs);
+    const benchmarkElapsedMs = numberOrNull(caseSummary.benchmarkElapsedMs);
+    return {
+      name: entry.name,
+      parentElapsedMs,
+      benchmarkElapsedMs,
+      reviewElapsedMs,
+      parentMinusBenchmarkMs: nullableDelta(parentElapsedMs, benchmarkElapsedMs),
+      parentMinusReviewMs: nullableDelta(parentElapsedMs, reviewElapsedMs),
+      benchmarkMinusReviewMs: nullableDelta(benchmarkElapsedMs, reviewElapsedMs),
+    };
+  });
+  return {
+    cases: rows.length,
+    parentElapsedMs: stats(rows.map((row) => row.parentElapsedMs)),
+    benchmarkElapsedMs: stats(rows.map((row) => row.benchmarkElapsedMs)),
+    reviewElapsedMs: stats(rows.map((row) => row.reviewElapsedMs)),
+    parentMinusBenchmarkMs: stats(rows.map((row) => row.parentMinusBenchmarkMs)),
+    parentMinusReviewMs: stats(rows.map((row) => row.parentMinusReviewMs)),
+    benchmarkMinusReviewMs: stats(rows.map((row) => row.benchmarkMinusReviewMs)),
+    detail: rows,
+  };
+}
+
+function harnessOverheadDelta(shared, process) {
+  return {
+    parentElapsedMeanMs: nullableDelta(shared.parentElapsedMs.mean, process.parentElapsedMs.mean),
+    benchmarkElapsedMeanMs: nullableDelta(
+      shared.benchmarkElapsedMs.mean,
+      process.benchmarkElapsedMs.mean,
+    ),
+    reviewElapsedMeanMs: nullableDelta(shared.reviewElapsedMs.mean, process.reviewElapsedMs.mean),
+    parentMinusBenchmarkMeanMs: nullableDelta(
+      shared.parentMinusBenchmarkMs.mean,
+      process.parentMinusBenchmarkMs.mean,
+    ),
+    parentMinusReviewMeanMs: nullableDelta(
+      shared.parentMinusReviewMs.mean,
+      process.parentMinusReviewMs.mean,
+    ),
+    benchmarkMinusReviewMeanMs: nullableDelta(
+      shared.benchmarkMinusReviewMs.mean,
+      process.benchmarkMinusReviewMs.mean,
+    ),
   };
 }
 
@@ -370,6 +435,7 @@ function summarizeTiming({ compare, fakeModelMetrics }) {
 function timingSnapshot(source) {
   return {
     reviewElapsedMs: numberOrNull(source.reviewElapsedMs),
+    benchmarkElapsedMs: numberOrNull(source.benchmarkElapsedMs),
     modelProviderRequestMs: numberOrNull(source.modelProviderRequestMs),
     modelRetryBackoffMs: numberOrNull(source.modelRetryBackoffMs),
     modelLimiterWaitMs: numberOrNull(source.modelLimiterWaitMs),

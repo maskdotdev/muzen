@@ -92,6 +92,7 @@ for (const probe of probes) {
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
     observedRuns: summary.observedRuns,
     timing: compactTiming(summary.timing),
+    harnessOverhead: compactHarnessOverhead(summary.harnessOverhead),
     fakeModel: compactFakeModel(summary.fakeModel),
     release: summary.release,
     admission: compactAdmission(summary.admission),
@@ -320,6 +321,26 @@ function compactAdmission(admission) {
   return {
     shared: compactModeAdmission(admission.shared),
     process: compactModeAdmission(admission.process),
+  };
+}
+
+function compactHarnessOverhead(harnessOverhead) {
+  return {
+    shared: compactHarnessOverheadMode(harnessOverhead.shared),
+    process: compactHarnessOverheadMode(harnessOverhead.process),
+    deltaSharedMinusProcess: harnessOverhead.deltaSharedMinusProcess,
+  };
+}
+
+function compactHarnessOverheadMode(mode) {
+  return {
+    cases: mode.cases,
+    parentElapsedMs: mode.parentElapsedMs,
+    benchmarkElapsedMs: mode.benchmarkElapsedMs,
+    reviewElapsedMs: mode.reviewElapsedMs,
+    parentMinusBenchmarkMs: mode.parentMinusBenchmarkMs,
+    parentMinusReviewMs: mode.parentMinusReviewMs,
+    benchmarkMinusReviewMs: mode.benchmarkMinusReviewMs,
   };
 }
 

@@ -60,6 +60,9 @@ function compareRunnerModes(sharedRoot, processRoot) {
           sharedCase.modelLimiterWaitMs - processCase.modelLimiterWaitMs,
         maxModelLimiterWaitMs:
           sharedCase.maxModelLimiterWaitMs - processCase.maxModelLimiterWaitMs,
+        reviewElapsedMs: sharedCase.reviewElapsedMs - processCase.reviewElapsedMs,
+        benchmarkElapsedMs:
+          sharedCase.benchmarkElapsedMs - processCase.benchmarkElapsedMs,
         modelTimeoutErrors:
           sharedCase.modelTimeoutErrors - processCase.modelTimeoutErrors,
         modelRetryableProviderErrors:
@@ -102,6 +105,8 @@ function compareRunnerModes(sharedRoot, processRoot) {
         modelProviderRequestMs: sharedTotals.modelProviderRequestMs - processTotals.modelProviderRequestMs,
         modelRetryBackoffMs: sharedTotals.modelRetryBackoffMs - processTotals.modelRetryBackoffMs,
         modelLimiterWaitMs: sharedTotals.modelLimiterWaitMs - processTotals.modelLimiterWaitMs,
+        reviewElapsedMs: sharedTotals.reviewElapsedMs - processTotals.reviewElapsedMs,
+        benchmarkElapsedMs: sharedTotals.benchmarkElapsedMs - processTotals.benchmarkElapsedMs,
         modelTimeoutErrors: sharedTotals.modelTimeoutErrors - processTotals.modelTimeoutErrors,
         modelRetryableProviderErrors:
           sharedTotals.modelRetryableProviderErrors - processTotals.modelRetryableProviderErrors,
@@ -123,6 +128,8 @@ function effectiveTotals(summaryTotals, cases) {
     "modelProviderRequestMs",
     "modelRetryBackoffMs",
     "modelLimiterWaitMs",
+    "reviewElapsedMs",
+    "benchmarkElapsedMs",
     "modelTimeoutErrors",
     "modelRetryableProviderErrors",
     "modelNonRetryableProviderErrors",
@@ -157,6 +164,8 @@ function compactCase(root, name, report) {
       report.review?.modelMetrics?.retryBackoffMs ?? compactInstrumentation.backoffMs ?? 0,
     modelLimiterWaitMs: report.review?.modelMetrics?.limiterWaitMs ?? 0,
     maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
+    reviewElapsedMs: report.review?.elapsedMs ?? 0,
+    benchmarkElapsedMs: report.benchmark?.elapsedMs ?? 0,
     modelTimeoutErrors: report.review?.modelMetrics?.timeoutErrors ?? 0,
     modelRetryableProviderErrors: report.review?.modelMetrics?.retryableProviderErrors ?? 0,
     modelNonRetryableProviderErrors:
