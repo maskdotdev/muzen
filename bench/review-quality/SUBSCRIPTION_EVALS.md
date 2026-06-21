@@ -148,8 +148,9 @@ node bench/review-quality/run-production-review.mjs \
 `--mode review --sessions 0` creates the default orchestrator and is the scored
 review-quality path. Wrapper-provided `--max-turns` and `--max-tool-calls` are
 sent as a run-level budget on this path. Passing one or more sessions selects
-direct-session mode; use that only when the objective is raw session/protocol
-diagnostics rather than published finding quality.
+direct-session mode, so model-bearing scored harnesses fail fast when explicit
+sessions are requested. Use direct sessions only when the objective is raw
+session/protocol diagnostics rather than published finding quality.
 
 ## Manager-Approved Runner-Mode Diagnostic Eval
 

@@ -15,6 +15,11 @@ const runnerPath = args.runnerPath || "target/release/muzen-runner";
 const outputDir = args.outputDir || "bench/results-review-quality/martian-suite";
 const model = args.model || process.env.MODEL || "gpt-5.4-mini";
 const sessions = args.sessions || "0";
+if (sessions !== "0") {
+  throw new Error(
+    "scored Martian review-quality suite runs must use --sessions 0; explicit sessions select direct-session mode and do not publish findings",
+  );
+}
 const maxActive = args.maxActive || "8";
 const maxTurns = args.maxTurns || "10";
 const maxToolCalls = args.maxToolCalls || "32";

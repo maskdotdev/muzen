@@ -13,6 +13,11 @@ const DEFAULT_MODEL = process.env.MODEL || "gpt-4o-mini";
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (!args.job) {
+    const model = args.model || DEFAULT_MODEL;
+    const sessions = nonnegativeNumberArg(args.sessions, 0);
+    guardScoredSessions({ sessions, model });
+  }
   const job = args.job
     ? readJson(path.resolve(args.job))
     : buildProductionReviewJob({
@@ -38,6 +43,7 @@ async function main() {
         maxPromptTokens: numberArg(args.maxPromptTokens, 64000),
         maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
       });
+  guardScoredSessions({ sessions: job.runStart?.sessions?.length ?? 0, model: job.model });
   const runnerPath = path.resolve(args.runnerPath || job.runnerPath || "target/release/muzen-runner");
   if (args.output) job.outputPath = path.resolve(args.output);
   if (args.traceOutputDir) job.traceOutputDir = path.resolve(args.traceOutputDir);
@@ -51,6 +57,14 @@ async function main() {
   writeProductionReviewReport(report, job.outputPath);
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   process.exitCode = report.reviewValid ? 0 : 1;
+}
+
+function guardScoredSessions({ sessions, model }) {
+  if (sessions !== 0 && model !== "fake-responses-model") {
+    throw new Error(
+      "scored production review-quality runs must use --sessions 0; explicit sessions select direct-session mode and do not publish findings",
+    );
+  }
 }
 
 export function buildProductionReviewJob({

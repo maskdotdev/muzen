@@ -46,8 +46,9 @@ review-quality scoring mode. Wrapper-provided `--max-turns` and
 `--max-tool-calls` are sent as a run-level budget for this autonomous path.
 Passing one or more explicit sessions selects direct-session mode, which returns
 raw `sessionOutputs` and completion diagnostics but does not publish review
-findings. Use direct sessions for protocol/session harnesses, not scored
-review-quality evals.
+findings. Model-bearing scored harnesses fail fast if explicit sessions are
+requested. Use direct sessions only through deterministic fake/protocol
+diagnostic harnesses, not scored review-quality evals.
 
 Summarize one or more result files:
 
