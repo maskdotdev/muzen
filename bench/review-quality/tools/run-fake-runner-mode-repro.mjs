@@ -191,6 +191,7 @@ function reproductionSummary({
     shared: summarizeRunIsolation(sharedDir),
     process: summarizeRunIsolation(processDir),
   };
+  const timing = summarizeTiming({ compare, fakeModelMetrics });
   return {
     schemaVersion: "muzen.fake-runner-mode-repro.v1",
     generatedAtUtc: new Date().toISOString(),
@@ -226,6 +227,7 @@ function reproductionSummary({
     },
     reproducedObservedShape:
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
+    timing,
     fakeModel: fakeModelMetrics,
     release,
     isolation,
@@ -236,6 +238,77 @@ function reproductionSummary({
       process: entry.process.orchestrator,
       delta: entry.delta,
     })),
+  };
+}
+
+function summarizeTiming({ compare, fakeModelMetrics }) {
+  const sharedTotals = timingSnapshot(compare.totals.shared ?? {});
+  const processTotals = timingSnapshot(compare.totals.process ?? {});
+  return {
+    modeTotals: {
+      shared: sharedTotals,
+      process: processTotals,
+      deltaSharedMinusProcess: timingDelta(sharedTotals, processTotals),
+    },
+    fakeProvider: {
+      shared: fakeProviderTiming(fakeModelMetrics.byRunLabel?.shared),
+      process: fakeProviderTiming(fakeModelMetrics.byRunLabel?.process),
+      deltaSharedMinusProcess: fakeProviderTimingDelta(
+        fakeModelMetrics.byRunLabel?.shared,
+        fakeModelMetrics.byRunLabel?.process,
+      ),
+    },
+    cases: compare.cases.map((entry) => {
+      const shared = timingSnapshot(entry.shared ?? {});
+      const process = timingSnapshot(entry.process ?? {});
+      return {
+        name: entry.name,
+        shared,
+        process,
+        deltaSharedMinusProcess: timingDelta(shared, process),
+      };
+    }),
+  };
+}
+
+function timingSnapshot(source) {
+  return {
+    reviewElapsedMs: numberOrNull(source.reviewElapsedMs),
+    modelProviderRequestMs: numberOrNull(source.modelProviderRequestMs),
+    modelRetryBackoffMs: numberOrNull(source.modelRetryBackoffMs),
+    modelLimiterWaitMs: numberOrNull(source.modelLimiterWaitMs),
+    maxModelLimiterWaitMs: numberOrNull(source.maxModelLimiterWaitMs),
+  };
+}
+
+function timingDelta(left, right) {
+  return Object.fromEntries(
+    Object.keys(left).map((field) => [field, nullableDelta(left[field], right[field])]),
+  );
+}
+
+function fakeProviderTiming(summary) {
+  return {
+    requests: summary?.requests ?? 0,
+    queuedMs: summary?.queuedMs ?? stats([]),
+    elapsedMs: summary?.elapsedMs ?? stats([]),
+  };
+}
+
+function fakeProviderTimingDelta(left, right) {
+  return {
+    queuedMs: statsDelta(left?.queuedMs, right?.queuedMs),
+    elapsedMs: statsDelta(left?.elapsedMs, right?.elapsedMs),
+  };
+}
+
+function statsDelta(left, right) {
+  return {
+    min: nullableDelta(left?.min, right?.min),
+    p50: nullableDelta(left?.p50, right?.p50),
+    p95: nullableDelta(left?.p95, right?.p95),
+    max: nullableDelta(left?.max, right?.max),
+    mean: nullableDelta(left?.mean, right?.mean),
   };
 }
 
@@ -501,6 +574,19 @@ function countObject(values) {
 
 function sum(values) {
   return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+}
+
+function numberOrZero(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function numberOrNull(value) {
+  return Number.isFinite(value) ? value : null;
+}
+
+function nullableDelta(left, right) {
+  if (!Number.isFinite(left) && !Number.isFinite(right)) return null;
+  return numberOrZero(left) - numberOrZero(right);
 }
 
 function parseArgs(argv) {

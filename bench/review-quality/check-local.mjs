@@ -89,6 +89,7 @@ for (const probe of probes) {
     shared: compactTotals(summary.totals.shared),
     process: compactTotals(summary.totals.process),
     exhaustedMaxToolCalls: summary.exhaustedMaxToolCalls,
+    timing: compactTiming(summary.timing),
     fakeModel: compactFakeModel(summary.fakeModel),
     release: summary.release,
     isolation: compactIsolation(summary.isolation),
@@ -290,6 +291,13 @@ function compactFakeModel(fakeModel) {
         },
       ]),
     ),
+  };
+}
+
+function compactTiming(timing) {
+  return {
+    modeTotals: timing.modeTotals,
+    fakeProvider: timing.fakeProvider,
   };
 }
 
