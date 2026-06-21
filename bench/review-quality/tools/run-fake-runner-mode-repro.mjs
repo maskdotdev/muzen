@@ -280,6 +280,10 @@ function summarizeHarnessOverheadMode(cases, mode, admission) {
       parentElapsedMs,
       benchmarkElapsedMs,
       reviewElapsedMs,
+      jobBuildElapsedMs: numberOrNull(caseSummary.jobBuildElapsedMs),
+      jobBuildChangedFilesMs: numberOrNull(caseSummary.jobBuildChangedFilesMs),
+      jobBuildInlineDiffMs: numberOrNull(caseSummary.jobBuildInlineDiffMs),
+      jobBuildRunStartBuildMs: numberOrNull(caseSummary.jobBuildRunStartBuildMs),
       runnerInvocationElapsedMs: numberOrNull(caseSummary.runnerInvocationElapsedMs),
       runnerInvocationSpawnReturnMs: numberOrNull(caseSummary.runnerInvocationSpawnReturnMs),
       runnerInvocationFirstFrameMs: numberOrNull(caseSummary.runnerInvocationFirstFrameMs),
@@ -298,6 +302,10 @@ function summarizeHarnessOverheadMode(cases, mode, admission) {
     parentElapsedMs: stats(rows.map((row) => row.parentElapsedMs)),
     benchmarkElapsedMs: stats(rows.map((row) => row.benchmarkElapsedMs)),
     reviewElapsedMs: stats(rows.map((row) => row.reviewElapsedMs)),
+    jobBuildElapsedMs: stats(rows.map((row) => row.jobBuildElapsedMs)),
+    jobBuildChangedFilesMs: stats(rows.map((row) => row.jobBuildChangedFilesMs)),
+    jobBuildInlineDiffMs: stats(rows.map((row) => row.jobBuildInlineDiffMs)),
+    jobBuildRunStartBuildMs: stats(rows.map((row) => row.jobBuildRunStartBuildMs)),
     runnerInvocationElapsedMs: stats(rows.map((row) => row.runnerInvocationElapsedMs)),
     runnerInvocationSpawnReturnMs: stats(
       rows.map((row) => row.runnerInvocationSpawnReturnMs),
@@ -323,6 +331,22 @@ function harnessOverheadDelta(shared, process) {
       process.benchmarkElapsedMs.mean,
     ),
     reviewElapsedMeanMs: nullableDelta(shared.reviewElapsedMs.mean, process.reviewElapsedMs.mean),
+    jobBuildElapsedMeanMs: nullableDelta(
+      shared.jobBuildElapsedMs.mean,
+      process.jobBuildElapsedMs.mean,
+    ),
+    jobBuildChangedFilesMeanMs: nullableDelta(
+      shared.jobBuildChangedFilesMs.mean,
+      process.jobBuildChangedFilesMs.mean,
+    ),
+    jobBuildInlineDiffMeanMs: nullableDelta(
+      shared.jobBuildInlineDiffMs.mean,
+      process.jobBuildInlineDiffMs.mean,
+    ),
+    jobBuildRunStartBuildMeanMs: nullableDelta(
+      shared.jobBuildRunStartBuildMs.mean,
+      process.jobBuildRunStartBuildMs.mean,
+    ),
     runnerInvocationElapsedMeanMs: nullableDelta(
       shared.runnerInvocationElapsedMs.mean,
       process.runnerInvocationElapsedMs.mean,

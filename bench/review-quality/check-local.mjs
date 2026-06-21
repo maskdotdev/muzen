@@ -19,6 +19,13 @@ const outputRoot = path.resolve(
   args.outputDir || `bench/results-review-quality/check-local-${timestamp()}`,
 );
 fs.mkdirSync(outputRoot, { recursive: true });
+const startup = runStartupProbe({
+  runnerPath,
+  samples: args.startupSamples || args.concurrency || "5",
+  concurrency: args.startupConcurrency || args.concurrency || "5",
+  timeoutMs: args.startupTimeoutMs || "10000",
+});
+assertStartupProbe(startup);
 
 const probes = [
   {
@@ -137,12 +144,46 @@ process.stdout.write(
       generatedAtUtc: new Date().toISOString(),
       outputRoot,
       runnerPath,
+      startup,
       probes: results,
     },
     null,
     2,
   )}\n`,
 );
+
+function runStartupProbe({ runnerPath, samples, concurrency, timeoutMs }) {
+  const result = spawnSync(
+    "node",
+    [
+      "bench/review-quality/tools/measure-runner-startup.mjs",
+      "--runner-path",
+      runnerPath,
+      "--samples",
+      samples,
+      "--concurrency",
+      concurrency,
+      "--timeout-ms",
+      timeoutMs,
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024 * 16,
+    },
+  );
+  if (result.status !== 0) {
+    fail(
+      `runner startup probe failed with status ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    fail(`runner startup probe did not emit JSON: ${error.message}\nstdout:\n${result.stdout}`);
+  }
+}
 
 function runProbe({
   runnerPath,
@@ -212,6 +253,21 @@ function runProbe({
   } catch (error) {
     fail(`fake runner-mode probe did not emit JSON: ${error.message}\nstdout:\n${result.stdout}`);
   }
+}
+
+function assertStartupProbe(startup) {
+  assertEqual("runner startup failed samples", startup.timing.failed, 0);
+  assertGreaterThan("runner startup ok samples", startup.timing.ok, 0);
+  assertGreaterThan(
+    "runner startup first-frame samples",
+    startup.timing.firstFrameMs.count,
+    0,
+  );
+  assertGreaterThan(
+    "runner startup handshake samples",
+    startup.timing.handshakeMs.count,
+    0,
+  );
 }
 
 function assertProbe(probe, summary) {
@@ -400,6 +456,10 @@ function compactHarnessOverheadMode(mode) {
     parentElapsedMs: mode.parentElapsedMs,
     benchmarkElapsedMs: mode.benchmarkElapsedMs,
     reviewElapsedMs: mode.reviewElapsedMs,
+    jobBuildElapsedMs: mode.jobBuildElapsedMs,
+    jobBuildChangedFilesMs: mode.jobBuildChangedFilesMs,
+    jobBuildInlineDiffMs: mode.jobBuildInlineDiffMs,
+    jobBuildRunStartBuildMs: mode.jobBuildRunStartBuildMs,
     runnerInvocationElapsedMs: mode.runnerInvocationElapsedMs,
     runnerInvocationFirstFrameMs: mode.runnerInvocationFirstFrameMs,
     runnerInvocationHandshakeMs: mode.runnerInvocationHandshakeMs,
@@ -507,6 +567,6 @@ function timestamp() {
 
 function usage() {
   process.stderr.write(
-    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local]\n",
+    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local] [--startup-samples 5] [--startup-concurrency 5] [--startup-timeout-ms 10000]\n",
   );
 }

@@ -152,6 +152,7 @@ function compactCase(root, name, report) {
   });
   const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   const completionDiagnostics = report.review?.completionDiagnostics ?? [];
+  const jobBuild = report.benchmark?.jobBuild ?? null;
   const runnerInvocation = report.benchmark?.runnerInvocation ?? null;
   return {
     status: report.review?.status ?? null,
@@ -179,6 +180,11 @@ function compactCase(root, name, report) {
     maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
     reviewElapsedMs: report.review?.elapsedMs ?? 0,
     benchmarkElapsedMs: report.benchmark?.elapsedMs ?? 0,
+    jobBuild,
+    jobBuildElapsedMs: jobBuild?.elapsedMs ?? null,
+    jobBuildChangedFilesMs: jobBuild?.changedFilesMs ?? null,
+    jobBuildInlineDiffMs: jobBuild?.inlineDiffMs ?? null,
+    jobBuildRunStartBuildMs: jobBuild?.runStartBuildMs ?? null,
     runnerInvocation,
     runnerInvocationElapsedMs: runnerInvocation?.elapsedMs ?? null,
     runnerInvocationSpawnReturnMs: runnerInvocation?.spawnReturnMs ?? null,

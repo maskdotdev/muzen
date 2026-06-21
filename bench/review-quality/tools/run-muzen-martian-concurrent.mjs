@@ -262,26 +262,23 @@ try {
       throw error;
     }
   }
-  // Keep shared-mode admission focused on runner behavior; synchronous git/job
-  // preparation here would otherwise serialize run.start writes from the harness.
-  const preparedJobs =
-    runnerMode === "shared"
-      ? prepareSharedReviewJobs(cases, {
-          outputDir,
-          traceRoot,
-          logsDir,
-          jobsDir,
-          model,
-          runnerPath,
-          sessions: args.sessions || "1",
-          maxActive: args.maxActive || "1",
-          maxTurns: args.maxTurns || "60",
-          maxToolCalls: args.maxToolCalls || "50",
-          maxPromptTokens: args.maxPromptTokens || "64000",
-          maxOutputTokens: args.maxOutputTokens || null,
-          maxCapturedTextBytes,
-        })
-      : null;
+  // Keep runner admission focused on runner behavior; synchronous git/job
+  // preparation would otherwise distort run.start timing differently by mode.
+  const preparedJobs = prepareReviewJobs(cases, {
+    outputDir,
+    traceRoot,
+    logsDir,
+    jobsDir,
+    model,
+    runnerPath,
+    sessions: args.sessions || "1",
+    maxActive: args.maxActive || "1",
+    maxTurns: args.maxTurns || "60",
+    maxToolCalls: args.maxToolCalls || "50",
+    maxPromptTokens: args.maxPromptTokens || "64000",
+    maxOutputTokens: args.maxOutputTokens || null,
+    maxCapturedTextBytes,
+  });
   await runPool(cases, concurrency, (testCase) =>
     runReviewCase(testCase, {
       outputDir,
@@ -390,7 +387,7 @@ async function runPool(items, width, worker) {
   await Promise.all(workers);
 }
 
-function prepareSharedReviewJobs(cases, options) {
+function prepareReviewJobs(cases, options) {
   const prepared = new Map();
   for (const testCase of cases) {
     prepared.set(testCase.outputName, prepareReviewCaseJob(testCase, options));
@@ -425,8 +422,11 @@ function prepareReviewCaseJob(testCase, options) {
     maxCapturedTextBytes: options.maxCapturedTextBytes,
     tempDir: path.join(options.jobsDir, testCase.outputName),
   });
+  const jobPath = path.join(options.jobsDir, testCase.outputName, "job.json");
+  fs.writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
   return {
     job,
+    jobPath,
     outputPath,
     traceDir,
     stderrPath,
@@ -516,52 +516,67 @@ async function runReviewCase(testCase, options) {
 }
 
 async function runReviewCaseProcess(testCase, options) {
-  const outputPath = path.join(options.outputDir, `${testCase.outputName}.json`);
-  const traceDir = path.join(options.traceRoot, testCase.outputName);
-  const stderrPath = path.join(options.logsDir, `${testCase.outputName}.stderr.log`);
-  const stdoutPath = path.join(options.logsDir, `${testCase.outputName}.stdout.log`);
+  const prepared = options.preparedJobs?.get(testCase.outputName);
+  const outputPath = prepared?.outputPath ?? path.join(options.outputDir, `${testCase.outputName}.json`);
+  const traceDir = prepared?.traceDir ?? path.join(options.traceRoot, testCase.outputName);
+  const stderrPath =
+    prepared?.stderrPath ?? path.join(options.logsDir, `${testCase.outputName}.stderr.log`);
+  const stdoutPath =
+    prepared?.stdoutPath ?? path.join(options.logsDir, `${testCase.outputName}.stdout.log`);
   const startedAt = Date.now();
-  const runId = `review-quality-${testCase.outputName}-${startedAt}`;
-  const commandArgs = [
-    "bench/review-quality/run-production-review.mjs",
-    "--repo",
-    testCase.worktree,
-    "--base-ref",
-    testCase.baseRef,
-    "--runner-path",
-    options.runnerPath,
-    "--golden",
-    testCase.golden,
-    "--mode",
-    "review",
-    "--run-id",
-    runId,
-    "--sessions",
-    options.sessions,
-    "--max-active",
-    options.maxActive,
-    "--max-turns",
-    options.maxTurns,
-    "--max-tool-calls",
-    options.maxToolCalls,
-    "--max-prompt-tokens",
-    options.maxPromptTokens,
-    "--model",
-    options.model,
-    "--output",
-    outputPath,
-    "--trace-output-dir",
-    traceDir,
-    "--temp-dir",
-    path.join(options.jobsDir, testCase.outputName),
-    "--progress",
-    options.progress,
-  ];
-  if (options.maxOutputTokens) {
-    commandArgs.push("--max-output-tokens", options.maxOutputTokens);
-  }
-  if (options.maxCapturedTextBytes) {
-    commandArgs.push("--max-captured-text-bytes", String(options.maxCapturedTextBytes));
+  const runId = prepared?.job?.runId ?? `review-quality-${testCase.outputName}-${startedAt}`;
+  const commandArgs = prepared
+    ? [
+        "bench/review-quality/run-production-review.mjs",
+        "--job",
+        prepared.jobPath,
+        "--runner-path",
+        options.runnerPath,
+        "--output",
+        outputPath,
+        "--trace-output-dir",
+        traceDir,
+      ]
+    : [
+        "bench/review-quality/run-production-review.mjs",
+        "--repo",
+        testCase.worktree,
+        "--base-ref",
+        testCase.baseRef,
+        "--runner-path",
+        options.runnerPath,
+        "--golden",
+        testCase.golden,
+        "--mode",
+        "review",
+        "--run-id",
+        runId,
+        "--sessions",
+        options.sessions,
+        "--max-active",
+        options.maxActive,
+        "--max-turns",
+        options.maxTurns,
+        "--max-tool-calls",
+        options.maxToolCalls,
+        "--max-prompt-tokens",
+        options.maxPromptTokens,
+        "--model",
+        options.model,
+        "--output",
+        outputPath,
+        "--trace-output-dir",
+        traceDir,
+        "--temp-dir",
+        path.join(options.jobsDir, testCase.outputName),
+      ];
+  if (!prepared) {
+    if (options.maxOutputTokens) {
+      commandArgs.push("--max-output-tokens", options.maxOutputTokens);
+    }
+    if (options.maxCapturedTextBytes) {
+      commandArgs.push("--max-captured-text-bytes", String(options.maxCapturedTextBytes));
+    }
   }
 
   const stdout = fs.openSync(stdoutPath, "w");

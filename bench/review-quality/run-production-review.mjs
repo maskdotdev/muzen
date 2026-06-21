@@ -13,32 +13,34 @@ const DEFAULT_MODEL = process.env.MODEL || "gpt-4o-mini";
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const repo = path.resolve(args.repo || ".");
-  const runnerPath = path.resolve(args.runnerPath || "target/release/muzen-runner");
-  const outputPath = args.output ? path.resolve(args.output) : null;
-  const baseRef = required(args.baseRef, "--base-ref is required");
-  const goldenPath = args.golden ? path.resolve(args.golden) : null;
-  const runId = args.runId || `review-quality-${timestamp()}`;
-  const tempDir = args.tempDir ? path.resolve(args.tempDir) : fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-"));
-  const job = buildProductionReviewJob({
-    repo,
-    runnerPath,
-    goldenPath,
-    baseRef,
-    runId,
-    mode: args.mode || "review",
-    outputPath,
-    traceOutputDir: args.traceOutputDir ? path.resolve(args.traceOutputDir) : null,
-    tempDir,
-    maxCapturedTextBytes: args.maxCapturedTextBytes ? numberArg(args.maxCapturedTextBytes, 0) : null,
-    model: args.model || DEFAULT_MODEL,
-    sessions: nonnegativeNumberArg(args.sessions, 0),
-    maxActive: numberArg(args.maxActive, 8),
-    maxTurns: numberArg(args.maxTurns, 10),
-    maxToolCalls: numberArg(args.maxToolCalls, 32),
-    maxPromptTokens: numberArg(args.maxPromptTokens, 64000),
-    maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
-  });
+  const job = args.job
+    ? readJson(path.resolve(args.job))
+    : buildProductionReviewJob({
+        repo: path.resolve(args.repo || "."),
+        runnerPath: path.resolve(args.runnerPath || "target/release/muzen-runner"),
+        goldenPath: args.golden ? path.resolve(args.golden) : null,
+        baseRef: required(args.baseRef, "--base-ref is required"),
+        runId: args.runId || `review-quality-${timestamp()}`,
+        mode: args.mode || "review",
+        outputPath: args.output ? path.resolve(args.output) : null,
+        traceOutputDir: args.traceOutputDir ? path.resolve(args.traceOutputDir) : null,
+        tempDir: args.tempDir
+          ? path.resolve(args.tempDir)
+          : fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-")),
+        maxCapturedTextBytes: args.maxCapturedTextBytes
+          ? numberArg(args.maxCapturedTextBytes, 0)
+          : null,
+        model: args.model || DEFAULT_MODEL,
+        sessions: nonnegativeNumberArg(args.sessions, 0),
+        maxActive: numberArg(args.maxActive, 8),
+        maxTurns: numberArg(args.maxTurns, 10),
+        maxToolCalls: numberArg(args.maxToolCalls, 32),
+        maxPromptTokens: numberArg(args.maxPromptTokens, 64000),
+        maxOutputTokens: numberArg(args.maxOutputTokens, 8000),
+      });
+  const runnerPath = path.resolve(args.runnerPath || job.runnerPath || "target/release/muzen-runner");
+  if (args.output) job.outputPath = path.resolve(args.output);
+  if (args.traceOutputDir) job.traceOutputDir = path.resolve(args.traceOutputDir);
 
   const startedAt = Date.now();
   const run = await runRunnerReview(runnerPath, job.runStart);
@@ -46,7 +48,7 @@ async function main() {
   fs.writeFileSync(job.framesPath, `${run.frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
 
   const report = buildProductionReviewReport(job, run, { elapsedMs });
-  writeProductionReviewReport(report, outputPath);
+  writeProductionReviewReport(report, job.outputPath);
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   process.exitCode = report.reviewValid ? 0 : 1;
 }
@@ -70,13 +72,17 @@ export function buildProductionReviewJob({
   maxCapturedTextBytes = null,
   tempDir = null,
 }) {
+  const startedAt = Date.now();
   const jobDir = path.resolve(tempDir || fs.mkdtempSync(path.join(os.tmpdir(), "muzen-review-quality-")));
   fs.mkdirSync(jobDir, { recursive: true });
+  const jobDirReadyAt = Date.now();
   const changedFiles = gitChangedFiles(repo, baseRef);
+  const changedFilesReadyAt = Date.now();
   const changedFilePaths = changedFiles
     .map((file) => file.newPath ?? file.oldPath)
     .filter(Boolean);
   const inlineDiff = git(repo, ["diff", "--find-renames", "--find-copies", `${baseRef}...HEAD`]);
+  const inlineDiffReadyAt = Date.now();
   const runStart = buildRunnerStart({
     runId,
     repo,
@@ -92,10 +98,12 @@ export function buildProductionReviewJob({
     maxPromptTokens,
     maxOutputTokens,
   });
+  const runStartReadyAt = Date.now();
   const requestPath = path.join(jobDir, "run-start.json");
   const framesPath = path.join(jobDir, "frames.jsonl");
   fs.writeFileSync(requestPath, `${JSON.stringify(runStart, null, 2)}\n`);
   fs.writeFileSync(framesPath, "");
+  const writtenAt = Date.now();
   return {
     schemaVersion: JOB_SCHEMA_VERSION,
     mode,
@@ -115,6 +123,14 @@ export function buildProductionReviewJob({
     changedFilePaths,
     inlineDiff,
     runStart,
+    timing: {
+      elapsedMs: writtenAt - startedAt,
+      jobDirMs: jobDirReadyAt - startedAt,
+      changedFilesMs: changedFilesReadyAt - jobDirReadyAt,
+      inlineDiffMs: inlineDiffReadyAt - changedFilesReadyAt,
+      runStartBuildMs: runStartReadyAt - inlineDiffReadyAt,
+      writeArtifactsMs: writtenAt - runStartReadyAt,
+    },
   };
 }
 
@@ -178,6 +194,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
       : null,
     benchmark: {
       elapsedMs,
+      jobBuild: job.timing ?? null,
       runnerInvocation: run.timing ?? null,
       hitRate: scoring.hitRate,
       hits: scoring.hits,
