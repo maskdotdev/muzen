@@ -20,6 +20,17 @@ node bench/review-quality/check-local.mjs \
   --runner-path target/release/muzen-runner
 ```
 
+Before any subscription-backed runner-mode diagnostic, also run the proxy-shaped
+fake gate. It starts the local Codex Responses proxy with a temporary fake auth
+file, points that proxy at the fake Responses server, and verifies deterministic
+retry behavior through the same `OPENAI_BASE_URL` path used by live evals:
+
+```sh
+node bench/review-quality/check-local.mjs \
+  --runner-path target/release/muzen-runner \
+  --include-codex-proxy true
+```
+
 Start the local proxy:
 
 ```sh

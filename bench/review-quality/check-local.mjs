@@ -19,6 +19,7 @@ const outputRoot = path.resolve(
   args.outputDir || `bench/results-review-quality/check-local-${timestamp()}`,
 );
 fs.mkdirSync(outputRoot, { recursive: true });
+const includeCodexProxy = booleanArg(args.includeCodexProxy || "false", "--include-codex-proxy");
 const startup = runStartupProbe({
   runnerPath,
   samples: args.startupSamples || args.concurrency || "5",
@@ -101,6 +102,28 @@ const probes = [
   },
 ];
 
+if (includeCodexProxy) {
+  probes.push({
+    name: "codex-proxy-deterministic-retry",
+    toolsBeforeFinal: "1",
+    finalMode: "candidate",
+    cases: "5",
+    concurrency: "5",
+    maxConcurrent: "1",
+    latencyMs: "25",
+    jitterMs: "0",
+    viaCodexProxy: "true",
+    httpErrorAttemptsPerRequest: "1",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 0,
+    expectFindings: 5,
+    expectProviderErrorsGreaterThan: 0,
+    expectFakeHttpErrors: true,
+    expectProviderQueue: true,
+    expectConcurrentAdmission: true,
+  });
+}
+
 const results = [];
 for (const probe of probes) {
   const outputDir = path.join(outputRoot, probe.name);
@@ -109,6 +132,8 @@ for (const probe of probes) {
     outputDir,
     toolsBeforeFinal: probe.toolsBeforeFinal,
     invalidFinalAttempts: probe.invalidFinalAttempts || "0",
+    httpErrorAttemptsPerRequest: probe.httpErrorAttemptsPerRequest || "0",
+    viaCodexProxy: probe.viaCodexProxy || "false",
     finalMode: probe.finalMode || "clean",
     cases: probe.cases || args.cases || "5",
     concurrency: probe.concurrency || args.concurrency || "5",
@@ -144,6 +169,9 @@ process.stdout.write(
       generatedAtUtc: new Date().toISOString(),
       outputRoot,
       runnerPath,
+      config: {
+        includeCodexProxy,
+      },
       startup,
       probes: results,
     },
@@ -200,6 +228,8 @@ function runProbe({
   latencyMs,
   jitterMs,
   maxConcurrent,
+  httpErrorAttemptsPerRequest,
+  viaCodexProxy,
 }) {
   const result = spawnSync(
     "node",
@@ -225,6 +255,10 @@ function runProbe({
       toolsBeforeFinal,
       "--invalid-final-attempts",
       invalidFinalAttempts,
+      "--http-error-attempts-per-request",
+      httpErrorAttemptsPerRequest,
+      "--via-codex-proxy",
+      viaCodexProxy,
       "--final-mode",
       finalMode,
       "--latency-ms",
@@ -312,15 +346,20 @@ function assertProbe(probe, summary) {
     probe.expectFindings ?? 0,
   );
   assertEqual(
-    `${probe.name} provider errors`,
+    `${probe.name} provider error parity`,
     providerErrors(summary.totals.shared),
-    0,
-  );
-  assertEqual(
-    `${probe.name} provider errors`,
     providerErrors(summary.totals.process),
-    0,
   );
+  if (probe.expectProviderErrorsGreaterThan != null) {
+    assertGreaterThan(
+      `${probe.name} provider errors`,
+      providerErrors(summary.totals.shared),
+      probe.expectProviderErrorsGreaterThan,
+    );
+  } else {
+    assertEqual(`${probe.name} shared provider errors`, providerErrors(summary.totals.shared), 0);
+    assertEqual(`${probe.name} process provider errors`, providerErrors(summary.totals.process), 0);
+  }
   assertEqual(`${probe.name} shared release errors`, summary.release.shared.releaseErrors, 0);
   assertEqual(`${probe.name} shared failed finishes`, summary.release.shared.failedFinishes, 0);
   assertEqual(`${probe.name} process release errors`, summary.release.process.releaseErrors, 0);
@@ -348,6 +387,14 @@ function assertProbe(probe, summary) {
   if (probe.expectProviderQueue) {
     assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
     assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
+  }
+  if (probe.expectFakeHttpErrors) {
+    const sharedErrors =
+      summary.fakeModel.byRunLabel.shared?.decisions?.configured_http_error ?? 0;
+    const processErrors =
+      summary.fakeModel.byRunLabel.process?.decisions?.configured_http_error ?? 0;
+    assertEqual(`${probe.name} fake HTTP error parity`, sharedErrors, processErrors);
+    assertGreaterThan(`${probe.name} fake HTTP errors`, sharedErrors, 0);
   }
   if (probe.expectConcurrentAdmission) {
     assertGreaterThan(
@@ -415,12 +462,16 @@ function compactTotals(totals) {
 function compactFakeModel(fakeModel) {
   return {
     requests: fakeModel.requests,
+    decisions: fakeModel.decisions,
+    statuses: fakeModel.statuses,
     queuedMs: fakeModel.queuedMs,
     byRunLabel: Object.fromEntries(
       Object.entries(fakeModel.byRunLabel ?? {}).map(([label, summary]) => [
         label,
         {
           requests: summary.requests,
+          decisions: summary.decisions,
+          statuses: summary.statuses,
           queuedMs: summary.queuedMs,
         },
       ]),
@@ -561,12 +612,18 @@ function parseArgs(argv) {
   return parsed;
 }
 
+function booleanArg(value, name) {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  fail(`${name} must be true or false`);
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
 }
 
 function usage() {
   process.stderr.write(
-    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local] [--startup-samples 5] [--startup-concurrency 5] [--startup-timeout-ms 10000]\n",
+    "Usage: check-local.mjs [--runner-path target/release/muzen-runner] [--output-dir bench/results-review-quality/check-local] [--startup-samples 5] [--startup-concurrency 5] [--startup-timeout-ms 10000] [--include-codex-proxy true|false]\n",
   );
 }
