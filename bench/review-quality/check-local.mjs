@@ -81,6 +81,14 @@ const probes = [
     expectExhausted: 0,
     expectFindings: 0,
     expectProviderQueue: true,
+    expectProviderTiming: {
+      minProviderRequestMs: 1,
+      expectedRetryBackoffMs: 0,
+      maxProviderRequestDeltaMs: 500,
+      maxRetryBackoffDeltaMs: 0,
+      maxFakeQueueMeanDeltaMs: 25,
+      maxFakeQueueP95DeltaMs: 50,
+    },
     expectConcurrentAdmission: true,
   },
   {
@@ -131,6 +139,14 @@ if (includeCodexProxy) {
     expectProviderErrorsGreaterThan: 0,
     expectFakeHttpErrors: true,
     expectProviderQueue: true,
+    expectProviderTiming: {
+      minProviderRequestMs: 1,
+      minRetryBackoffMs: 1000,
+      maxProviderRequestDeltaMs: 1500,
+      maxRetryBackoffDeltaMs: 1500,
+      maxFakeQueueMeanDeltaMs: 50,
+      maxFakeQueueP95DeltaMs: 100,
+    },
     expectConcurrentAdmission: true,
   });
 }
@@ -435,6 +451,9 @@ function assertProbe(probe, summary) {
     assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
     assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
   }
+  if (probe.expectProviderTiming) {
+    assertProviderTiming(probe.name, summary.timing, probe.expectProviderTiming);
+  }
   if (probe.expectFakeHttpErrors) {
     const sharedErrors =
       summary.fakeModel.byRunLabel.shared?.decisions?.configured_http_error ?? 0;
@@ -587,6 +606,73 @@ function assertQueuedProvider(probeName, mode, summary) {
   assertGreaterThan(`${probeName} ${mode} fake-model queued p95 ms`, summary.queuedMs.p95, 0);
 }
 
+function assertProviderTiming(probeName, timing, expected) {
+  const modeTotals = timing.modeTotals ?? {};
+  const shared = modeTotals.shared ?? {};
+  const process = modeTotals.process ?? {};
+  const delta = modeTotals.deltaSharedMinusProcess ?? {};
+  assertGreaterThan(
+    `${probeName} shared provider request ms`,
+    shared.modelProviderRequestMs,
+    expected.minProviderRequestMs,
+  );
+  assertGreaterThan(
+    `${probeName} process provider request ms`,
+    process.modelProviderRequestMs,
+    expected.minProviderRequestMs,
+  );
+  if (expected.expectedRetryBackoffMs != null) {
+    assertEqual(
+      `${probeName} shared retry backoff ms`,
+      shared.modelRetryBackoffMs,
+      expected.expectedRetryBackoffMs,
+    );
+    assertEqual(
+      `${probeName} process retry backoff ms`,
+      process.modelRetryBackoffMs,
+      expected.expectedRetryBackoffMs,
+    );
+  }
+  if (expected.minRetryBackoffMs != null) {
+    assertGreaterThan(
+      `${probeName} shared retry backoff ms`,
+      shared.modelRetryBackoffMs,
+      expected.minRetryBackoffMs,
+    );
+    assertGreaterThan(
+      `${probeName} process retry backoff ms`,
+      process.modelRetryBackoffMs,
+      expected.minRetryBackoffMs,
+    );
+  }
+  assertAtMostAbs(
+    `${probeName} provider request delta ms`,
+    delta.modelProviderRequestMs,
+    expected.maxProviderRequestDeltaMs,
+  );
+  assertAtMostAbs(
+    `${probeName} retry backoff delta ms`,
+    delta.modelRetryBackoffMs,
+    expected.maxRetryBackoffDeltaMs,
+  );
+  const fakeProvider = timing.fakeProvider ?? {};
+  assertEqual(
+    `${probeName} fake provider request parity`,
+    fakeProvider.shared?.requests,
+    fakeProvider.process?.requests,
+  );
+  assertAtMostAbs(
+    `${probeName} fake provider queue mean delta ms`,
+    fakeProvider.deltaSharedMinusProcess?.queuedMs?.mean,
+    expected.maxFakeQueueMeanDeltaMs,
+  );
+  assertAtMostAbs(
+    `${probeName} fake provider queue p95 delta ms`,
+    fakeProvider.deltaSharedMinusProcess?.queuedMs?.p95,
+    expected.maxFakeQueueP95DeltaMs,
+  );
+}
+
 function assertCompletionMaxToolCalls(probeName, mode, observedRuns, expected) {
   assertEqual(
     `${probeName} ${mode} completion max tool calls min`,
@@ -715,6 +801,12 @@ function assertGreaterThan(label, actual, threshold) {
 function assertAtMost(label, actual, threshold) {
   if (!(actual <= threshold)) {
     fail(`${label}: expected <= ${threshold}, got ${actual}`);
+  }
+}
+
+function assertAtMostAbs(label, actual, threshold) {
+  if (!Number.isFinite(actual) || Math.abs(actual) > threshold) {
+    fail(`${label}: expected absolute value <= ${threshold}, got ${actual}`);
   }
 }
 
