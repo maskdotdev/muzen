@@ -158,19 +158,18 @@ bench/results-review-quality/fake-autonomous-hardcap-budget-sweep-20260621T07273
 | 8 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
 | 12 | 16 / 16 | 4 / 4 | 4 / 4 | 0 | 160 / 160 | 64 / 64 | 80 / 80 | passed |
 
-Large fixture stress sweep:
+Corrected autonomous large-fixture stress sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --runner-path target/release/muzen-runner \
-  --concurrency 4,8 \
+  --concurrency 4,8,12 \
   --cases 8 \
-  --sessions 3 \
-  --max-active 2 \
+  --sessions 0 \
   --fixture-extra-lines 400 \
   --fixture-line-bytes 160 \
-  --max-tool-calls 6 \
-  --max-turns 10 \
+  --max-tool-calls 8 \
+  --max-turns 12 \
   --tools-before-final 1 \
   --http-error-attempts-per-request 1 \
   --final-mode candidate \
@@ -183,13 +182,14 @@ node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
 Result file:
 
 ```text
-bench/results-review-quality/fake-sweep-large-fixture-sessions-20260621T053310Z/sweep-summary.json
+bench/results-review-quality/fake-autonomous-hardcap-large-fixture-20260621T073245Z/sweep-summary.json
 ```
 
-| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Artifact bytes per case | Observed sessions shared/process | Result |
-| ---: | --- | --- | --- | --- | --- | ---: | --- | --- |
-| 4 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
-| 8 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 130312 | 2 / 2 | passed |
+| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Accepted candidates per case | Failed finishes shared/process | Result |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 1 / 1 | 0 / 0 | passed |
+| 8 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 1 / 1 | 0 / 0 | passed |
+| 12 | 8 / 8 | 57 / 57 | 16 / 16 | 576 / 576 | 25 / 25 | 1 / 1 | 0 / 0 | passed |
 
 Protocol explicit-session and tool-accounting stress sweep:
 
