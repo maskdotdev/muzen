@@ -313,7 +313,7 @@ bench/results-review-quality/fake-protocol-request-cancel-result-20260621T062331
 | shared | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
 | process | 4 | 3 | 1 | 1 | 3 | 1 | 6 | 1 | 0 | passed |
 
-Protocol mixed pressure sweep:
+Protocol mixed pressure gate:
 
 ```sh
 node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
@@ -348,6 +348,39 @@ bench/results-review-quality/fake-protocol-mixed-pressure-20260621T062610Z/proto
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | shared | 6 | 5 | 1 | 1 | 1 | 104 | 6 | 4 | 4 | 4 | passed |
 | process | 6 | 5 | 1 | 1 | 1 | 105 | 6 | 4 | 4 | 4 | passed |
+
+Protocol mixed pressure repeat sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-mixed-pressure-sweep.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-mixed-pressure-sweep-20260621T062934Z \
+  --iterations 3 \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --max-tool-calls 1 \
+  --max-turns 5 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 2 \
+  --tool-delay-ms 120 \
+  --model-delay-ms 20 \
+  --heartbeat-interval-ms 25 \
+  --status-poll-interval-ms 25 \
+  --request-cancel-after-status 1 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-mixed-pressure-sweep-20260621T062934Z/mixed-pressure-sweep-summary.json
+```
+
+| Iterations | Shared completed/cancelled | Process completed/cancelled | Heartbeat callbacks shared/process | Status polls min shared/process | Completed-run tool calls min shared/process | Completed-run budget rejections min shared/process | Result |
+| ---: | --- | --- | --- | --- | --- | --- | --- |
+| 3 | 15 / 3 | 15 / 3 | 103-104 / 105-106 | 6 / 6 | 4 / 4 | 4 / 4 | passed |
 
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
@@ -411,6 +444,10 @@ Interpretation:
   callback-tool budget exhaustion together. It still requires shared/process
   agreement on terminal status counts and validates exact tool/budget accounting
   on the five completed runs.
+- The mixed protocol pressure path now has a repeat sweep wrapper. The first
+  three-iteration sweep covered 18 runs per mode with stable terminal status
+  counts, heartbeat/status/cancel activity, stored cancelled results, and exact
+  completed-run budget accounting.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -428,8 +465,8 @@ multi-session fan-out, delayed callback tools, callback/custom tool accounting,
 session-budget reporting, direct-session budget exhaustion, active-session
 heartbeats, heartbeat-triggered cancellation, in-flight status polling, and
 explicit cancel requests, including a combined mixed-pressure run. The next
-useful fake-first step is a higher-volume repeat/sweep of that mixed gate to
-raise confidence against timing-sensitive shared/process regressions.
+useful fake-first step is a higher-volume mixed sweep, or an artifact/large
+fixture variant of the mixed sweep, before considering live evals.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
