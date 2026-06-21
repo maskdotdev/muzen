@@ -364,8 +364,12 @@ function assertProbe(probe, summary) {
   assertEqual(`${probe.name} shared failed finishes`, summary.release.shared.failedFinishes, 0);
   assertEqual(`${probe.name} process release errors`, summary.release.process.releaseErrors, 0);
   assertEqual(`${probe.name} process failed finishes`, summary.release.process.failedFinishes, 0);
-  assertIsolation(probe.name, "shared", summary.isolation.shared, { requireFrames: true });
-  assertIsolation(probe.name, "process", summary.isolation.process, { requireFrames: false });
+  assertIsolation(probe.name, "shared", summary.isolation.shared, {
+    allowedFrameMissingRunIds: 0,
+  });
+  assertIsolation(probe.name, "process", summary.isolation.process, {
+    allowedFrameMissingRunIds: summary.isolation.process.cases,
+  });
   if (probe.expectInvalidFinalsPerConversation) {
     const invalidFinalsByConversation = Object.values(
       summary.fakeModel.invalidFinalsByConversation ?? {},
@@ -436,17 +440,19 @@ function assertProbe(probe, summary) {
   }
 }
 
-function assertIsolation(probeName, mode, isolation, { requireFrames }) {
+function assertIsolation(probeName, mode, isolation, { allowedFrameMissingRunIds }) {
   assertEqual(`${probeName} ${mode} duplicate runIds`, isolation.duplicateRunIds, 0);
   assertEqual(`${probeName} ${mode} orphan frames`, isolation.orphanFrames, 0);
+  assertEqual(`${probeName} ${mode} missing frame files`, isolation.missingFrameFiles, 0);
+  assertAtMost(
+    `${probeName} ${mode} frame missing runIds`,
+    isolation.frameMissingRunIds,
+    allowedFrameMissingRunIds,
+  );
+  assertEqual(`${probeName} ${mode} unexpected frame runIds`, isolation.unexpectedFrameRunIds, 0);
   assertEqual(`${probeName} ${mode} missing trace files`, isolation.missingTraceFiles, 0);
   assertEqual(`${probeName} ${mode} trace missing runIds`, isolation.traceMissingRunIds, 0);
   assertEqual(`${probeName} ${mode} unexpected trace runIds`, isolation.unexpectedTraceRunIds, 0);
-  if (requireFrames) {
-    assertEqual(`${probeName} ${mode} missing frame files`, isolation.missingFrameFiles, 0);
-    assertEqual(`${probeName} ${mode} frame missing runIds`, isolation.frameMissingRunIds, 0);
-    assertEqual(`${probeName} ${mode} unexpected frame runIds`, isolation.unexpectedFrameRunIds, 0);
-  }
 }
 
 function compactTotals(totals) {
@@ -564,8 +570,10 @@ function compactModeIsolation(isolation) {
     duplicateRunIds: isolation.duplicateRunIds,
     orphanFrames: isolation.orphanFrames,
     missingFrameFiles: isolation.missingFrameFiles,
+    frameMissingRunIds: isolation.frameMissingRunIds,
     unexpectedFrameRunIds: isolation.unexpectedFrameRunIds,
     missingTraceFiles: isolation.missingTraceFiles,
+    traceMissingRunIds: isolation.traceMissingRunIds,
     unexpectedTraceRunIds: isolation.unexpectedTraceRunIds,
   };
 }
@@ -587,6 +595,12 @@ function assertEqual(label, actual, expected) {
 function assertGreaterThan(label, actual, threshold) {
   if (!(actual > threshold)) {
     fail(`${label}: expected > ${threshold}, got ${actual}`);
+  }
+}
+
+function assertAtMost(label, actual, threshold) {
+  if (!(actual <= threshold)) {
+    fail(`${label}: expected <= ${threshold}, got ${actual}`);
   }
 }
 
