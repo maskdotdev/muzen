@@ -19,19 +19,22 @@ temporary fake auth file, points it at the fake Responses server, and exercises
 the same `OPENAI_BASE_URL` path used by live subscription evals without making
 live model calls.
 
-Latest `check-local --include-codex-proxy true` result:
+Latest `check-local --include-codex-proxy true` result after removing fake
+validation repair noise:
 
 | Probe | Shared findings | Process findings | Shared model calls | Process model calls | Shared tool calls | Process tool calls | Shared provider errors | Process provider errors | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| codex-proxy-deterministic-retry | 5 | 5 | 46 | 46 | 10 | 10 | 21 | 21 | passed |
+| candidate-publication | 5 | 5 | 20 | 20 | 10 | 10 | 0 | 0 | passed |
+| codex-proxy-deterministic-retry | 5 | 5 | 36 | 36 | 10 | 10 | 16 | 16 | passed |
+| schema-repair-per-conversation | 0 | 0 | 15 | 15 | 10 | 10 | 0 | 0 | passed |
 
-Stress sweep:
+Candidate publication stress sweep:
 
 ```sh
 node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --runner-path target/release/muzen-runner \
-  --concurrency 5,8,12 \
-  --cases 12 \
+  --concurrency 1,4,8,12,16 \
+  --cases 20 \
   --max-tool-calls 6 \
   --max-turns 10 \
   --tools-before-final 1 \
@@ -43,23 +46,68 @@ node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --via-codex-proxy true
 ```
 
+Result file:
+
+```text
+bench/results-review-quality/fake-sweep-proxy-candidate-stress-20260621T051937Z/sweep-summary.json
+```
+
+| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Final outputs per case | Repair attempts per case | Result |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+| 4 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+| 8 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+| 12 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+| 16 | 20 / 20 | 141 / 141 | 40 / 40 | 1440 / 1440 | 61 / 61 | 2 / 2 | 0 / 0 | passed |
+
+Budget exhaustion stress sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
+  --runner-path target/release/muzen-runner \
+  --concurrency 1,4,8,12,16 \
+  --cases 20 \
+  --max-tool-calls 3 \
+  --max-turns 8 \
+  --tools-before-final infinite \
+  --http-error-attempts-per-request 1 \
+  --final-mode clean \
+  --latency-ms 25 \
+  --jitter-ms 0 \
+  --max-concurrent 1 \
+  --via-codex-proxy true
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-sweep-budget-exhaustion-20260621T052343Z/sweep-summary.json
+```
+
+| Concurrency | Exhausted shared/process | Shared-only exhaustions | Findings shared/process | Model calls shared/process | Tool calls shared/process | Fake 500s shared/process | Result |
+| ---: | --- | ---: | --- | --- | --- | --- | --- |
+| 1 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+| 4 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+| 8 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+| 12 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+| 16 | 20 / 20 | 0 | 0 / 0 | 160 / 160 | 60 / 60 | 80 / 80 | passed |
+
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
 only for exploratory chaos probes where a failing JSON report is the desired
 artifact.
-
-| Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Retry backoff ms shared/process | Provider queue mean delta ms | Provider queue p95 delta ms | Result |
-| ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | --- |
-| 5 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22060 / 22071 | 0.14 | 2 | passed |
-| 8 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22044 / 22058 | -0.10 | 0 | passed |
-| 12 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22061 / 22068 | -3.12 | -1 | passed |
 
 Interpretation:
 
 - The deterministic fake/proxy path does not reproduce a shared-only
   concurrency regression. Shared and process modes match on findings, model
   calls, tool calls, token totals, retry counts, and terminal completion across
-  queue pressure, candidate publication, schema repair, and proxy-shaped retry.
+  queue pressure, candidate publication, schema repair, proxy-shaped retry, and
+  forced max-tool-call exhaustion up to concurrency 16.
+- The forced exhaustion probe answers the budget-scope concern for this harness:
+  `maxToolCalls` is enforced per case in both modes. Every case exhausts exactly
+  once when the fake model keeps requesting tools, and `sharedOnly` exhaustion is
+  0 at every tested concurrency.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -71,10 +119,13 @@ Interpretation:
   than mixed-run leakage; isolation gates continue to fail on orphan or
   unexpected run IDs.
 
-Current recommendation: do not run live evals until the proxy-shaped fake gate
-is clean on the branch under test. If a live eval is needed after this point, it
-should be a deliberately approved, small runner-mode diagnostic through the
-subscription proxy with semantic scoring disabled first.
+Current recommendation: do not run live evals for this runner investigation yet.
+The next useful step is to keep broadening deterministic fake coverage around
+the live-shaped inputs that are still missing from the harness: multi-session
+cases per review, larger tool result payloads, and intentionally delayed tool
+responses. If a live eval becomes necessary after those pass, it should be a
+deliberately approved, small runner-mode diagnostic through the subscription
+proxy with semantic scoring disabled first.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
