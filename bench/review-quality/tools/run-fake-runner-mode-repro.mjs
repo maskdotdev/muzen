@@ -292,6 +292,7 @@ function fakeProviderTiming(summary) {
     requests: summary?.requests ?? 0,
     queuedMs: summary?.queuedMs ?? stats([]),
     elapsedMs: summary?.elapsedMs ?? stats([]),
+    requestShape: summary?.requestShape ?? summarizeRequestShape([]),
   };
 }
 
@@ -453,6 +454,60 @@ function summarizeFakeModelRecords(records) {
     maxActiveAtStart: records.length
       ? Math.max(...records.map((record) => record.activeAtStart ?? 0))
       : null,
+    queuedMs: stats(records.map((record) => record.queuedMs)),
+    elapsedMs: stats(records.map((record) => record.elapsedMs)),
+    requestShape: summarizeRequestShape(records),
+  };
+}
+
+function summarizeRequestShape(records) {
+  const ordered = records
+    .map((record, index) => ({
+      ...record,
+      timestampMs: Date.parse(record.atUtc),
+      originalIndex: index,
+    }))
+    .filter((record) => Number.isFinite(record.timestampMs))
+    .sort(
+      (left, right) =>
+        left.timestampMs - right.timestampMs || left.originalIndex - right.originalIndex,
+    );
+  const firstTimestampMs = ordered[0]?.timestampMs ?? null;
+  const lastTimestampMs = ordered.at(-1)?.timestampMs ?? null;
+  const conversationIndexes = new Map();
+  const requestOrder = ordered.map((record) => {
+    const conversationKey = record.conversationKey || "unknown";
+    if (!conversationIndexes.has(conversationKey)) {
+      conversationIndexes.set(conversationKey, conversationIndexes.size + 1);
+    }
+    return {
+      sequence: record.sequence,
+      offsetMs: firstTimestampMs === null ? null : record.timestampMs - firstTimestampMs,
+      conversationIndex: conversationIndexes.get(conversationKey),
+      decision: record.decision,
+      queuedMs: record.queuedMs ?? 0,
+      elapsedMs: record.elapsedMs ?? 0,
+      functionOutputs: record.functionOutputs ?? 0,
+    };
+  });
+  const conversationCount = conversationIndexes.size;
+  return {
+    conversationCount,
+    completionWindowMs:
+      firstTimestampMs === null || lastTimestampMs === null
+        ? null
+        : lastTimestampMs - firstTimestampMs,
+    firstWave: summarizeRequestWave(requestOrder.slice(0, conversationCount)),
+    lastWave: summarizeRequestWave(requestOrder.slice(-conversationCount)),
+    requestOrder,
+  };
+}
+
+function summarizeRequestWave(records) {
+  return {
+    requests: records.length,
+    uniqueConversations: new Set(records.map((record) => record.conversationIndex)).size,
+    decisions: countObject(records.map((record) => record.decision)),
     queuedMs: stats(records.map((record) => record.queuedMs)),
     elapsedMs: stats(records.map((record) => record.elapsedMs)),
   };
