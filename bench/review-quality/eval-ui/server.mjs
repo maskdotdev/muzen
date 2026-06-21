@@ -356,13 +356,13 @@ async function apiEvents(url, res) {
 const LAUNCH_PRESETS = [
   {
     id: "check-local",
-    label: "Local gate (no model)",
-    description: "No-model harness self-tests, fixtures, comparator, anti-targeting guard.",
+    label: "Local gate (fake model)",
+    description: "Fake-model shared/process runner gate; no live model calls.",
     script: "bench/review-quality/check-local.mjs",
     needsModel: false,
-    needsRunner: false,
+    needsRunner: true,
     fixtureSet: null,
-    buildArgs: () => [],
+    buildArgs: (ctx) => ["--runner-path", ctx.runnerPath, "--output-dir", ctx.outDir],
   },
   {
     id: "synthetic-positive",

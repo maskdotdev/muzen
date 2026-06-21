@@ -13,10 +13,11 @@ Build the runner:
 cargo build --release --bin muzen-runner
 ```
 
-Run the cheap local harness gate before live model calls:
+Run the cheap local fake-model harness gate before live model calls:
 
 ```sh
-node bench/review-quality/check-local.mjs
+node bench/review-quality/check-local.mjs \
+  --runner-path target/release/muzen-runner
 ```
 
 Start the local proxy:

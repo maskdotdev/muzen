@@ -34,7 +34,8 @@ No `npm install`, no build step. Requires only Node (24+).
     diagnostics.
   - **Raw events** — paged, filterable view of `all-events.jsonl`.
 - **Launch a run** — the **New run** button runs a curated preset:
-  - *Local gate (no model)* — `check-local.mjs`; no runner or model needed.
+  - *Local gate (fake model)* — `check-local.mjs`; needs a built
+    `muzen-runner`, but does not make live model calls.
   - *Synthetic positive / Anti-cheat / Synthetic suite* — need a built
     `muzen-runner` and a model. Output + trace land under
     `bench/results-review-quality/eval-ui-runs/…` and the trace opens in place
