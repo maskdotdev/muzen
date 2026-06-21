@@ -84,6 +84,8 @@ function compareRunnerModes(sharedRoot, processRoot) {
   }
 
   cases.sort((left, right) => left.name.localeCompare(right.name));
+  const sharedTotals = effectiveTotals(sharedSummary.totals, cases.map((item) => item.shared));
+  const processTotals = effectiveTotals(processSummary.totals, cases.map((item) => item.process));
   return {
     generatedAtUtc: new Date().toISOString(),
     compared: {
@@ -91,39 +93,46 @@ function compareRunnerModes(sharedRoot, processRoot) {
       process: processRoot,
     },
     totals: {
-      shared: sharedSummary.totals,
-      process: processSummary.totals,
+      shared: sharedTotals,
+      process: processTotals,
       delta: {
-        modelCalls: sharedSummary.totals.modelCalls - processSummary.totals.modelCalls,
-        toolCalls: sharedSummary.totals.toolCalls - processSummary.totals.toolCalls,
-        totalTokens: sharedSummary.totals.totalTokens - processSummary.totals.totalTokens,
-        modelProviderRequestMs:
-          (sharedSummary.totals.modelProviderRequestMs ?? 0) -
-          (processSummary.totals.modelProviderRequestMs ?? 0),
-        modelRetryBackoffMs:
-          (sharedSummary.totals.modelRetryBackoffMs ?? 0) -
-          (processSummary.totals.modelRetryBackoffMs ?? 0),
-        modelLimiterWaitMs:
-          (sharedSummary.totals.modelLimiterWaitMs ?? 0) -
-          (processSummary.totals.modelLimiterWaitMs ?? 0),
-        modelTimeoutErrors:
-          (sharedSummary.totals.modelTimeoutErrors ?? 0) -
-          (processSummary.totals.modelTimeoutErrors ?? 0),
+        modelCalls: sharedTotals.modelCalls - processTotals.modelCalls,
+        toolCalls: sharedTotals.toolCalls - processTotals.toolCalls,
+        totalTokens: sharedTotals.totalTokens - processTotals.totalTokens,
+        modelProviderRequestMs: sharedTotals.modelProviderRequestMs - processTotals.modelProviderRequestMs,
+        modelRetryBackoffMs: sharedTotals.modelRetryBackoffMs - processTotals.modelRetryBackoffMs,
+        modelLimiterWaitMs: sharedTotals.modelLimiterWaitMs - processTotals.modelLimiterWaitMs,
+        modelTimeoutErrors: sharedTotals.modelTimeoutErrors - processTotals.modelTimeoutErrors,
         modelRetryableProviderErrors:
-          (sharedSummary.totals.modelRetryableProviderErrors ?? 0) -
-          (processSummary.totals.modelRetryableProviderErrors ?? 0),
+          sharedTotals.modelRetryableProviderErrors - processTotals.modelRetryableProviderErrors,
         modelNonRetryableProviderErrors:
-          (sharedSummary.totals.modelNonRetryableProviderErrors ?? 0) -
-          (processSummary.totals.modelNonRetryableProviderErrors ?? 0),
-        findings: sharedSummary.totals.findings - processSummary.totals.findings,
-        hits: sharedSummary.totals.hits - processSummary.totals.hits,
-        misses: sharedSummary.totals.misses - processSummary.totals.misses,
-        falsePositives:
-          sharedSummary.totals.falsePositives - processSummary.totals.falsePositives,
+          sharedTotals.modelNonRetryableProviderErrors - processTotals.modelNonRetryableProviderErrors,
+        findings: sharedTotals.findings - processTotals.findings,
+        hits: sharedTotals.hits - processTotals.hits,
+        misses: sharedTotals.misses - processTotals.misses,
+        falsePositives: sharedTotals.falsePositives - processTotals.falsePositives,
       },
     },
     cases,
   };
+}
+
+function effectiveTotals(summaryTotals, cases) {
+  const totals = { ...summaryTotals };
+  for (const field of [
+    "modelProviderRequestMs",
+    "modelRetryBackoffMs",
+    "modelLimiterWaitMs",
+    "modelTimeoutErrors",
+    "modelRetryableProviderErrors",
+    "modelNonRetryableProviderErrors",
+  ]) {
+    const caseTotal = cases.reduce((sum, item) => sum + (item[field] ?? 0), 0);
+    if (caseTotal > 0 && !totals[field]) {
+      totals[field] = caseTotal;
+    }
+  }
+  return totals;
 }
 
 function compactCase(root, name, report) {
@@ -134,6 +143,7 @@ function compactCase(root, name, report) {
     audit: traceBundle.audit,
     events: traceBundle.events,
   });
+  const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   return {
     status: report.review?.status ?? null,
     sessions: report.review?.sessions ?? null,
@@ -141,8 +151,10 @@ function compactCase(root, name, report) {
     modelCalls: report.review?.modelCalls ?? 0,
     toolCalls: report.review?.toolCalls ?? 0,
     totalTokens: report.review?.tokens?.totalTokens ?? 0,
-    modelProviderRequestMs: report.review?.modelMetrics?.providerRequestMs ?? 0,
-    modelRetryBackoffMs: report.review?.modelMetrics?.retryBackoffMs ?? 0,
+    modelProviderRequestMs:
+      report.review?.modelMetrics?.providerRequestMs ?? compactInstrumentation.providerRequestMs ?? 0,
+    modelRetryBackoffMs:
+      report.review?.modelMetrics?.retryBackoffMs ?? compactInstrumentation.backoffMs ?? 0,
     modelLimiterWaitMs: report.review?.modelMetrics?.limiterWaitMs ?? 0,
     maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
     modelTimeoutErrors: report.review?.modelMetrics?.timeoutErrors ?? 0,
@@ -187,7 +199,7 @@ function compactCase(root, name, report) {
         (orchestrator.toolCallsCompleted ?? 0) >= maxToolCalls ||
         (orchestrator.toolCallsRequested ?? 0) >= maxToolCalls,
     },
-    instrumentation: compactOptionalInstrumentation(instrumentation),
+    instrumentation: compactInstrumentation,
   };
 }
 

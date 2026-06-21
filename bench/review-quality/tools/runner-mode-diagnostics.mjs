@@ -85,6 +85,10 @@ export function optionalInstrumentationSummary({
         });
       }
 
+      if (traceKind === "model_turn_diagnostics") {
+        modelLifecycle.push(modelLifecycleEntry("modelTurnDiagnostics", details, timestampMs));
+      }
+
       if (traceKind === "transcript_compacted") {
         compactions.push({
           turn: traceTurn,
@@ -140,6 +144,7 @@ export function compactOptionalInstrumentation(instrumentation) {
     finalizationReason: instrumentation.finalization.explicitReason,
     finalizationSource: instrumentation.finalization.source,
     providerTimingSplitCount: instrumentation.modelLifecycle.providerTimingSplitCount,
+    providerRequestMs: instrumentation.modelLifecycle.requestMs.total,
     retryCount: instrumentation.modelLifecycle.retryCount.total,
     backoffMs: instrumentation.modelLifecycle.backoffMs.total,
     compactionsWithIds: instrumentation.compactionProvenance.withAnyIds,
@@ -218,7 +223,9 @@ function modelLifecycleEntry(name, payload, timestampMs) {
     requestMs: numberOrNull(payload.requestMs ?? payload.providerRequestMs),
     firstTokenMs: numberOrNull(payload.firstTokenMs ?? payload.timeToFirstTokenMs),
     retryCount: numberOrNull(payload.retryCount ?? payload.retries),
-    backoffMs: numberOrNull(payload.rateLimitBackoffMs ?? payload.backoffMs),
+    backoffMs: numberOrNull(
+      payload.rateLimitBackoffMs ?? payload.retryBackoffMs ?? payload.backoffMs,
+    ),
     limiterWaitMs: numberOrNull(payload.limiterWaitMs),
   };
 }
@@ -330,6 +337,7 @@ function stats(values) {
   }
   return {
     count: clean.length,
+    total: round(sum(clean), 2),
     min: round(clean[0], 2),
     p50: round(percentile(clean, 0.5), 2),
     p95: round(percentile(clean, 0.95), 2),

@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  compactOptionalInstrumentation,
   optionalInstrumentationSummary,
   primarySession,
   readJson,
@@ -59,6 +60,11 @@ function compareRoots(sharedRoot, processRoot) {
   }
 
   cases.sort((left, right) => left.name.localeCompare(right.name));
+  const sharedTotals = effectiveTotals(sharedSummary.totals, cases.map((item) => item.shared.review));
+  const processTotals = effectiveTotals(
+    processSummary.totals,
+    cases.map((item) => item.process.review),
+  );
 
   return {
     generatedAtUtc: new Date().toISOString(),
@@ -67,9 +73,9 @@ function compareRoots(sharedRoot, processRoot) {
       process: processRoot,
     },
     totals: {
-      shared: sharedSummary.totals,
-      process: processSummary.totals,
-      delta: totalsDelta(sharedSummary.totals, processSummary.totals),
+      shared: sharedTotals,
+      process: processTotals,
+      delta: totalsDelta(sharedTotals, processTotals),
     },
     patterns: summarizePatterns(cases, sharedRoot, processRoot),
     missingTraceFields: missingTraceFields(),
@@ -93,6 +99,7 @@ function readCase(root, name) {
     audit,
     events,
   });
+  const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   const candidates = candidateSummary(audit, events);
 
   return {
@@ -114,8 +121,12 @@ function readCase(root, name) {
       toolCalls: result.review?.toolCalls ?? 0,
       totalTokens: result.review?.tokens?.totalTokens ?? 0,
       modelMetrics: result.review?.modelMetrics ?? {},
-      modelProviderRequestMs: result.review?.modelMetrics?.providerRequestMs ?? 0,
-      modelRetryBackoffMs: result.review?.modelMetrics?.retryBackoffMs ?? 0,
+      modelProviderRequestMs:
+        result.review?.modelMetrics?.providerRequestMs ??
+        compactInstrumentation.providerRequestMs ??
+        0,
+      modelRetryBackoffMs:
+        result.review?.modelMetrics?.retryBackoffMs ?? compactInstrumentation.backoffMs ?? 0,
       modelLimiterWaitMs: result.review?.modelMetrics?.limiterWaitMs ?? 0,
       modelTimeoutErrors: result.review?.modelMetrics?.timeoutErrors ?? 0,
       modelRetryableProviderErrors:
@@ -528,6 +539,24 @@ function caseDelta(shared, process) {
         process.orchestrator.latency.primaryModelMs.p95,
       ),
   };
+}
+
+function effectiveTotals(summaryTotals, cases) {
+  const totals = { ...summaryTotals };
+  for (const field of [
+    "modelProviderRequestMs",
+    "modelRetryBackoffMs",
+    "modelLimiterWaitMs",
+    "modelTimeoutErrors",
+    "modelRetryableProviderErrors",
+    "modelNonRetryableProviderErrors",
+  ]) {
+    const caseTotal = cases.reduce((sum, item) => sum + (item[field] ?? 0), 0);
+    if (caseTotal > 0 && !totals[field]) {
+      totals[field] = caseTotal;
+    }
+  }
+  return totals;
 }
 
 function totalsDelta(shared, process) {
