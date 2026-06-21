@@ -232,8 +232,10 @@ function summarizeRegressions(runs) {
     ),
     isolationFailures: runs.filter(
       (run) =>
-        modeIsolationFailures(run.isolation?.shared) > 0 ||
-        modeIsolationFailures(run.isolation?.process) > 0,
+        modeIsolationFailures(run.isolation?.shared, { allowedFrameMissingRunIds: 0 }) > 0 ||
+        modeIsolationFailures(run.isolation?.process, {
+          allowedFrameMissingRunIds: run.isolation?.process?.cases ?? 0,
+        }) > 0,
     ),
     maxProcessFirstFrameMs: maxStat(
       runs.map((run) => run.harnessOverhead.process?.runnerInvocationFirstFrameMs?.max),
@@ -249,14 +251,16 @@ function summarizeRegressions(runs) {
   };
 }
 
-function modeIsolationFailures(mode) {
+function modeIsolationFailures(mode, { allowedFrameMissingRunIds }) {
   if (!mode) return 1;
   return (
     (mode.duplicateRunIds ?? 0) +
     (mode.orphanFrames ?? 0) +
     (mode.missingFrameFiles ?? 0) +
+    Math.max(0, (mode.frameMissingRunIds ?? 0) - allowedFrameMissingRunIds) +
     (mode.unexpectedFrameRunIds ?? 0) +
     (mode.missingTraceFiles ?? 0) +
+    (mode.traceMissingRunIds ?? 0) +
     (mode.unexpectedTraceRunIds ?? 0)
   );
 }
