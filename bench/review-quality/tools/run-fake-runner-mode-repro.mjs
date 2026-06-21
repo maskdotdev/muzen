@@ -280,6 +280,14 @@ function summarizeHarnessOverheadMode(cases, mode, admission) {
       parentElapsedMs,
       benchmarkElapsedMs,
       reviewElapsedMs,
+      runnerInvocationElapsedMs: numberOrNull(caseSummary.runnerInvocationElapsedMs),
+      runnerInvocationSpawnReturnMs: numberOrNull(caseSummary.runnerInvocationSpawnReturnMs),
+      runnerInvocationFirstFrameMs: numberOrNull(caseSummary.runnerInvocationFirstFrameMs),
+      runnerInvocationHandshakeMs: numberOrNull(caseSummary.runnerInvocationHandshakeMs),
+      runnerInvocationRunStartOffsetMs: numberOrNull(
+        caseSummary.runnerInvocationRunStartOffsetMs,
+      ),
+      runnerInvocationRunStartMs: numberOrNull(caseSummary.runnerInvocationRunStartMs),
       parentMinusBenchmarkMs: nullableDelta(parentElapsedMs, benchmarkElapsedMs),
       parentMinusReviewMs: nullableDelta(parentElapsedMs, reviewElapsedMs),
       benchmarkMinusReviewMs: nullableDelta(benchmarkElapsedMs, reviewElapsedMs),
@@ -290,6 +298,16 @@ function summarizeHarnessOverheadMode(cases, mode, admission) {
     parentElapsedMs: stats(rows.map((row) => row.parentElapsedMs)),
     benchmarkElapsedMs: stats(rows.map((row) => row.benchmarkElapsedMs)),
     reviewElapsedMs: stats(rows.map((row) => row.reviewElapsedMs)),
+    runnerInvocationElapsedMs: stats(rows.map((row) => row.runnerInvocationElapsedMs)),
+    runnerInvocationSpawnReturnMs: stats(
+      rows.map((row) => row.runnerInvocationSpawnReturnMs),
+    ),
+    runnerInvocationFirstFrameMs: stats(rows.map((row) => row.runnerInvocationFirstFrameMs)),
+    runnerInvocationHandshakeMs: stats(rows.map((row) => row.runnerInvocationHandshakeMs)),
+    runnerInvocationRunStartOffsetMs: stats(
+      rows.map((row) => row.runnerInvocationRunStartOffsetMs),
+    ),
+    runnerInvocationRunStartMs: stats(rows.map((row) => row.runnerInvocationRunStartMs)),
     parentMinusBenchmarkMs: stats(rows.map((row) => row.parentMinusBenchmarkMs)),
     parentMinusReviewMs: stats(rows.map((row) => row.parentMinusReviewMs)),
     benchmarkMinusReviewMs: stats(rows.map((row) => row.benchmarkMinusReviewMs)),
@@ -305,6 +323,22 @@ function harnessOverheadDelta(shared, process) {
       process.benchmarkElapsedMs.mean,
     ),
     reviewElapsedMeanMs: nullableDelta(shared.reviewElapsedMs.mean, process.reviewElapsedMs.mean),
+    runnerInvocationElapsedMeanMs: nullableDelta(
+      shared.runnerInvocationElapsedMs.mean,
+      process.runnerInvocationElapsedMs.mean,
+    ),
+    runnerInvocationFirstFrameMeanMs: nullableDelta(
+      shared.runnerInvocationFirstFrameMs.mean,
+      process.runnerInvocationFirstFrameMs.mean,
+    ),
+    runnerInvocationHandshakeMeanMs: nullableDelta(
+      shared.runnerInvocationHandshakeMs.mean,
+      process.runnerInvocationHandshakeMs.mean,
+    ),
+    runnerInvocationRunStartMeanMs: nullableDelta(
+      shared.runnerInvocationRunStartMs.mean,
+      process.runnerInvocationRunStartMs.mean,
+    ),
     parentMinusBenchmarkMeanMs: nullableDelta(
       shared.parentMinusBenchmarkMs.mean,
       process.parentMinusBenchmarkMs.mean,

@@ -152,6 +152,7 @@ function compactCase(root, name, report) {
   });
   const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   const completionDiagnostics = report.review?.completionDiagnostics ?? [];
+  const runnerInvocation = report.benchmark?.runnerInvocation ?? null;
   return {
     status: report.review?.status ?? null,
     sessions: report.review?.sessions ?? null,
@@ -178,6 +179,13 @@ function compactCase(root, name, report) {
     maxModelLimiterWaitMs: report.review?.modelMetrics?.maxLimiterWaitMs ?? 0,
     reviewElapsedMs: report.review?.elapsedMs ?? 0,
     benchmarkElapsedMs: report.benchmark?.elapsedMs ?? 0,
+    runnerInvocation,
+    runnerInvocationElapsedMs: runnerInvocation?.elapsedMs ?? null,
+    runnerInvocationSpawnReturnMs: runnerInvocation?.spawnReturnMs ?? null,
+    runnerInvocationFirstFrameMs: runnerInvocation?.firstFrameMs ?? null,
+    runnerInvocationHandshakeMs: runnerInvocation?.handshakeMs ?? null,
+    runnerInvocationRunStartOffsetMs: runnerInvocation?.runStartOffsetMs ?? null,
+    runnerInvocationRunStartMs: runnerInvocation?.runStartMs ?? null,
     modelTimeoutErrors: report.review?.modelMetrics?.timeoutErrors ?? 0,
     modelRetryableProviderErrors: report.review?.modelMetrics?.retryableProviderErrors ?? 0,
     modelNonRetryableProviderErrors:

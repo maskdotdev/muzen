@@ -178,6 +178,7 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
       : null,
     benchmark: {
       elapsedMs,
+      runnerInvocation: run.timing ?? null,
       hitRate: scoring.hitRate,
       hits: scoring.hits,
       misses: scoring.misses,
@@ -229,19 +230,23 @@ function fileReviewVerdictCounts(fileReviews) {
 }
 
 async function runRunnerReview(runnerPath, runStart) {
+  const startedAt = Date.now();
   const child = spawn(runnerPath, ["stdio"], {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const spawnReturnedAt = Date.now();
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(chunk.toString("utf8")));
   const frames = [];
   const pending = new Map();
   let nextId = 1;
+  let firstFrameAt = null;
   const readline = createInterface({ input: child.stdout });
   readline.on("line", (line) => {
     if (!line.trim()) return;
+    if (firstFrameAt === null) firstFrameAt = Date.now();
     const frame = JSON.parse(line);
     frames.push(frame);
     if (frame.id !== undefined && pending.has(String(frame.id))) {
@@ -263,11 +268,15 @@ async function runRunnerReview(runnerPath, runStart) {
     return promise;
   };
   try {
+    const handshakeStartedAt = Date.now();
     await request("runner.handshake", {
       protocolVersion: "muzen.runner.v1",
       clientName: "review-quality-benchmark",
     });
+    const handshakeCompletedAt = Date.now();
+    const runStartStartedAt = Date.now();
     const result = await request("run.start", runStart);
+    const runStartCompletedAt = Date.now();
     child.stdin.end();
     return {
       ok: true,
@@ -275,8 +284,18 @@ async function runRunnerReview(runnerPath, runStart) {
       result,
       frames,
       stderr: stderr.join(""),
+      timing: runnerInvocationTiming({
+        startedAt,
+        spawnReturnedAt,
+        firstFrameAt,
+        handshakeStartedAt,
+        handshakeCompletedAt,
+        runStartStartedAt,
+        runStartCompletedAt,
+      }),
     };
   } catch (error) {
+    const failedAt = Date.now();
     child.stdin.end();
     return {
       ok: false,
@@ -285,10 +304,41 @@ async function runRunnerReview(runnerPath, runStart) {
       frames,
       stderr: stderr.join(""),
       error: error instanceof Error ? error.message : String(error),
+      timing: runnerInvocationTiming({
+        startedAt,
+        spawnReturnedAt,
+        firstFrameAt,
+        failedAt,
+      }),
     };
   } finally {
     setTimeout(() => child.kill(), 500).unref();
   }
+}
+
+function runnerInvocationTiming({
+  startedAt,
+  spawnReturnedAt,
+  firstFrameAt,
+  handshakeStartedAt = null,
+  handshakeCompletedAt = null,
+  runStartStartedAt = null,
+  runStartCompletedAt = null,
+  failedAt = null,
+}) {
+  const completedAt = runStartCompletedAt ?? failedAt ?? Date.now();
+  return {
+    elapsedMs: completedAt - startedAt,
+    spawnReturnMs: spawnReturnedAt - startedAt,
+    firstFrameMs: nullableMs(firstFrameAt, startedAt),
+    handshakeMs: nullableMs(handshakeCompletedAt, handshakeStartedAt),
+    runStartMs: nullableMs(runStartCompletedAt, runStartStartedAt),
+    runStartOffsetMs: nullableMs(runStartStartedAt, startedAt),
+  };
+}
+
+function nullableMs(end, start) {
+  return Number.isFinite(end) && Number.isFinite(start) ? end - start : null;
 }
 
 function eventDiagnostics(frames) {
