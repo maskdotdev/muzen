@@ -107,11 +107,13 @@ try {
     process.env,
   );
   const compare = readJson(comparePath);
+  const fakeModelLogPath = path.join(outputDir, "fake-model.jsonl");
   const summary = reproductionSummary({
     outputDir,
     sharedDir,
     processDir,
     comparePath,
+    fakeModelLogPath,
     fakeModelBaseUrl: fakeModel.baseUrl,
     caseCount,
     concurrency,
@@ -138,6 +140,7 @@ function reproductionSummary({
   sharedDir,
   processDir,
   comparePath,
+  fakeModelLogPath,
   fakeModelBaseUrl,
   caseCount,
   concurrency,
@@ -154,6 +157,7 @@ function reproductionSummary({
 }) {
   const sharedExhausted = compare.cases.filter((entry) => entry.shared.orchestrator.exhaustedMaxToolCalls);
   const processExhausted = compare.cases.filter((entry) => entry.process.orchestrator.exhaustedMaxToolCalls);
+  const fakeModelMetrics = summarizeFakeModelLog(fakeModelLogPath);
   return {
     schemaVersion: "muzen.fake-runner-mode-repro.v1",
     generatedAtUtc: new Date().toISOString(),
@@ -161,6 +165,7 @@ function reproductionSummary({
     sharedDir,
     processDir,
     comparePath,
+    fakeModelLogPath,
     fakeModelBaseUrl,
     config: {
       caseCount,
@@ -184,6 +189,7 @@ function reproductionSummary({
     },
     reproducedObservedShape:
       sharedExhausted.length > processExhausted.length && sharedExhausted.length > 0,
+    fakeModel: fakeModelMetrics,
     totals: compare.totals,
     cases: compare.cases.map((entry) => ({
       name: entry.name,
@@ -191,6 +197,20 @@ function reproductionSummary({
       process: entry.process.orchestrator,
       delta: entry.delta,
     })),
+  };
+}
+
+function summarizeFakeModelLog(logPath) {
+  const records = readJsonl(logPath);
+  return {
+    requests: records.length,
+    decisions: countObject(records.map((record) => record.decision)),
+    statuses: countObject(records.map((record) => record.status)),
+    maxActiveAtStart: records.length
+      ? Math.max(...records.map((record) => record.activeAtStart ?? 0))
+      : null,
+    queuedMs: stats(records.map((record) => record.queuedMs)),
+    elapsedMs: stats(records.map((record) => record.elapsedMs)),
   };
 }
 
@@ -265,6 +285,47 @@ function runCheckedAsync(command, commandArgs, env, cwd = process.cwd()) {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+}
+
+function stats(values) {
+  const clean = values.filter((value) => Number.isFinite(value)).sort((left, right) => left - right);
+  if (clean.length === 0) {
+    return { count: 0, min: null, p50: null, p95: null, max: null, mean: null };
+  }
+  return {
+    count: clean.length,
+    min: clean[0],
+    p50: percentile(clean, 0.5),
+    p95: percentile(clean, 0.95),
+    max: clean.at(-1),
+    mean: clean.reduce((total, value) => total + value, 0) / clean.length,
+  };
+}
+
+function percentile(sortedValues, percentileValue) {
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil(sortedValues.length * percentileValue) - 1),
+  );
+  return sortedValues[index];
+}
+
+function countObject(values) {
+  const counts = new Map();
+  for (const value of values) {
+    if (value == null) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))));
 }
 
 function parseArgs(argv) {

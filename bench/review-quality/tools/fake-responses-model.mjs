@@ -47,19 +47,23 @@ export async function startFakeResponsesServer(config = {}) {
 }
 
 async function handleQueuedRequest(state, req, res) {
+  const enqueuedAt = Date.now();
   if (state.active >= state.maxConcurrent) {
     await new Promise((resolve) => state.queue.push(resolve));
   }
+  const dequeuedAt = Date.now();
+  const queuedMs = dequeuedAt - enqueuedAt;
+  const activeAtStart = state.active;
   state.active += 1;
   try {
-    await handleRequest(state, req, res);
+    await handleRequest(state, req, res, { queuedMs, activeAtStart });
   } finally {
     state.active -= 1;
     state.queue.shift()?.();
   }
 }
 
-async function handleRequest(state, req, res) {
+async function handleRequest(state, req, res, requestMetrics = {}) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
@@ -74,13 +78,22 @@ async function handleRequest(state, req, res) {
     return;
   }
   if (state.httpErrorEvery > 0 && sequence % state.httpErrorEvery === 0) {
-    writeLog(state, sequence, body, { status: 500, decision: "configured_http_error" }, startedAt);
+    writeLog(
+      state,
+      sequence,
+      body,
+      { status: 500, decision: "configured_http_error" },
+      startedAt,
+      requestMetrics,
+    );
     writeJson(res, 500, { error: { message: "configured fake model error" } });
     return;
   }
 
   const decision = decideResponse(state, body, sequence);
-  writeLog(state, sequence, body, decision, startedAt);
+  writeLog(state, sequence, body, decision, startedAt, requestMetrics);
+  res.setHeader("x-fake-responses-sequence", String(sequence));
+  res.setHeader("x-fake-responses-queued-ms", String(requestMetrics.queuedMs ?? 0));
   writeJson(res, 200, responseEnvelope(decision));
 }
 
@@ -205,7 +218,7 @@ function writeJson(res, status, value) {
   res.end(`${JSON.stringify(value)}\n`);
 }
 
-function writeLog(state, sequence, body, decision, startedAt) {
+function writeLog(state, sequence, body, decision, startedAt, requestMetrics = {}) {
   if (!state.logPath) return;
   fs.appendFileSync(
     state.logPath,
@@ -213,6 +226,10 @@ function writeLog(state, sequence, body, decision, startedAt) {
       atUtc: new Date().toISOString(),
       sequence,
       elapsedMs: Date.now() - startedAt,
+      queuedMs: requestMetrics.queuedMs ?? 0,
+      activeAtStart: requestMetrics.activeAtStart ?? null,
+      maxConcurrent: state.maxConcurrent,
+      requestId: body.metadata?.run_id ?? body.metadata?.request_id ?? null,
       decision: decision.decision,
       status: decision.status,
       toolsExposed: Array.isArray(body.tools) ? body.tools.length : 0,

@@ -2,6 +2,15 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  optionalInstrumentationSummary,
+  primarySession,
+  readJson,
+  readJsonl,
+  readTraceBundle,
+  runMaxToolCalls,
+  parseTimestampMs,
+} from "./runner-mode-diagnostics.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -70,21 +79,20 @@ function compareRoots(sharedRoot, processRoot) {
 
 function readCase(root, name) {
   const result = readJson(path.join(root, `${name}.json`));
-  const auditPath = path.join(root, "traces", name, "audit-diagnostics.json");
-  const audit = fs.existsSync(auditPath)
-    ? readJson(auditPath).diagnostics
-    : (result.audit?.diagnostics ?? {});
-  const events = readJsonl(path.join(root, "traces", name, "review-events.jsonl"));
-  const runStart = readOptionalJson(path.join(root, "jobs", name, "run-start.json"));
-  const maxToolCalls = runStart?.sessions?.[0]?.budget?.maxToolCalls ?? 50;
-  const primarySession = audit.sessions?.find(
-    (session) => session.sessionId === "review-orchestrator",
-  ) ?? {};
+  const traceBundle = readTraceBundle(root, name, result);
+  const audit = traceBundle.audit;
+  const events = traceBundle.events;
+  const maxToolCalls = runMaxToolCalls(traceBundle.runStart);
+  const primary = primarySession(audit);
   const eventAnalysis = analyzeEvents(events, "review-orchestrator", maxToolCalls);
   const completionDiagnostics = result.review?.completionDiagnostics ?? [];
   const primaryCompletionDiagnostic =
     completionDiagnostics.find((diagnostic) => diagnostic.sessionId === "review-orchestrator") ??
     eventAnalysis.finalizationDiagnostic;
+  const instrumentation = optionalInstrumentationSummary({
+    audit,
+    events,
+  });
   const candidates = candidateSummary(audit, events);
 
   return {
@@ -117,20 +125,28 @@ function readCase(root, name) {
       elapsedMs: result.review?.elapsedMs ?? null,
     },
     orchestrator: {
-      ...pickSession(primarySession),
+      ...pickSession(primary),
       maxToolCalls,
       exhaustedMaxToolCalls:
-        (primarySession.toolCallsCompleted ?? 0) >= maxToolCalls ||
-        (primarySession.toolCallsRequested ?? 0) >= maxToolCalls,
+        (primary.toolCallsCompleted ?? 0) >= maxToolCalls ||
+        (primary.toolCallsRequested ?? 0) >= maxToolCalls,
       finalizationCause:
-        primaryCompletionDiagnostic?.finalizationReason ?? eventAnalysis.finalizationCause,
+        primaryCompletionDiagnostic?.finalizationReason ??
+        instrumentation.finalization.explicitReason ??
+        eventAnalysis.finalizationCause,
       finalOutput: primaryCompletionDiagnostic?.finalOutput ?? null,
+      explicitFinalizationReason:
+        instrumentation.finalization.explicitReason ??
+        primaryCompletionDiagnostic?.finalizationReason ??
+        null,
+      explicitFinalizationSource: instrumentation.finalization.source,
       finalTurn: eventAnalysis.finalTurn,
       toolCallsPerTurn: eventAnalysis.toolCallsPerTurn,
       compactions: eventAnalysis.compactions,
       compactionDetails: eventAnalysis.compactionDetails,
       repairs: eventAnalysis.repairs,
       latency: eventAnalysis.latency,
+      instrumentation,
     },
     sessions: (audit.sessions ?? []).map((session) =>
       pickSession(
@@ -597,10 +613,30 @@ function summarizePatterns(cases, sharedRoot, processRoot) {
       process: stats(cases.map((item) => item.process.orchestrator.latency.primaryModelMs.p95))
         .p50,
     },
+    instrumentationAvailability: {
+      shared: availabilityCounts(cases.map((item) => item.shared.orchestrator.instrumentation)),
+      process: availabilityCounts(cases.map((item) => item.process.orchestrator.instrumentation)),
+    },
     runnerTimelines,
     interpretation:
       "Saved traces point first to prompt-budget/compaction and finalization behavior: shared primary orchestrators usually spend the full configured max-tool session budget before a no-tool final turn, while process primary orchestrators usually finalize or emit candidates earlier. The available traces do not show mixed runIds or artifact collisions and do not isolate provider latency from scheduler wait.",
   };
+}
+
+function availabilityCounts(instrumentation) {
+  const keys = [
+    "explicitFinalizationReason",
+    "providerTimingSplit",
+    "providerRetryOrBackoff",
+    "transcriptCompactionIds",
+    "candidateLifecycleTimestamps",
+  ];
+  return Object.fromEntries(
+    keys.map((key) => [
+      key,
+      instrumentation.filter((item) => item.availability?.[key]).length,
+    ]),
+  );
 }
 
 function summarizeRunnerTimeline(root) {
@@ -671,6 +707,9 @@ function renderMarkdown(report) {
   lines.push(
     `- Cases where process accepted more candidates: ${formatList(report.patterns.processAcceptedMoreCandidatesCases)}.`,
   );
+  lines.push(
+    `- Optional instrumentation availability: explicit finalization shared/process ${report.patterns.instrumentationAvailability.shared.explicitFinalizationReason}/${report.patterns.instrumentationAvailability.process.explicitFinalizationReason}; provider timing split ${report.patterns.instrumentationAvailability.shared.providerTimingSplit}/${report.patterns.instrumentationAvailability.process.providerTimingSplit}; compaction IDs ${report.patterns.instrumentationAvailability.shared.transcriptCompactionIds}/${report.patterns.instrumentationAvailability.process.transcriptCompactionIds}.`,
+  );
   lines.push(`- Interpretation: ${report.patterns.interpretation}`);
   lines.push("");
   lines.push("## Cases");
@@ -689,31 +728,6 @@ function renderMarkdown(report) {
   lines.push("");
   for (const field of report.missingTraceFields) lines.push(`- ${field}`);
   return `${lines.join("\n")}\n`;
-}
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
-}
-
-function readOptionalJson(file) {
-  return fs.existsSync(file) ? readJson(file) : null;
-}
-
-function readJsonl(file) {
-  if (!fs.existsSync(file)) return [];
-  return fs
-    .readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-}
-
-function parseTimestampMs(timestamp) {
-  if (!timestamp) return null;
-  const numeric = /^(\d+(?:\.\d+)?)Z$/.exec(timestamp);
-  if (numeric) return Number(numeric[1]) * 1000;
-  const parsed = Date.parse(timestamp);
-  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function exposedToolCount(summary) {

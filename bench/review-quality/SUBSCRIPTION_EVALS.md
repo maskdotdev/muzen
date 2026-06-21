@@ -136,6 +136,72 @@ need extra finalization turns after exploration.
 `--mode review --sessions 0` creates the default adaptive orchestrator and can
 spend much longer before producing the final result.
 
+## Manager-Approved Runner-Mode Diagnostic Eval
+
+Do not run this block without explicit manager approval. It uses the
+subscription-backed proxy and real hosted model calls. Keep semantic scoring
+disabled for the first runner-mode comparison so the only live spend is the
+Muzen review pass.
+
+```sh
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+EVAL_ROOT="/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-runner-mode-${RUN_ID}"
+CASE_SOURCE="/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-real-50-retry/summary.json"
+GOLDEN_DIR="/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-direct/goldens"
+WORKTREE_ROOT="/tmp/muzen-hagent-martian-worktrees"
+
+cargo build --release --bin muzen-runner
+
+export OPENAI_BASE_URL=http://127.0.0.1:4141/v1
+export OPENAI_API_KEY=muzen-codex-proxy
+export MODEL=gpt-5.5
+
+node bench/review-quality/tools/run-muzen-martian-concurrent.mjs \
+  --case-source "$CASE_SOURCE" \
+  --golden-dir "$GOLDEN_DIR" \
+  --worktree-root "$WORKTREE_ROOT" \
+  --runner-path target/release/muzen-runner \
+  --runner-mode shared \
+  --output-dir "$EVAL_ROOT/shared" \
+  --concurrency 5 \
+  --limit 50 \
+  --sessions 1 \
+  --max-active 1 \
+  --max-turns 60 \
+  --max-tool-calls 50 \
+  --model "$MODEL" \
+  --skip-semantic true \
+  --progress true
+
+node bench/review-quality/tools/run-muzen-martian-concurrent.mjs \
+  --case-source "$CASE_SOURCE" \
+  --golden-dir "$GOLDEN_DIR" \
+  --worktree-root "$WORKTREE_ROOT" \
+  --runner-path target/release/muzen-runner \
+  --runner-mode process \
+  --output-dir "$EVAL_ROOT/process" \
+  --concurrency 5 \
+  --limit 50 \
+  --sessions 1 \
+  --max-active 1 \
+  --max-turns 60 \
+  --max-tool-calls 50 \
+  --model "$MODEL" \
+  --skip-semantic true \
+  --progress true
+
+node bench/review-quality/tools/compare-muzen-runner-modes.mjs \
+  --shared "$EVAL_ROOT/shared" \
+  --process "$EVAL_ROOT/process" \
+  --output "$EVAL_ROOT/runner-mode-compare.json"
+
+node bench/review-quality/tools/forensic-compare-muzen-runner-modes.mjs \
+  --shared "$EVAL_ROOT/shared" \
+  --process "$EVAL_ROOT/process" \
+  --format markdown \
+  --output "$EVAL_ROOT/runner-mode-forensics.md"
+```
+
 When iterating on a recall change, keep the positive side on `MODEL` and run a
 cheap mini anti-cheat sweep separately:
 

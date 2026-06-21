@@ -2,6 +2,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  compactOptionalInstrumentation,
+  optionalInstrumentationSummary,
+  primarySession,
+  readJson,
+  readTraceBundle,
+  runMaxToolCalls,
+} from "./runner-mode-diagnostics.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -119,8 +127,13 @@ function compareRunnerModes(sharedRoot, processRoot) {
 }
 
 function compactCase(root, name, report) {
-  const maxToolCalls = caseMaxToolCalls(root, name);
-  const orchestrator = orchestratorDiagnostics(report);
+  const traceBundle = readTraceBundle(root, name, report);
+  const maxToolCalls = runMaxToolCalls(traceBundle.runStart);
+  const orchestrator = primarySession(traceBundle.audit);
+  const instrumentation = optionalInstrumentationSummary({
+    audit: traceBundle.audit,
+    events: traceBundle.events,
+  });
   return {
     status: report.review?.status ?? null,
     sessions: report.review?.sessions ?? null,
@@ -174,22 +187,8 @@ function compactCase(root, name, report) {
         (orchestrator.toolCallsCompleted ?? 0) >= maxToolCalls ||
         (orchestrator.toolCallsRequested ?? 0) >= maxToolCalls,
     },
+    instrumentation: compactOptionalInstrumentation(instrumentation),
   };
-}
-
-function orchestratorDiagnostics(report) {
-  return (
-    report.audit?.diagnostics?.sessions?.find(
-      (session) => session.sessionId === "review-orchestrator",
-    ) ?? {}
-  );
-}
-
-function caseMaxToolCalls(root, name) {
-  const startPath = path.join(root, "jobs", name, "run-start.json");
-  if (!fs.existsSync(startPath)) return 50;
-  const start = readJson(startPath);
-  return start.sessions?.[0]?.budget?.maxToolCalls ?? 50;
 }
 
 function countNeedle(file, needle) {
@@ -200,10 +199,6 @@ function countNeedle(file, needle) {
 function countRegex(file, pattern) {
   if (!fs.existsSync(file)) return 0;
   return fs.readFileSync(file, "utf8").match(pattern)?.length ?? 0;
-}
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function parseArgs(argv) {

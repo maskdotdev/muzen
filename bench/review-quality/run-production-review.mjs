@@ -168,6 +168,18 @@ export function buildProductionReviewReport(job, run, { elapsedMs }) {
             outputTokens: finalResult.summary?.outputTokens,
             totalTokens: finalResult.summary?.totalTokens,
           },
+          modelMetrics: finalResult.summary?.modelMetrics
+            ? {
+                calls: finalResult.summary.modelMetrics.calls ?? null,
+                successes: finalResult.summary.modelMetrics.successes ?? null,
+                errors: finalResult.summary.modelMetrics.errors ?? null,
+                retries: finalResult.summary.modelMetrics.retries ?? null,
+                latencyMs: finalResult.summary.modelMetrics.latencyMs ?? null,
+                maxLatencyMs: finalResult.summary.modelMetrics.maxLatencyMs ?? null,
+                limiterWaitMs: finalResult.summary.modelMetrics.limiterWaitMs ?? null,
+                maxLimiterWaitMs: finalResult.summary.modelMetrics.maxLimiterWaitMs ?? null,
+              }
+            : null,
           artifactStats: {
             artifacts: finalResult.summary?.artifacts,
             artifactBytes: finalResult.summary?.artifactBytes,
