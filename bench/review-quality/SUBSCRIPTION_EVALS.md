@@ -31,6 +31,11 @@ node bench/review-quality/check-local.mjs \
   --include-codex-proxy true
 ```
 
+For broader fake runner-mode sweeps, `run-fake-runner-mode-sweep.mjs` exits
+nonzero by default when parity, release, or isolation regressions appear. Keep
+that default for pre-live gates. Use `--fail-on-regression false` only for
+intentional chaos probes where the JSON report is the artifact to inspect.
+
 Start the local proxy:
 
 ```sh

@@ -43,6 +43,11 @@ node bench/review-quality/tools/run-fake-runner-mode-sweep.mjs \
   --via-codex-proxy true
 ```
 
+`run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
+parity, release, or isolation regressions. Use `--fail-on-regression false`
+only for exploratory chaos probes where a failing JSON report is the desired
+artifact.
+
 | Concurrency | Findings shared/process | Model calls shared/process | Tool calls shared/process | Tokens shared/process | Fake 500s shared/process | Retry backoff ms shared/process | Provider queue mean delta ms | Provider queue p95 delta ms | Result |
 | ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | --- |
 | 5 | 12 / 12 | 109 / 109 | 24 / 24 | 1080 / 1080 | 49 / 49 | 22060 / 22071 | 0.14 | 2 | passed |
@@ -59,7 +64,8 @@ Interpretation:
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
   and create false parity failures. Use `--http-error-attempts-per-request`
-  for parity gates.
+  for parity gates. If using `--http-error-every`, pass
+  `--fail-on-regression false` unless the expected result is a nonzero exit.
 - Process-mode frame logs still contain one pre-`run.start` handshake response
   frame without a `runId` per case. That is expected protocol metadata rather
   than mixed-run leakage; isolation gates continue to fail on orphan or
