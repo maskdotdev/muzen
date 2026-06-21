@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import {
   buildProductionReviewJob,
   buildProductionReviewReport,
+  runRunnerReview,
   writeProductionReviewReport,
 } from "../run-production-review.mjs";
 
@@ -193,6 +194,10 @@ if (!["shared", "process"].includes(runnerMode)) {
 }
 const limit = args.limit ? positiveInt(args.limit, "--limit") : null;
 const sampleIntervalMs = positiveInt(args.sampleIntervalMs || "5000", "--sample-interval-ms");
+const postPrepareCooldownMs = nonnegativeInt(
+  args.postPrepareCooldownMs || "1000",
+  "--post-prepare-cooldown-ms",
+);
 const maxCapturedTextBytes = args.maxCapturedTextBytes
   ? positiveInt(args.maxCapturedTextBytes, "--max-captured-text-bytes")
   : null;
@@ -243,6 +248,31 @@ const sampler = setInterval(() => sampleProcesses(state), sampleIntervalMs);
 sampler.unref();
 
 try {
+  // Keep runner admission focused on runner behavior; synchronous git/job
+  // preparation would otherwise distort run.start timing differently by mode.
+  const preparedJobs = prepareReviewJobs(cases, {
+    outputDir,
+    traceRoot,
+    logsDir,
+    jobsDir,
+    model,
+    runnerPath,
+    sessions: args.sessions || "1",
+    maxActive: args.maxActive || "1",
+    maxTurns: args.maxTurns || "60",
+    maxToolCalls: args.maxToolCalls || "50",
+    maxPromptTokens: args.maxPromptTokens || "64000",
+    maxOutputTokens: args.maxOutputTokens || null,
+    maxCapturedTextBytes,
+  });
+  if (postPrepareCooldownMs > 0) {
+    appendJsonl(metricsPath, {
+      event: "post_prepare_cooldown",
+      atUtc: new Date().toISOString(),
+      elapsedMs: postPrepareCooldownMs,
+    });
+    await sleep(postPrepareCooldownMs);
+  }
   if (runnerClient) {
     try {
       await withTimeout(
@@ -262,23 +292,6 @@ try {
       throw error;
     }
   }
-  // Keep runner admission focused on runner behavior; synchronous git/job
-  // preparation would otherwise distort run.start timing differently by mode.
-  const preparedJobs = prepareReviewJobs(cases, {
-    outputDir,
-    traceRoot,
-    logsDir,
-    jobsDir,
-    model,
-    runnerPath,
-    sessions: args.sessions || "1",
-    maxActive: args.maxActive || "1",
-    maxTurns: args.maxTurns || "60",
-    maxToolCalls: args.maxToolCalls || "50",
-    maxPromptTokens: args.maxPromptTokens || "64000",
-    maxOutputTokens: args.maxOutputTokens || null,
-    maxCapturedTextBytes,
-  });
   await runPool(cases, concurrency, (testCase) =>
     runReviewCase(testCase, {
       outputDir,
@@ -317,6 +330,7 @@ const reviewSummary = buildReviewSummary({
   startedAt,
   completedAt: Date.now(),
   concurrency,
+  postPrepareCooldownMs,
   sampleIntervalMs,
   outputDir,
   traceRoot,
@@ -516,126 +530,80 @@ async function runReviewCase(testCase, options) {
 }
 
 async function runReviewCaseProcess(testCase, options) {
-  const prepared = options.preparedJobs?.get(testCase.outputName);
-  const outputPath = prepared?.outputPath ?? path.join(options.outputDir, `${testCase.outputName}.json`);
-  const traceDir = prepared?.traceDir ?? path.join(options.traceRoot, testCase.outputName);
-  const stderrPath =
-    prepared?.stderrPath ?? path.join(options.logsDir, `${testCase.outputName}.stderr.log`);
-  const stdoutPath =
-    prepared?.stdoutPath ?? path.join(options.logsDir, `${testCase.outputName}.stdout.log`);
+  const prepared =
+    options.preparedJobs?.get(testCase.outputName) ?? prepareReviewCaseJob(testCase, options);
+  const { job, outputPath, stderrPath, stdoutPath } = prepared;
   const startedAt = Date.now();
-  const runId = prepared?.job?.runId ?? `review-quality-${testCase.outputName}-${startedAt}`;
-  const commandArgs = prepared
-    ? [
-        "bench/review-quality/run-production-review.mjs",
-        "--job",
-        prepared.jobPath,
-        "--runner-path",
-        options.runnerPath,
-        "--output",
-        outputPath,
-        "--trace-output-dir",
-        traceDir,
-      ]
-    : [
-        "bench/review-quality/run-production-review.mjs",
-        "--repo",
-        testCase.worktree,
-        "--base-ref",
-        testCase.baseRef,
-        "--runner-path",
-        options.runnerPath,
-        "--golden",
-        testCase.golden,
-        "--mode",
-        "review",
-        "--run-id",
-        runId,
-        "--sessions",
-        options.sessions,
-        "--max-active",
-        options.maxActive,
-        "--max-turns",
-        options.maxTurns,
-        "--max-tool-calls",
-        options.maxToolCalls,
-        "--max-prompt-tokens",
-        options.maxPromptTokens,
-        "--model",
-        options.model,
-        "--output",
-        outputPath,
-        "--trace-output-dir",
-        traceDir,
-        "--temp-dir",
-        path.join(options.jobsDir, testCase.outputName),
-      ];
-  if (!prepared) {
-    if (options.maxOutputTokens) {
-      commandArgs.push("--max-output-tokens", options.maxOutputTokens);
-    }
-    if (options.maxCapturedTextBytes) {
-      commandArgs.push("--max-captured-text-bytes", String(options.maxCapturedTextBytes));
-    }
-  }
-
-  const stdout = fs.openSync(stdoutPath, "w");
-  const stderr = fs.openSync(stderrPath, "w");
+  const runId = job.runId;
   process.stderr.write(`[muzen-concurrent] ${new Date(startedAt).toISOString()} start ${testCase.name}\n`);
-  const child = spawn("node", commandArgs, {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      MODEL: options.model,
-    },
-    stdio: ["ignore", stdout, stderr],
-  });
-  options.state.active.set(runId, {
+  const active = {
     name: testCase.name,
     startedAt,
     peakRssBytes: 0,
     peakRunnerRssBytes: 0,
     peakProcessTreeRssBytes: 0,
     runId,
-    pid: child.pid,
-  });
+    pid: null,
+  };
+  options.state.active.set(runId, active);
   appendJsonl(options.metricsPath, {
     event: "start",
     atUtc: new Date(startedAt).toISOString(),
     name: testCase.name,
     runId,
-    pid: child.pid,
     outputPath,
+    framesPath: job.framesPath,
   });
 
-  const exit = await new Promise((resolve) => {
-    child.on("exit", (code, signal) => resolve({ code, signal }));
-    child.on("error", (error) => resolve({ code: 1, signal: null, error }));
-  });
-  fs.closeSync(stdout);
-  fs.closeSync(stderr);
+  let run;
+  let report = null;
+  let error = null;
+  try {
+    run = await runRunnerReview(options.runnerPath, job.runStart, {
+      onSpawn: (child) => {
+        const activeRun = options.state.active.get(runId);
+        if (activeRun) activeRun.pid = child.pid;
+        appendJsonl(options.metricsPath, {
+          event: "runner_spawn",
+          atUtc: new Date().toISOString(),
+          name: testCase.name,
+          runId,
+          pid: child.pid,
+        });
+      },
+    });
+    const elapsedMs = Date.now() - startedAt;
+    fs.writeFileSync(job.framesPath, `${run.frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
+    report = buildProductionReviewReport(job, run, { elapsedMs });
+    writeProductionReviewReport(report, outputPath);
+    fs.writeFileSync(stdoutPath, `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(stderrPath, run.stderr || "");
+  } catch (caught) {
+    error = caught instanceof Error ? caught : new Error(String(caught));
+    fs.writeFileSync(stderrPath, `${error.stack || error.message}\n`);
+    fs.writeFileSync(stdoutPath, "");
+  }
 
-  const active = options.state.active.get(runId);
+  const activeRun = options.state.active.get(runId);
   options.state.active.delete(runId);
   const completedAt = Date.now();
-  const report = fs.existsSync(outputPath) ? readJson(outputPath) : null;
-  const code = exit.code || (report?.reviewValid === false ? 1 : 0);
+  const code = error || report?.reviewValid === false ? 1 : 0;
   const record = {
     event: "finish",
     atUtc: new Date(completedAt).toISOString(),
     name: testCase.name,
     runId,
-    pid: child.pid,
     code,
-    signal: exit.signal,
+    signal: null,
     elapsedMs: completedAt - startedAt,
-    peakRssBytes: active?.peakRssBytes || 0,
-    peakRunnerRssBytes: active?.peakRunnerRssBytes || 0,
-    peakProcessTreeRssBytes: active?.peakProcessTreeRssBytes || 0,
+    peakRssBytes: activeRun?.peakRssBytes || 0,
+    peakRunnerRssBytes: activeRun?.peakRunnerRssBytes || 0,
+    peakProcessTreeRssBytes: activeRun?.peakProcessTreeRssBytes || 0,
     outputPath,
+    framesPath: job.framesPath,
     stderrPath,
     stdoutPath,
-    error: exit.error ? String(exit.error.message || exit.error) : report?.error || null,
+    error: error ? error.message : report?.error || null,
   };
   appendJsonl(options.metricsPath, record);
   if (code === 0) {
@@ -934,6 +902,7 @@ function buildReviewSummary({
   startedAt,
   completedAt,
   concurrency,
+  postPrepareCooldownMs,
   sampleIntervalMs,
   outputDir,
   traceRoot,
@@ -971,6 +940,7 @@ function buildReviewSummary({
     model,
     runnerMode,
     concurrency,
+    postPrepareCooldownMs,
     sampleIntervalMs,
     caseCount: cases.length,
     validCount: cases.filter((testCase) => testCase.reviewValid).length,
@@ -1057,6 +1027,10 @@ function withTimeout(promise, ms, message) {
     timer.unref();
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function readJson(file) {
@@ -1151,6 +1125,8 @@ Options:
   --semantic-model <model>      Semantic judge model (default: gpt-5.4-mini)
   --skip-semantic true          Skip semantic scoring
   --sample-interval-ms <n>      Process tree RSS sample interval (default: 5000)
+  --post-prepare-cooldown-ms <n>
+                                Wait after git/job prep before runner admission (default: 1000)
   --max-captured-text-bytes <n> Snapshot text capture budget per run
 `);
 }

@@ -246,13 +246,14 @@ function fileReviewVerdictCounts(fileReviews) {
   return counts;
 }
 
-async function runRunnerReview(runnerPath, runStart) {
+export async function runRunnerReview(runnerPath, runStart, { onSpawn = null } = {}) {
   const startedAt = Date.now();
   const child = spawn(runnerPath, ["stdio"], {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  if (onSpawn) onSpawn(child);
   const spawnReturnedAt = Date.now();
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(chunk.toString("utf8")));
