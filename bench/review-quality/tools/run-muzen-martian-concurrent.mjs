@@ -195,7 +195,7 @@ if (!["shared", "process"].includes(runnerMode)) {
 const limit = args.limit ? positiveInt(args.limit, "--limit") : null;
 const sampleIntervalMs = positiveInt(args.sampleIntervalMs || "5000", "--sample-interval-ms");
 const postPrepareCooldownMs = nonnegativeInt(
-  args.postPrepareCooldownMs || "1000",
+  args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
 );
 const maxCapturedTextBytes = args.maxCapturedTextBytes
@@ -1126,7 +1126,7 @@ Options:
   --skip-semantic true          Skip semantic scoring
   --sample-interval-ms <n>      Process tree RSS sample interval (default: 5000)
   --post-prepare-cooldown-ms <n>
-                                Wait after git/job prep before runner admission (default: 1000)
+                                Wait after git/job prep before runner admission (default: 3000)
   --max-captured-text-bytes <n> Snapshot text capture budget per run
 `);
 }

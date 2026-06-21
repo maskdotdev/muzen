@@ -31,7 +31,7 @@ const latencyMs = nonnegativeInt(args.latencyMs || "0", "--latency-ms");
 const jitterMs = nonnegativeInt(args.jitterMs || "0", "--jitter-ms");
 const maxConcurrent = positiveInt(args.maxConcurrent || "64", "--max-concurrent");
 const postPrepareCooldownMs = nonnegativeInt(
-  args.postPrepareCooldownMs || "1000",
+  args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
 );
 const invalidFinalAttempts = nonnegativeInt(args.invalidFinalAttempts || "0", "--invalid-final-attempts");
@@ -917,5 +917,5 @@ function timestamp() {
 }
 
 function usage() {
-  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 1000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
+  process.stderr.write(`Usage: run-fake-runner-mode-repro.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/repro] [--cases 5] [--concurrency 5] [--sessions 1] [--max-active 1] [--max-tool-calls 6] [--tools-before-final N|infinite] [--latency-ms N] [--max-concurrent N] [--post-prepare-cooldown-ms 3000] [--final-mode clean|candidate] [--shared-final-mode clean|candidate] [--process-final-mode clean|candidate] [--validation-status supported|refuted|insufficient|needs_more_evidence] [--shared-validation-status supported|refuted|insufficient|needs_more_evidence] [--process-validation-status supported|refuted|insufficient|needs_more_evidence]\n`);
 }
