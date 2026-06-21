@@ -123,6 +123,104 @@ Direct sessions are for protocol/session-output diagnostics. They return raw
 `sessionOutputs` and completion diagnostics, but they do not publish scored
 review findings.
 
+## Official Martian Offline Judge
+
+Use this when the review artifacts already exist in a local
+`code-review-benchmark` checkout and the goal is to run official Martian step 3
+without direct API billing. The official judge uses Chat Completions and reads
+`MARTIAN_API_KEY`, `MARTIAN_BASE_URL`, and `MARTIAN_MODEL`; the wrapper starts a
+temporary Chat Completions bridge that forwards those calls to the local Codex
+ChatGPT Responses proxy.
+
+Keep the proxy running:
+
+```sh
+node experiments/codex-chatgpt-proxy/codex-chatgpt-responses-proxy.mjs serve \
+  --port 4141 \
+  --reasoning-effort low
+```
+
+Then run official step 3 for any tool that already exists in the benchmark
+`benchmark_data.json` plus model-scoped `candidates.json`. For example, hagent:
+
+```sh
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1 \
+OPENAI_API_KEY=muzen-codex-proxy \
+MARTIAN_JUDGE_MODEL=gpt-5.4-mini \
+node bench/review-quality/tools/run-martian-official-step3.mjs \
+  --benchmark-root /tmp/code-review-benchmark \
+  --tool hagent \
+  --force true
+```
+
+The wrapper stages the selected tool's `candidates.json` entries into
+`results/<judge-model>/candidates.json`, sets placeholder-free Martian env vars
+for the temporary bridge, and invokes:
+
+```sh
+uv run python -m code_review_benchmark.step3_judge_comments
+```
+
+The default hagent source candidates are under
+`results/openai_gpt-5.2/candidates.json`; override with `--candidates-file` or
+`--candidate-model` when judging a different prepared tool. By default,
+evaluations are written to
+`/tmp/code-review-benchmark/offline/results/gpt-5.4-mini/evaluations-hagent.json`.
+
+To judge an existing Muzen concurrent run with official step 3, point the
+wrapper at the concurrent `summary.json`; it materializes `muzen` review rows
+and candidates before launching the judge:
+
+```sh
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1 \
+OPENAI_API_KEY=muzen-codex-proxy \
+MARTIAN_JUDGE_MODEL=gpt-5.4-mini \
+node bench/review-quality/tools/run-martian-official-step3.mjs \
+  --benchmark-root /tmp/code-review-benchmark \
+  --tool muzen \
+  --summary-file /tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-real-50-shared-c5/summary.json \
+  --force true
+```
+
+For a fresh full-circle Muzen run, use `run-muzen-martian-concurrent.mjs` to
+generate reviews, then pass that run's `summary.json` to
+`run-martian-official-step3.mjs`:
+
+```sh
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+EVAL_ROOT="/tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-real-5-full-circle-${RUN_ID}"
+
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1 \
+OPENAI_API_KEY=muzen-codex-proxy \
+MODEL=gpt-5.5 \
+node bench/review-quality/tools/run-muzen-martian-concurrent.mjs \
+  --case-source /tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-real-50-shared-c5/summary.json \
+  --golden-dir /tmp/code-review-benchmark/offline/results/muzen/gpt-5.5-low-direct/goldens \
+  --worktree-root /tmp/muzen-hagent-martian-worktrees \
+  --runner-path target/release/muzen-runner \
+  --runner-mode shared \
+  --output-dir "$EVAL_ROOT/reviews" \
+  --concurrency 2 \
+  --limit 5 \
+  --sessions 0 \
+  --max-active 1 \
+  --max-turns 60 \
+  --max-tool-calls 50 \
+  --model "$MODEL" \
+  --skip-semantic true \
+  --progress true
+
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1 \
+OPENAI_API_KEY=muzen-codex-proxy \
+MARTIAN_JUDGE_MODEL=gpt-5.4-mini \
+node bench/review-quality/tools/run-martian-official-step3.mjs \
+  --benchmark-root /tmp/code-review-benchmark \
+  --tool muzen \
+  --summary-file "$EVAL_ROOT/reviews/summary.json" \
+  --force true \
+  --evaluations-file "$EVAL_ROOT/evaluations-muzen.json"
+```
+
 ## Bounded Real Reviewer
 
 Use this when the goal is to test Muzen's autonomous reviewer while keeping one
