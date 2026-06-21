@@ -23,13 +23,11 @@ const maxActiveSessions = positiveInt(args.maxActiveSessions || args.maxActive |
 const maxToolCalls = positiveInt(args.maxToolCalls || "4", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || "6", "--max-turns");
 const toolsPerSession = positiveInt(args.toolsPerSession || "1", "--tools-per-session");
+const toolCallsPerTurn = positiveInt(args.toolCallsPerTurn || "1", "--tool-calls-per-turn");
 const toolDelayMs = nonnegativeInt(args.toolDelayMs || "100", "--tool-delay-ms");
 const modelDelayMs = nonnegativeInt(args.modelDelayMs || "0", "--model-delay-ms");
 const artifactBytes = positiveInt(args.artifactBytes || "2048", "--artifact-bytes");
 const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
-if (toolsPerSession > maxToolCalls) {
-  fail("--tools-per-session must be less than or equal to --max-tool-calls");
-}
 
 const config = {
   cases,
@@ -39,6 +37,7 @@ const config = {
   maxToolCalls,
   maxTurns,
   toolsPerSession,
+  toolCallsPerTurn,
   toolDelayMs,
   modelDelayMs,
   artifactBytes,
@@ -78,6 +77,7 @@ async function runSharedMode({ runnerPath, outputDir, fixtures, config }) {
     modelDelayMs: config.modelDelayMs,
     artifactBytes: config.artifactBytes,
     toolsPerSession: config.toolsPerSession,
+    toolCallsPerTurn: config.toolCallsPerTurn,
   });
   await runner.start();
   try {
@@ -112,6 +112,7 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
         modelDelayMs: config.modelDelayMs,
         artifactBytes: config.artifactBytes,
         toolsPerSession: config.toolsPerSession,
+        toolCallsPerTurn: config.toolCallsPerTurn,
       });
       runners.push(runner);
       await runner.start();
@@ -137,7 +138,7 @@ async function runProcessMode({ runnerPath, outputDir, fixtures, config }) {
 }
 
 class ProtocolRunner {
-  constructor(runnerPath, { label, logDir, toolDelayMs, modelDelayMs, artifactBytes, toolsPerSession }) {
+  constructor(runnerPath, { label, logDir, toolDelayMs, modelDelayMs, artifactBytes, toolsPerSession, toolCallsPerTurn }) {
     this.runnerPath = runnerPath;
     this.label = label;
     this.logDir = logDir;
@@ -145,6 +146,7 @@ class ProtocolRunner {
     this.modelDelayMs = modelDelayMs;
     this.artifactBytes = artifactBytes;
     this.toolsPerSession = toolsPerSession;
+    this.toolCallsPerTurn = toolCallsPerTurn;
     this.child = null;
     this.nextId = 1;
     this.pending = new Map();
@@ -298,15 +300,17 @@ class ProtocolRunner {
     const turn = Number(params.turn ?? 0);
     const runId = String(params.runId ?? "unknown-run");
     const sessionId = String(params.sessionId ?? "unknown-session");
-    if (turn < this.toolsPerSession) {
+    const requestedToolCalls = transcriptRequestedToolCalls(params.transcript);
+    const remainingRequestedTools = Math.max(0, this.toolsPerSession - requestedToolCalls);
+    const finalInstructionRequested = transcriptHasFinalInstruction(params.transcript);
+    if (!finalInstructionRequested && remainingRequestedTools > 0) {
+      const callsThisTurn = Math.min(this.toolCallsPerTurn, remainingRequestedTools);
       return {
-        toolCalls: [
-          {
-            callId: `${runId}-${sessionId}-probe-${turn}`,
+        toolCalls: Array.from({ length: callsThisTurn }, (_, index) => ({
+            callId: `${runId}-${sessionId}-probe-${turn}-${index}`,
             toolId: "ownership_probe",
-            arguments: { runId, sessionId, turn },
-          },
-        ],
+            arguments: { runId, sessionId, turn, index },
+        })),
         usage: usageFor(turn),
       };
     }
@@ -373,11 +377,12 @@ function runStartForFixture(fixture, config) {
         parameters: {
           type: "object",
           additionalProperties: false,
-          required: ["runId", "sessionId", "turn"],
+          required: ["runId", "sessionId", "turn", "index"],
           properties: {
             runId: { type: "string" },
             sessionId: { type: "string" },
             turn: { type: "integer" },
+            index: { type: "integer" },
           },
         },
         effects: ["write_artifact"],
@@ -422,6 +427,10 @@ function createFixtures({ fixtureRoot, cases }) {
 }
 
 function summarizeMode({ label, startedAt, completedAt, results, callbacks, notifications, frames, stderr }) {
+  const budgetRejectedByRun = countBy(
+    frames.filter(isBudgetRejectedToolCallFrame),
+    (frame) => frameRunId(frame) ?? "unknown",
+  );
   const runResults = results.map((result) => {
     const diagnostics = Array.isArray(result.summary?.completionDiagnostics)
       ? result.summary.completionDiagnostics
@@ -443,6 +452,10 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
       diagnosticCustomToolCalls: sumNumbers(
         diagnostics.map((diagnostic) => diagnostic.toolCounts?.custom),
       ),
+      diagnosticExhaustedSessions: diagnostics.filter(
+        (diagnostic) => diagnostic.exhaustedToolBudget === true,
+      ).length,
+      budgetRejectedToolCalls: budgetRejectedByRun[result.runId] ?? 0,
     };
   });
   const callbacksByRun = groupBy(callbacks, (record) => record.runId ?? "unknown");
@@ -473,6 +486,8 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
     toolCalls: stats(runResults.map((result) => result.toolCalls)),
     diagnosticToolCallsUsed: stats(runResults.map((result) => result.diagnosticToolCallsUsed)),
     diagnosticCustomToolCalls: stats(runResults.map((result) => result.diagnosticCustomToolCalls)),
+    diagnosticExhaustedSessions: stats(runResults.map((result) => result.diagnosticExhaustedSessions)),
+    budgetRejectedToolCalls: stats(runResults.map((result) => result.budgetRejectedToolCalls)),
     totalTokens: stats(runResults.map((result) => result.totalTokens)),
     findings: stats(runResults.map((result) => result.findings)),
     sessionOutputs: stats(runResults.map((result) => result.sessionOutputs)),
@@ -508,7 +523,12 @@ function summarizeMode({ label, startedAt, completedAt, results, callbacks, noti
 }
 
 function buildReport({ outputDir, runnerPath, config, shared, process }) {
-  const expectedToolCallsPerRun = config.sessions * config.toolsPerSession;
+  const expectedSuccessfulToolCallsPerSession = Math.min(config.toolsPerSession, config.maxToolCalls);
+  const expectedToolCallsPerRun = config.sessions * expectedSuccessfulToolCallsPerSession;
+  const expectedBudgetRejectedToolCallsPerRun =
+    config.sessions * expectedBudgetRejectedToolCallsPerSession(config);
+  const expectedExhaustedSessionsPerRun =
+    config.toolsPerSession >= config.maxToolCalls ? config.sessions : 0;
   const parity = {
     statuses: JSON.stringify(shared.statuses) === JSON.stringify(process.statuses),
     sessions:
@@ -526,6 +546,12 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
     diagnosticCustomToolCalls:
       shared.diagnosticCustomToolCalls.min === process.diagnosticCustomToolCalls.min &&
       shared.diagnosticCustomToolCalls.max === process.diagnosticCustomToolCalls.max,
+    diagnosticExhaustedSessions:
+      shared.diagnosticExhaustedSessions.min === process.diagnosticExhaustedSessions.min &&
+      shared.diagnosticExhaustedSessions.max === process.diagnosticExhaustedSessions.max,
+    budgetRejectedToolCalls:
+      shared.budgetRejectedToolCalls.min === process.budgetRejectedToolCalls.min &&
+      shared.budgetRejectedToolCalls.max === process.budgetRejectedToolCalls.max,
     totalTokens:
       shared.totalTokens.min === process.totalTokens.min && shared.totalTokens.max === process.totalTokens.max,
     findings:
@@ -572,6 +598,22 @@ function buildReport({ outputDir, runnerPath, config, shared, process }) {
       ...(process.diagnosticCustomToolCalls.min !== expectedToolCallsPerRun ||
       process.diagnosticCustomToolCalls.max !== expectedToolCallsPerRun
         ? ["process.diagnosticCustomToolCalls"]
+        : []),
+      ...(shared.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
+      shared.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+        ? ["shared.diagnosticExhaustedSessions"]
+        : []),
+      ...(process.diagnosticExhaustedSessions.min !== expectedExhaustedSessionsPerRun ||
+      process.diagnosticExhaustedSessions.max !== expectedExhaustedSessionsPerRun
+        ? ["process.diagnosticExhaustedSessions"]
+        : []),
+      ...(shared.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
+      shared.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+        ? ["shared.budgetRejectedToolCalls"]
+        : []),
+      ...(process.budgetRejectedToolCalls.min !== expectedBudgetRejectedToolCallsPerRun ||
+      process.budgetRejectedToolCalls.max !== expectedBudgetRejectedToolCallsPerRun
+        ? ["process.budgetRejectedToolCalls"]
         : []),
     ],
     explicitSessionFailures: [
@@ -641,8 +683,45 @@ function frameRunId(frame) {
   );
 }
 
+function isBudgetRejectedToolCallFrame(frame) {
+  const trace = frame.method === "event.runtime" ? frame.params?.event?.agentTrace : null;
+  return trace?.traceKind === "tool_call_rejected" && trace.details?.errorCode === "budget_exceeded";
+}
+
+function expectedBudgetRejectedToolCallsPerSession(config) {
+  let remainingRequestedTools = config.toolsPerSession;
+  let remainingBudget = config.maxToolCalls;
+  let rejected = 0;
+  while (remainingRequestedTools > 0 && remainingBudget > 0) {
+    const requested = Math.min(config.toolCallsPerTurn, remainingRequestedTools);
+    const allowed = Math.min(requested, remainingBudget);
+    rejected += requested - allowed;
+    remainingBudget -= allowed;
+    remainingRequestedTools -= requested;
+  }
+  return rejected;
+}
+
 function roleForIndex(index) {
   return ["correctness", "security", "performance"][index % 3];
+}
+
+function transcriptRequestedToolCalls(transcript) {
+  if (!Array.isArray(transcript)) return 0;
+  return transcript.reduce((total, item) => {
+    if (item?.kind !== "assistant_tool_calls" || !Array.isArray(item.calls)) return total;
+    return total + item.calls.length;
+  }, 0);
+}
+
+function transcriptHasFinalInstruction(transcript) {
+  if (!Array.isArray(transcript)) return false;
+  return transcript.some(
+    (item) =>
+      item?.kind === "user" &&
+      typeof item.content === "string" &&
+      item.content.includes("Return the final output for this session now"),
+  );
 }
 
 function usageFor(turn) {
@@ -689,6 +768,16 @@ function countObject(values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return Object.fromEntries([...counts.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))));
+}
+
+function countBy(items, keyFn) {
+  const counts = {};
+  for (const item of items) {
+    const key = keyFn(item);
+    if (key == null) continue;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function sleep(ms) {
@@ -741,7 +830,7 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fail-on-regression true|false]\n",
+    "Usage: run-fake-protocol-session-stress.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/stress] [--cases 6] [--concurrency 3] [--sessions 3] [--max-active-sessions 2] [--max-tool-calls 4] [--max-turns 6] [--tools-per-session 1] [--tool-calls-per-turn 1] [--tool-delay-ms 100] [--model-delay-ms 0] [--artifact-bytes 2048] [--fail-on-regression true|false]\n",
   );
 }
 

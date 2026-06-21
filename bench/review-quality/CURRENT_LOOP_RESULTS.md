@@ -138,6 +138,7 @@ node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
   --max-tool-calls 4 \
   --max-turns 8 \
   --tools-per-session 2 \
+  --tool-calls-per-turn 1 \
   --tool-delay-ms 100 \
   --artifact-bytes 4096
 ```
@@ -152,6 +153,35 @@ bench/results-review-quality/fake-protocol-tool-accounting-20260621T055951Z/prot
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | shared | 6 | 4 | 4 | 4 | 8 | 8 | 8 | 72 | 48 | 0 | passed |
 | process | 6 | 4 | 4 | 4 | 8 | 8 | 8 | 72 | 48 | 0 | passed |
+
+Protocol direct-session budget-exhaustion sweep:
+
+```sh
+node bench/review-quality/tools/run-fake-protocol-session-stress.mjs \
+  --runner-path target/release/muzen-runner \
+  --output-dir bench/results-review-quality/fake-protocol-budget-exhaustion-20260621T060523Z \
+  --cases 6 \
+  --concurrency 3 \
+  --sessions 4 \
+  --max-active-sessions 2 \
+  --max-tool-calls 1 \
+  --max-turns 5 \
+  --tools-per-session 2 \
+  --tool-calls-per-turn 2 \
+  --tool-delay-ms 100 \
+  --artifact-bytes 4096
+```
+
+Result file:
+
+```text
+bench/results-review-quality/fake-protocol-budget-exhaustion-20260621T060523Z/protocol-session-stress-summary.json
+```
+
+| Mode | Runs | Sessions per run | Completed per run | Tool calls per run | Exhausted sessions per run | Budget-rejected tool calls per run | Model callbacks | Tool callbacks | Callback ownership errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| shared | 6 | 4 | 4 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
+| process | 6 | 4 | 4 | 4 | 4 | 4 | 48 | 24 | 0 | passed |
 
 `run-fake-runner-mode-sweep.mjs` exits nonzero by default if it reports
 parity, release, or isolation regressions. Use `--fail-on-regression false`
@@ -186,6 +216,11 @@ Interpretation:
   explicit session and fails if top-level `summary.toolCalls`, diagnostic
   `toolCallsUsed`, or diagnostic `toolCounts.custom` diverge from the expected
   session-local count.
+- Direct-session callback-tool budget exhaustion is also covered. The budget
+  sweep asks each session for two callback tool calls in one model turn with
+  `maxToolCalls=1`; the runner schedules one, rejects one with
+  `budget_exceeded`, forces finalization, and shared/process modes agree on
+  completed sessions, exhausted-session counts, and rejection counts.
 - The earlier global `--http-error-every` stressor is useful only as a chaos
   probe. It assigns fake 500s by request arrival sequence, so minor shared vs
   process timing differences can make different conversations absorb retries
@@ -200,9 +235,9 @@ Interpretation:
 Current recommendation: do not run live evals for this runner investigation yet.
 The deterministic shared/process protocol path is now covered for explicit
 multi-session fan-out, delayed callback tools, callback/custom tool accounting,
-and session-budget reporting. The next useful fake-first step is an intentional
-direct-session budget-exhaustion probe before considering any
-subscription-backed diagnostic.
+session-budget reporting, and direct-session budget exhaustion. The next useful
+fake-first step is broader protocol pressure around cancellation/heartbeat
+while sessions are active before considering any subscription-backed diagnostic.
 
 Generated on 2026-06-07 with `MODEL=gpt-5.4-mini` and `target/release/muzen`
 after the planned-unit budget/bootstrap change.
