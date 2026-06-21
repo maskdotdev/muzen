@@ -8,6 +8,12 @@ const DEFAULT_WORKTREE_ROOT = "/tmp/muzen-review-quality-worktrees";
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const sessions = args.sessions || "0";
+  if (sessions !== "0") {
+    throw new Error(
+      "scored GitHub PR review-quality runs must use --sessions 0; explicit sessions select direct-session mode and do not publish findings",
+    );
+  }
   const repoSlug = required(args.repoSlug, "--repo-slug is required, e.g. calcom/cal.com");
   const prNumber = required(args.pr, "--pr is required");
   const runnerPath = args.runnerPath || "target/release/muzen-runner";
@@ -36,7 +42,7 @@ function main() {
     "--golden",
     golden,
     "--sessions",
-    args.sessions || "0",
+    sessions,
     "--max-active",
     args.maxActive || "8",
     "--max-turns",

@@ -187,6 +187,12 @@ const semanticDir = path.resolve(
 );
 const model = args.model || DEFAULT_MODEL;
 const semanticModel = args.semanticModel || DEFAULT_SEMANTIC_MODEL;
+const sessions = args.sessions || "0";
+if (sessions !== "0" && model !== "fake-responses-model") {
+  throw new Error(
+    "scored concurrent review-quality runs must use --sessions 0; explicit sessions select direct-session mode and do not publish findings",
+  );
+}
 const concurrency = positiveInt(args.concurrency || "5", "--concurrency");
 const runnerMode = args.runnerMode || "shared";
 if (!["shared", "process"].includes(runnerMode)) {
@@ -257,7 +263,7 @@ try {
     jobsDir,
     model,
     runnerPath,
-    sessions: args.sessions || "0",
+    sessions,
     maxActive: args.maxActive || "1",
     maxTurns: args.maxTurns || "60",
     maxToolCalls: args.maxToolCalls || "50",
@@ -302,7 +308,7 @@ try {
       runnerMode,
       runnerPath,
       runnerClient,
-      sessions: args.sessions || "0",
+      sessions,
       maxActive: args.maxActive || "1",
       maxTurns: args.maxTurns || "60",
       maxToolCalls: args.maxToolCalls || "50",

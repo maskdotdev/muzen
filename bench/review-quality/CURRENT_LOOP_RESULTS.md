@@ -52,6 +52,19 @@ candidate lifecycle events. This confirms direct sessions are a raw protocol /
 session-output path, not a scored review-quality path. Scored live evals and
 eval UI launch presets should use autonomous review (`--sessions 0`).
 
+Scored live-wrapper guard:
+
+```text
+bench/results-review-quality/check-local-session-guard-20260621T070217Z
+```
+
+`run-github-pr-review.mjs --sessions 1` and
+`run-muzen-martian-concurrent.mjs --sessions 1 --model gpt-5.5` now fail before
+network, runner, or model work with an explicit message that scored
+review-quality runs must use `--sessions 0`. The fake local gate still passes,
+so direct-session diagnostics remain available for deterministic fake/protocol
+harnesses.
+
 Latest `check-local --include-codex-proxy true` result after removing fake
 validation repair noise:
 
