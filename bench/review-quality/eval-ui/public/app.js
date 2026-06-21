@@ -251,8 +251,10 @@ function renderSummary(d) {
   if (cov.peakRssBytes != null) cards.push(metric("peak RSS", `${(cov.peakRssBytes / 1048576).toFixed(1)} MiB`));
   if (review.elapsedMs != null || bench.elapsedMs != null)
     cards.push(metric("elapsed", `${(((review.elapsedMs ?? bench.elapsedMs) || 0) / 1000).toFixed(1)}s`));
-  if (review.tokens != null && typeof review.tokens === "object" && review.tokens.total != null)
-    cards.push(metric("tokens", review.tokens.total));
+  if (review.tokens != null && typeof review.tokens === "object") {
+    const totalTokens = review.tokens.totalTokens ?? review.tokens.total;
+    if (totalTokens != null) cards.push(metric("tokens", totalTokens));
+  }
 
   let html = `<div class="panel"><div class="kicker">metrics</div><div class="scan-line"></div>
     <div class="metrics">${cards.join("") || `<span class="dim">No metrics.</span>`}</div></div>`;

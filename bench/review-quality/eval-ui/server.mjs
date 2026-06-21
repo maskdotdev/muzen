@@ -49,12 +49,36 @@ function isInside(root, target) {
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
+// Canonical results root (symlinks resolved once) — the boundary we compare
+// every resolved path against.
+const REAL_RESULTS_ROOT = (() => {
+  try {
+    return fs.realpathSync(RESULTS_ROOT);
+  } catch {
+    return RESULTS_ROOT;
+  }
+})();
+
 function safeResultsPath(relOrAbs) {
   const abs = path.isAbsolute(relOrAbs)
     ? path.resolve(relOrAbs)
     : path.resolve(RESULTS_ROOT, relOrAbs);
+  // Lexical gate first (also covers paths that don't exist yet).
   if (!isInside(RESULTS_ROOT, abs)) return null;
   if (path.basename(abs).startsWith(".env")) return null;
+  // If it exists, canonicalize and re-check so a symlink inside the results
+  // dir can't point fs.readFile() at a target outside it (or at a .env file).
+  if (fs.existsSync(abs)) {
+    let real;
+    try {
+      real = fs.realpathSync(abs);
+    } catch {
+      return null;
+    }
+    if (!isInside(REAL_RESULTS_ROOT, real)) return null;
+    if (path.basename(real).startsWith(".env")) return null;
+    return real;
+  }
   return abs;
 }
 
@@ -267,7 +291,7 @@ async function apiRunDetail(url, res) {
 
   if (kind === "result") {
     const result = await readJsonSafe(rel);
-    if (!result) return sendJson(res, 404, { error: "result not found" });
+    if (!result || !isResultDoc(result)) return sendJson(res, 404, { error: "result not found" });
     return sendJson(res, 200, { id, kind, rel, result });
   }
   return sendJson(res, 400, { error: "unknown kind" });
@@ -373,6 +397,8 @@ const LAUNCH_PRESETS = [
 ];
 
 const jobs = new Map(); // jobId -> { lines, status, code, traceDir, listeners:Set, startedAt }
+const MAX_JOB_LINES = 5000; // keep the tail of very chatty runs, bound memory
+const JOB_TTL_MS = 10 * 60 * 1000; // drop finished jobs 10 min after completion
 
 function readManifestFixtures(file) {
   try {
@@ -473,6 +499,7 @@ async function apiLaunch(req, res) {
   const job = {
     id: jobId,
     lines: [],
+    nextSeq: 0,
     status: "running",
     code: null,
     startedAt: Date.now(),
@@ -501,8 +528,9 @@ function splitLines(buf) {
 }
 
 function pushJobLine(job, text, stream) {
-  const line = { seq: job.lines.length, text, stream, t: Date.now() };
+  const line = { seq: job.nextSeq++, text, stream, t: Date.now() };
   job.lines.push(line);
+  if (job.lines.length > MAX_JOB_LINES) job.lines.shift(); // bound buffered scrollback
   for (const send of job.listeners) send({ type: "line", line });
 }
 
@@ -519,6 +547,8 @@ function finishJob(job, code) {
   job.traceId = traceId;
   runIndexCache = null; // new run; force reindex on next list
   for (const send of job.listeners) send({ type: "done", status: job.status, code, traceId });
+  // Reclaim the job after a grace window so late SSE reconnects still resolve.
+  setTimeout(() => jobs.delete(job.id), JOB_TTL_MS).unref();
 }
 
 function apiLaunchStream(url, req, res) {
