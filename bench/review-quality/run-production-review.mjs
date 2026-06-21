@@ -548,6 +548,12 @@ function buildRunnerStart({
   maxOutputTokens,
 }) {
   const modelProfileId = "production-review-oai";
+  const budget = {
+    maxTurns,
+    maxToolCalls,
+    maxPromptTokens,
+    maxOutputTokens,
+  };
   return {
     protocolVersion: "muzen.runner.v1",
     runId,
@@ -581,6 +587,7 @@ function buildRunnerStart({
         },
       ],
     },
+    ...(sessions === 0 ? { budget } : {}),
     sessions: Array.from({ length: sessions }, (_, index) => ({
       id: `production-review-${index}`,
       role: roleForIndex(index),
@@ -588,12 +595,7 @@ function buildRunnerStart({
         "Review this pull request for actionable correctness bugs introduced by the change. Gather concrete evidence with the read-only review tools and publish only evidence-backed findings.",
       modelProfileId,
       allowedTools: reviewReadOnlyTools(),
-      budget: {
-        maxTurns,
-        maxToolCalls,
-        maxPromptTokens,
-        maxOutputTokens,
-      },
+      budget,
     })),
     limits: {
       maxActiveSessions: sessions === 0 ? Math.max(1, maxActive) : Math.max(1, Math.min(maxActive, sessions)),

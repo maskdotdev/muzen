@@ -23,20 +23,22 @@ live model calls.
 Latest fake/local proxy-plus-protocol integrated result:
 
 ```text
-bench/results-review-quality/check-local-ui-gate-20260621T065721Z
+bench/results-review-quality/check-local-autonomous-hardcap-proxy-protocol-20260621T072057Z
 ```
 
-This passed all 8 local probes (`finalize-after-one-tool`,
+This passed all 9 local probes (`finalize-after-one-tool`,
 `symmetric-tool-budget-exhaustion`, `candidate-publication`,
 `schema-repair-per-conversation`, `provider-queue-saturation`,
-`caller-hard-cap-budget`, `adaptive-budget-surface`,
+`caller-hard-cap-budget`, `autonomous-hard-cap-budget`,
+`autonomous-hard-cap-exhaustion`,
 `codex-proxy-deterministic-retry`) plus one fake protocol mixed-pressure sweep
-with no regressions. The proxy-shaped fake probe published 5 findings in both
-shared and process mode with 36 model calls, 10 tool calls, 360 tokens, and 16
-configured provider errors per mode. The protocol sweep produced shared/process
-status parity at 5 completed and 1 cancelled run each, heartbeat callbacks above
-100 in both modes, running status polls present in both modes, and completed-run
-budget rejection/tool-call minimums of 4 in both modes.
+with no regressions. The autonomous hard-cap exhaustion probe now forces a fake
+model to keep requesting tools under `--sessions 0 --max-tool-calls 4`; both
+shared and process mode stop at exactly 5 model calls, 4 tool calls, one
+exhausted run, and zero shared-only exhaustions. The proxy-shaped fake probe
+published 5 findings in both shared and process mode with 36 model calls and 10
+tool calls per mode. The protocol sweep retained shared/process status,
+heartbeat, status-poll, and completed-run budget-accounting parity.
 
 Direct-session scoring finding:
 
@@ -64,6 +66,24 @@ network, runner, or model work with an explicit message that scored
 review-quality runs must use `--sessions 0`. The fake local gate still passes,
 so direct-session diagnostics remain available for deterministic fake/protocol
 harnesses.
+
+Autonomous budget hard-cap finding:
+
+```text
+bench/results-review-quality/min-autonomous-budget-surface-20260621T071255Z
+bench/results-review-quality/min-autonomous-budget-hardcap-20260621T071718Z
+```
+
+Before this fix, the scored/autonomous wrapper sent `--max-tool-calls` and
+`--max-turns` only inside explicit `sessions[]`. Under `--sessions 0`, the
+run-start had no session budget, so the autonomous planner correctly treated the
+orchestrator as adaptive and raised the tool budget to the 48-call minimum. A
+single fake case requested `--max-tool-calls 3 --max-turns 8` but ran 49 model
+turns and 48 tool calls in both shared and process mode. The protocol now
+accepts a run-level `budget`, and scored wrappers send it when `sessions === 0`.
+The same minimized fake case now stops at 4 model calls and 3 tool calls in both
+modes. This explains the apparent budget overrun as a wrapper/protocol contract
+gap, not a shared-runner-only concurrency failure.
 
 Latest `check-local --include-codex-proxy true` result after removing fake
 validation repair noise:

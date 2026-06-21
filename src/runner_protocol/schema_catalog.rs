@@ -119,6 +119,7 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 optional("change", "RunChangeParams"),
                 defaulted("instructions", "RunInstructionParams[]", "[]"),
                 defaulted("sessions", "RunSessionParams[]", "[]"),
+                optional("budget", "RunAgentBudgetParams"),
                 optional("limits", "RunLimitParams"),
                 optional("model", "RunModelParams"),
                 defaulted("tools", "RunToolParams[]", "[]"),

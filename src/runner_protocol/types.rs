@@ -56,6 +56,8 @@ pub struct RunStartParams {
     #[serde(default)]
     pub sessions: Vec<RunSessionParams>,
     #[serde(default)]
+    pub budget: Option<RunAgentBudgetParams>,
+    #[serde(default)]
     pub limits: Option<RunLimitParams>,
     #[serde(default)]
     pub model: Option<RunModelParams>,

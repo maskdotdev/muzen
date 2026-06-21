@@ -47,12 +47,13 @@ pub(crate) fn default_max_active_sessions(
 
 pub(crate) fn default_review_orchestrator_session(
     instructions: Vec<SessionInstruction>,
+    budget: AgentBudget,
 ) -> ReviewSessionSpec {
     let spec = ReviewSessionSpec::review_read_only(
         "review-orchestrator",
         Role::Generalist,
         "Autonomously review the changed code.",
-        AgentBudget::planned_baseline(),
+        budget,
     );
     if instructions.is_empty() {
         spec

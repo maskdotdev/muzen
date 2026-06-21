@@ -126,7 +126,7 @@ const probes = [
     expectCompletionMaxToolCalls: 4,
   },
   {
-    name: "adaptive-budget-surface",
+    name: "autonomous-hard-cap-budget",
     toolsBeforeFinal: "1",
     cases: "1",
     concurrency: "1",
@@ -137,7 +137,22 @@ const probes = [
     expectSharedOnlyExhaustion: 0,
     expectExhausted: 0,
     expectFindings: 0,
-    expectCompletionMaxToolCallsGreaterThan: 4,
+    expectCompletionMaxToolCalls: 4,
+  },
+  {
+    name: "autonomous-hard-cap-exhaustion",
+    toolsBeforeFinal: "infinite",
+    finalMode: "clean",
+    cases: "1",
+    concurrency: "1",
+    maxToolCalls: "4",
+    maxTurns: "8",
+    sessions: "0",
+    maxActive: "1",
+    expectSharedOnlyExhaustion: 0,
+    expectExhausted: 1,
+    expectFindings: 0,
+    expectCompletionMaxToolCalls: 4,
   },
 ];
 
@@ -578,18 +593,6 @@ function assertProbe(probe, summary) {
       "process",
       summary.observedRuns.process,
       probe.expectCompletionMaxToolCalls,
-    );
-  }
-  if (probe.expectCompletionMaxToolCallsGreaterThan != null) {
-    assertGreaterThan(
-      `${probe.name} shared completion max tool calls`,
-      summary.observedRuns.shared.completionMaxToolCalls.max,
-      probe.expectCompletionMaxToolCallsGreaterThan,
-    );
-    assertGreaterThan(
-      `${probe.name} process completion max tool calls`,
-      summary.observedRuns.process.completionMaxToolCalls.max,
-      probe.expectCompletionMaxToolCallsGreaterThan,
     );
   }
 }

@@ -22,6 +22,7 @@ use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeLimits, RuntimeR
 #[cfg(not(test))]
 use crate::reviewer_kernel::model::{EnvCredentialResolver, ModelLimiter, ProfileModelRouter};
 use crate::reviewer_kernel::policy::ReviewerPolicy;
+use crate::reviewer_kernel::review_contract::AgentBudget;
 #[cfg(not(test))]
 use crate::reviewer_kernel::review_contract::{ModelApiProtocol, ModelProfileRefV1, ProviderKind};
 use crate::reviewer_kernel::snapshots::{SnapshotPathPolicy, SnapshotSpec};
@@ -161,7 +162,10 @@ fn plan_local_review(
     let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
         SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
     );
-    let session = default_review_orchestrator_session(review_instructions(&options.instructions));
+    let session = default_review_orchestrator_session(
+        review_instructions(&options.instructions),
+        AgentBudget::planned_baseline(),
+    );
     let runtime_limits =
         RuntimeLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
     #[cfg(not(test))]

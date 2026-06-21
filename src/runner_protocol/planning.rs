@@ -104,7 +104,9 @@ pub(crate) fn plan_run_start(
         .collect::<Result<Vec<_>>>()?;
     let direct_sessions = !params.sessions.is_empty();
     let session_specs = if params.sessions.is_empty() {
-        let spec = default_review_orchestrator_session(runner_instructions(&params.instructions));
+        let budget = run_agent_budget(params.budget.take());
+        let spec =
+            default_review_orchestrator_session(runner_instructions(&params.instructions), budget);
         vec![grant_callback_tools(
             spec,
             "review-orchestrator",
@@ -152,15 +154,7 @@ fn run_session_spec(
     callback_tools: &[CallbackToolGrant],
     global_instructions: &[RunInstructionParams],
 ) -> Result<ReviewSessionSpec> {
-    let budget = params
-        .budget
-        .map_or_else(AgentBudget::planned_baseline, |budget| AgentBudget {
-            max_turns: budget.max_turns,
-            max_tool_calls: budget.max_tool_calls,
-            max_prompt_tokens: budget.max_prompt_tokens,
-            max_output_tokens: budget.max_output_tokens,
-            budget_source: crate::reviewer_kernel::review_contract::BudgetSource::CallerHardCap,
-        });
+    let budget = run_agent_budget(params.budget);
     let session_id = params.id.clone();
     let mut spec =
         ReviewSessionSpec::review_read_only(params.id, params.role, params.objective, budget);
@@ -181,6 +175,16 @@ fn run_session_spec(
         spec = spec.with_instructions(instructions);
     }
     grant_callback_tools(spec, &session_id, callback_tools, &params.tool_grants)
+}
+
+fn run_agent_budget(params: Option<super::types::RunAgentBudgetParams>) -> AgentBudget {
+    params.map_or_else(AgentBudget::planned_baseline, |budget| AgentBudget {
+        max_turns: budget.max_turns,
+        max_tool_calls: budget.max_tool_calls,
+        max_prompt_tokens: budget.max_prompt_tokens,
+        max_output_tokens: budget.max_output_tokens,
+        budget_source: crate::reviewer_kernel::review_contract::BudgetSource::CallerHardCap,
+    })
 }
 
 fn grant_callback_tools(
