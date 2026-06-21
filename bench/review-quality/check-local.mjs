@@ -59,6 +59,7 @@ const probes = [
     expectExhausted: 0,
     expectFindings: 0,
     expectInvalidFinalsPerConversation: true,
+    expectFinalOutputRepairAttempts: 1,
   },
   {
     name: "provider-queue-saturation",
@@ -388,6 +389,22 @@ function assertProbe(probe, summary) {
       assertEqual(`${probe.name} invalid finals conversation ${index + 1}`, count, 2);
     }
   }
+  if (probe.expectFinalOutputRepairAttempts != null) {
+    assertFinalOutputRepairDiagnostics(
+      probe.name,
+      "shared",
+      summary.observedRuns.shared,
+      summary.config.caseCount,
+      probe.expectFinalOutputRepairAttempts,
+    );
+    assertFinalOutputRepairDiagnostics(
+      probe.name,
+      "process",
+      summary.observedRuns.process,
+      summary.config.caseCount,
+      probe.expectFinalOutputRepairAttempts,
+    );
+  }
   if (probe.expectProviderQueue) {
     assertQueuedProvider(probe.name, "shared", summary.fakeModel.byRunLabel.shared);
     assertQueuedProvider(probe.name, "process", summary.fakeModel.byRunLabel.process);
@@ -554,6 +571,67 @@ function assertCompletionMaxToolCalls(probeName, mode, observedRuns, expected) {
     `${probeName} ${mode} completion max tool calls max`,
     observedRuns.completionMaxToolCalls.max,
     expected,
+  );
+}
+
+function assertFinalOutputRepairDiagnostics(
+  probeName,
+  mode,
+  observedRuns,
+  expectedCases,
+  expectedRepairAttempts,
+) {
+  const finalOutput = observedRuns.completionFinalOutput;
+  assertEqual(
+    `${probeName} ${mode} final-output diagnostic cases`,
+    finalOutput.count.count,
+    expectedCases,
+  );
+  assertEqual(`${probeName} ${mode} final-output attempts min`, finalOutput.attempted.min, 1);
+  assertEqual(`${probeName} ${mode} final-output attempts max`, finalOutput.attempted.max, 1);
+  assertEqual(
+    `${probeName} ${mode} final-output parse success min`,
+    finalOutput.parseSuccess.min,
+    1,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output parse success max`,
+    finalOutput.parseSuccess.max,
+    1,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output schema success min`,
+    finalOutput.schemaValidationSuccess.min,
+    1,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output schema success max`,
+    finalOutput.schemaValidationSuccess.max,
+    1,
+  );
+  assertEqual(`${probeName} ${mode} final-output accepted min`, finalOutput.accepted.min, 1);
+  assertEqual(`${probeName} ${mode} final-output accepted max`, finalOutput.accepted.max, 1);
+  assertEqual(`${probeName} ${mode} final-output rejected min`, finalOutput.rejected.min, 0);
+  assertEqual(`${probeName} ${mode} final-output rejected max`, finalOutput.rejected.max, 0);
+  assertEqual(
+    `${probeName} ${mode} final-output repair attempts min`,
+    finalOutput.repairAttemptCount.min,
+    expectedRepairAttempts,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output repair attempts max`,
+    finalOutput.repairAttemptCount.max,
+    expectedRepairAttempts,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output max repair attempts min`,
+    finalOutput.maxRepairAttemptCount.min,
+    expectedRepairAttempts,
+  );
+  assertEqual(
+    `${probeName} ${mode} final-output max repair attempts max`,
+    finalOutput.maxRepairAttemptCount.max,
+    expectedRepairAttempts,
   );
 }
 

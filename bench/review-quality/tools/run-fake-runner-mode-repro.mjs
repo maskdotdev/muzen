@@ -550,8 +550,24 @@ function summarizeObservedMode(cases, mode) {
     completionExhaustedToolBudget: stats(
       values.map((entry) => entry.completionExhaustedToolBudget),
     ),
+    completionFinalOutput: summarizeCompletionFinalOutputStats(
+      values.map((entry) => entry.completionFinalOutput),
+    ),
     modelCalls: stats(values.map((entry) => entry.modelCalls)),
     toolCalls: stats(values.map((entry) => entry.toolCalls)),
+  };
+}
+
+function summarizeCompletionFinalOutputStats(values) {
+  return {
+    count: stats(values.map((entry) => entry?.count)),
+    attempted: stats(values.map((entry) => entry?.attempted)),
+    parseSuccess: stats(values.map((entry) => entry?.parseSuccess)),
+    schemaValidationSuccess: stats(values.map((entry) => entry?.schemaValidationSuccess)),
+    accepted: stats(values.map((entry) => entry?.accepted)),
+    rejected: stats(values.map((entry) => entry?.rejected)),
+    repairAttemptCount: stats(values.map((entry) => entry?.repairAttemptCount)),
+    maxRepairAttemptCount: stats(values.map((entry) => entry?.maxRepairAttemptCount)),
   };
 }
 

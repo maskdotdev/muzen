@@ -152,6 +152,7 @@ function compactCase(root, name, report) {
   });
   const compactInstrumentation = compactOptionalInstrumentation(instrumentation);
   const completionDiagnostics = report.review?.completionDiagnostics ?? [];
+  const completionFinalOutput = summarizeCompletionFinalOutput(completionDiagnostics);
   const jobBuild = report.benchmark?.jobBuild ?? null;
   const runnerInvocation = report.benchmark?.runnerInvocation ?? null;
   return {
@@ -169,6 +170,7 @@ function compactCase(root, name, report) {
     completionExhaustedToolBudget: completionDiagnostics.filter(
       (diagnostic) => diagnostic.exhaustedToolBudget === true,
     ).length,
+    completionFinalOutput,
     modelCalls: report.review?.modelCalls ?? 0,
     toolCalls: report.review?.toolCalls ?? 0,
     totalTokens: report.review?.tokens?.totalTokens ?? 0,
@@ -236,6 +238,34 @@ function compactCase(root, name, report) {
     },
     instrumentation: compactInstrumentation,
   };
+}
+
+function summarizeCompletionFinalOutput(completionDiagnostics) {
+  const outputs = completionDiagnostics
+    .map((diagnostic) => diagnostic.finalOutput)
+    .filter(Boolean);
+  return {
+    count: outputs.length,
+    attempted: countWhere(outputs, (output) => output.attempted === true),
+    parseSuccess: countWhere(outputs, (output) => output.parseSuccess === true),
+    schemaValidationSuccess: countWhere(
+      outputs,
+      (output) => output.schemaValidationSuccess === true,
+    ),
+    accepted: countWhere(outputs, (output) => output.accepted === true),
+    rejected: countWhere(outputs, (output) => output.rejected === true),
+    repairAttemptCount: outputs.reduce(
+      (sum, output) => sum + (Number(output.repairAttemptCount) || 0),
+      0,
+    ),
+    maxRepairAttemptCount: maxNumber(
+      outputs.map((output) => Number(output.repairAttemptCount)),
+    ),
+  };
+}
+
+function countWhere(values, predicate) {
+  return values.filter(predicate).length;
 }
 
 function countNeedle(file, needle) {
