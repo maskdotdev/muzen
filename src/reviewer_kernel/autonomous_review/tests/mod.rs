@@ -236,6 +236,44 @@ fn publication_gate_accepts_single_concrete_negative_outcome() {
 }
 
 #[test]
+fn publication_gate_accepts_concrete_negative_outcome_without_behavior_comparison() {
+    let mut candidate = publication_candidate(
+        "Async callback may skip pending deletes",
+        "The changed forEach async callback returns success before delete promises finish, so failed deletes can be silently skipped.",
+    );
+    candidate.behavior_before = None;
+    candidate.behavior_after = None;
+
+    assert_eq!(
+        autonomous_candidate_rejection_reason(
+            &candidate,
+            &publication_changed_paths(),
+            &publication_changed_ranges(),
+        ),
+        None
+    );
+}
+
+#[test]
+fn publication_gate_rejects_vague_candidate_without_behavior_comparison() {
+    let mut candidate = publication_candidate(
+        "Async callback changed",
+        "The changed callback may have different behavior.",
+    );
+    candidate.behavior_before = None;
+    candidate.behavior_after = None;
+
+    assert_eq!(
+        autonomous_candidate_rejection_reason(
+            &candidate,
+            &publication_changed_paths(),
+            &publication_changed_ranges(),
+        ),
+        Some("missing_behavior_comparison")
+    );
+}
+
+#[test]
 fn build_findings_records_publication_decisions() {
     let snapshot = publication_snapshot();
     let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));

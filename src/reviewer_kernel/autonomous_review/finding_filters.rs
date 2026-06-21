@@ -36,10 +36,13 @@ pub(super) fn autonomous_candidate_rejection_reason(
 
     let behavior_before = candidate.behavior_before.as_deref().unwrap_or_default();
     let behavior_after = candidate.behavior_after.as_deref().unwrap_or_default();
-    if behavior_comparison_missing(behavior_before, behavior_after) {
+    let title_and_claim = format!("{title} {claim}");
+    let title_claim_describes_negative_outcome = describes_negative_outcome(&title_and_claim);
+    if behavior_comparison_missing(behavior_before, behavior_after)
+        && !title_claim_describes_negative_outcome
+    {
         return Some("missing_behavior_comparison");
     }
-    let title_and_claim = format!("{title} {claim}");
     if is_non_finding_text(&title_and_claim)
         || is_non_bug_observation_text(&title_and_claim)
         || is_counterfactual_support_observation_text(&title_and_claim)
@@ -49,7 +52,12 @@ pub(super) fn autonomous_candidate_rejection_reason(
     if is_bundled_finding_text(&title_and_claim) {
         return Some("bundled_claim");
     }
-    if is_speculative_finding(&title_and_claim, behavior_before, behavior_after) {
+    if is_speculative_finding(
+        &title_and_claim,
+        behavior_before,
+        behavior_after,
+        title_claim_describes_negative_outcome,
+    ) {
         return Some("speculative_claim");
     }
     let full_text = format!("{title_and_claim} {behavior_before} {behavior_after}");
@@ -122,11 +130,17 @@ fn behavior_text_is_vague(text: &str) -> bool {
     .any(|needle| normalized.contains(needle))
 }
 
-fn is_speculative_finding(text: &str, behavior_before: &str, behavior_after: &str) -> bool {
+fn is_speculative_finding(
+    text: &str,
+    behavior_before: &str,
+    behavior_after: &str,
+    text_describes_negative_outcome: bool,
+) -> bool {
     if is_hypothetical_finding_text(text) {
         return true;
     }
     is_hedged_finding_text(text)
+        && !text_describes_negative_outcome
         && (behavior_before.trim().is_empty() || behavior_after.trim().is_empty())
 }
 
