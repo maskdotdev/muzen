@@ -1,0 +1,99 @@
+{
+  "sessionSpec": {
+    "agent": {
+      "name": "builder",
+      "instructions": [
+        { "type": "text", "text": "Implement the requested change." }
+      ],
+      "model": "primary",
+      "tools": [
+        {
+          "provider": "builtin",
+          "tool": "workspace.read",
+          "effects": ["workspace_read"],
+          "maxCalls": 50
+        },
+        {
+          "provider": "mcp",
+          "tool": "issues.search",
+          "effects": ["network_read"],
+          "maxCalls": 10
+        }
+      ],
+      "budget": {
+        "maxTurns": 20,
+        "maxToolCalls": 60,
+        "maxPromptTokens": 120000,
+        "maxOutputTokens": 20000
+      },
+      "output": {
+        "name": "implementation_result",
+        "schema": {
+          "type": "object",
+          "required": ["summary"],
+          "properties": { "summary": { "type": "string" } }
+        }
+      }
+    },
+    "models": [
+      {
+        "id": "primary",
+        "provider": "openai_compatible",
+        "protocol": "responses",
+        "model": "example-model",
+        "baseUrl": "https://models.example.test/v1",
+        "credential": "secret_model_primary",
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 20000
+      }
+    ],
+    "toolProviders": [
+      { "id": "builtin", "kind": "builtin" },
+      {
+        "id": "mcp",
+        "kind": "mcp_http",
+        "url": "https://mcp.example.test",
+        "headers": {
+          "Authorization": { "secret": "secret_mcp" },
+          "X-Tenant": "example"
+        }
+      }
+    ],
+    "workspace": {
+      "base": { "kind": "snapshot", "id": "snapshot_example" },
+      "limits": {
+        "maxFiles": 10000,
+        "maxFileBytes": 1048576,
+        "maxBaseBytes": 536870912,
+        "maxOverlayBytes": 134217728
+      }
+    },
+    "sessionBudget": {
+      "maxRuns": 10,
+      "maxLifetimeTokens": 1000000,
+      "maxLifetimeToolCalls": 1000
+    }
+  },
+  "runSpec": {
+    "roots": [
+      {
+        "sessionId": "session_existing",
+        "input": {
+          "content": [
+            { "type": "text", "text": "Add the agent runtime contract." }
+          ]
+        }
+      }
+    ],
+    "limits": {
+      "maxActiveAgents": 4,
+      "maxAgents": 16,
+      "maxDepth": 3,
+      "maxInputBytes": 1048576,
+      "maxTotalTokens": 500000,
+      "maxTotalToolCalls": 500,
+      "deadlineMs": 900000
+    },
+    "idempotencyKey": "run_example_1"
+  }
+}

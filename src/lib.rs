@@ -1,3 +1,4 @@
+pub mod agent_runtime;
 pub mod remote_http;
 pub mod review_sessions;
 pub mod review_sources;
