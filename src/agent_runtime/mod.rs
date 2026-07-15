@@ -8,6 +8,7 @@ mod client;
 mod errors;
 mod ids;
 mod runtime_types;
+mod store;
 mod types;
 mod validation;
 

@@ -140,10 +140,21 @@ pub(crate) fn validate_run_spec(spec: &RunSpec) -> Result<(), SpecValidationErro
     }
 
     let mut decoded_input_bytes = 0_u64;
+    let mut new_root_idempotency_keys = BTreeSet::new();
     for (index, root) in spec.roots.iter().enumerate() {
         let (input, new_session) = match root {
             RunRoot::Existing(root) => (&root.input, None),
-            RunRoot::New(root) => (&root.input, Some(&root.session)),
+            RunRoot::New(root) => {
+                if let Some(key) = &root.idempotency_key {
+                    if !new_root_idempotency_keys.insert(key.as_str()) {
+                        return Err(SpecValidationError::at(
+                            format!("roots[{index}].idempotencyKey"),
+                            "new root idempotency keys must be unique within a run",
+                        ));
+                    }
+                }
+                (&root.input, Some(&root.session))
+            }
         };
         validate_input(input, &format!("roots[{index}].input"))?;
         decoded_input_bytes = decoded_input_bytes

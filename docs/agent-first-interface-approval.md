@@ -30,3 +30,20 @@ The implementation gate covered public declarations, strict validation,
 secret redaction, exact serde/wire mapping, required and optional fields,
 terminal status types, bounded artifact streaming, and cross-SDK parity. It
 does not approve the not-yet-implemented local-runner or remote HTTP Adapters.
+
+## Durable store implementation gate
+
+The private durable Store Interface and its in-memory Adapter received a
+separate Fable/high architecture gate on 2026-07-15.
+
+- Initial verdict: `not approved`, 6 blocking findings
+- Blocking findings resolved: 6
+- Final verdict: `approved`, 0 blocking findings
+- Conformance tests at approval: 15 passing agent-runtime tests
+
+The final gate covered atomic Session ownership, body-sensitive idempotency,
+gap-free Run events, per-Agent lifecycle and terminal durability, deterministic
+aggregation, cancellation replay, Session lifetime budgets, bounded cursor
+pagination for messages, overflow-safe state transitions, and the sub-800-line
+Module boundary. It approves the Store Interface and in-memory Adapter only;
+the SQLite, local-runner, and HTTP/SSE Adapters require their own gates.

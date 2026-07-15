@@ -49,8 +49,24 @@ impl MuzenError {
     }
 
     pub(crate) fn internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Internal, message)
+    }
+
+    pub(crate) fn not_found(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::NotFound, message)
+    }
+
+    pub(crate) fn conflict(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Conflict, message)
+    }
+
+    pub(crate) fn resource_exhausted(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ResourceExhausted, message)
+    }
+
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
-            code: ErrorCode::Internal,
+            code,
             message: message.into(),
             retryable: false,
             details: None,
