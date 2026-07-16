@@ -4,6 +4,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use serde_json::{json, Value};
 
 use super::memory::MemoryAgentStore;
+use super::sqlite::SqliteAgentStore;
 use super::{AgentStore, FinishRun};
 use crate::agent_runtime::{
     AgentInput, AgentOutput, AgentStatus, ErrorCode, ExistingSessionRoot, IdempotencyKey,
@@ -519,4 +520,101 @@ async fn messages_are_read_in_bounded_cursor_pages() {
         .expect("second page");
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.next, None);
+}
+
+#[tokio::test]
+async fn shared_conformance_runs_against_memory() {
+    super::conformance::assert_store_conformance(&MemoryAgentStore::new()).await;
+}
+
+#[tokio::test]
+async fn shared_conformance_runs_against_sqlite_and_survives_reopen() {
+    let directory = tempfile::tempdir().expect("temporary agent store directory");
+    let path = directory.path().join("agents.db");
+    let store = SqliteAgentStore::connect(&path)
+        .await
+        .expect("connect SQLite agent store");
+    let outcome = super::conformance::assert_store_conformance(&store).await;
+    drop(store);
+
+    let reopened = SqliteAgentStore::connect(&path)
+        .await
+        .expect("reopen SQLite agent store");
+    let session = reopened
+        .session(&outcome.session_id)
+        .await
+        .expect("persisted session");
+    assert_eq!(
+        session.snapshot.status,
+        crate::agent_runtime::SessionStatus::Archived
+    );
+    assert_eq!(
+        reopened
+            .create_session(
+                session_spec(),
+                Some(&idempotency_key("conformance-session")),
+            )
+            .await
+            .expect("idempotency survives reopen"),
+        outcome.session_id
+    );
+    let run = reopened.run(&outcome.run_id).await.expect("persisted run");
+    assert_eq!(
+        run.snapshot.status,
+        crate::agent_runtime::RunStatus::Completed
+    );
+    assert!(run.result.is_some());
+    assert_eq!(
+        reopened
+            .events_after(
+                &outcome.run_id,
+                None,
+                NonZeroU64::new(20).expect("event limit"),
+            )
+            .await
+            .expect("persisted events")
+            .len(),
+        6
+    );
+    assert!(!reopened
+        .messages(
+            &outcome.session_id,
+            MessagePage {
+                after: None,
+                limit: NonZeroU32::new(1),
+            },
+        )
+        .await
+        .expect("persisted messages")
+        .items
+        .is_empty());
+}
+
+#[tokio::test]
+async fn sqlite_serializes_concurrent_idempotency_and_run_claims() {
+    let directory = tempfile::tempdir().expect("temporary agent store directory");
+    let store = std::sync::Arc::new(
+        SqliteAgentStore::connect(directory.path().join("concurrent.db"))
+            .await
+            .expect("connect SQLite agent store"),
+    );
+    let key = idempotency_key("concurrent-session");
+    let (left, right) = tokio::join!(
+        store.create_session(session_spec(), Some(&key)),
+        store.create_session(session_spec(), Some(&key))
+    );
+    let session_id = left.expect("left idempotent create");
+    assert_eq!(right.expect("right idempotent create"), session_id);
+
+    let (left, right) = tokio::join!(
+        store.create_run(run_spec(std::slice::from_ref(&session_id), None)),
+        store.create_run(run_spec(std::slice::from_ref(&session_id), None))
+    );
+    let results = [left, right];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    let error = results
+        .into_iter()
+        .find_map(Result::err)
+        .expect("one competing claim must fail");
+    assert_eq!(error.code(), ErrorCode::Conflict);
 }

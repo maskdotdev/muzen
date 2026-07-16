@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent_runtime::{
@@ -12,9 +12,10 @@ use crate::agent_runtime::{
 };
 
 pub(crate) mod memory;
+pub(crate) mod sqlite;
 mod support;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredSession {
     pub(crate) spec: SessionSpec,
     pub(crate) snapshot: SessionSnapshot,
@@ -22,7 +23,7 @@ pub(crate) struct StoredSession {
     pub(crate) lifetime_usage: Usage,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredRun {
     pub(crate) spec: RunSpec,
     pub(crate) snapshot: RunSnapshot,
@@ -90,6 +91,9 @@ fn receipt(sequence: u64) -> Result<CommandReceipt, MuzenError> {
         .ok_or_else(|| MuzenError::internal("event sequence must start at one"))?;
     Ok(CommandReceipt { sequence })
 }
+
+#[cfg(test)]
+mod conformance;
 
 #[cfg(test)]
 mod tests;
