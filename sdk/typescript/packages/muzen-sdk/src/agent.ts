@@ -466,3 +466,12 @@ export {
   type HttpOptions,
   type LocalRunnerOptions,
 } from "./agent-transports.js";
+
+export {
+  Agent,
+  AgentConversation,
+  AgentResult,
+  discoverLocalRunnerBinary,
+  type AgentOptions,
+  type AgentRunOptions,
+} from "./agent-facade.js";
