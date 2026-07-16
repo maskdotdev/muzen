@@ -5,13 +5,19 @@ use super::support::{
     is_terminal, new_message_id, new_run_id, new_session_id, public_agent_status,
     public_run_status, root_input, terminal_agent_event_type, terminal_event_type, timestamp,
 };
-use super::{body_digest, receipt, AgentStore, FinishRun, RunActivity, StoredRun, StoredSession};
-use crate::agent_runtime::validation::{validate_run_spec, validate_session_spec};
+use super::{
+    body_digest, receipt, AgentAdvance, AgentStore, FinishRun, PendingSend, RunActivity, StoredRun,
+    StoredSession,
+};
+use crate::agent_runtime::validation::{
+    decoded_input_bytes, validate_run_spec, validate_send_command, validate_session_spec,
+    validate_spawn_command,
+};
 use crate::agent_runtime::{
-    AgentEvent, AgentMessage, AgentSnapshot, AgentStatus, CommandReceipt, IdempotencyKey,
-    MessagePage, MessageRole, MuzenError, Page, RunId, RunResult, RunRoot, RunSnapshot, RunSpec,
-    RunStatus, SessionId, SessionSnapshot, SessionSpec, SessionStatus, TerminalAgentStatus,
-    TerminalRunStatus, Usage,
+    AgentEvent, AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, CommandReceipt,
+    IdempotencyKey, MessageDelivery, MessagePage, MessageRole, MuzenError, Page, RunId, RunResult,
+    RunRoot, RunSnapshot, RunSpec, RunStatus, SendCommand, SessionId, SessionSnapshot, SessionSpec,
+    SessionStatus, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -21,6 +27,8 @@ use serde_json::Value;
 enum IdempotencyScope {
     CreateSession,
     CreateRun,
+    RunSend,
+    RunSpawn,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +42,7 @@ struct RunRecord {
     stored: StoredRun,
     events: Vec<AgentEvent>,
     cancel_receipt: Option<CommandReceipt>,
+    sends: Vec<(PendingSend, bool)>,
 }
 
 #[derive(Debug, Clone)]
@@ -324,9 +333,16 @@ impl AgentStore for MemoryAgentStore {
                     spec: spec.clone(),
                     snapshot,
                     result: None,
+                    outputs: Vec::new(),
+                    accepted_input_bytes: spec.roots.iter().try_fold(0_u64, |total, root| {
+                        total
+                            .checked_add(decoded_input_bytes(root_input(root))?)
+                            .ok_or_else(|| MuzenError::internal("run input byte count overflow"))
+                    })?,
                 },
                 events,
                 cancel_receipt: None,
+                sends: Vec::new(),
             },
         );
         remember_idempotency(
@@ -406,6 +422,300 @@ impl AgentStore for MemoryAgentStore {
         last.ok_or_else(|| MuzenError::internal("a run must contain at least one agent"))
     }
 
+    async fn set_agent_status(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        status: AgentStatus,
+    ) -> Result<Option<CommandReceipt>, MuzenError> {
+        let now = timestamp()?;
+        let mut state = self.state.lock();
+        let record = run_mut(&mut state, id)?;
+        ensure_nonterminal_run(record, id)?;
+        ensure_event_capacity(record, 2)?;
+        let index = agent_index(record, id, session_id)?;
+        if is_terminal_agent(record.stored.snapshot.agents[index].status) {
+            return Err(MuzenError::conflict(format!(
+                "agent session {session_id} is terminal"
+            )));
+        }
+        if record.stored.snapshot.agents[index].status == status {
+            return Ok(None);
+        }
+        record.stored.snapshot.agents[index].status = status;
+        let event_type = match status {
+            AgentStatus::Running => Some("agent.started"),
+            AgentStatus::Waiting => Some("agent.waiting"),
+            _ => None,
+        };
+        let mut last = event_type
+            .map(|event_type| {
+                append_event(
+                    record,
+                    now.clone(),
+                    event_type,
+                    Some(session_id.clone()),
+                    BTreeMap::new(),
+                )
+            })
+            .transpose()?;
+        let run_status = aggregate_live_status(record);
+        if run_status != record.stored.snapshot.status {
+            record.stored.snapshot.status = run_status;
+            if run_status == RunStatus::Waiting {
+                last = Some(append_event(
+                    record,
+                    now,
+                    "run.waiting",
+                    None,
+                    BTreeMap::new(),
+                )?);
+            }
+        }
+        Ok(last)
+    }
+
+    async fn accept_send(
+        &self,
+        id: &RunId,
+        command: SendCommand,
+    ) -> Result<CommandReceipt, MuzenError> {
+        validate_send_command(&command)?;
+        let digest = body_digest(&(id, &command))?;
+        let mut state = self.state.lock();
+        if let Some(sequence) = replay_id(
+            &state,
+            IdempotencyScope::RunSend,
+            command.idempotency_key.as_ref(),
+            digest,
+        )? {
+            return receipt(
+                sequence
+                    .parse()
+                    .map_err(|_| MuzenError::internal("invalid send replay sequence"))?,
+            );
+        }
+        validate_input_budget(&state, id, &command.input)?;
+        let input_bytes = decoded_input_bytes(&command.input)?;
+        let now = timestamp()?;
+        let record = run_mut(&mut state, id)?;
+        ensure_nonterminal_run(record, id)?;
+        let index = agent_index(record, id, &command.session_id)?;
+        let status = record.stored.snapshot.agents[index].status;
+        if is_terminal_agent(status) {
+            return Err(MuzenError::conflict(format!(
+                "agent session {} is terminal",
+                command.session_id
+            )));
+        }
+        if command.delivery == MessageDelivery::Steer
+            && !matches!(status, AgentStatus::Queued | AgentStatus::Running)
+        {
+            return Err(MuzenError::conflict(
+                "steer is accepted only while the agent is executing",
+            ));
+        }
+        let mut payload = BTreeMap::new();
+        payload.insert(
+            "delivery".to_owned(),
+            serde_json::to_value(command.delivery).expect("delivery serializes"),
+        );
+        let accepted = append_event(
+            record,
+            now,
+            "message.accepted",
+            Some(command.session_id.clone()),
+            payload,
+        )?;
+        record.stored.accepted_input_bytes = record
+            .stored
+            .accepted_input_bytes
+            .checked_add(input_bytes)
+            .ok_or_else(|| MuzenError::internal("run input byte count overflow"))?;
+        record.sends.push((
+            PendingSend {
+                sequence: accepted.sequence.get(),
+                session_id: command.session_id.clone(),
+                input: command.input,
+                delivery: command.delivery,
+            },
+            false,
+        ));
+        remember_idempotency(
+            &mut state,
+            IdempotencyScope::RunSend,
+            command.idempotency_key.as_ref(),
+            digest,
+            &accepted.sequence.get().to_string(),
+        );
+        Ok(accepted)
+    }
+
+    async fn pending_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<Option<PendingSend>, MuzenError> {
+        let state = self.state.lock();
+        let record = state
+            .runs
+            .get(id)
+            .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))?;
+        ensure_tracked(record, id, session_id)?;
+        Ok(next_pending(&record.sends, session_id).cloned())
+    }
+
+    async fn deliver_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        delivery: MessageDelivery,
+    ) -> Result<bool, MuzenError> {
+        let now = timestamp()?;
+        let mut state = self.state.lock();
+        let input = {
+            let record = run_mut(&mut state, id)?;
+            ensure_nonterminal_run(record, id)?;
+            let Some((send, delivered)) = record.sends.iter_mut().find(|(send, delivered)| {
+                !*delivered && &send.session_id == session_id && send.delivery == delivery
+            }) else {
+                return Ok(false);
+            };
+            *delivered = true;
+            send.input.clone()
+        };
+        let session = state
+            .sessions
+            .get_mut(session_id)
+            .ok_or_else(|| MuzenError::internal("tracked session disappeared"))?;
+        session.stored.snapshot.updated_at = now.clone();
+        session.messages.push(user_message(session_id, input, now));
+        Ok(true)
+    }
+
+    async fn spawn_agent(
+        &self,
+        id: &RunId,
+        command: SpawnCommand,
+    ) -> Result<SessionId, MuzenError> {
+        validate_spawn_command(&command)?;
+        let digest = body_digest(&(id, &command))?;
+        let mut state = self.state.lock();
+        if let Some(child) = replay_id(
+            &state,
+            IdempotencyScope::RunSpawn,
+            command.idempotency_key.as_ref(),
+            digest,
+        )? {
+            return SessionId::new(child).map_err(MuzenError::internal);
+        }
+        validate_input_budget(&state, id, &command.input)?;
+        let (parent_spec, child_path) = validate_spawn(&state, id, &command)?;
+        let input_bytes = decoded_input_bytes(&command.input)?;
+        let child_id = new_session_id()?;
+        let now = timestamp()?;
+        let child_spec = SessionSpec {
+            agent: command.agent,
+            models: parent_spec.models,
+            tool_providers: parent_spec.tool_providers,
+            workspace: parent_spec.workspace,
+            session_budget: parent_spec.session_budget,
+            metadata: BTreeMap::new(),
+        };
+        validate_session_spec(&child_spec)?;
+        state.sessions.insert(
+            child_id.clone(),
+            SessionRecord {
+                stored: StoredSession {
+                    spec: child_spec.clone(),
+                    snapshot: SessionSnapshot {
+                        id: child_id.clone(),
+                        status: SessionStatus::Open,
+                        active_run_id: Some(id.clone()),
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                        metadata: child_spec.metadata.clone(),
+                    },
+                    run_count: 1,
+                    lifetime_usage: Usage::default(),
+                },
+                messages: vec![user_message(&child_id, command.input, now.clone())],
+            },
+        );
+        let record = run_mut(&mut state, id)?;
+        ensure_event_capacity(record, 1)?;
+        record.stored.accepted_input_bytes = record
+            .stored
+            .accepted_input_bytes
+            .checked_add(input_bytes)
+            .ok_or_else(|| MuzenError::internal("run input byte count overflow"))?;
+        record.stored.snapshot.agents.push(AgentSnapshot {
+            session_id: child_id.clone(),
+            parent_session_id: Some(command.parent_session_id),
+            path: child_path,
+            status: AgentStatus::Queued,
+            model: child_spec.agent.model.clone(),
+            usage: Usage::default(),
+        });
+        record
+            .stored
+            .snapshot
+            .agents
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        append_event(
+            record,
+            now,
+            "agent.created",
+            Some(child_id.clone()),
+            BTreeMap::new(),
+        )?;
+        remember_idempotency(
+            &mut state,
+            IdempotencyScope::RunSpawn,
+            command.idempotency_key.as_ref(),
+            digest,
+            child_id.as_str(),
+        );
+        Ok(child_id)
+    }
+
+    async fn advance_agent(
+        &self,
+        id: &RunId,
+        output: AgentOutput,
+        allow_pending: bool,
+    ) -> Result<AgentAdvance, MuzenError> {
+        let now = timestamp()?;
+        let mut state = self.state.lock();
+        let record = run_mut(&mut state, id)?;
+        ensure_nonterminal_run(record, id)?;
+        ensure_event_capacity(record, 1)?;
+        let index = agent_index(record, id, &output.session_id)?;
+        if allow_pending {
+            if let Some(pending) = next_pending(&record.sends, &output.session_id) {
+                return Ok(AgentAdvance::Pending(pending.delivery));
+            }
+        }
+        if is_terminal_agent(record.stored.snapshot.agents[index].status) {
+            return Ok(AgentAdvance::Finished);
+        }
+        record.stored.snapshot.agents[index].status = public_agent_status(output.status);
+        record.stored.snapshot.agents[index].usage = output.usage.clone();
+        record.stored.outputs.push(output.clone());
+        record
+            .stored
+            .outputs
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        append_event(
+            record,
+            now,
+            terminal_agent_event_type(output.status),
+            Some(output.session_id),
+            BTreeMap::new(),
+        )?;
+        Ok(AgentAdvance::Finished)
+    }
+
     async fn append_activity(
         &self,
         id: &RunId,
@@ -483,6 +793,15 @@ impl AgentStore for MemoryAgentStore {
             let record = run_mut(&mut state, id)?;
             let status = public_run_status(finish.status);
             record.stored.snapshot.status = status;
+            let newly_terminal = record
+                .stored
+                .snapshot
+                .agents
+                .iter()
+                .zip(&finish.outputs)
+                .filter(|(agent, _)| !is_terminal_agent(agent.status))
+                .map(|(_, output)| output.clone())
+                .collect::<Vec<_>>();
             for (agent, output) in record
                 .stored
                 .snapshot
@@ -493,7 +812,7 @@ impl AgentStore for MemoryAgentStore {
                 agent.status = public_agent_status(output.status);
                 agent.usage = output.usage.clone();
             }
-            for output in &finish.outputs {
+            for output in &newly_terminal {
                 append_event(
                     record,
                     now.clone(),
@@ -695,6 +1014,227 @@ fn ensure_tracked(
     }
 }
 
+fn ensure_nonterminal_run(record: &RunRecord, id: &RunId) -> Result<(), MuzenError> {
+    if is_terminal(record.stored.snapshot.status) {
+        Err(MuzenError::conflict(format!(
+            "run {id} is already terminal"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_terminal_agent(status: AgentStatus) -> bool {
+    matches!(
+        status,
+        AgentStatus::Completed
+            | AgentStatus::Failed
+            | AgentStatus::Cancelled
+            | AgentStatus::BudgetExhausted
+    )
+}
+
+fn agent_index(
+    record: &RunRecord,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<usize, MuzenError> {
+    record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .position(|agent| &agent.session_id == session_id)
+        .ok_or_else(|| {
+            MuzenError::not_found(format!(
+                "agent session {session_id} is not tracked by run {id}"
+            ))
+        })
+}
+
+fn next_pending<'a>(
+    sends: &'a [(PendingSend, bool)],
+    session_id: &SessionId,
+) -> Option<&'a PendingSend> {
+    sends
+        .iter()
+        .filter(|(send, delivered)| !*delivered && &send.session_id == session_id)
+        .map(|(send, _)| send)
+        .min_by_key(|send| {
+            (
+                if send.delivery == MessageDelivery::Steer {
+                    0
+                } else {
+                    1
+                },
+                send.sequence,
+            )
+        })
+}
+
+fn aggregate_live_status(record: &RunRecord) -> RunStatus {
+    if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| matches!(agent.status, AgentStatus::Queued | AgentStatus::Running))
+    {
+        RunStatus::Running
+    } else if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| agent.status == AgentStatus::Waiting)
+    {
+        RunStatus::Waiting
+    } else {
+        RunStatus::Running
+    }
+}
+
+fn user_message(
+    session_id: &SessionId,
+    input: crate::agent_runtime::AgentInput,
+    now: String,
+) -> AgentMessage {
+    AgentMessage {
+        id: new_message_id(),
+        session_id: session_id.clone(),
+        role: MessageRole::User,
+        content: input.content,
+        created_at: now,
+    }
+}
+
+fn validate_input_budget(
+    state: &State,
+    id: &RunId,
+    input: &crate::agent_runtime::AgentInput,
+) -> Result<(), MuzenError> {
+    let record = state
+        .runs
+        .get(id)
+        .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))?;
+    ensure_nonterminal_run(record, id)?;
+    ensure_event_capacity(record, 1)?;
+    let bytes = record
+        .stored
+        .accepted_input_bytes
+        .checked_add(decoded_input_bytes(input)?)
+        .ok_or_else(|| MuzenError::internal("run input byte count overflow"))?;
+    if bytes > record.stored.spec.limits.max_input_bytes.get() {
+        return Err(MuzenError::resource_exhausted(
+            "run maxInputBytes exhausted",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_spawn(
+    state: &State,
+    id: &RunId,
+    command: &SpawnCommand,
+) -> Result<(SessionSpec, Vec<u32>), MuzenError> {
+    let record = state
+        .runs
+        .get(id)
+        .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))?;
+    ensure_nonterminal_run(record, id)?;
+    if record.stored.snapshot.agents.len() >= record.stored.spec.limits.max_agents.get() as usize {
+        return Err(MuzenError::resource_exhausted("run maxAgents exhausted"));
+    }
+    let parent_index = agent_index(record, id, &command.parent_session_id)?;
+    let parent = &record.stored.snapshot.agents[parent_index];
+    if is_terminal_agent(parent.status) {
+        return Err(MuzenError::conflict(format!(
+            "agent session {} is terminal",
+            command.parent_session_id
+        )));
+    }
+    let child_depth = parent.path.len() as u32;
+    if child_depth > record.stored.spec.limits.max_depth {
+        return Err(MuzenError::resource_exhausted("run maxDepth exhausted"));
+    }
+    let parent_session = state
+        .sessions
+        .get(&command.parent_session_id)
+        .ok_or_else(|| MuzenError::internal("parent session disappeared"))?;
+    if !parent_session
+        .stored
+        .spec
+        .models
+        .iter()
+        .any(|model| model.id == command.agent.model)
+    {
+        return Err(MuzenError::permission_denied(
+            "child model is outside parent authority",
+        ));
+    }
+    validate_child_budget(&parent_session.stored.spec.agent, &command.agent)?;
+    for grant in &command.agent.tools {
+        let Some(parent_grant) = parent_session
+            .stored
+            .spec
+            .agent
+            .tools
+            .iter()
+            .find(|candidate| candidate.provider == grant.provider && candidate.tool == grant.tool)
+        else {
+            return Err(MuzenError::permission_denied(
+                "child tool grant is outside parent authority",
+            ));
+        };
+        if grant
+            .effects
+            .iter()
+            .any(|effect| !parent_grant.effects.contains(effect))
+            || matches!((grant.max_calls, parent_grant.max_calls), (Some(child), Some(parent)) if child > parent)
+            || matches!((grant.max_calls, parent_grant.max_calls), (None, Some(_)))
+        {
+            return Err(MuzenError::permission_denied(
+                "child tool grant exceeds parent authority",
+            ));
+        }
+    }
+    let next_index = record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .filter(|agent| agent.parent_session_id.as_ref() == Some(&command.parent_session_id))
+        .count() as u32;
+    let mut path = parent.path.clone();
+    path.push(next_index);
+    Ok((parent_session.stored.spec.clone(), path))
+}
+
+fn validate_child_budget(
+    parent: &crate::agent_runtime::AgentDefinition,
+    child: &crate::agent_runtime::AgentDefinition,
+) -> Result<(), MuzenError> {
+    let Some(parent_budget) = &parent.budget else {
+        return Ok(());
+    };
+    let Some(child_budget) = &child.budget else {
+        return Err(MuzenError::permission_denied(
+            "child budget exceeds parent authority",
+        ));
+    };
+    if child_budget.max_turns > parent_budget.max_turns
+        || child_budget.max_tool_calls > parent_budget.max_tool_calls
+        || child_budget.max_prompt_tokens > parent_budget.max_prompt_tokens
+        || child_budget.max_output_tokens > parent_budget.max_output_tokens
+    {
+        Err(MuzenError::permission_denied(
+            "child budget exceeds parent authority",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn validate_finish(
     state: &State,
     id: &RunId,
@@ -761,7 +1301,13 @@ fn validate_finish(
         updates.insert(output.session_id.clone(), usage);
     }
     Ok((
-        record.stored.snapshot.roots.clone(),
+        record
+            .stored
+            .snapshot
+            .agents
+            .iter()
+            .map(|agent| agent.session_id.clone())
+            .collect(),
         updates.into_iter().collect(),
     ))
 }

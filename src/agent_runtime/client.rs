@@ -5,7 +5,10 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use futures::{stream, Stream, StreamExt};
 
-use super::validation::{validate_run_spec, validate_secret_input, validate_session_spec};
+use super::validation::{
+    validate_run_spec, validate_secret_input, validate_send_command, validate_session_spec,
+    validate_spawn_command,
+};
 use super::{
     AgentEvent, AgentInput, AgentMessage, ArtifactChunk, ArtifactId, ArtifactRef, CancelOptions,
     Capabilities, CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage,
@@ -214,10 +217,12 @@ impl Run {
     }
 
     pub async fn send(&self, command: SendCommand) -> Result<CommandReceipt, MuzenError> {
+        validate_send_command(&command)?;
         self.transport.send(&self.id, command).await
     }
 
     pub async fn spawn(&self, command: SpawnCommand) -> Result<AgentSession, MuzenError> {
+        validate_spawn_command(&command)?;
         let id = self.transport.spawn(&self.id, command).await?;
         Ok(AgentSession::new(id, Arc::clone(&self.transport)))
     }

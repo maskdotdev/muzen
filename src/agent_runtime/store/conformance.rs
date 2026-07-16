@@ -7,8 +7,9 @@ use super::support::{new_message_id, timestamp};
 use super::{ActivityEvent, AgentStore, FinishRun, RunActivity};
 use crate::agent_runtime::{
     AgentInput, AgentMessage, AgentOutput, AgentStatus, ContentBlock, ErrorCode,
-    ExistingSessionRoot, IdempotencyKey, MessagePage, MessageRole, NewSessionRoot, RunId, RunRoot,
-    RunSpec, SessionId, SessionSpec, TerminalAgentStatus, TerminalRunStatus, Usage,
+    ExistingSessionRoot, IdempotencyKey, MessageDelivery, MessagePage, MessageRole, NewSessionRoot,
+    RunId, RunRoot, RunSpec, RunStatus, SendCommand, SessionId, SessionSpec, SpawnCommand,
+    TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 pub(super) struct ConformanceOutcome {
@@ -324,6 +325,87 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
             .code(),
         ErrorCode::ResourceExhausted
     );
+
+    let mut command_spec = run_spec(std::slice::from_ref(&first), None);
+    command_spec.limits.max_depth = 1;
+    let command_run = store.create_run(command_spec).await.expect("command run");
+    store
+        .mark_run_running(&command_run)
+        .await
+        .expect("start command run");
+    let send_key = key("conformance-send");
+    let send = SendCommand {
+        session_id: first.clone(),
+        input: input("follow-up"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: Some(send_key.clone()),
+    };
+    let accepted = store
+        .accept_send(&command_run, send.clone())
+        .await
+        .expect("accept send");
+    assert_eq!(
+        store
+            .accept_send(&command_run, send)
+            .await
+            .expect("replay send"),
+        accepted
+    );
+    assert_eq!(
+        store
+            .pending_send(&command_run, &first)
+            .await
+            .expect("pending send")
+            .expect("send")
+            .delivery,
+        MessageDelivery::FollowUp
+    );
+    store
+        .set_agent_status(&command_run, &first, AgentStatus::Waiting)
+        .await
+        .expect("agent waiting");
+    let waiting = store.run(&command_run).await.expect("waiting snapshot");
+    assert_eq!(waiting.snapshot.status, RunStatus::Waiting);
+    assert_eq!(waiting.snapshot.agents[0].status, AgentStatus::Waiting);
+    assert!(store
+        .deliver_send(&command_run, &first, MessageDelivery::FollowUp)
+        .await
+        .expect("deliver send"));
+    store
+        .set_agent_status(&command_run, &first, AgentStatus::Running)
+        .await
+        .expect("agent resumed");
+
+    let command = SpawnCommand {
+        parent_session_id: first.clone(),
+        agent: session_spec().agent,
+        input: input("child"),
+        idempotency_key: Some(key("conformance-spawn")),
+    };
+    let child = store
+        .spawn_agent(&command_run, command.clone())
+        .await
+        .expect("spawn child");
+    assert_eq!(
+        store
+            .spawn_agent(&command_run, command)
+            .await
+            .expect("replay spawn"),
+        child
+    );
+    let spawned = store.run(&command_run).await.expect("spawn snapshot");
+    assert_eq!(spawned.snapshot.agents[1].path, vec![0, 0]);
+    assert_eq!(
+        spawned.snapshot.agents[1].parent_session_id.as_ref(),
+        Some(&first)
+    );
+    store
+        .finish_run(
+            &command_run,
+            finish_for(store, &command_run, TerminalRunStatus::Completed).await,
+        )
+        .await
+        .expect("finish command run");
 
     store
         .archive_session(&first)

@@ -92,6 +92,23 @@ impl LocalRuntime {
             }),
         })
     }
+
+    async fn ensure_scheduled(&self, id: &RunId) -> Result<(), MuzenError> {
+        let stored = self.inner.store.run(id).await?;
+        let should_schedule = stored.result.is_none() && {
+            self.inner.notify(id, stored.snapshot.last_sequence);
+            self.inner.scheduled.lock().insert(id.clone())
+        };
+        if should_schedule {
+            let inner = Arc::clone(&self.inner);
+            let task_id = id.clone();
+            let handle = tokio::spawn(async move {
+                engine::execute(inner, task_id).await;
+            });
+            self.inner.tasks.lock().insert(id.clone(), handle);
+        }
+        Ok(())
+    }
 }
 
 impl Inner {
@@ -215,20 +232,8 @@ impl RuntimeTransport for LocalRuntime {
             return Err(MuzenError::conflict("local runtime is closed"));
         }
         let id = self.inner.store.create_run(spec).await?;
-        let stored = self.inner.store.run(&id).await?;
-        let should_schedule = stored.result.is_none() && {
-            self.inner.notify(&id, stored.snapshot.last_sequence);
-            self.inner.scheduled.lock().insert(id.clone())
-        };
-        if should_schedule {
-            let inner = Arc::clone(&self.inner);
-            let task_id = id.clone();
-            let handle = tokio::spawn(async move {
-                engine::execute(inner, task_id).await;
-            });
-            self.inner.tasks.lock().insert(id.clone(), handle);
-            self.inner.cleanup_terminal(&id).await;
-        }
+        self.ensure_scheduled(&id).await?;
+        self.inner.cleanup_terminal(&id).await;
         Ok(id)
     }
 
@@ -309,16 +314,24 @@ impl RuntimeTransport for LocalRuntime {
         }))
     }
 
-    async fn send(&self, _id: &RunId, _command: SendCommand) -> Result<CommandReceipt, MuzenError> {
-        Err(MuzenError::unsupported(
-            "local in-process runtime does not support run messages yet",
-        ))
+    async fn send(&self, id: &RunId, command: SendCommand) -> Result<CommandReceipt, MuzenError> {
+        if !self.inner.accepting.load(Ordering::Acquire) {
+            return Err(MuzenError::conflict("local runtime is closed"));
+        }
+        let receipt = self.inner.store.accept_send(id, command).await?;
+        self.inner.notify_snapshot(id).await;
+        self.ensure_scheduled(id).await?;
+        Ok(receipt)
     }
 
-    async fn spawn(&self, _id: &RunId, _command: SpawnCommand) -> Result<SessionId, MuzenError> {
-        Err(MuzenError::unsupported(
-            "local in-process runtime does not support agent spawning yet",
-        ))
+    async fn spawn(&self, id: &RunId, command: SpawnCommand) -> Result<SessionId, MuzenError> {
+        if !self.inner.accepting.load(Ordering::Acquire) {
+            return Err(MuzenError::conflict("local runtime is closed"));
+        }
+        let child = self.inner.store.spawn_agent(id, command).await?;
+        self.inner.notify_snapshot(id).await;
+        self.ensure_scheduled(id).await?;
+        Ok(child)
     }
 
     async fn cancel(

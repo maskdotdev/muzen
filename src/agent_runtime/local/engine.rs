@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -10,10 +10,11 @@ use tokio::time::Instant;
 
 use super::{Inner, ModelProviderError, ModelRequest, ModelTurn};
 use crate::agent_runtime::store::support::{new_message_id, timestamp};
-use crate::agent_runtime::store::{ActivityEvent, FinishRun, RunActivity};
+use crate::agent_runtime::store::{ActivityEvent, AgentAdvance, FinishRun, RunActivity};
 use crate::agent_runtime::{
-    AgentMessage, AgentOutput, AgentSnapshot, ContentBlock, ExecutionError, ExecutionErrorCode,
-    MessagePage, MessageRole, MuzenError, RunId, TerminalAgentStatus, TerminalRunStatus, Usage,
+    AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, ContentBlock, ExecutionError,
+    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, RunId,
+    TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 pub(super) async fn execute(inner: Arc<Inner>, run_id: RunId) {
@@ -29,76 +30,98 @@ pub(super) async fn execute(inner: Arc<Inner>, run_id: RunId) {
 }
 
 async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenError> {
-    let stored = inner.store.run(&run_id).await?;
-    if stored.result.is_some() {
+    let initial = inner.store.run(&run_id).await?;
+    if initial.result.is_some() {
         return Ok(());
     }
-    let deadline = stored
+    let deadline = initial
         .spec
         .limits
         .deadline_ms
         .map(|duration| Instant::now() + std::time::Duration::from_millis(duration.get()));
-    inner.store.mark_run_running(&run_id).await?;
-    inner.notify_snapshot(&run_id).await;
+    if initial.snapshot.status == crate::agent_runtime::RunStatus::Queued {
+        inner.store.mark_run_running(&run_id).await?;
+        inner.notify_snapshot(&run_id).await;
+    }
 
     let semaphore = Arc::new(Semaphore::new(
-        stored.spec.limits.max_active_agents.get() as usize
+        initial.spec.limits.max_active_agents.get() as usize
     ));
     let budget = Arc::new(Mutex::new(BudgetState::default()));
-    let roots = stored.snapshot.roots.clone();
+    let token_limit = initial
+        .spec
+        .limits
+        .max_total_tokens
+        .map(|limit| limit.get());
+    let mut receiver = inner.receiver_or_create(&run_id, initial.snapshot.last_sequence);
+    let mut scheduled = BTreeSet::new();
     let mut agents = FuturesUnordered::new();
-    for agent in stored.snapshot.agents {
-        agents.push(run_agent(
-            Arc::clone(&inner),
-            run_id.clone(),
-            agent,
-            Arc::clone(&semaphore),
-            Arc::clone(&budget),
-            stored.spec.limits.max_total_tokens.map(|limit| limit.get()),
-            deadline,
-        ));
+
+    loop {
+        let stored = inner.store.run(&run_id).await?;
+        if stored.result.is_some() {
+            return Ok(());
+        }
+        for agent in &stored.snapshot.agents {
+            if !terminal_agent(agent.status) && scheduled.insert(agent.session_id.clone()) {
+                let inner = Arc::clone(&inner);
+                let run_id = run_id.clone();
+                let agent = agent.clone();
+                let semaphore = Arc::clone(&semaphore);
+                let budget = Arc::clone(&budget);
+                agents.push(
+                    async move {
+                        let session_id = agent.session_id.clone();
+                        run_agent(
+                            inner,
+                            run_id,
+                            agent,
+                            semaphore,
+                            budget,
+                            token_limit,
+                            deadline,
+                        )
+                        .await;
+                        session_id
+                    }
+                    .boxed(),
+                );
+            }
+        }
+
+        if stored
+            .snapshot
+            .agents
+            .iter()
+            .all(|agent| terminal_agent(agent.status))
+        {
+            match finish(&inner, &run_id).await {
+                Ok(()) => return Ok(()),
+                Err(error) if error.code() == crate::agent_runtime::ErrorCode::Conflict => {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        if agents.is_empty() {
+            receiver
+                .changed()
+                .await
+                .map_err(|_| MuzenError::internal("run notification closed"))?;
+            continue;
+        }
+        tokio::select! {
+            completed = agents.next() => {
+                if let Some(session_id) = completed {
+                    scheduled.remove(&session_id);
+                }
+            }
+            changed = receiver.changed() => {
+                changed.map_err(|_| MuzenError::internal("run notification closed"))?;
+            }
+        }
     }
-    let mut outputs = Vec::new();
-    while let Some(output) = agents.next().await {
-        outputs.push(output);
-    }
-    outputs.sort_by(|left, right| left.path.cmp(&right.path));
-    let usage = sum_usage(&outputs)?;
-    let cancelled = inner.store.cancel_requested(&run_id).await?;
-    let completed_agents = outputs
-        .iter()
-        .filter(|output| output.status == TerminalAgentStatus::Completed)
-        .count();
-    let completed_roots = outputs
-        .iter()
-        .filter(|output| {
-            output.status == TerminalAgentStatus::Completed && roots.contains(&output.session_id)
-        })
-        .count();
-    let status = if completed_agents == outputs.len() {
-        TerminalRunStatus::Completed
-    } else if completed_roots > 0 {
-        TerminalRunStatus::Partial
-    } else if cancelled {
-        TerminalRunStatus::Cancelled
-    } else {
-        TerminalRunStatus::Failed
-    };
-    inner
-        .store
-        .finish_run(
-            &run_id,
-            FinishRun {
-                status,
-                outputs,
-                usage,
-                artifacts: Vec::new(),
-                metadata: stored.spec.metadata,
-            },
-        )
-        .await?;
-    inner.notify_snapshot(&run_id).await;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -115,124 +138,340 @@ async fn run_agent(
     budget: Arc<Mutex<BudgetState>>,
     token_limit: Option<u64>,
     deadline: Option<Instant>,
-) -> AgentOutput {
-    if observe_cancel(&inner, &run_id, deadline).await {
-        return cancelled_output(agent, Usage::default());
-    }
-    if budget.lock().await.exhausted {
-        return budget_output(agent, Usage::default());
-    }
-    let permit = tokio::select! {
-        permit = semaphore.acquire_owned() => match permit {
-            Ok(permit) => permit,
-            Err(_) => return failed_output(agent, "local agent concurrency limiter closed"),
-        },
-        _ = wait_cancel(&inner, &run_id, deadline) => {
-            return cancelled_output(agent, Usage::default());
-        }
-    };
-    if observe_cancel(&inner, &run_id, deadline).await {
-        return cancelled_output(agent, Usage::default());
-    }
-    if budget.lock().await.exhausted {
-        return budget_output(agent, Usage::default());
-    }
-
-    if let Err(error) = append_events(
-        &inner,
-        &run_id,
-        vec![activity("model.started", &agent, BTreeMap::new())],
-        Vec::new(),
-    )
-    .await
-    {
-        return failed_output(agent, error.message());
-    }
-    let request = match model_request(&inner, &agent).await {
-        Ok(request) => request,
-        Err(error) => return failed_output(agent, error.message()),
-    };
-    let response = tokio::select! {
-        response = inner.provider.complete(request) => Some(response),
-        _ = wait_cancel(&inner, &run_id, deadline) => None,
-    };
-    drop(permit);
-    let Some(response) = response else {
-        return cancelled_output(agent, Usage::default());
-    };
-    let turn = match response {
-        Ok(turn) => turn,
-        Err(error) => {
-            let execution_error = provider_execution_error(&error);
-            let mut payload = BTreeMap::new();
-            payload.insert("error".to_owned(), execution_error_value(&execution_error));
-            if let Err(store_error) = append_events(
+) {
+    let mut usage = Usage::default();
+    let mut turns = 0_u32;
+    loop {
+        if observe_cancel(&inner, &run_id, deadline).await {
+            finish_agent(
                 &inner,
                 &run_id,
-                vec![activity("model.failed", &agent, payload)],
-                Vec::new(),
+                cancelled_output(agent.clone(), usage),
+                false,
             )
-            .await
-            {
-                return failed_output(agent, store_error.message());
-            }
-            return AgentOutput {
-                session_id: agent.session_id,
-                path: agent.path,
-                status: TerminalAgentStatus::Failed,
-                output: None,
-                usage: Usage::default(),
-                error: Some(execution_error),
-            };
+            .await;
+            return;
         }
-    };
-    let usage = turn.usage.clone();
-    let exhausted = match record_usage(&budget, &usage, token_limit).await {
-        Ok(exhausted) => exhausted,
-        Err(error) => return failed_output_with_usage(agent, error.message(), usage),
-    };
-    if observe_cancel(&inner, &run_id, deadline).await {
-        return cancelled_output(agent, usage);
-    }
-    let output = output_value(&turn);
-    let message = match assistant_message(&agent, &turn) {
-        Ok(message) => message,
-        Err(error) => return failed_output_with_usage(agent, error.message(), usage),
-    };
-    if let Err(error) = append_events(
-        &inner,
-        &run_id,
-        vec![
-            activity("message.accepted", &agent, BTreeMap::new()),
-            activity("model.completed", &agent, BTreeMap::new()),
-        ],
-        vec![message],
-    )
-    .await
-    {
-        return failed_output_with_usage(agent, error.message(), usage);
-    }
-    if exhausted {
-        return AgentOutput {
-            session_id: agent.session_id,
-            path: agent.path,
-            status: TerminalAgentStatus::BudgetExhausted,
-            output: Some(output),
-            usage,
-            error: Some(execution_error(
-                ExecutionErrorCode::BudgetExhausted,
-                "run token budget exhausted",
-            )),
+        if budget.lock().await.exhausted {
+            finish_agent(&inner, &run_id, budget_output(agent.clone(), usage), false).await;
+            return;
+        }
+        let permit = tokio::select! {
+            permit = Arc::clone(&semaphore).acquire_owned() => match permit {
+                Ok(permit) => permit,
+                Err(_) => {
+                    finish_agent(&inner, &run_id, failed_output(agent.clone(), "local agent concurrency limiter closed", usage), false).await;
+                    return;
+                }
+            },
+            _ = wait_cancel(&inner, &run_id, deadline) => {
+                finish_agent(&inner, &run_id, cancelled_output(agent.clone(), usage), false).await;
+                return;
+            }
         };
+        if let Err(error) = inner
+            .store
+            .set_agent_status(&run_id, &agent.session_id, AgentStatus::Running)
+            .await
+        {
+            finish_agent(
+                &inner,
+                &run_id,
+                failed_output(agent.clone(), error.message(), usage),
+                false,
+            )
+            .await;
+            return;
+        }
+        inner.notify_snapshot(&run_id).await;
+        if let Err(error) = append_events(
+            &inner,
+            &run_id,
+            vec![activity("model.started", &agent, BTreeMap::new())],
+            Vec::new(),
+        )
+        .await
+        {
+            finish_agent(
+                &inner,
+                &run_id,
+                failed_output(agent.clone(), error.message(), usage),
+                false,
+            )
+            .await;
+            return;
+        }
+        let request = match model_request(&inner, &agent).await {
+            Ok(request) => request,
+            Err(error) => {
+                finish_agent(
+                    &inner,
+                    &run_id,
+                    failed_output(agent.clone(), error.message(), usage),
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        let response = tokio::select! {
+            response = inner.provider.complete(request) => Some(response),
+            _ = wait_cancel(&inner, &run_id, deadline) => None,
+        };
+        drop(permit);
+        let Some(response) = response else {
+            finish_agent(
+                &inner,
+                &run_id,
+                cancelled_output(agent.clone(), usage),
+                false,
+            )
+            .await;
+            return;
+        };
+        let turn = match response {
+            Ok(turn) => turn,
+            Err(error) => {
+                let execution_error = provider_execution_error(&error);
+                let mut payload = BTreeMap::new();
+                payload.insert("error".to_owned(), execution_error_value(&execution_error));
+                let _ = append_events(
+                    &inner,
+                    &run_id,
+                    vec![activity("model.failed", &agent, payload)],
+                    Vec::new(),
+                )
+                .await;
+                let output = AgentOutput {
+                    session_id: agent.session_id.clone(),
+                    path: agent.path.clone(),
+                    status: TerminalAgentStatus::Failed,
+                    output: None,
+                    usage,
+                    error: Some(execution_error),
+                };
+                finish_agent(&inner, &run_id, output, false).await;
+                return;
+            }
+        };
+        turns = turns.saturating_add(1);
+        let exhausted = match record_usage(&budget, &turn.usage, token_limit).await {
+            Ok(exhausted) => exhausted,
+            Err(error) => {
+                finish_agent(
+                    &inner,
+                    &run_id,
+                    failed_output(agent.clone(), error.message(), usage),
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        usage = match add_usage(&usage, &turn.usage) {
+            Ok(usage) => usage,
+            Err(error) => {
+                finish_agent(
+                    &inner,
+                    &run_id,
+                    failed_output(agent.clone(), error.message(), usage),
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        let latest_output = Some(output_value(&turn));
+        let message = match assistant_message(&agent, &turn) {
+            Ok(message) => message,
+            Err(error) => {
+                finish_agent(
+                    &inner,
+                    &run_id,
+                    failed_output(agent.clone(), error.message(), usage),
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        if let Err(error) = append_events(
+            &inner,
+            &run_id,
+            vec![
+                activity("message.accepted", &agent, BTreeMap::new()),
+                activity("model.completed", &agent, BTreeMap::new()),
+            ],
+            vec![message],
+        )
+        .await
+        {
+            finish_agent(
+                &inner,
+                &run_id,
+                failed_output(agent.clone(), error.message(), usage),
+                false,
+            )
+            .await;
+            return;
+        }
+        if exhausted {
+            let mut output = budget_output(agent.clone(), usage);
+            output.output = latest_output;
+            finish_agent(&inner, &run_id, output, false).await;
+            return;
+        }
+        let turn_limit_reached = inner
+            .store
+            .session(&agent.session_id)
+            .await
+            .ok()
+            .and_then(|session| {
+                session
+                    .spec
+                    .agent
+                    .budget
+                    .map(|budget| budget.max_turns.get())
+            })
+            .is_some_and(|limit| turns >= limit);
+        let output = AgentOutput {
+            session_id: agent.session_id.clone(),
+            path: agent.path.clone(),
+            status: TerminalAgentStatus::Completed,
+            output: latest_output.clone(),
+            usage: usage.clone(),
+            error: None,
+        };
+        match inner.store.advance_agent(&run_id, output, true).await {
+            Ok(AgentAdvance::Finished) => {
+                inner.notify_snapshot(&run_id).await;
+                return;
+            }
+            Ok(AgentAdvance::Pending(delivery)) => {
+                if turn_limit_reached {
+                    let mut output = budget_output(agent.clone(), usage);
+                    output.output = latest_output;
+                    finish_agent(&inner, &run_id, output, false).await;
+                    return;
+                }
+                if delivery == MessageDelivery::FollowUp {
+                    if inner
+                        .store
+                        .set_agent_status(&run_id, &agent.session_id, AgentStatus::Waiting)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    inner.notify_snapshot(&run_id).await;
+                    tokio::task::yield_now().await;
+                    let permit = tokio::select! {
+                        permit = Arc::clone(&semaphore).acquire_owned() => match permit { Ok(permit) => permit, Err(_) => return },
+                        _ = wait_cancel(&inner, &run_id, deadline) => {
+                            finish_agent(&inner, &run_id, cancelled_output(agent.clone(), usage), false).await;
+                            return;
+                        }
+                    };
+                    drop(permit);
+                    if inner
+                        .store
+                        .set_agent_status(&run_id, &agent.session_id, AgentStatus::Running)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                match inner
+                    .store
+                    .deliver_send(&run_id, &agent.session_id, delivery)
+                    .await
+                {
+                    Ok(true) => inner.notify_snapshot(&run_id).await,
+                    Ok(false) => {}
+                    Err(_) => return,
+                }
+                if delivery == MessageDelivery::Steer {
+                    loop {
+                        match inner.store.pending_send(&run_id, &agent.session_id).await {
+                            Ok(Some(pending)) if pending.delivery == MessageDelivery::Steer => {
+                                match inner
+                                    .store
+                                    .deliver_send(
+                                        &run_id,
+                                        &agent.session_id,
+                                        MessageDelivery::Steer,
+                                    )
+                                    .await
+                                {
+                                    Ok(true) => {}
+                                    _ => return,
+                                }
+                            }
+                            Ok(_) => break,
+                            Err(_) => return,
+                        }
+                    }
+                }
+            }
+            Err(_) => return,
+        }
     }
-    AgentOutput {
-        session_id: agent.session_id,
-        path: agent.path,
-        status: TerminalAgentStatus::Completed,
-        output: Some(output),
-        usage,
-        error: None,
+}
+
+async fn finish_agent(inner: &Inner, run_id: &RunId, output: AgentOutput, allow_pending: bool) {
+    let _ = inner
+        .store
+        .advance_agent(run_id, output, allow_pending)
+        .await;
+    inner.notify_snapshot(run_id).await;
+}
+
+async fn finish(inner: &Inner, run_id: &RunId) -> Result<(), MuzenError> {
+    let stored = inner.store.run(run_id).await?;
+    let outputs = stored.outputs.clone();
+    if outputs.len() != stored.snapshot.agents.len() {
+        return Err(MuzenError::conflict(
+            "not every tracked agent has a durable output",
+        ));
     }
+    let usage = sum_usage(&outputs)?;
+    let cancelled = inner.store.cancel_requested(run_id).await?;
+    let completed = outputs
+        .iter()
+        .filter(|output| output.status == TerminalAgentStatus::Completed)
+        .count();
+    let completed_roots = outputs
+        .iter()
+        .filter(|output| {
+            output.status == TerminalAgentStatus::Completed
+                && stored.snapshot.roots.contains(&output.session_id)
+        })
+        .count();
+    let status = if completed == outputs.len() {
+        TerminalRunStatus::Completed
+    } else if completed_roots > 0 {
+        TerminalRunStatus::Partial
+    } else if cancelled {
+        TerminalRunStatus::Cancelled
+    } else {
+        TerminalRunStatus::Failed
+    };
+    inner
+        .store
+        .finish_run(
+            run_id,
+            FinishRun {
+                status,
+                outputs,
+                usage,
+                artifacts: Vec::new(),
+                metadata: stored.spec.metadata,
+            },
+        )
+        .await?;
+    inner.notify_snapshot(run_id).await;
+    Ok(())
 }
 
 async fn model_request(inner: &Inner, agent: &AgentSnapshot) -> Result<ModelRequest, MuzenError> {
@@ -317,10 +556,7 @@ async fn wait_cancel(inner: &Inner, run_id: &RunId, deadline: Option<Instant>) {
         }
         match deadline {
             Some(deadline) => {
-                tokio::select! {
-                    _ = receiver.changed() => {}
-                    _ = tokio::time::sleep_until(deadline) => request_deadline(inner, run_id).await,
-                }
+                tokio::select! { _ = receiver.changed() => {}, _ = tokio::time::sleep_until(deadline) => request_deadline(inner, run_id).await }
             }
             None => {
                 if receiver.changed().await.is_err() {
@@ -397,13 +633,9 @@ fn execution_error(code: ExecutionErrorCode, message: impl Into<String>) -> Exec
 }
 
 fn execution_error_value(error: &ExecutionError) -> Value {
-    serde_json::to_value(error).unwrap_or_else(|_| {
-        json!({
-            "code": "model_error",
-            "message": "provider failed",
-            "retryable": false
-        })
-    })
+    serde_json::to_value(error).unwrap_or_else(
+        |_| json!({ "code": "model_error", "message": "provider failed", "retryable": false }),
+    )
 }
 
 fn cancelled_output(agent: AgentSnapshot, usage: Usage) -> AgentOutput {
@@ -434,15 +666,7 @@ fn budget_output(agent: AgentSnapshot, usage: Usage) -> AgentOutput {
     }
 }
 
-fn failed_output(agent: AgentSnapshot, message: impl Into<String>) -> AgentOutput {
-    failed_output_with_usage(agent, message, Usage::default())
-}
-
-fn failed_output_with_usage(
-    agent: AgentSnapshot,
-    message: impl Into<String>,
-    usage: Usage,
-) -> AgentOutput {
+fn failed_output(agent: AgentSnapshot, message: impl Into<String>, usage: Usage) -> AgentOutput {
     AgentOutput {
         session_id: agent.session_id,
         path: agent.path,
@@ -451,6 +675,16 @@ fn failed_output_with_usage(
         usage,
         error: Some(execution_error(ExecutionErrorCode::ModelError, message)),
     }
+}
+
+fn terminal_agent(status: AgentStatus) -> bool {
+    matches!(
+        status,
+        AgentStatus::Completed
+            | AgentStatus::Failed
+            | AgentStatus::Cancelled
+            | AgentStatus::BudgetExhausted
+    )
 }
 
 fn sum_usage(outputs: &[AgentOutput]) -> Result<Usage, MuzenError> {
@@ -484,35 +718,18 @@ async fn recover(inner: &Inner, run_id: &RunId, message: &str) {
         return;
     }
     let cancelled = inner.store.cancel_requested(run_id).await.unwrap_or(false);
-    let outputs = stored
+    for agent in stored
         .snapshot
         .agents
         .into_iter()
-        .map(|agent| {
-            if cancelled {
-                cancelled_output(agent, Usage::default())
-            } else {
-                failed_output(agent, message)
-            }
-        })
-        .collect::<Vec<_>>();
-    let status = if cancelled {
-        TerminalRunStatus::Cancelled
-    } else {
-        TerminalRunStatus::Failed
-    };
-    let _ = inner
-        .store
-        .finish_run(
-            run_id,
-            FinishRun {
-                status,
-                outputs,
-                usage: Usage::default(),
-                artifacts: Vec::new(),
-                metadata: stored.spec.metadata,
-            },
-        )
-        .await;
-    inner.notify_snapshot(run_id).await;
+        .filter(|agent| !terminal_agent(agent.status))
+    {
+        let output = if cancelled {
+            cancelled_output(agent, Usage::default())
+        } else {
+            failed_output(agent, message, Usage::default())
+        };
+        let _ = inner.store.advance_agent(run_id, output, false).await;
+    }
+    let _ = finish(inner, run_id).await;
 }

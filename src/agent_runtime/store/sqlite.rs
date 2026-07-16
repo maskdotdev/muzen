@@ -10,13 +10,19 @@ use super::support::{
     is_terminal, new_message_id, new_run_id, new_session_id, public_agent_status,
     public_run_status, root_input, terminal_agent_event_type, terminal_event_type, timestamp,
 };
-use super::{body_digest, receipt, AgentStore, FinishRun, RunActivity, StoredRun, StoredSession};
-use crate::agent_runtime::validation::{validate_run_spec, validate_session_spec};
+use super::{
+    body_digest, receipt, AgentAdvance, AgentStore, FinishRun, PendingSend, RunActivity, StoredRun,
+    StoredSession,
+};
+use crate::agent_runtime::validation::{
+    decoded_input_bytes, validate_run_spec, validate_send_command, validate_session_spec,
+    validate_spawn_command,
+};
 use crate::agent_runtime::{
-    AgentEvent, AgentMessage, AgentSnapshot, AgentStatus, CommandReceipt, IdempotencyKey,
-    MessagePage, MessageRole, MuzenError, Page, RunId, RunResult, RunRoot, RunSnapshot, RunSpec,
-    RunStatus, SessionId, SessionSnapshot, SessionSpec, SessionStatus, TerminalAgentStatus,
-    TerminalRunStatus, Usage,
+    AgentEvent, AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, CommandReceipt,
+    IdempotencyKey, MessageDelivery, MessagePage, MessageRole, MuzenError, Page, RunId, RunResult,
+    RunRoot, RunSnapshot, RunSpec, RunStatus, SendCommand, SessionId, SessionSnapshot, SessionSpec,
+    SessionStatus, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 mod persistence;
@@ -238,6 +244,57 @@ impl AgentStore for SqliteAgentStore {
         transition_running(self, id).await
     }
 
+    async fn set_agent_status(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        status: AgentStatus,
+    ) -> Result<Option<CommandReceipt>, MuzenError> {
+        set_agent_status(self, id, session_id, status).await
+    }
+
+    async fn accept_send(
+        &self,
+        id: &RunId,
+        command: SendCommand,
+    ) -> Result<CommandReceipt, MuzenError> {
+        accept_send(self, id, command).await
+    }
+
+    async fn pending_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<Option<PendingSend>, MuzenError> {
+        pending_send(self, id, session_id).await
+    }
+
+    async fn deliver_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        delivery: MessageDelivery,
+    ) -> Result<bool, MuzenError> {
+        deliver_send(self, id, session_id, delivery).await
+    }
+
+    async fn spawn_agent(
+        &self,
+        id: &RunId,
+        command: SpawnCommand,
+    ) -> Result<SessionId, MuzenError> {
+        spawn_agent(self, id, command).await
+    }
+
+    async fn advance_agent(
+        &self,
+        id: &RunId,
+        output: AgentOutput,
+        allow_pending: bool,
+    ) -> Result<AgentAdvance, MuzenError> {
+        advance_agent(self, id, output, allow_pending).await
+    }
+
     async fn append_activity(
         &self,
         id: &RunId,
@@ -411,6 +468,12 @@ async fn create_run(store: &SqliteAgentStore, spec: RunSpec) -> Result<RunId, Mu
             updated_at: now,
         },
         result: None,
+        outputs: Vec::new(),
+        accepted_input_bytes: spec.roots.iter().try_fold(0_u64, |total, root| {
+            total
+                .checked_add(decoded_input_bytes(root_input(root))?)
+                .ok_or_else(|| MuzenError::internal("run input byte count overflow"))
+        })?,
     };
 
     for pending in &pending {
@@ -495,7 +558,372 @@ async fn transition_running(
         insert_event(&transaction, event).await?;
     }
     transaction.commit().await.map_err(sql_error)?;
-    receipt(events.last().expect("run has agents").sequence)
+    receipt(events.last().expect("run started event").sequence)
+}
+
+async fn set_agent_status(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    session_id: &SessionId,
+    status: AgentStatus,
+) -> Result<Option<CommandReceipt>, MuzenError> {
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    let mut record = run_required(&transaction, id).await?;
+    ensure_live_run(&record, id)?;
+    let index = agent_position(&record, id, session_id)?;
+    if terminal_agent(record.stored.snapshot.agents[index].status) {
+        return Err(MuzenError::conflict(format!(
+            "agent session {session_id} is terminal"
+        )));
+    }
+    if record.stored.snapshot.agents[index].status == status {
+        transaction.commit().await.map_err(sql_error)?;
+        return Ok(None);
+    }
+    record.stored.snapshot.agents[index].status = status;
+    let now = timestamp()?;
+    let mut events = Vec::new();
+    if let Some(event_type) = match status {
+        AgentStatus::Running => Some("agent.started"),
+        AgentStatus::Waiting => Some("agent.waiting"),
+        _ => None,
+    } {
+        events.push(next_event(
+            &mut record.stored,
+            event_type,
+            now.clone(),
+            Some(session_id.clone()),
+        )?);
+    }
+    let run_status = aggregate_status(&record);
+    if run_status != record.stored.snapshot.status {
+        record.stored.snapshot.status = run_status;
+        if run_status == RunStatus::Waiting {
+            events.push(next_event(&mut record.stored, "run.waiting", now, None)?);
+        }
+    }
+    update_run(&transaction, &record).await?;
+    for event in &events {
+        insert_event(&transaction, event).await?;
+    }
+    transaction.commit().await.map_err(sql_error)?;
+    events
+        .last()
+        .map(|event| receipt(event.sequence))
+        .transpose()
+}
+
+async fn accept_send(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    command: SendCommand,
+) -> Result<CommandReceipt, MuzenError> {
+    validate_send_command(&command)?;
+    let digest = body_digest(&(id, &command))?;
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    if let Some(sequence) = replay_id(
+        &transaction,
+        "run.send",
+        command.idempotency_key.as_ref(),
+        digest,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(sql_error)?;
+        return receipt(
+            sequence
+                .parse()
+                .map_err(|_| MuzenError::internal("invalid send replay sequence"))?,
+        );
+    }
+    let mut record = run_required(&transaction, id).await?;
+    ensure_live_run(&record, id)?;
+    ensure_input_budget(&record, &command.input)?;
+    let index = agent_position(&record, id, &command.session_id)?;
+    let status = record.stored.snapshot.agents[index].status;
+    if terminal_agent(status) {
+        return Err(MuzenError::conflict(format!(
+            "agent session {} is terminal",
+            command.session_id
+        )));
+    }
+    if command.delivery == MessageDelivery::Steer
+        && !matches!(status, AgentStatus::Queued | AgentStatus::Running)
+    {
+        return Err(MuzenError::conflict(
+            "steer is accepted only while the agent is executing",
+        ));
+    }
+    let now = timestamp()?;
+    let mut event = next_event(
+        &mut record.stored,
+        "message.accepted",
+        now,
+        Some(command.session_id.clone()),
+    )?;
+    event.payload.insert(
+        "delivery".to_owned(),
+        serde_json::to_value(command.delivery).expect("delivery serializes"),
+    );
+    record.stored.accepted_input_bytes += decoded_input_bytes(&command.input)?;
+    let pending = PendingSend {
+        sequence: event.sequence,
+        session_id: command.session_id.clone(),
+        input: command.input,
+        delivery: command.delivery,
+    };
+    update_run(&transaction, &record).await?;
+    insert_event(&transaction, &event).await?;
+    transaction.execute(
+        "INSERT INTO muzen_agent_sends (run_id, sequence, session_id, delivery, record, delivered) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+        params![id.as_str(), i64::try_from(event.sequence).map_err(|_| MuzenError::internal("send sequence overflow"))?, command.session_id.as_str(), delivery_name(command.delivery), to_json(&pending, "pending send")?],
+    ).await.map_err(sql_error)?;
+    remember_id(
+        &transaction,
+        "run.send",
+        command.idempotency_key.as_ref(),
+        digest,
+        &event.sequence.to_string(),
+    )
+    .await?;
+    transaction.commit().await.map_err(sql_error)?;
+    receipt(event.sequence)
+}
+
+async fn pending_send(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<Option<PendingSend>, MuzenError> {
+    let connection = store.connection.lock().await;
+    let record = run_required(&connection, id).await?;
+    ensure_tracked(&record, id, session_id)?;
+    pending_send_on(&connection, id, session_id).await
+}
+
+async fn pending_send_on(
+    connection: &Connection,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<Option<PendingSend>, MuzenError> {
+    let mut rows = connection.query(
+        "SELECT record FROM muzen_agent_sends WHERE run_id = ?1 AND session_id = ?2 AND delivered = 0 ORDER BY CASE delivery WHEN 'steer' THEN 0 ELSE 1 END, sequence LIMIT 1",
+        params![id.as_str(), session_id.as_str()],
+    ).await.map_err(sql_error)?;
+    rows.next()
+        .await
+        .map_err(sql_error)?
+        .map(|row| from_json(row.get::<String>(0).map_err(sql_error)?, "pending send"))
+        .transpose()
+}
+
+async fn deliver_send(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    session_id: &SessionId,
+    delivery: MessageDelivery,
+) -> Result<bool, MuzenError> {
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    let record = run_required(&transaction, id).await?;
+    ensure_live_run(&record, id)?;
+    ensure_tracked(&record, id, session_id)?;
+    let mut rows = transaction.query(
+        "SELECT sequence, record FROM muzen_agent_sends WHERE run_id = ?1 AND session_id = ?2 AND delivery = ?3 AND delivered = 0 ORDER BY sequence LIMIT 1",
+        params![id.as_str(), session_id.as_str(), delivery_name(delivery)],
+    ).await.map_err(sql_error)?;
+    let Some(row) = rows.next().await.map_err(sql_error)? else {
+        transaction.commit().await.map_err(sql_error)?;
+        return Ok(false);
+    };
+    let sequence = row.get::<i64>(0).map_err(sql_error)?;
+    let pending: PendingSend = from_json(row.get::<String>(1).map_err(sql_error)?, "pending send")?;
+    drop(rows);
+    let now = timestamp()?;
+    insert_message(
+        &transaction,
+        &AgentMessage {
+            id: new_message_id(),
+            session_id: session_id.clone(),
+            role: MessageRole::User,
+            content: pending.input.content,
+            created_at: now.clone(),
+        },
+    )
+    .await?;
+    let mut session = session_required(&transaction, session_id).await?;
+    session.snapshot.updated_at = now;
+    update_session(&transaction, &session).await?;
+    transaction
+        .execute(
+            "UPDATE muzen_agent_sends SET delivered = 1 WHERE run_id = ?1 AND sequence = ?2",
+            params![id.as_str(), sequence],
+        )
+        .await
+        .map_err(sql_error)?;
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(true)
+}
+
+async fn spawn_agent(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    command: SpawnCommand,
+) -> Result<SessionId, MuzenError> {
+    validate_spawn_command(&command)?;
+    let digest = body_digest(&(id, &command))?;
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    if let Some(child) = replay_id(
+        &transaction,
+        "run.spawn",
+        command.idempotency_key.as_ref(),
+        digest,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(sql_error)?;
+        return SessionId::new(child).map_err(MuzenError::internal);
+    }
+    let mut record = run_required(&transaction, id).await?;
+    ensure_live_run(&record, id)?;
+    ensure_input_budget(&record, &command.input)?;
+    if record.stored.snapshot.agents.len() >= record.stored.spec.limits.max_agents.get() as usize {
+        return Err(MuzenError::resource_exhausted("run maxAgents exhausted"));
+    }
+    let parent_index = agent_position(&record, id, &command.parent_session_id)?;
+    let parent = &record.stored.snapshot.agents[parent_index];
+    if terminal_agent(parent.status) {
+        return Err(MuzenError::conflict(format!(
+            "agent session {} is terminal",
+            command.parent_session_id
+        )));
+    }
+    if parent.path.len() as u32 > record.stored.spec.limits.max_depth {
+        return Err(MuzenError::resource_exhausted("run maxDepth exhausted"));
+    }
+    let parent_session = session_required(&transaction, &command.parent_session_id).await?;
+    validate_child_authority(&parent_session.spec, &command.agent)?;
+    let direct_children = record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .filter(|agent| agent.parent_session_id.as_ref() == Some(&command.parent_session_id))
+        .count() as u32;
+    let mut path = parent.path.clone();
+    path.push(direct_children);
+    let child_id = new_session_id()?;
+    let now = timestamp()?;
+    let input_bytes = decoded_input_bytes(&command.input)?;
+    let child_spec = SessionSpec {
+        agent: command.agent,
+        models: parent_session.spec.models,
+        tool_providers: parent_session.spec.tool_providers,
+        workspace: parent_session.spec.workspace,
+        session_budget: parent_session.spec.session_budget,
+        metadata: BTreeMap::new(),
+    };
+    validate_session_spec(&child_spec)?;
+    let stored_session = StoredSession {
+        spec: child_spec.clone(),
+        snapshot: SessionSnapshot {
+            id: child_id.clone(),
+            status: SessionStatus::Open,
+            active_run_id: Some(id.clone()),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            metadata: child_spec.metadata.clone(),
+        },
+        run_count: 1,
+        lifetime_usage: Usage::default(),
+    };
+    insert_session(&transaction, &stored_session).await?;
+    insert_message(
+        &transaction,
+        &AgentMessage {
+            id: new_message_id(),
+            session_id: child_id.clone(),
+            role: MessageRole::User,
+            content: command.input.content,
+            created_at: now.clone(),
+        },
+    )
+    .await?;
+    record.stored.accepted_input_bytes += input_bytes;
+    record.stored.snapshot.agents.push(AgentSnapshot {
+        session_id: child_id.clone(),
+        parent_session_id: Some(command.parent_session_id),
+        path,
+        status: AgentStatus::Queued,
+        model: child_spec.agent.model.clone(),
+        usage: Usage::default(),
+    });
+    record
+        .stored
+        .snapshot
+        .agents
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    let event = next_event(
+        &mut record.stored,
+        "agent.created",
+        now,
+        Some(child_id.clone()),
+    )?;
+    update_run(&transaction, &record).await?;
+    insert_event(&transaction, &event).await?;
+    remember_id(
+        &transaction,
+        "run.spawn",
+        command.idempotency_key.as_ref(),
+        digest,
+        child_id.as_str(),
+    )
+    .await?;
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(child_id)
+}
+
+async fn advance_agent(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    output: AgentOutput,
+    allow_pending: bool,
+) -> Result<AgentAdvance, MuzenError> {
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    let mut record = run_required(&transaction, id).await?;
+    ensure_live_run(&record, id)?;
+    let index = agent_position(&record, id, &output.session_id)?;
+    if allow_pending {
+        if let Some(pending) = pending_send_on(&transaction, id, &output.session_id).await? {
+            transaction.commit().await.map_err(sql_error)?;
+            return Ok(AgentAdvance::Pending(pending.delivery));
+        }
+    }
+    if terminal_agent(record.stored.snapshot.agents[index].status) {
+        transaction.commit().await.map_err(sql_error)?;
+        return Ok(AgentAdvance::Finished);
+    }
+    record.stored.snapshot.agents[index].status = public_agent_status(output.status);
+    record.stored.snapshot.agents[index].usage = output.usage.clone();
+    record.stored.outputs.push(output.clone());
+    record
+        .stored
+        .outputs
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    let event = next_event(
+        &mut record.stored,
+        terminal_agent_event_type(output.status),
+        timestamp()?,
+        Some(output.session_id),
+    )?;
+    update_run(&transaction, &record).await?;
+    insert_event(&transaction, &event).await?;
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(AgentAdvance::Finished)
 }
 
 async fn append_activity(
@@ -581,6 +1009,141 @@ fn ensure_tracked(
             "agent session {session_id} is not tracked by run {id}"
         )))
     }
+}
+
+fn ensure_live_run(record: &PersistedRun, id: &RunId) -> Result<(), MuzenError> {
+    if is_terminal(record.stored.snapshot.status) {
+        Err(MuzenError::conflict(format!(
+            "run {id} is already terminal"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn terminal_agent(status: AgentStatus) -> bool {
+    matches!(
+        status,
+        AgentStatus::Completed
+            | AgentStatus::Failed
+            | AgentStatus::Cancelled
+            | AgentStatus::BudgetExhausted
+    )
+}
+
+fn agent_position(
+    record: &PersistedRun,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<usize, MuzenError> {
+    record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .position(|agent| &agent.session_id == session_id)
+        .ok_or_else(|| {
+            MuzenError::not_found(format!(
+                "agent session {session_id} is not tracked by run {id}"
+            ))
+        })
+}
+
+fn aggregate_status(record: &PersistedRun) -> RunStatus {
+    if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| matches!(agent.status, AgentStatus::Queued | AgentStatus::Running))
+    {
+        RunStatus::Running
+    } else if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| agent.status == AgentStatus::Waiting)
+    {
+        RunStatus::Waiting
+    } else {
+        RunStatus::Running
+    }
+}
+
+fn ensure_input_budget(
+    record: &PersistedRun,
+    input: &crate::agent_runtime::AgentInput,
+) -> Result<(), MuzenError> {
+    let total = record
+        .stored
+        .accepted_input_bytes
+        .checked_add(decoded_input_bytes(input)?)
+        .ok_or_else(|| MuzenError::internal("run input byte count overflow"))?;
+    if total > record.stored.spec.limits.max_input_bytes.get() {
+        Err(MuzenError::resource_exhausted(
+            "run maxInputBytes exhausted",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn delivery_name(delivery: MessageDelivery) -> &'static str {
+    match delivery {
+        MessageDelivery::Steer => "steer",
+        MessageDelivery::FollowUp => "follow_up",
+    }
+}
+
+fn validate_child_authority(
+    parent: &SessionSpec,
+    child: &crate::agent_runtime::AgentDefinition,
+) -> Result<(), MuzenError> {
+    if !parent.models.iter().any(|model| model.id == child.model) {
+        return Err(MuzenError::permission_denied(
+            "child model is outside parent authority",
+        ));
+    }
+    if let Some(parent_budget) = &parent.agent.budget {
+        let Some(child_budget) = &child.budget else {
+            return Err(MuzenError::permission_denied(
+                "child budget exceeds parent authority",
+            ));
+        };
+        if child_budget.max_turns > parent_budget.max_turns
+            || child_budget.max_tool_calls > parent_budget.max_tool_calls
+            || child_budget.max_prompt_tokens > parent_budget.max_prompt_tokens
+            || child_budget.max_output_tokens > parent_budget.max_output_tokens
+        {
+            return Err(MuzenError::permission_denied(
+                "child budget exceeds parent authority",
+            ));
+        }
+    }
+    for grant in &child.tools {
+        let Some(parent_grant) =
+            parent.agent.tools.iter().find(|candidate| {
+                candidate.provider == grant.provider && candidate.tool == grant.tool
+            })
+        else {
+            return Err(MuzenError::permission_denied(
+                "child tool grant is outside parent authority",
+            ));
+        };
+        if grant
+            .effects
+            .iter()
+            .any(|effect| !parent_grant.effects.contains(effect))
+            || matches!((grant.max_calls, parent_grant.max_calls), (Some(child), Some(parent)) if child > parent)
+            || matches!((grant.max_calls, parent_grant.max_calls), (None, Some(_)))
+        {
+            return Err(MuzenError::permission_denied(
+                "child tool grant exceeds parent authority",
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn request_cancel(
@@ -669,6 +1232,15 @@ async fn finish_run(
 
     let now = timestamp()?;
     let mut events = Vec::new();
+    let newly_terminal = record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .zip(&finish.outputs)
+        .filter(|(agent, _)| !terminal_agent(agent.status))
+        .map(|(_, output)| output.clone())
+        .collect::<Vec<_>>();
     for (agent, output) in record
         .stored
         .snapshot
@@ -679,7 +1251,7 @@ async fn finish_run(
         agent.status = public_agent_status(output.status);
         agent.usage = output.usage.clone();
     }
-    for output in &finish.outputs {
+    for output in &newly_terminal {
         events.push(next_event(
             &mut record.stored,
             terminal_agent_event_type(output.status),
@@ -703,8 +1275,10 @@ async fn finish_run(
         metadata: finish.metadata,
     };
     record.stored.result = Some(result.clone());
-    for root in &record.stored.snapshot.roots {
-        let session = sessions.get_mut(root).expect("root session was loaded");
+    for agent in &record.stored.snapshot.agents {
+        let session = sessions
+            .get_mut(&agent.session_id)
+            .expect("agent session was loaded");
         session.snapshot.active_run_id = None;
         session.snapshot.updated_at = now.clone();
     }

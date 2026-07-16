@@ -327,8 +327,19 @@ CREATE TABLE IF NOT EXISTS muzen_agent_idempotency (
     resource_id TEXT NOT NULL,
     PRIMARY KEY (scope, key)
 );
+CREATE TABLE IF NOT EXISTS muzen_agent_sends (
+    run_id TEXT NOT NULL REFERENCES muzen_agent_runs(id),
+    sequence INTEGER NOT NULL,
+    session_id TEXT NOT NULL REFERENCES muzen_agent_sessions(id),
+    delivery TEXT NOT NULL,
+    record TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, sequence)
+);
 CREATE INDEX IF NOT EXISTS muzen_agent_messages_cursor
     ON muzen_agent_messages (session_id, ordinal);
 CREATE INDEX IF NOT EXISTS muzen_agent_events_cursor
     ON muzen_agent_events (run_id, sequence);
+CREATE INDEX IF NOT EXISTS muzen_agent_sends_pending
+    ON muzen_agent_sends (run_id, session_id, delivered, sequence);
 "#;

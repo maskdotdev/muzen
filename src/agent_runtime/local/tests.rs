@@ -16,9 +16,10 @@ use super::{
 };
 use crate::agent_runtime::client::RuntimeTransport;
 use crate::agent_runtime::{
-    AgentEvent, AgentInput, CancelOptions, ContentBlock, CreateOptions, EventOptions,
-    ExistingSessionRoot, MessagePage, MessageRole, Muzen, Run, RunLimits, RunRoot, RunSpec,
-    SessionId, SessionSpec, SingleRunOptions, TerminalAgentStatus, TerminalRunStatus, Usage,
+    AgentEvent, AgentInput, AgentStatus, CancelOptions, ContentBlock, CreateOptions, ErrorCode,
+    EventOptions, ExistingSessionRoot, IdempotencyKey, MessageDelivery, MessagePage, MessageRole,
+    ModelProfileId, Muzen, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId, SessionSpec,
+    SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 enum Script {
@@ -34,6 +35,7 @@ enum Script {
 
 struct ScriptedProvider {
     scripts: Mutex<VecDeque<Script>>,
+    requests: Mutex<Vec<ModelRequest>>,
     active: AtomicUsize,
     max_active: AtomicUsize,
 }
@@ -42,6 +44,7 @@ impl ScriptedProvider {
     fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
         Arc::new(Self {
             scripts: Mutex::new(scripts.into_iter().collect()),
+            requests: Mutex::new(Vec::new()),
             active: AtomicUsize::new(0),
             max_active: AtomicUsize::new(0),
         })
@@ -49,6 +52,10 @@ impl ScriptedProvider {
 
     fn max_active(&self) -> usize {
         self.max_active.load(Ordering::Acquire)
+    }
+
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.requests.lock().clone()
     }
 }
 
@@ -62,7 +69,8 @@ impl Drop for ActiveCall<'_> {
 
 #[async_trait]
 impl ModelProvider for ScriptedProvider {
-    async fn complete(&self, _request: ModelRequest) -> Result<ModelTurn, ModelProviderError> {
+    async fn complete(&self, request: ModelRequest) -> Result<ModelTurn, ModelProviderError> {
+        self.requests.lock().push(request);
         let script = self
             .scripts
             .lock()
@@ -474,6 +482,367 @@ async fn parked_subscriber_drains_tail_after_terminal_state_cleanup() {
     assert!(runtime.inner.notifications.lock().is_empty());
     assert!(runtime.inner.scheduled.lock().is_empty());
     assert!(runtime.inner.tasks.lock().is_empty());
+}
+
+#[tokio::test]
+async fn follow_up_extends_run_and_accumulates_usage() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(40), "first"),
+        turn("second", 4, 2),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let run = start_roots(&muzen, &ids, limits()).await;
+    wait_for_event(&run, "model.started").await;
+    run.send(SendCommand {
+        session_id: ids[0].clone(),
+        input: input("continue"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: None,
+    })
+    .await
+    .expect("accept follow-up");
+    let result = run.wait().await.expect("extended result");
+    assert_eq!(result.usage.input_tokens, 6);
+    assert_eq!(result.usage.output_tokens, 3);
+    assert_eq!(provider.requests().len(), 2);
+    let second = &provider.requests()[1].transcript;
+    assert_eq!(second.len(), 3);
+    assert_eq!(second[0].role, MessageRole::User);
+    assert_eq!(second[1].role, MessageRole::Assistant);
+    assert_eq!(second[2].role, MessageRole::User);
+    assert_eq!(second[2].content, input("continue").content);
+    let events = all_events(&run).await;
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "agent.waiting"));
+    assert!(events.iter().any(|event| event.event_type == "run.waiting"));
+    assert!(events
+        .iter()
+        .enumerate()
+        .all(|(index, event)| event.sequence == index as u64 + 1));
+}
+
+#[tokio::test]
+async fn steer_mid_model_call_is_delivered_after_assistant_before_next_request() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(40), "first"),
+        turn("steered", 1, 1),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let run = start_roots(&muzen, &ids, limits()).await;
+    wait_for_event(&run, "model.started").await;
+    run.send(SendCommand {
+        session_id: ids[0].clone(),
+        input: input("steer now"),
+        delivery: MessageDelivery::Steer,
+        idempotency_key: None,
+    })
+    .await
+    .expect("accept steer");
+    run.wait().await.expect("steered result");
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].transcript.len(), 3);
+    assert_eq!(requests[1].transcript[1].role, MessageRole::Assistant);
+    assert_eq!(
+        requests[1].transcript[2].content,
+        input("steer now").content
+    );
+}
+
+#[tokio::test]
+async fn send_errors_and_idempotency_follow_command_contract() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(40), "first"),
+        turn("second", 1, 1),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 2).await;
+    let run = start_roots(&muzen, &ids[..1], limits()).await;
+    wait_for_event(&run, "model.started").await;
+    let key = IdempotencyKey::new("send-key").expect("key");
+    let command = SendCommand {
+        session_id: ids[0].clone(),
+        input: input("again"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: Some(key.clone()),
+    };
+    let receipt = run.send(command.clone()).await.expect("first send");
+    assert_eq!(run.send(command).await.expect("replay send"), receipt);
+    let mut changed = SendCommand {
+        session_id: ids[0].clone(),
+        input: input("different"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: Some(key),
+    };
+    assert_eq!(
+        run.send(changed.clone())
+            .await
+            .expect_err("changed replay")
+            .code(),
+        ErrorCode::Conflict
+    );
+    changed.idempotency_key = None;
+    changed.session_id = ids[1].clone();
+    assert_eq!(
+        run.send(changed)
+            .await
+            .expect_err("untracked target")
+            .code(),
+        ErrorCode::NotFound
+    );
+    run.wait().await.expect("result");
+    assert_eq!(
+        run.send(SendCommand {
+            session_id: ids[0].clone(),
+            input: input("late"),
+            delivery: MessageDelivery::FollowUp,
+            idempotency_key: None
+        })
+        .await
+        .expect_err("terminal send")
+        .code(),
+        ErrorCode::Conflict
+    );
+}
+
+#[tokio::test]
+async fn spawn_creates_ordered_child_and_run_waits_for_it() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(40), "parent"),
+        turn("child", 2, 1),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let mut run_limits = limits();
+    run_limits.max_active_agents = NonZeroU32::new(1).expect("limit");
+    run_limits.max_depth = 1;
+    let run = start_roots(&muzen, &ids, run_limits).await;
+    wait_for_event(&run, "model.started").await;
+    let child = run
+        .spawn(SpawnCommand {
+            parent_session_id: ids[0].clone(),
+            agent: session_spec().agent,
+            input: input("child input"),
+            idempotency_key: Some(IdempotencyKey::new("spawn-key").expect("key")),
+        })
+        .await
+        .expect("spawn child");
+    let replay = run
+        .spawn(SpawnCommand {
+            parent_session_id: ids[0].clone(),
+            agent: session_spec().agent,
+            input: input("child input"),
+            idempotency_key: Some(IdempotencyKey::new("spawn-key").expect("key")),
+        })
+        .await
+        .expect("spawn replay");
+    assert_eq!(child.id(), replay.id());
+    assert_eq!(
+        run.spawn(SpawnCommand {
+            parent_session_id: ids[0].clone(),
+            agent: session_spec().agent,
+            input: input("different child input"),
+            idempotency_key: Some(IdempotencyKey::new("spawn-key").expect("key")),
+        })
+        .await
+        .err()
+        .expect("changed spawn replay")
+        .code(),
+        ErrorCode::Conflict
+    );
+    let snapshot = run.snapshot().await.expect("snapshot");
+    assert_eq!(snapshot.agents.len(), 2);
+    assert_eq!(snapshot.agents[1].parent_session_id.as_ref(), Some(&ids[0]));
+    assert_eq!(snapshot.agents[1].path, vec![0, 0]);
+    let result = run.wait().await.expect("spawned result");
+    assert_eq!(result.outputs.len(), 2);
+    assert_eq!(result.outputs[1].session_id, *child.id());
+    assert_eq!(
+        child
+            .messages(MessagePage::default())
+            .await
+            .expect("child messages")
+            .items[0]
+            .content,
+        input("child input").content
+    );
+    assert_eq!(
+        child
+            .snapshot()
+            .await
+            .expect("child snapshot")
+            .active_run_id,
+        None
+    );
+}
+
+#[tokio::test]
+async fn spawn_limits_and_authority_fail_without_creating_child() {
+    let provider = ScriptedProvider::new([delayed_turn(Duration::from_millis(80), "parent")]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let mut run_limits = limits();
+    run_limits.max_agents = NonZeroU32::new(1).expect("limit");
+    run_limits.max_active_agents = NonZeroU32::new(1).expect("limit");
+    let run = start_roots(&muzen, &ids, run_limits).await;
+    wait_for_event(&run, "model.started").await;
+    let command = SpawnCommand {
+        parent_session_id: ids[0].clone(),
+        agent: session_spec().agent,
+        input: input("child"),
+        idempotency_key: None,
+    };
+    assert_eq!(
+        run.spawn(command).await.err().expect("max agents").code(),
+        ErrorCode::ResourceExhausted
+    );
+    assert_eq!(run.snapshot().await.expect("snapshot").agents.len(), 1);
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    run.wait().await.expect("cancelled");
+
+    let provider = ScriptedProvider::new([delayed_turn(Duration::from_millis(80), "parent")]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let run = start_roots(&muzen, &ids, limits()).await;
+    wait_for_event(&run, "model.started").await;
+    assert_eq!(
+        run.spawn(SpawnCommand {
+            parent_session_id: ids[0].clone(),
+            agent: session_spec().agent,
+            input: input("child"),
+            idempotency_key: None
+        })
+        .await
+        .err()
+        .expect("max depth")
+        .code(),
+        ErrorCode::ResourceExhausted
+    );
+    assert_eq!(run.snapshot().await.expect("snapshot").agents.len(), 1);
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    run.wait().await.expect("cancelled");
+
+    let provider = ScriptedProvider::new([delayed_turn(Duration::from_millis(80), "parent")]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let mut authority_limits = limits();
+    authority_limits.max_depth = 1;
+    let run = start_roots(&muzen, &ids, authority_limits).await;
+    wait_for_event(&run, "model.started").await;
+    let mut agent = session_spec().agent;
+    agent.model = ModelProfileId::new("outside").expect("model id");
+    assert_eq!(
+        run.spawn(SpawnCommand {
+            parent_session_id: ids[0].clone(),
+            agent,
+            input: input("child"),
+            idempotency_key: None
+        })
+        .await
+        .err()
+        .expect("model authority")
+        .code(),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(run.snapshot().await.expect("snapshot").agents.len(), 1);
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    run.wait().await.expect("cancelled");
+}
+
+#[tokio::test]
+async fn failed_child_makes_completed_root_run_partial() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(40), "parent"),
+        Script::Error {
+            delay: Duration::ZERO,
+            error: ModelProviderError::new("child failed"),
+        },
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 1).await;
+    let mut run_limits = limits();
+    run_limits.max_active_agents = NonZeroU32::new(1).expect("limit");
+    run_limits.max_depth = 1;
+    let run = start_roots(&muzen, &ids, run_limits).await;
+    wait_for_event(&run, "model.started").await;
+    run.spawn(SpawnCommand {
+        parent_session_id: ids[0].clone(),
+        agent: session_spec().agent,
+        input: input("child"),
+        idempotency_key: None,
+    })
+    .await
+    .expect("spawn child");
+    let result = run.wait().await.expect("partial result");
+    assert_eq!(result.status, TerminalRunStatus::Partial);
+    assert_eq!(result.outputs[0].status, TerminalAgentStatus::Completed);
+    assert_eq!(result.outputs[1].status, TerminalAgentStatus::Failed);
+}
+
+#[tokio::test]
+async fn cancellation_interrupts_agent_waiting_on_follow_up() {
+    let provider = ScriptedProvider::new([
+        delayed_turn(Duration::from_millis(30), "first"),
+        delayed_turn(Duration::from_secs(5), "second root"),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 2).await;
+    let mut run_limits = limits();
+    run_limits.max_active_agents = NonZeroU32::new(1).expect("limit");
+    let run = start_roots(&muzen, &ids, run_limits).await;
+    wait_for_event(&run, "model.started").await;
+    run.send(SendCommand {
+        session_id: ids[0].clone(),
+        input: input("follow"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: None,
+    })
+    .await
+    .expect("follow-up");
+    wait_for_event(&run, "agent.waiting").await;
+    assert_eq!(
+        run.snapshot().await.expect("waiting snapshot").agents[0].status,
+        AgentStatus::Waiting
+    );
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    let result = run.wait().await.expect("cancelled result");
+    assert_eq!(result.status, TerminalRunStatus::Cancelled);
+    assert!(result
+        .outputs
+        .iter()
+        .all(|output| output.status == TerminalAgentStatus::Cancelled));
+}
+
+#[tokio::test]
+async fn send_to_terminal_agent_in_live_run_conflicts() {
+    let provider = ScriptedProvider::new([
+        turn("first done", 1, 1),
+        delayed_turn(Duration::from_secs(5), "second late"),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let ids = create_sessions(&muzen, 2).await;
+    let mut run_limits = limits();
+    run_limits.max_active_agents = NonZeroU32::new(1).expect("limit");
+    let run = start_roots(&muzen, &ids, run_limits).await;
+    wait_for_event(&run, "agent.completed").await;
+    assert_eq!(
+        run.send(SendCommand {
+            session_id: ids[0].clone(),
+            input: input("too late"),
+            delivery: MessageDelivery::FollowUp,
+            idempotency_key: None,
+        })
+        .await
+        .expect_err("terminal agent send")
+        .code(),
+        ErrorCode::Conflict
+    );
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    let result = run.wait().await.expect("partial result");
+    assert_eq!(result.status, TerminalRunStatus::Partial);
 }
 
 #[tokio::test]

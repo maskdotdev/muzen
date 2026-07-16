@@ -60,6 +60,10 @@ impl MuzenError {
         Self::new(ErrorCode::Conflict, message)
     }
 
+    pub(crate) fn permission_denied(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::PermissionDenied, message)
+    }
+
     pub(crate) fn resource_exhausted(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::ResourceExhausted, message)
     }

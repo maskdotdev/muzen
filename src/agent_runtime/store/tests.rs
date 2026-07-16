@@ -8,8 +8,8 @@ use super::sqlite::SqliteAgentStore;
 use super::{AgentStore, FinishRun};
 use crate::agent_runtime::{
     AgentInput, AgentOutput, AgentStatus, ErrorCode, ExistingSessionRoot, IdempotencyKey,
-    MessagePage, NewSessionRoot, RunId, RunRoot, RunSpec, SessionSpec, TerminalAgentStatus,
-    TerminalRunStatus, Usage,
+    MessageDelivery, MessagePage, NewSessionRoot, RunId, RunRoot, RunSpec, SendCommand,
+    SessionSpec, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 fn fixture() -> Value {
@@ -100,6 +100,62 @@ async fn session_creation_is_body_sensitive_and_idempotent() {
         .await
         .expect_err("different body must conflict");
     assert_eq!(error.code(), ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn sqlite_reopen_preserves_and_delivers_pending_send() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("pending-send.db");
+    let store = SqliteAgentStore::connect(&path).await.expect("store");
+    let session = store
+        .create_session(session_spec(), None)
+        .await
+        .expect("session");
+    let run = store
+        .create_run(run_spec(std::slice::from_ref(&session), None))
+        .await
+        .expect("run");
+    store.mark_run_running(&run).await.expect("start run");
+    store
+        .accept_send(
+            &run,
+            SendCommand {
+                session_id: session.clone(),
+                input: input("durable follow-up"),
+                delivery: MessageDelivery::FollowUp,
+                idempotency_key: Some(idempotency_key("pending-send")),
+            },
+        )
+        .await
+        .expect("accept send");
+    drop(store);
+
+    let reopened = SqliteAgentStore::connect(&path)
+        .await
+        .expect("reopen store");
+    let pending = reopened
+        .pending_send(&run, &session)
+        .await
+        .expect("pending read")
+        .expect("pending send");
+    assert_eq!(pending.delivery, MessageDelivery::FollowUp);
+    assert!(reopened
+        .deliver_send(&run, &session, MessageDelivery::FollowUp)
+        .await
+        .expect("deliver"));
+    assert!(reopened
+        .pending_send(&run, &session)
+        .await
+        .expect("pending read")
+        .is_none());
+    let messages = reopened
+        .messages(&session, MessagePage::default())
+        .await
+        .expect("messages");
+    assert_eq!(
+        messages.items.last().expect("delivered message").content,
+        input("durable follow-up").content
+    );
 }
 
 #[tokio::test]

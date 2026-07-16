@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent_runtime::{
-    AgentEvent, AgentMessage, AgentOutput, ArtifactRef, CommandReceipt, IdempotencyKey,
-    MessagePage, MuzenError, Page, RunId, RunResult, RunSnapshot, RunSpec, SessionId,
-    SessionSnapshot, SessionSpec, TerminalRunStatus, Usage,
+    AgentEvent, AgentMessage, AgentOutput, AgentStatus, ArtifactRef, CommandReceipt,
+    IdempotencyKey, MessageDelivery, MessagePage, MuzenError, Page, RunId, RunResult, RunSnapshot,
+    RunSpec, SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand, TerminalRunStatus,
+    Usage,
 };
 
 pub(crate) mod memory;
@@ -28,6 +29,24 @@ pub(crate) struct StoredRun {
     pub(crate) spec: RunSpec,
     pub(crate) snapshot: RunSnapshot,
     pub(crate) result: Option<RunResult>,
+    #[serde(default)]
+    pub(crate) outputs: Vec<AgentOutput>,
+    #[serde(default)]
+    pub(crate) accepted_input_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PendingSend {
+    pub(crate) sequence: u64,
+    pub(crate) session_id: SessionId,
+    pub(crate) input: crate::agent_runtime::AgentInput,
+    pub(crate) delivery: MessageDelivery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentAdvance {
+    Pending(MessageDelivery),
+    Finished,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +101,42 @@ pub(crate) trait AgentStore: Send + Sync {
     ) -> Result<Vec<AgentEvent>, MuzenError>;
 
     async fn mark_run_running(&self, id: &RunId) -> Result<CommandReceipt, MuzenError>;
+
+    async fn set_agent_status(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        status: AgentStatus,
+    ) -> Result<Option<CommandReceipt>, MuzenError>;
+
+    async fn accept_send(
+        &self,
+        id: &RunId,
+        command: SendCommand,
+    ) -> Result<CommandReceipt, MuzenError>;
+
+    async fn pending_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<Option<PendingSend>, MuzenError>;
+
+    async fn deliver_send(
+        &self,
+        id: &RunId,
+        session_id: &SessionId,
+        delivery: MessageDelivery,
+    ) -> Result<bool, MuzenError>;
+
+    async fn spawn_agent(&self, id: &RunId, command: SpawnCommand)
+        -> Result<SessionId, MuzenError>;
+
+    async fn advance_agent(
+        &self,
+        id: &RunId,
+        output: AgentOutput,
+        allow_pending: bool,
+    ) -> Result<AgentAdvance, MuzenError>;
 
     async fn append_activity(
         &self,

@@ -6,7 +6,8 @@ use reqwest::Url;
 
 use super::{
     AgentDefinition, AgentInput, ContentBlock, ModelProfile, ModelProtocol, ModelProviderKind,
-    PutSecretInput, RunRoot, RunSpec, SessionSpec, ToolEffect, ToolProvider, WorkspaceBase,
+    PutSecretInput, RunRoot, RunSpec, SendCommand, SessionSpec, SpawnCommand, ToolEffect,
+    ToolProvider, WorkspaceBase,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +181,19 @@ pub(crate) fn validate_secret_input(input: &PutSecretInput) -> Result<(), SpecVa
     decoded_base64_len(&input.value)
         .map(|_| ())
         .map_err(|_| SpecValidationError::at("value", "secret value must be valid padded base64"))
+}
+
+pub(crate) fn validate_send_command(command: &SendCommand) -> Result<(), SpecValidationError> {
+    validate_input(&command.input, "input")
+}
+
+pub(crate) fn validate_spawn_command(command: &SpawnCommand) -> Result<(), SpecValidationError> {
+    validate_agent_definition(&command.agent, "agent")?;
+    validate_input(&command.input, "input")
+}
+
+pub(crate) fn decoded_input_bytes(input: &AgentInput) -> Result<u64, SpecValidationError> {
+    decoded_input_bytes_for(input, "input")
 }
 
 fn validate_agent_definition(
