@@ -36,6 +36,7 @@ from .agent import (
     BuiltinToolProvider,
     ContentBlock,
     ImageBlock,
+    McpToolProvider,
     ModelProfile,
     Muzen,
     MuzenError,
@@ -52,10 +53,12 @@ from .agent import (
     connect_http,
     connect_local_runner,
 )
+from .tools import LoopbackToolServer, Tool, annotation_schema, tool
 
 
 _MODEL_ID = "default"
 _BUILTIN_PROVIDER_ID = "builtin"
+_LOCAL_TOOLS_PROVIDER_ID = "local_tools"
 _DEFAULT_MAX_INPUT_TOKENS = 128_000
 _DEFAULT_MAX_OUTPUT_TOKENS = 4_096
 
@@ -141,10 +144,13 @@ class Agent(AbstractAsyncContextManager):
         deadline_ms: Optional[int] = None,
         budget: Optional[AgentBudget] = None,
     ) -> None:
-        if tools is not None:
-            raise NotImplementedError("tools= is reserved; MCP support is coming")
         if transport not in ("local_runner", "http"):
             raise _invalid("transport", "must be 'local_runner' or 'http'")
+        if tools and transport == "http":
+            raise _invalid(
+                "tools",
+                "require transport='local_runner'; a remote service cannot reach the client's loopback server",
+            )
         if transport == "http" and client is None and not base_url:
             raise _invalid("base_url", "is required for HTTP transport")
 
@@ -156,6 +162,10 @@ class Agent(AbstractAsyncContextManager):
         self._closed = False
         self._temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
         self._api_key: Optional[str] = None
+        self._tools = tuple(tool(item) for item in (tools or ()))
+        if len({item.name for item in self._tools}) != len(self._tools):
+            raise _invalid("tools", "must have unique function names")
+        self._tool_server = LoopbackToolServer(self._tools) if self._tools else None
 
         if spec is not None:
             conflicting = (
@@ -168,6 +178,7 @@ class Agent(AbstractAsyncContextManager):
                 or temperature is not None
                 or max_output_tokens is not None
                 or budget is not None
+                or tools is not None
             )
             if conflicting:
                 raise _invalid("spec", "cannot be combined with facade authoring options")
@@ -210,11 +221,13 @@ class Agent(AbstractAsyncContextManager):
                         effects=("agent_message",),
                     )
                 )
-            providers = (
-                (BuiltinToolProvider(_BUILTIN_PROVIDER_ID),)
-                if can_spawn or can_message
-                else ()
+            grants.extend(
+                ToolGrant(provider=_LOCAL_TOOLS_PROVIDER_ID, tool=item.name, effects=())
+                for item in self._tools
             )
+            providers = []
+            if can_spawn or can_message:
+                providers.append(BuiltinToolProvider(_BUILTIN_PROVIDER_ID))
             contract = None if output is None else OutputContract(_output_schema(output))
             definition = AgentDefinition(
                 name="agent",
@@ -238,7 +251,7 @@ class Agent(AbstractAsyncContextManager):
             self._spec_template = SessionSpec(
                 agent=definition,
                 models=(profile,),
-                tool_providers=providers,
+                tool_providers=tuple(providers),
                 workspace=WorkspaceSpec(PathWorkspaceBase(self._temp_dir.name)),
             )
 
@@ -280,12 +293,15 @@ class Agent(AbstractAsyncContextManager):
             if self._client is not None:
                 await self._client.close()
         finally:
+            if self._tool_server is not None:
+                self._tool_server.close()
             if self._temp_dir is not None:
                 self._temp_dir.cleanup()
 
     async def _connection(self) -> Muzen:
         if self._closed:
             raise MuzenError("unavailable", "Agent is closed", False)
+        self._start_tool_server()
         if self._client is not None:
             return self._client
         async with self._connect_lock:
@@ -299,9 +315,20 @@ class Agent(AbstractAsyncContextManager):
                             self._spec_template.models[0].base_url
                             if self._spec_template.models
                             else None
-                        ),
+                        ) or bool(self._tools),
                     )
         return self._client
+
+    def _start_tool_server(self) -> None:
+        if self._tool_server is None:
+            return
+        self._tool_server.start()
+        provider = McpToolProvider(_LOCAL_TOOLS_PROVIDER_ID, self._tool_server.url)
+        providers = tuple(
+            item for item in self._spec_template.tool_providers
+            if item.id != _LOCAL_TOOLS_PROVIDER_ID
+        ) + (provider,)
+        self._spec_template = replace(self._spec_template, tool_providers=providers)
 
     async def _ready(self) -> Tuple[Muzen, SessionSpec]:
         client = await self._connection()
@@ -455,27 +482,7 @@ def _object_schema(value: Type[Any], active: Set[Type[Any]]) -> Dict[str, Any]:
 
 
 def _annotation_schema(annotation: Any, active: Set[Type[Any]]) -> Dict[str, Any]:
-    primitive = {str: "string", int: "integer", float: "number", bool: "boolean"}
-    if annotation in primitive:
-        return {"type": primitive[annotation]}
-    if isinstance(annotation, type) and (
-        _is_typed_dict(annotation) or is_dataclass(annotation)
-    ):
-        return _object_schema(annotation, active)
-    origin = get_origin(annotation)
-    args = get_args(annotation)
-    if origin in (list, List):
-        if len(args) != 1:
-            raise _invalid("output", "list annotations must have one item type")
-        return {"type": "array", "items": _annotation_schema(args[0], active)}
-    union_origins = [Union]
-    union_type = getattr(types, "UnionType", None)
-    if union_type is not None:
-        union_origins.append(union_type)
-    if origin in tuple(union_origins) and len(args) == 2 and type(None) in args:
-        item = args[0] if args[1] is type(None) else args[1]
-        return {"anyOf": [_annotation_schema(item, active), {"type": "null"}]}
-    raise _invalid("output", "contains unsupported annotation %r" % (annotation,))
+    return annotation_schema(annotation, active, "output")
 
 
 def _is_typed_dict(value: Any) -> bool:

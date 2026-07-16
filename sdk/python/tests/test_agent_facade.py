@@ -4,11 +4,12 @@ import os
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import List, Optional, TypedDict
 
 import pytest
 
-from muzen import Agent
+from muzen import Agent, tool
 from muzen.agent import (
     AgentOutput,
     AgentResult,
@@ -215,9 +216,20 @@ def test_instructions_swarm_grants_defaults_and_lazy_secret():
     asyncio.run(exercise())
 
 
-def test_tools_are_reserved_before_api_key_validation():
-    with pytest.raises(NotImplementedError, match="MCP support is coming"):
-        Agent(instructions="do it", model="gpt-test", tools=[lambda: None])
+def test_http_transport_rejects_function_tools():
+    @tool
+    def lookup(query: str) -> str:
+        return query
+
+    with pytest.raises(MuzenError, match="remote service cannot reach") as caught:
+        Agent(
+            instructions="do it",
+            model="gpt-test",
+            tools=[lookup],
+            transport="http",
+            base_url="https://muzen.example",
+        )
+    assert caught.value.code == "invalid_input"
 
 
 def test_session_reuses_one_session_and_one_shot_does_not():
@@ -279,6 +291,49 @@ class _ModelHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _ToolModelHandler(BaseHTTPRequestHandler):
+    requests = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        request = json.loads(self.rfile.read(length).decode("utf-8"))
+        self.requests.append(request)
+        has_result = any(
+            block.get("type") == "tool_result"
+            for message in request.get("messages", [])
+            for block in message.get("content", [])
+            if isinstance(block, dict)
+        )
+        if has_result:
+            response = {
+                "content": [{"type": "text", "text": "tool completed"}],
+                "usage": {"input_tokens": 2, "output_tokens": 1},
+                "stop_reason": "end_turn",
+            }
+        else:
+            response = {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "search-1",
+                        "name": "search",
+                        "input": {"query": "retry policy", "limit": 3},
+                    }
+                ],
+                "usage": {"input_tokens": 2, "output_tokens": 1},
+                "stop_reason": "tool_use",
+            }
+        body = json.dumps(response).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+
 def test_facade_local_runner_one_shot_continuity_and_close():
     binary = discover_local_runner_binary()
     if binary is None or not os.path.isfile(binary):
@@ -308,6 +363,75 @@ def test_facade_local_runner_one_shot_continuity_and_close():
             assert process.returncode is not None
 
         asyncio.run(exercise())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_facade_local_runner_executes_python_tool_round_trip():
+    binary = discover_local_runner_binary()
+    if binary is None or not os.path.isfile(binary):
+        pytest.skip("muzen-agent-runner is not built")
+    mcp_source = Path(__file__).resolve().parents[3] / "src/agent_runtime/local/mcp.rs"
+    if mcp_source.stat().st_mtime > os.path.getmtime(binary):
+        pytest.skip("built muzen-agent-runner predates MCP HTTP tool support")
+    calls = []
+
+    @tool
+    def search(query: str, limit: int = 5) -> str:
+        """Search the product docs."""
+        calls.append((query, limit))
+        return "retry three times"
+
+    _ToolModelHandler.requests = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ToolModelHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        async def exercise():
+            agent = Agent(
+                instructions="Answer using tools.",
+                model="claude-test",
+                tools=[search],
+                base_url="http://127.0.0.1:%d" % server.server_port,
+                api_key="test",
+            )
+            result = await agent.run("find the retry policy")
+            await agent.close()
+            return result
+
+        result = asyncio.run(exercise())
+        assert result.text == "tool completed"
+        assert calls == [("retry policy", 3)]
+        assert len(_ToolModelHandler.requests) == 2
+        assert _ToolModelHandler.requests[0]["tools"] == [
+            {
+                "name": "search",
+                "description": "Search the product docs.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "additionalProperties": False,
+                    "required": ["query"],
+                },
+            }
+        ]
+        second_blocks = [
+            block
+            for message in _ToolModelHandler.requests[1]["messages"]
+            for block in message["content"]
+            if isinstance(block, dict)
+        ]
+        assert any(
+            block.get("type") == "tool_result"
+            and block.get("tool_use_id") == "search-1"
+            and "retry three times" in json.dumps(block)
+            for block in second_blocks
+        )
     finally:
         server.shutdown()
         server.server_close()

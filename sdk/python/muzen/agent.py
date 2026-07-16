@@ -660,3 +660,4 @@ from .agent_facade import (
     AgentResult,
     discover_local_runner_binary,
 )
+from .tools import Tool, tool
