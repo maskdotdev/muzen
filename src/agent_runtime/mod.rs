@@ -6,6 +6,7 @@
 
 mod client;
 mod errors;
+pub mod http;
 mod ids;
 mod local;
 pub mod runner;
@@ -14,15 +15,16 @@ mod store;
 mod types;
 mod validation;
 
-pub use client::{AgentSession, Artifact, Muzen, Run};
+pub use client::{AgentSession, Artifact, EventStream, Muzen, Run, RuntimeTransport};
 pub use errors::{ErrorCode, MuzenError};
+pub use http::{HttpServiceConfig, HttpTransport, HttpTransportOptions};
 pub use ids::{
     AgentName, ArtifactId, IdempotencyKey, ModelProfileId, RunId, SecretRef, SessionId,
     ToolProviderId,
 };
 pub use local::{
-    CredentialResolver, LocalRuntimeConfig, LocalStoreConfig, ModelProvider, ModelProviderError,
-    ModelRequest, ModelStop, ModelToolCall, ModelTurn, ResolvedSecret,
+    CredentialResolver, LocalRuntime, LocalRuntimeConfig, LocalStoreConfig, ModelProvider,
+    ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn, ResolvedSecret,
 };
 pub use runtime_types::*;
 pub use types::*;

@@ -1,0 +1,499 @@
+use std::collections::{BTreeMap, VecDeque};
+use std::num::{NonZeroU32, NonZeroU64};
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use base64::Engine as _;
+use futures::{StreamExt, TryStreamExt};
+use parking_lot::Mutex;
+use reqwest::StatusCode;
+use serde_json::Value;
+use tokio::net::TcpListener;
+
+use super::{router, HttpServiceConfig, HttpTransportOptions};
+use crate::agent_runtime::{
+    AgentInput, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
+    CommandOptions, CommandReceipt, ContentBlock, CreateOptions, ErrorCode, EventOptions,
+    EventStream, ExistingSessionRoot, IdempotencyKey, LocalRuntime, LocalRuntimeConfig,
+    MessageDelivery, MessagePage, ModelProvider, ModelProviderError, ModelRequest, ModelStop,
+    ModelTurn, Muzen, MuzenError, Page, PutSecretInput, RunId, RunLimits, RunResult, RunRoot,
+    RunSnapshot, RunSpec, RunStatus, RuntimeTransport, SecretRef, SendCommand, SessionId,
+    SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand, Usage,
+};
+
+struct ScriptedProvider {
+    turns: Mutex<VecDeque<(Duration, ModelTurn)>>,
+}
+
+impl ScriptedProvider {
+    fn new(turns: impl IntoIterator<Item = (Duration, &'static str)>) -> Arc<Self> {
+        Arc::new(Self {
+            turns: Mutex::new(
+                turns
+                    .into_iter()
+                    .map(|(delay, text)| {
+                        (
+                            delay,
+                            ModelTurn {
+                                content: vec![ContentBlock::Text {
+                                    text: text.to_owned(),
+                                }],
+                                tool_calls: Vec::new(),
+                                usage: Usage {
+                                    input_tokens: 1,
+                                    output_tokens: 1,
+                                    tool_calls: 0,
+                                },
+                                stop: ModelStop::EndTurn,
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
+        })
+    }
+}
+
+#[async_trait]
+impl ModelProvider for ScriptedProvider {
+    async fn complete(&self, _request: ModelRequest) -> Result<ModelTurn, ModelProviderError> {
+        let (delay, turn) = self.turns.lock().pop_front().expect("scripted turn");
+        tokio::time::sleep(delay).await;
+        Ok(turn)
+    }
+}
+
+fn fixture() -> Value {
+    serde_json::from_str(include_str!("../../../fixtures/agent-interface-v1.json"))
+        .expect("agent fixture")
+}
+
+fn session_spec() -> SessionSpec {
+    serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture")
+}
+
+fn input(text: &str) -> AgentInput {
+    AgentInput {
+        content: vec![ContentBlock::Text {
+            text: text.to_owned(),
+        }],
+    }
+}
+
+fn limits() -> RunLimits {
+    RunLimits {
+        max_active_agents: NonZeroU32::new(4).unwrap(),
+        max_agents: NonZeroU32::new(4).unwrap(),
+        max_depth: 1,
+        max_input_bytes: NonZeroU64::new(1024).unwrap(),
+        max_total_tokens: None,
+        max_total_tool_calls: Some(0),
+        deadline_ms: None,
+    }
+}
+
+async fn start_server(
+    provider: Arc<dyn ModelProvider>,
+    config: HttpServiceConfig,
+) -> (String, Arc<LocalRuntime>, tokio::task::JoinHandle<()>) {
+    let runtime = Arc::new(
+        LocalRuntime::connect(LocalRuntimeConfig::memory(provider))
+            .await
+            .expect("runtime"),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let app = router(runtime.clone(), config);
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+    (format!("http://{address}"), runtime, task)
+}
+
+#[tokio::test]
+async fn lifecycle_idempotency_sse_resume_result_and_messages() {
+    let (base, runtime, server) = start_server(
+        ScriptedProvider::new([(Duration::from_millis(100), "done")]),
+        HttpServiceConfig::default(),
+    )
+    .await;
+    let muzen = Muzen::http(&base, HttpTransportOptions::default()).expect("HTTP client");
+    let options = CreateOptions {
+        idempotency_key: Some(IdempotencyKey::new("session-key").unwrap()),
+    };
+    let first = muzen
+        .create_session(session_spec(), options.clone())
+        .await
+        .expect("create");
+    let replay = muzen
+        .create_session(session_spec(), options)
+        .await
+        .expect("replay");
+    assert_eq!(first.id(), replay.id());
+
+    let run = first
+        .run(
+            input("review"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: Some(IdempotencyKey::new("run-key").unwrap()),
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    assert_eq!(run.result().await.expect("early result"), None);
+    let mut full = run.events(EventOptions::default());
+    let first_event = full.next().await.unwrap().expect("first event");
+    let resumed = run
+        .events(EventOptions {
+            after: Some(first_event.sequence),
+        })
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("resumed events");
+    let remaining = full.try_collect::<Vec<_>>().await.expect("full tail");
+    assert_eq!(resumed, remaining);
+    assert!(resumed
+        .windows(2)
+        .all(|events| events[1].sequence == events[0].sequence + 1));
+    assert!(resumed
+        .last()
+        .is_some_and(|event| event.event_type == "run.completed"));
+    assert!(run.result().await.expect("result").is_some());
+    assert_eq!(
+        first
+            .messages(MessagePage::default())
+            .await
+            .expect("messages")
+            .items
+            .len(),
+        2
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{base}/v1/runs/{}/events?after=0", run.id()))
+        .header("Last-Event-ID", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: MuzenError = response.json().await.unwrap();
+    assert_eq!(error.code(), ErrorCode::InvalidInput);
+    server.abort();
+    runtime.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn live_send_spawn_and_cancel_cross_http() {
+    let (base, runtime, server) = start_server(
+        ScriptedProvider::new([
+            (Duration::from_millis(200), "parent"),
+            (Duration::from_millis(200), "child"),
+            (Duration::from_millis(200), "follow-up"),
+        ]),
+        HttpServiceConfig::default(),
+    )
+    .await;
+    let muzen = Muzen::http(&base, HttpTransportOptions::default()).unwrap();
+    let session = muzen
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .unwrap();
+    let run = session
+        .run(
+            input("start"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .unwrap();
+    let mut events = run.events(EventOptions::default());
+    while events.next().await.unwrap().unwrap().event_type != "model.started" {}
+    run.send(SendCommand {
+        session_id: session.id().clone(),
+        input: input("follow up"),
+        delivery: MessageDelivery::FollowUp,
+        idempotency_key: Some(IdempotencyKey::new("send-http").unwrap()),
+    })
+    .await
+    .expect("send");
+    let child = run
+        .spawn(SpawnCommand {
+            parent_session_id: session.id().clone(),
+            agent: session_spec().agent,
+            input: input("child"),
+            idempotency_key: Some(IdempotencyKey::new("spawn-http").unwrap()),
+        })
+        .await
+        .expect("spawn");
+    assert_ne!(child.id(), session.id());
+    run.cancel(CancelOptions {
+        reason: Some("test".to_owned()),
+        idempotency_key: Some(IdempotencyKey::new("cancel-http").unwrap()),
+    })
+    .await
+    .expect("cancel");
+    assert_eq!(
+        run.wait().await.expect("cancelled").status,
+        crate::agent_runtime::TerminalRunStatus::Cancelled
+    );
+    server.abort();
+    runtime.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn auth_error_shapes_archive_conflict_and_key_disagreement() {
+    let config = HttpServiceConfig {
+        bearer_token: Some("secret-token".to_owned()),
+        ..HttpServiceConfig::default()
+    };
+    let (base, runtime, server) = start_server(ScriptedProvider::new([]), config).await;
+    let client = reqwest::Client::new();
+    for authorization in [None, Some("Bearer wrong")] {
+        let mut request = client.get(format!("{base}/v1/capabilities"));
+        if let Some(authorization) = authorization {
+            request = request.header("Authorization", authorization);
+        }
+        let response = request.send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let error: MuzenError = response.json().await.unwrap();
+        assert_eq!(error.code(), ErrorCode::Unauthenticated);
+        assert!(!error.message().is_empty());
+    }
+    let muzen = Muzen::http(
+        &base,
+        HttpTransportOptions {
+            bearer_token: Some("secret-token".to_owned()),
+        },
+    )
+    .unwrap();
+    let missing = muzen
+        .get_run(&RunId::new("missing").unwrap())
+        .await
+        .err()
+        .expect("missing");
+    assert_eq!(missing.code(), ErrorCode::NotFound);
+    let session = muzen
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .unwrap();
+    session.archive(CommandOptions::default()).await.unwrap();
+    assert_eq!(
+        session
+            .archive(CommandOptions::default())
+            .await
+            .expect_err("double archive")
+            .code(),
+        ErrorCode::Conflict
+    );
+    let body = RunSpec {
+        roots: vec![RunRoot::Existing(ExistingSessionRoot {
+            session_id: session.id().clone(),
+            input: input("x"),
+        })],
+        limits: limits(),
+        idempotency_key: Some(IdempotencyKey::new("body-key").unwrap()),
+        metadata: BTreeMap::new(),
+    };
+    let response = client
+        .post(format!("{base}/v1/runs"))
+        .bearer_auth("secret-token")
+        .header("Idempotency-Key", "header-key")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.json::<MuzenError>().await.unwrap().code(),
+        ErrorCode::InvalidInput
+    );
+    server.abort();
+    runtime.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn unsupported_artifact_is_501_and_keepalives_are_comments() {
+    let (base, runtime, server) = start_server(
+        ScriptedProvider::new([(Duration::from_millis(100), "done")]),
+        HttpServiceConfig {
+            keepalive_interval: Duration::from_millis(5),
+            ..HttpServiceConfig::default()
+        },
+    )
+    .await;
+    let muzen = Muzen::http(&base, HttpTransportOptions::default()).unwrap();
+    let session = muzen
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .unwrap();
+    let run = session
+        .run(
+            input("run"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let mut events = client
+        .get(format!("{base}/v1/runs/{}/events", run.id()))
+        .send()
+        .await
+        .unwrap();
+    let mut wire = Vec::new();
+    while !wire
+        .windows(b": keepalive".len())
+        .any(|part| part == b": keepalive")
+    {
+        wire.extend(events.chunk().await.unwrap().expect("SSE chunk"));
+    }
+    let response = client
+        .get(format!("{base}/v1/runs/{}/artifacts/artifact-1", run.id()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(
+        response.json::<MuzenError>().await.unwrap().code(),
+        ErrorCode::Unsupported
+    );
+    run.cancel(CancelOptions::default()).await.unwrap();
+    run.wait().await.unwrap();
+    server.abort();
+    runtime.close().await.unwrap();
+}
+
+struct ArtifactRuntime {
+    bytes: Vec<u8>,
+}
+
+#[async_trait]
+impl RuntimeTransport for ArtifactRuntime {
+    async fn capabilities(&self) -> Result<Capabilities, MuzenError> {
+        unreachable!()
+    }
+    async fn put_secret(&self, _: PutSecretInput) -> Result<SecretRef, MuzenError> {
+        unreachable!()
+    }
+    async fn delete_secret(&self, _: &SecretRef) -> Result<(), MuzenError> {
+        unreachable!()
+    }
+    async fn create_session(
+        &self,
+        _: SessionSpec,
+        _: CreateOptions,
+    ) -> Result<SessionId, MuzenError> {
+        unreachable!()
+    }
+    async fn session_snapshot(&self, _: &SessionId) -> Result<SessionSnapshot, MuzenError> {
+        unreachable!()
+    }
+    async fn messages(
+        &self,
+        _: &SessionId,
+        _: MessagePage,
+    ) -> Result<Page<AgentMessage>, MuzenError> {
+        unreachable!()
+    }
+    async fn archive_session(&self, _: &SessionId, _: CommandOptions) -> Result<(), MuzenError> {
+        unreachable!()
+    }
+    async fn start_run(&self, _: RunSpec) -> Result<RunId, MuzenError> {
+        unreachable!()
+    }
+    async fn run_snapshot(&self, id: &RunId) -> Result<RunSnapshot, MuzenError> {
+        Ok(RunSnapshot {
+            id: id.clone(),
+            status: RunStatus::Running,
+            roots: Vec::new(),
+            agents: Vec::new(),
+            last_sequence: 0,
+            created_at: "now".to_owned(),
+            updated_at: "now".to_owned(),
+        })
+    }
+    async fn run_result(&self, _: &RunId) -> Result<Option<RunResult>, MuzenError> {
+        unreachable!()
+    }
+    fn events(&self, _: &RunId, _: EventOptions) -> EventStream {
+        unreachable!()
+    }
+    async fn send(&self, _: &RunId, _: SendCommand) -> Result<CommandReceipt, MuzenError> {
+        unreachable!()
+    }
+    async fn spawn(&self, _: &RunId, _: SpawnCommand) -> Result<SessionId, MuzenError> {
+        unreachable!()
+    }
+    async fn cancel(&self, _: &RunId, _: CancelOptions) -> Result<CommandReceipt, MuzenError> {
+        unreachable!()
+    }
+    async fn artifact_chunk(
+        &self,
+        _: &ArtifactId,
+        offset: u64,
+        max_bytes: u32,
+    ) -> Result<ArtifactChunk, MuzenError> {
+        let start = (offset as usize).min(self.bytes.len());
+        let end = start
+            .saturating_add(max_bytes as usize)
+            .min(self.bytes.len());
+        Ok(ArtifactChunk {
+            data: base64::engine::general_purpose::STANDARD.encode(&self.bytes[start..end]),
+            eof: end == self.bytes.len(),
+        })
+    }
+    async fn close(&self) -> Result<(), MuzenError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn artifact_ranges_return_exact_206_and_416_shapes() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = router(
+        Arc::new(ArtifactRuntime {
+            bytes: b"abcdefghij".to_vec(),
+        }),
+        HttpServiceConfig::default(),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+    for (range, expected, content_range) in [
+        ("bytes=2-5", "cdef", "bytes 2-5/10"),
+        ("bytes=7-", "hij", "bytes 7-9/10"),
+        ("bytes=-3", "hij", "bytes 7-9/10"),
+    ] {
+        let response = client
+            .get(format!("http://{address}/v1/runs/run-1/artifacts/a-1"))
+            .header("Range", range)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()["Content-Range"], content_range);
+        assert_eq!(response.text().await.unwrap(), expected);
+    }
+    let response = client
+        .get(format!("http://{address}/v1/runs/run-1/artifacts/a-1"))
+        .header("Range", "bytes=99-")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(
+        response.json::<MuzenError>().await.unwrap().code(),
+        ErrorCode::InvalidInput
+    );
+    server.abort();
+}

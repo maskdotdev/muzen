@@ -97,7 +97,7 @@ impl LocalRuntimeConfig {
     }
 }
 
-pub(crate) struct LocalRuntime {
+pub struct LocalRuntime {
     inner: Arc<Inner>,
 }
 
@@ -113,7 +113,7 @@ struct Inner {
 }
 
 impl LocalRuntime {
-    pub(crate) async fn connect(config: LocalRuntimeConfig) -> Result<Self, MuzenError> {
+    pub async fn connect(config: LocalRuntimeConfig) -> Result<Self, MuzenError> {
         let store: Arc<dyn AgentStore> = match config.store {
             LocalStoreConfig::Memory => Arc::new(MemoryAgentStore::new()),
             LocalStoreConfig::Sqlite(path) => Arc::new(SqliteAgentStore::connect(path).await?),

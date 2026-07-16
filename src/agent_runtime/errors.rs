@@ -68,6 +68,10 @@ impl MuzenError {
         Self::new(ErrorCode::PermissionDenied, message)
     }
 
+    pub(crate) fn unauthenticated(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unauthenticated, message)
+    }
+
     pub(crate) fn resource_exhausted(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::ResourceExhausted, message)
     }
@@ -82,7 +86,7 @@ impl MuzenError {
         error
     }
 
-    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),

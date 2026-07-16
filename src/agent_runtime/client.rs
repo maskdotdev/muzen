@@ -17,10 +17,10 @@ use super::{
     SendCommand, SessionId, SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand,
 };
 
-type EventStream = Pin<Box<dyn Stream<Item = Result<AgentEvent, MuzenError>> + Send>>;
+pub type EventStream = Pin<Box<dyn Stream<Item = Result<AgentEvent, MuzenError>> + Send>>;
 
 #[async_trait]
-pub(crate) trait RuntimeTransport: Send + Sync {
+pub trait RuntimeTransport: Send + Sync {
     async fn capabilities(&self) -> Result<Capabilities, MuzenError>;
     async fn put_secret(&self, input: PutSecretInput) -> Result<SecretRef, MuzenError>;
     async fn delete_secret(&self, secret: &SecretRef) -> Result<(), MuzenError>;
@@ -82,6 +82,16 @@ impl Muzen {
         Self {
             transport: Arc::new(super::runner::RunnerTransport::connect(reader, writer)),
         }
+    }
+
+    /// Connects to an Agent Runtime HTTP/SSE service.
+    pub fn http(
+        base_url: impl AsRef<str>,
+        options: super::HttpTransportOptions,
+    ) -> Result<Self, MuzenError> {
+        Ok(Self {
+            transport: Arc::new(super::HttpTransport::new(base_url, options)?),
+        })
     }
 
     pub async fn capabilities(&self) -> Result<Capabilities, MuzenError> {
