@@ -613,3 +613,40 @@ def _non_negative_integer(value: int, path: str) -> None:
 
 def _invalid(path: str, message: str) -> MuzenError:
     return MuzenError("invalid_input", "%s %s" % (path, message), False, {"path": path})
+
+
+async def connect(options: Optional[Mapping[str, Any]] = None) -> Muzen:
+    """Connect to the local runner by default, or to the configured transport."""
+    from .agent_transports import connect as _connect
+
+    return await _connect(options)
+
+
+async def connect_local_runner(
+    *,
+    store: Literal["memory", "sqlite"] = "memory",
+    sqlite_path: Optional[str] = None,
+    allow_loopback_http: bool = False,
+    binary_path: Optional[str] = None,
+    close_timeout: float = 5.0,
+) -> Muzen:
+    """Spawn and connect to ``muzen-agent-runner`` over stdio JSON-RPC."""
+    from .agent_transports import connect_local_runner as _connect_local_runner
+
+    return await _connect_local_runner(
+        store=store,
+        sqlite_path=sqlite_path,
+        allow_loopback_http=allow_loopback_http,
+        binary_path=binary_path,
+        close_timeout=close_timeout,
+    )
+
+
+async def connect_http(
+    base_url: str,
+    bearer_token: Optional[str] = None,
+) -> Muzen:
+    """Connect to a Muzen agent service over HTTP and SSE."""
+    from .agent_transports import connect_http as _connect_http
+
+    return await _connect_http(base_url, bearer_token=bearer_token)
