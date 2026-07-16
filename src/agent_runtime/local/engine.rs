@@ -9,13 +9,14 @@ use tokio::sync::{Mutex, Notify, Semaphore};
 use tokio::time::Instant;
 
 use super::{Inner, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn};
+use crate::agent_runtime::output_schema::validate_instance;
 use crate::agent_runtime::store::support::{new_message_id, timestamp};
 use crate::agent_runtime::store::{ActivityEvent, AgentAdvance, FinishRun, RunActivity};
 use crate::agent_runtime::{
     AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, ContentBlock, ExecutionError,
-    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, RunId, SendCommand,
-    SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolProvider, ToolProviderId,
-    Usage,
+    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, OutputContract,
+    RunId, SendCommand, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect,
+    ToolProvider, ToolProviderId, Usage,
 };
 
 pub(super) async fn execute(inner: Arc<Inner>, run_id: RunId) {
@@ -250,6 +251,7 @@ async fn run_agent(
                 return;
             }
         };
+        let output_contract = request.agent.output.clone();
         let response = tokio::select! {
             response = inner.provider.complete(request) => Some(response),
             _ = wait_cancel(&inner, &run_id, deadline) => None,
@@ -336,7 +338,6 @@ async fn run_agent(
                 return;
             }
         };
-        let latest_output = Some(output_value(&turn));
         let message = match assistant_message(&agent, &turn) {
             Ok(message) => message,
             Err(error) => {
@@ -370,6 +371,23 @@ async fn run_agent(
             .await;
             return;
         }
+        let latest_output = if turn.stop == ModelStop::EndTurn {
+            match output_value(&turn, output_contract.as_ref()) {
+                Ok(output) => Some(output),
+                Err(message) => {
+                    finish_agent(
+                        &inner,
+                        &run_id,
+                        failed_output(agent.clone(), message, usage),
+                        false,
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         if let Some(exhaustion) = exhaustion {
             let mut output = budget_output(agent.clone(), usage, exhaustion);
             output.output = latest_output;
@@ -1129,7 +1147,35 @@ fn assistant_message(agent: &AgentSnapshot, turn: &ModelTurn) -> Result<AgentMes
     })
 }
 
-fn output_value(turn: &ModelTurn) -> Value {
+fn output_value(turn: &ModelTurn, contract: Option<&OutputContract>) -> Result<Value, String> {
+    let Some(contract) = contract else {
+        return Ok(raw_output_value(turn));
+    };
+    let mut text = String::new();
+    for block in &turn.content {
+        match block {
+            ContentBlock::Text { text: block } => text.push_str(block),
+            _ => {
+                return Err(
+                    "output schema violation at $: final assistant output must contain only text"
+                        .to_owned(),
+                )
+            }
+        }
+    }
+    let value = serde_json::from_str(&text).map_err(|error| {
+        format!("output schema violation at $: assistant output is not valid JSON: {error}")
+    })?;
+    validate_instance(&contract.schema, &value).map_err(|error| {
+        format!(
+            "output schema violation at {}: {}",
+            error.path, error.message
+        )
+    })?;
+    Ok(value)
+}
+
+fn raw_output_value(turn: &ModelTurn) -> Value {
     match turn.content.as_slice() {
         [ContentBlock::Text { text }] => Value::String(text.clone()),
         content => serde_json::to_value(content).unwrap_or(Value::Null),

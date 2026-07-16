@@ -109,10 +109,7 @@ pub(super) fn anthropic_request(request: &ModelRequest) -> Value {
             "max_tokens".to_owned(),
             json!(request.model.max_output_tokens.get()),
         ),
-        (
-            "system".to_owned(),
-            json!(text_blocks(&request.agent.instructions)),
-        ),
+        ("system".to_owned(), json!(anthropic_system(request))),
         ("messages".to_owned(), json!(anthropic_messages(request))),
     ]);
     add_sampling(&mut body, &request.model);
@@ -142,6 +139,19 @@ pub(super) fn chat_request(request: &ModelRequest) -> Value {
     if !tools.is_empty() {
         body.insert("tools".to_owned(), Value::Array(tools));
     }
+    if let Some(output) = &request.agent.output {
+        body.insert(
+            "response_format".to_owned(),
+            json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": output.name.as_deref().unwrap_or("output"),
+                    "schema": output.schema,
+                    "strict": true
+                }
+            }),
+        );
+    }
     Value::Object(body)
 }
 
@@ -164,7 +174,32 @@ pub(super) fn responses_request(request: &ModelRequest) -> Value {
     if !tools.is_empty() {
         body.insert("tools".to_owned(), Value::Array(tools));
     }
+    if let Some(output) = &request.agent.output {
+        body.insert(
+            "text".to_owned(),
+            json!({
+                "format": {
+                    "type": "json_schema",
+                    "name": output.name.as_deref().unwrap_or("output"),
+                    "schema": output.schema,
+                    "strict": true
+                }
+            }),
+        );
+    }
     Value::Object(body)
+}
+
+fn anthropic_system(request: &ModelRequest) -> String {
+    let instructions = text_blocks(&request.agent.instructions);
+    let Some(output) = &request.agent.output else {
+        return instructions;
+    };
+    let name = output.name.as_deref().unwrap_or("output");
+    format!(
+        "{instructions}\n\nOn the final non-tool-use turn, return only JSON matching the output schema named `{name}`. Do not wrap the JSON in Markdown.\nOutput schema:\n{}",
+        output.schema
+    )
 }
 
 fn add_sampling(body: &mut Map<String, Value>, model: &ModelProfile) {

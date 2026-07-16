@@ -64,7 +64,10 @@ fn fixture() -> Value {
 }
 
 fn session_spec() -> SessionSpec {
-    serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture")
+    let mut spec: SessionSpec =
+        serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture");
+    spec.agent.output = None;
+    spec
 }
 
 fn input(text: &str) -> AgentInput {

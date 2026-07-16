@@ -17,8 +17,8 @@ use super::LocalRuntimeConfig;
 use crate::agent_runtime::{
     AgentInput, AgentMessage, ContentBlock, CreateOptions, EventOptions, ExecutionErrorCode,
     IdempotencyKey, MessagePage, MessageRole, ModelProtocol, ModelProviderKind, Muzen,
-    PutSecretInput, RunLimits, SessionId, SessionSpec, SingleRunOptions, TerminalAgentStatus,
-    TerminalRunStatus, ToolEffect, ToolGrant, ToolProviderId,
+    OutputContract, PutSecretInput, RunLimits, SessionId, SessionSpec, SingleRunOptions,
+    TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProviderId,
 };
 
 #[derive(Clone)]
@@ -139,7 +139,10 @@ fn fixture() -> Value {
 }
 
 fn session_spec() -> SessionSpec {
-    serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture")
+    let mut spec: SessionSpec =
+        serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture");
+    spec.agent.output = None;
+    spec
 }
 
 fn input(text: &str) -> AgentInput {
@@ -213,6 +216,30 @@ fn grant_agent_builtins(spec: &mut SessionSpec) {
     ]);
 }
 
+fn require_summary(spec: &mut SessionSpec) -> Value {
+    let schema = json!({
+        "type": "object",
+        "properties": { "summary": { "type": "string" } },
+        "required": ["summary"],
+        "additionalProperties": false
+    });
+    spec.agent.output = Some(OutputContract {
+        schema: schema.clone(),
+        name: Some("implementation_result".to_owned()),
+    });
+    schema
+}
+
+fn assert_output_failure(result: &crate::agent_runtime::RunResult, path: &str) {
+    assert_eq!(result.status, TerminalRunStatus::Failed);
+    let output = &result.outputs[0];
+    assert_eq!(output.status, TerminalAgentStatus::Failed);
+    let error = output.error.as_ref().expect("output error");
+    assert_eq!(error.code, ExecutionErrorCode::ModelError);
+    assert!(!error.retryable);
+    assert!(error.message.contains(path), "{}", error.message);
+}
+
 async fn run_once(muzen: &Muzen, spec: SessionSpec) -> crate::agent_runtime::RunResult {
     let session = muzen
         .create_session(spec, CreateOptions::default())
@@ -232,6 +259,136 @@ async fn run_once(muzen: &Muzen, spec: SessionSpec) -> crate::agent_runtime::Run
         .wait()
         .await
         .expect("run result")
+}
+
+async fn output_contract_tool_round_trip(protocol: ModelProtocol) {
+    let mut spec = session_spec();
+    spec.agent.instructions = vec![ContentBlock::Text {
+        text: "structured parent".to_owned(),
+    }];
+    grant_agent_builtins(&mut spec);
+    require_summary(&mut spec);
+    let mut child = spec.agent.clone();
+    child.name = crate::agent_runtime::AgentName::new("plain-child").expect("child name");
+    child.instructions = vec![ContentBlock::Text {
+        text: "plain child".to_owned(),
+    }];
+    child.output = None;
+    let arguments = json!({ "agent": child, "input": input("child work") }).to_string();
+    let responder: Responder = Arc::new(move |path, body| {
+        let (system, has_tool_result) = if path.ends_with("chat/completions") {
+            (
+                body["messages"][0]["content"].as_str().unwrap_or_default(),
+                body["messages"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|message| message["role"] == "tool"),
+            )
+        } else {
+            (
+                body["input"][0]["content"].as_str().unwrap_or_default(),
+                body["input"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|item| item["type"] == "function_call_output"),
+            )
+        };
+        if path.ends_with("chat/completions") {
+            let message = if system == "structured parent" && !has_tool_result {
+                json!({
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "spawn-1",
+                        "type": "function",
+                        "function": { "name": "agent_spawn", "arguments": arguments }
+                    }]
+                })
+            } else if system == "structured parent" {
+                json!({ "role": "assistant", "content": "{\"summary\":\"parent done\"}" })
+            } else {
+                json!({ "role": "assistant", "content": "child done" })
+            };
+            (
+                StatusCode::OK,
+                json!({
+                    "choices": [{ "message": message, "finish_reason": if has_tool_result { "stop" } else { "tool_calls" } }],
+                    "usage": { "prompt_tokens": 2, "completion_tokens": 1 }
+                }),
+            )
+        } else {
+            let output = if system == "structured parent" && !has_tool_result {
+                json!([{
+                    "type": "function_call", "call_id": "spawn-1", "name": "agent_spawn",
+                    "arguments": arguments
+                }])
+            } else if system == "structured parent" {
+                json!([{
+                    "type": "message", "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "{\"summary\":\"parent done\"}" }]
+                }])
+            } else {
+                json!([{
+                    "type": "message", "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "child done" }]
+                }])
+            };
+            (
+                StatusCode::OK,
+                json!({
+                    "output": output,
+                    "usage": { "input_tokens": 2, "output_tokens": 1 },
+                    "status": "completed"
+                }),
+            )
+        }
+    });
+    let fake = FakeServer::dynamic(responder).await;
+    let muzen = router_runtime(true).await;
+    let secret = put_key(&muzen, "tool-output-key").await;
+    configure_model(
+        &mut spec,
+        ModelProviderKind::OpenaiCompatible,
+        protocol,
+        format!("{}/v1", fake.base_url()),
+        secret,
+    );
+
+    let result = run_once(&muzen, spec).await;
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    assert_eq!(result.outputs.len(), 2);
+    assert!(result
+        .outputs
+        .iter()
+        .all(|output| output.status == TerminalAgentStatus::Completed));
+    assert!(result
+        .outputs
+        .iter()
+        .any(|output| output.output == Some(json!({ "summary": "parent done" }))));
+
+    let parent_requests = fake
+        .requests()
+        .into_iter()
+        .filter(|request| {
+            request.body["messages"][0]["content"] == "structured parent"
+                || request.body["input"][0]["content"] == "structured parent"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(parent_requests.len(), 2);
+    for request in parent_requests {
+        assert!(request.body.get("tools").is_some());
+        match protocol {
+            ModelProtocol::ChatCompletions => {
+                assert_eq!(request.body["response_format"]["type"], "json_schema")
+            }
+            ModelProtocol::Responses => {
+                assert_eq!(request.body["text"]["format"]["type"], "json_schema")
+            }
+            ModelProtocol::Messages => unreachable!(),
+        }
+    }
 }
 
 #[tokio::test]
@@ -298,6 +455,48 @@ async fn anthropic_router_runs_end_to_end() {
 }
 
 #[tokio::test]
+async fn anthropic_prompts_and_enforces_output_contract() {
+    let response = |text: &str| {
+        json!({
+            "content": [{"type": "text", "text": text}],
+            "usage": {"input_tokens": 8, "output_tokens": 3},
+            "stop_reason": "end_turn"
+        })
+    };
+    let fake = FakeServer::queued([
+        (StatusCode::OK, response("{\"summary\":\"done\"}")),
+        (StatusCode::OK, response("{}")),
+        (StatusCode::OK, response("not json")),
+    ])
+    .await;
+    let muzen = router_runtime(true).await;
+    let secret = put_key(&muzen, "anthropic-output-key").await;
+    let mut spec = session_spec();
+    configure_model(
+        &mut spec,
+        ModelProviderKind::Anthropic,
+        ModelProtocol::Messages,
+        fake.base_url(),
+        secret,
+    );
+    let schema = require_summary(&mut spec);
+
+    let valid = run_once(&muzen, spec.clone()).await;
+    assert_eq!(valid.outputs[0].output, Some(json!({ "summary": "done" })));
+    assert_output_failure(&run_once(&muzen, spec.clone()).await, "$.summary");
+    assert_output_failure(&run_once(&muzen, spec).await, "at $");
+
+    for request in fake.requests() {
+        let system = request.body["system"].as_str().expect("system prompt");
+        assert!(system.contains("final non-tool-use turn"));
+        assert!(system.contains("implementation_result"));
+        assert!(system.contains(&schema.to_string()));
+        assert!(request.body.get("response_format").is_none());
+        assert!(request.body.get("tool_choice").is_none());
+    }
+}
+
+#[tokio::test]
 async fn chat_completions_router_runs_end_to_end() {
     let fake = FakeServer::queued([(StatusCode::OK, json!({
         "choices": [{"message": {"role": "assistant", "content": "chat done"}, "finish_reason": "stop"}],
@@ -337,6 +536,60 @@ async fn chat_completions_router_runs_end_to_end() {
         "text"
     );
     assert_eq!(spawn["properties"]["input"]["oneOf"][0]["type"], "string");
+}
+
+#[tokio::test]
+async fn chat_completions_maps_and_enforces_output_contract() {
+    let fake = FakeServer::queued([
+        (StatusCode::OK, json!({
+            "choices": [{"message": {"role": "assistant", "content": "{\"summary\":\"done\"}"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 6, "completion_tokens": 2}
+        })),
+        (StatusCode::OK, json!({
+            "choices": [{"message": {"role": "assistant", "content": "{}"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 6, "completion_tokens": 1}
+        })),
+        (StatusCode::OK, json!({
+            "choices": [{"message": {"role": "assistant", "content": "not json"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 6, "completion_tokens": 1}
+        })),
+    ])
+    .await;
+    let muzen = router_runtime(true).await;
+    let secret = put_key(&muzen, "chat-output-key").await;
+    let mut spec = session_spec();
+    configure_model(
+        &mut spec,
+        ModelProviderKind::OpenaiCompatible,
+        ModelProtocol::ChatCompletions,
+        format!("{}/v1", fake.base_url()),
+        secret,
+    );
+    let schema = require_summary(&mut spec);
+
+    let valid = run_once(&muzen, spec.clone()).await;
+    assert_eq!(valid.outputs[0].output, Some(json!({ "summary": "done" })));
+    assert_output_failure(&run_once(&muzen, spec.clone()).await, "$.summary");
+    assert_output_failure(&run_once(&muzen, spec).await, "at $");
+
+    for request in fake.requests() {
+        assert_eq!(
+            request.body["response_format"],
+            json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "implementation_result",
+                    "schema": schema,
+                    "strict": true
+                }
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn chat_completions_keeps_output_format_during_tool_turns() {
+    output_contract_tool_round_trip(ModelProtocol::ChatCompletions).await;
 }
 
 #[tokio::test]
@@ -397,6 +650,58 @@ async fn responses_router_runs_end_to_end() {
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["agent_spawn", "agent_message"]);
     assert!(!request.body.to_string().contains("agent.spawn"));
+}
+
+#[tokio::test]
+async fn responses_maps_and_enforces_output_contract() {
+    let response = |text: &str| {
+        json!({
+            "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}],
+            "usage": {"input_tokens": 7, "output_tokens": 2},
+            "status": "completed"
+        })
+    };
+    let fake = FakeServer::queued([
+        (StatusCode::OK, response("{\"summary\":\"done\"}")),
+        (StatusCode::OK, response("{}")),
+        (StatusCode::OK, response("not json")),
+    ])
+    .await;
+    let muzen = router_runtime(true).await;
+    let secret = put_key(&muzen, "responses-output-key").await;
+    let mut spec = session_spec();
+    configure_model(
+        &mut spec,
+        ModelProviderKind::OpenaiCompatible,
+        ModelProtocol::Responses,
+        format!("{}/v1", fake.base_url()),
+        secret,
+    );
+    let schema = require_summary(&mut spec);
+
+    let valid = run_once(&muzen, spec.clone()).await;
+    assert_eq!(valid.outputs[0].output, Some(json!({ "summary": "done" })));
+    assert_output_failure(&run_once(&muzen, spec.clone()).await, "$.summary");
+    assert_output_failure(&run_once(&muzen, spec).await, "at $");
+
+    for request in fake.requests() {
+        assert_eq!(
+            request.body["text"],
+            json!({
+                "format": {
+                    "type": "json_schema",
+                    "name": "implementation_result",
+                    "schema": schema,
+                    "strict": true
+                }
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn responses_keeps_output_format_during_tool_turns() {
+    output_contract_tool_round_trip(ModelProtocol::Responses).await;
 }
 
 #[tokio::test]

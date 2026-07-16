@@ -4,6 +4,8 @@ use std::net::IpAddr;
 
 use reqwest::Url;
 
+use super::output_schema::validate_schema_definition;
+
 use super::{
     AgentDefinition, AgentInput, ContentBlock, ModelProfile, ModelProtocol, ModelProviderKind,
     PutSecretInput, RunRoot, RunSpec, SendCommand, SessionSpec, SpawnCommand, ToolEffect,
@@ -210,12 +212,8 @@ fn validate_agent_definition(
         validate_content_block(block, &format!("{path}.instructions[{index}]"))?;
     }
     if let Some(output) = &definition.output {
-        if !output.schema.is_boolean() && !output.schema.is_object() {
-            return Err(SpecValidationError::at(
-                format!("{path}.output.schema"),
-                "output schema must be a JSON Schema boolean or object",
-            ));
-        }
+        validate_schema_definition(&output.schema, &format!("{path}.output.schema"))
+            .map_err(|error| SpecValidationError::at(error.path, error.message))?;
     }
     Ok(())
 }

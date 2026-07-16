@@ -9,6 +9,7 @@ mod errors;
 pub mod http;
 mod ids;
 mod local;
+mod output_schema;
 pub mod runner;
 mod runtime_types;
 mod store;

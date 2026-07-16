@@ -17,10 +17,11 @@ use super::{
 use crate::agent_runtime::client::RuntimeTransport;
 use crate::agent_runtime::{
     AgentEvent, AgentInput, AgentName, AgentStatus, CancelOptions, ContentBlock, CreateOptions,
-    ErrorCode, EventOptions, ExistingSessionRoot, IdempotencyKey, MessageDelivery, MessagePage,
-    MessageRole, ModelProfileId, Muzen, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId,
-    SessionSpec, SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus,
-    ToolEffect, ToolGrant, ToolProviderId, Usage,
+    ErrorCode, EventOptions, ExecutionErrorCode, ExistingSessionRoot, IdempotencyKey,
+    MessageDelivery, MessagePage, MessageRole, ModelProfileId, Muzen, OutputContract, Run,
+    RunLimits, RunRoot, RunSpec, SendCommand, SessionId, SessionSpec, SingleRunOptions,
+    SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProviderId,
+    Usage,
 };
 
 enum Script {
@@ -113,7 +114,10 @@ fn fixture() -> Value {
 }
 
 fn session_spec() -> SessionSpec {
-    serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture")
+    let mut spec: SessionSpec =
+        serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture");
+    spec.agent.output = None;
+    spec
 }
 
 fn input(text: &str) -> AgentInput {
@@ -203,6 +207,18 @@ fn grant(spec: &mut SessionSpec, provider: &str, tool: &str, effect: Option<Tool
         tool: tool.to_owned(),
         effects: effect.into_iter().collect(),
         max_calls: None,
+    });
+}
+
+fn require_summary(spec: &mut SessionSpec) {
+    spec.agent.output = Some(OutputContract {
+        schema: json!({
+            "type": "object",
+            "properties": { "summary": { "type": "string" } },
+            "required": ["summary"],
+            "additionalProperties": false
+        }),
+        name: None,
     });
 }
 
@@ -318,6 +334,82 @@ async fn single_root_completes_through_public_api() {
     assert_eq!(messages.items.len(), 2);
     assert_eq!(messages.items[0].role, MessageRole::User);
     assert_eq!(messages.items[1].role, MessageRole::Assistant);
+}
+
+#[tokio::test]
+async fn scripted_provider_output_contract_parses_and_rejects_final_turns() {
+    let provider = ScriptedProvider::new([turn("{\"summary\":\"done\"}", 3, 2), turn("{}", 3, 1)]);
+    let muzen = memory_runtime(provider).await;
+    let mut spec = session_spec();
+    require_summary(&mut spec);
+
+    let valid = muzen
+        .create_session(spec.clone(), CreateOptions::default())
+        .await
+        .expect("valid session")
+        .run(
+            input("valid"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("valid run")
+        .wait()
+        .await
+        .expect("valid result");
+    assert_eq!(valid.outputs[0].output, Some(json!({ "summary": "done" })));
+
+    let invalid_run = muzen
+        .create_session(spec, CreateOptions::default())
+        .await
+        .expect("invalid-output session")
+        .run(
+            input("invalid"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("invalid-output run");
+    let invalid = invalid_run.wait().await.expect("invalid result");
+    assert_eq!(invalid.outputs[0].status, TerminalAgentStatus::Failed);
+    let error = invalid.outputs[0].error.as_ref().expect("schema error");
+    assert_eq!(error.code, ExecutionErrorCode::ModelError);
+    assert!(!error.retryable);
+    assert!(error.message.contains("$.summary"));
+    let event_types = all_events(&invalid_run)
+        .await
+        .into_iter()
+        .map(|event| event.event_type)
+        .collect::<Vec<_>>();
+    assert!(event_types.iter().any(|event| event == "model.completed"));
+    assert!(event_types.iter().any(|event| event == "agent.failed"));
+    assert!(!event_types.iter().any(|event| event == "model.failed"));
+}
+
+#[tokio::test]
+async fn session_creation_rejects_unsupported_output_schema_keywords() {
+    let provider = ScriptedProvider::new([]);
+    let muzen = memory_runtime(provider).await;
+    let mut spec = session_spec();
+    spec.agent.output = Some(OutputContract {
+        schema: json!({ "type": "object", "patternProperties": {} }),
+        name: None,
+    });
+    let error = match muzen.create_session(spec, CreateOptions::default()).await {
+        Ok(_) => panic!("unsupported schema must fail"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code(), ErrorCode::InvalidInput);
+    assert_eq!(
+        error.details().expect("validation details")["path"],
+        "agent.output.schema.patternProperties"
+    );
 }
 
 #[tokio::test]
@@ -732,6 +824,70 @@ async fn spawn_creates_ordered_child_and_run_waits_for_it() {
             .active_run_id,
         None
     );
+}
+
+#[tokio::test]
+async fn spawned_child_enforces_its_output_contract() {
+    let root_spec = session_spec();
+    let root_name = root_spec.agent.name.as_str().to_owned();
+    let provider = ScriptedProvider::named([
+        (
+            root_name,
+            vec![delayed_turn(Duration::from_millis(40), "parent done")],
+        ),
+        ("structured-child".to_owned(), vec![turn("{}", 2, 1)]),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let root = muzen
+        .create_session(root_spec, CreateOptions::default())
+        .await
+        .expect("root session");
+    let mut run_limits = limits();
+    run_limits.max_depth = 1;
+    let run = root
+        .run(
+            input("root input"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("root run");
+    wait_for_event(&run, "model.started").await;
+
+    let mut child_agent = session_spec().agent;
+    child_agent.name = AgentName::new("structured-child").expect("child name");
+    child_agent.output = Some(OutputContract {
+        schema: json!({
+            "type": "object",
+            "properties": { "summary": { "type": "string" } },
+            "required": ["summary"]
+        }),
+        name: Some("child_output".to_owned()),
+    });
+    let child = run
+        .spawn(SpawnCommand {
+            parent_session_id: root.id().clone(),
+            agent: child_agent,
+            input: input("child input"),
+            idempotency_key: None,
+        })
+        .await
+        .expect("spawn child");
+
+    let result = run.wait().await.expect("partial result");
+    assert_eq!(result.status, TerminalRunStatus::Partial);
+    let child_output = result
+        .outputs
+        .iter()
+        .find(|output| output.session_id == *child.id())
+        .expect("child output");
+    assert_eq!(child_output.status, TerminalAgentStatus::Failed);
+    let error = child_output.error.as_ref().expect("child schema error");
+    assert_eq!(error.code, ExecutionErrorCode::ModelError);
+    assert!(error.message.contains("$.summary"));
 }
 
 #[tokio::test]
