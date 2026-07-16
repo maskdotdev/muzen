@@ -8,6 +8,7 @@ mod client;
 mod errors;
 mod ids;
 mod local;
+pub mod runner;
 mod runtime_types;
 mod store;
 mod types;

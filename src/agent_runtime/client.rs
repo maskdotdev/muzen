@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine as _;
 use futures::{stream, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::validation::{
     validate_run_spec, validate_secret_input, validate_send_command, validate_session_spec,
@@ -50,14 +51,8 @@ pub(crate) trait RuntimeTransport: Send + Sync {
         id: &RunId,
         options: CancelOptions,
     ) -> Result<CommandReceipt, MuzenError>;
-    async fn artifact_ref(
-        &self,
-        run_id: &RunId,
-        artifact_id: &ArtifactId,
-    ) -> Result<ArtifactRef, MuzenError>;
     async fn artifact_chunk(
         &self,
-        run_id: &RunId,
         artifact_id: &ArtifactId,
         offset: u64,
         max_bytes: u32,
@@ -76,6 +71,17 @@ impl Muzen {
         Ok(Self {
             transport: Arc::new(transport),
         })
+    }
+
+    /// Connects to an agent runner over newline-delimited JSON-RPC 2.0.
+    pub fn runner<R, W>(reader: R, writer: W) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        Self {
+            transport: Arc::new(super::runner::RunnerTransport::connect(reader, writer)),
+        }
     }
 
     pub async fn capabilities(&self) -> Result<Capabilities, MuzenError> {
@@ -232,10 +238,18 @@ impl Run {
     }
 
     pub async fn artifact(&self, id: &ArtifactId) -> Result<Artifact, MuzenError> {
-        let reference = self.transport.artifact_ref(&self.id, id).await?;
+        let reference = self
+            .result()
+            .await?
+            .and_then(|result| {
+                result
+                    .artifacts
+                    .into_iter()
+                    .find(|artifact| &artifact.id == id)
+            })
+            .ok_or_else(|| MuzenError::not_found(format!("artifact not found: {id}")))?;
         Ok(Artifact {
             reference,
-            run_id: self.id.clone(),
             transport: Arc::clone(&self.transport),
         })
     }
@@ -250,7 +264,6 @@ pub(crate) fn is_terminal_run_event(event_type: &str) -> bool {
 
 pub struct Artifact {
     reference: ArtifactRef,
-    run_id: RunId,
     transport: Arc<dyn RuntimeTransport>,
 }
 
@@ -263,19 +276,18 @@ impl Artifact {
         const CHUNK_BYTES: u32 = 64 * 1024;
         let state = (
             Arc::clone(&self.transport),
-            self.run_id.clone(),
             self.reference.id.clone(),
             0_u64,
             false,
         );
         Box::pin(stream::try_unfold(
             state,
-            |(transport, run_id, artifact_id, offset, done)| async move {
+            |(transport, artifact_id, offset, done)| async move {
                 if done {
                     return Ok(None);
                 }
                 let chunk = transport
-                    .artifact_chunk(&run_id, &artifact_id, offset, CHUNK_BYTES)
+                    .artifact_chunk(&artifact_id, offset, CHUNK_BYTES)
                     .await?;
                 let bytes = decode_base64(&chunk.data)?;
                 if bytes.is_empty() {
@@ -289,7 +301,7 @@ impl Artifact {
                 let next_offset = offset.saturating_add(bytes.len() as u64);
                 Ok(Some((
                     bytes,
-                    (transport, run_id, artifact_id, next_offset, chunk.eof),
+                    (transport, artifact_id, next_offset, chunk.eof),
                 )))
             },
         ))

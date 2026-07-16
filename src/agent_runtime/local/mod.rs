@@ -25,7 +25,7 @@ use super::store::memory::MemoryAgentStore;
 use super::store::sqlite::SqliteAgentStore;
 use super::store::AgentStore;
 use super::{
-    AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, ArtifactRef, CancelOptions, Capabilities,
+    AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
     CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage, ModelProtocol,
     MuzenError, Page, PutSecretInput, RunId, RunResult, RunSnapshot, RunSpec, SecretRef,
     SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
@@ -75,6 +75,16 @@ impl LocalRuntimeConfig {
         Self {
             provider: None,
             store: LocalStoreConfig::Memory,
+            close_timeout: Duration::from_secs(5),
+            allow_loopback_http: false,
+        }
+    }
+
+    /// Uses the built-in real-provider router with a durable SQLite store.
+    pub fn sqlite_with_model_router(path: impl Into<PathBuf>) -> Self {
+        Self {
+            provider: None,
+            store: LocalStoreConfig::Sqlite(path.into()),
             close_timeout: Duration::from_secs(5),
             allow_loopback_http: false,
         }
@@ -382,19 +392,8 @@ impl RuntimeTransport for LocalRuntime {
         Ok(receipt)
     }
 
-    async fn artifact_ref(
-        &self,
-        _run_id: &RunId,
-        _artifact_id: &ArtifactId,
-    ) -> Result<ArtifactRef, MuzenError> {
-        Err(MuzenError::unsupported(
-            "local in-process runtime does not support artifacts yet",
-        ))
-    }
-
     async fn artifact_chunk(
         &self,
-        _run_id: &RunId,
         _artifact_id: &ArtifactId,
         _offset: u64,
         _max_bytes: u32,

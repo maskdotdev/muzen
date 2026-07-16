@@ -76,6 +76,12 @@ impl MuzenError {
         Self::new(ErrorCode::Unsupported, message)
     }
 
+    pub(crate) fn unavailable(message: impl Into<String>) -> Self {
+        let mut error = Self::new(ErrorCode::Unavailable, message);
+        error.retryable = true;
+        error
+    }
+
     fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
