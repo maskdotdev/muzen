@@ -112,6 +112,23 @@ async fn runner_pair(
     (Muzen::runner(client_read, client_write), server)
 }
 
+async fn sqlite_runner_pair(
+    provider: Arc<ScriptedProvider>,
+    path: &std::path::Path,
+) -> (
+    Muzen,
+    tokio::task::JoinHandle<Result<(), super::super::MuzenError>>,
+) {
+    let runtime = LocalRuntime::connect(LocalRuntimeConfig::sqlite(provider, path))
+        .await
+        .expect("SQLite runtime");
+    let (client_io, server_io) = tokio::io::duplex(256 * 1024);
+    let (client_read, client_write) = tokio::io::split(client_io);
+    let (server_read, server_write) = tokio::io::split(server_io);
+    let server = tokio::spawn(serve_transport(runtime, server_read, server_write));
+    (Muzen::runner(client_read, client_write), server)
+}
+
 async fn finish_server(
     muzen: Muzen,
     server: tokio::task::JoinHandle<Result<(), super::super::MuzenError>>,
@@ -173,6 +190,38 @@ async fn lifecycle_events_and_messages_work_through_runner_client() {
         .await
         .expect("messages");
     assert!(messages.items.len() >= 2);
+    finish_server(muzen, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sqlite_runner_replays_events_while_run_is_live() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("runner.db");
+    let (muzen, server) = sqlite_runner_pair(
+        ScriptedProvider::new([turn("done", Duration::from_millis(300))]),
+        &path,
+    )
+    .await;
+    let session = muzen
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .expect("session");
+    let run = session
+        .run(
+            input("live SQLite replay"),
+            SingleRunOptions {
+                limits: limits(),
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+    let result = tokio::time::timeout(Duration::from_secs(2), run.wait())
+        .await
+        .expect("mid-run run.events response and terminal notification")
+        .expect("result");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
     finish_server(muzen, server).await;
 }
 

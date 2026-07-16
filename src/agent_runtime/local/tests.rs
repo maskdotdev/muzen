@@ -962,6 +962,48 @@ async fn event_tail_after_mid_run_sequence_has_no_gap_or_duplicate() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sqlite_events_subscribed_mid_run_reach_terminal_event() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("mid-run-events.db");
+    let provider = ScriptedProvider::new([delayed_turn(Duration::from_millis(300), "done")]);
+    let runtime = LocalRuntime::connect(LocalRuntimeConfig::sqlite(provider, &path))
+        .await
+        .expect("SQLite local runtime");
+    let session_id = runtime
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .expect("session");
+    let run_id = runtime
+        .start_run(RunSpec {
+            roots: vec![RunRoot::Existing(ExistingSessionRoot {
+                session_id,
+                input: input("live SQLite events"),
+            })],
+            limits: limits(),
+            idempotency_key: None,
+            metadata: Default::default(),
+        })
+        .await
+        .expect("run");
+
+    let events = tokio::time::timeout(
+        Duration::from_secs(2),
+        runtime
+            .events(&run_id, EventOptions::default())
+            .try_collect::<Vec<_>>(),
+    )
+    .await
+    .expect("mid-run SQLite event stream reached terminal state")
+    .expect("events");
+    assert_eq!(events.first().expect("first event").sequence, 1);
+    assert_eq!(
+        events.last().expect("terminal event").event_type,
+        "run.completed"
+    );
+    runtime.close().await.expect("close runtime");
+}
+
 #[tokio::test]
 async fn finished_run_replay_after_middle_delivers_terminal_event() {
     let provider = ScriptedProvider::new([turn("done", 2, 1)]);

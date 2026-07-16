@@ -3,9 +3,10 @@ use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
+use futures::FutureExt;
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, Notify, Semaphore};
+use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use super::{Inner, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn};
@@ -58,7 +59,7 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
     let tool_limit = initial.spec.limits.max_total_tool_calls;
     let mut receiver = inner.receiver_or_create(&run_id, initial.snapshot.last_sequence);
     let mut scheduled = BTreeSet::new();
-    let mut agents = FuturesUnordered::new();
+    let mut agents = JoinSet::new();
 
     loop {
         let stored = inner.store.run(&run_id).await?;
@@ -72,24 +73,21 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
                 let agent = agent.clone();
                 let semaphore = Arc::clone(&semaphore);
                 let budget = Arc::clone(&budget);
-                agents.push(
-                    async move {
-                        let session_id = agent.session_id.clone();
-                        run_agent(
-                            inner,
-                            run_id,
-                            agent,
-                            semaphore,
-                            budget,
-                            token_limit,
-                            tool_limit,
-                            deadline,
-                        )
-                        .await;
-                        session_id
-                    }
-                    .boxed(),
-                );
+                agents.spawn(async move {
+                    let session_id = agent.session_id.clone();
+                    run_agent(
+                        inner,
+                        run_id,
+                        agent,
+                        semaphore,
+                        budget,
+                        token_limit,
+                        tool_limit,
+                        deadline,
+                    )
+                    .await;
+                    session_id
+                });
             }
         }
 
@@ -116,9 +114,17 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
             continue;
         }
         tokio::select! {
-            completed = agents.next() => {
-                if let Some(session_id) = completed {
-                    scheduled.remove(&session_id);
+            completed = agents.join_next() => {
+                match completed {
+                    Some(Ok(session_id)) => {
+                        scheduled.remove(&session_id);
+                    }
+                    Some(Err(error)) => {
+                        return Err(MuzenError::internal(format!(
+                            "local agent task failed: {error}"
+                        )));
+                    }
+                    None => {}
                 }
             }
             changed = receiver.changed() => {
