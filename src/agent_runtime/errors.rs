@@ -52,6 +52,10 @@ impl MuzenError {
         Self::new(ErrorCode::Internal, message)
     }
 
+    pub(crate) fn invalid_input(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InvalidInput, message)
+    }
+
     pub(crate) fn not_found(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::NotFound, message)
     }

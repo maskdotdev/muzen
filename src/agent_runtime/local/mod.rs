@@ -26,7 +26,9 @@ use super::{
     SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
 };
 
-pub use provider::{ModelProvider, ModelProviderError, ModelRequest, ModelStop, ModelTurn};
+pub use provider::{
+    ModelProvider, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn,
+};
 
 const REPLAY_BATCH: u64 = 256;
 

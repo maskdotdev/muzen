@@ -5,16 +5,17 @@ use std::sync::Arc;
 
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use serde_json::{json, Value};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Notify, Semaphore};
 use tokio::time::Instant;
 
-use super::{Inner, ModelProviderError, ModelRequest, ModelTurn};
+use super::{Inner, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn};
 use crate::agent_runtime::store::support::{new_message_id, timestamp};
 use crate::agent_runtime::store::{ActivityEvent, AgentAdvance, FinishRun, RunActivity};
 use crate::agent_runtime::{
     AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, ContentBlock, ExecutionError,
-    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, RunId,
-    TerminalAgentStatus, TerminalRunStatus, Usage,
+    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, RunId, SendCommand,
+    SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolProvider, ToolProviderId,
+    Usage,
 };
 
 pub(super) async fn execute(inner: Arc<Inner>, run_id: RunId) {
@@ -47,12 +48,13 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
     let semaphore = Arc::new(Semaphore::new(
         initial.spec.limits.max_active_agents.get() as usize
     ));
-    let budget = Arc::new(Mutex::new(BudgetState::default()));
+    let budget = Arc::new(RunBudget::default());
     let token_limit = initial
         .spec
         .limits
         .max_total_tokens
         .map(|limit| limit.get());
+    let tool_limit = initial.spec.limits.max_total_tool_calls;
     let mut receiver = inner.receiver_or_create(&run_id, initial.snapshot.last_sequence);
     let mut scheduled = BTreeSet::new();
     let mut agents = FuturesUnordered::new();
@@ -79,6 +81,7 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
                             semaphore,
                             budget,
                             token_limit,
+                            tool_limit,
                             deadline,
                         )
                         .await;
@@ -130,17 +133,25 @@ struct BudgetState {
     exhausted: bool,
 }
 
+#[derive(Default)]
+struct RunBudget {
+    state: Mutex<BudgetState>,
+    exhausted: Notify,
+}
+
 async fn run_agent(
     inner: Arc<Inner>,
     run_id: RunId,
     agent: AgentSnapshot,
     semaphore: Arc<Semaphore>,
-    budget: Arc<Mutex<BudgetState>>,
+    budget: Arc<RunBudget>,
     token_limit: Option<u64>,
+    tool_limit: Option<u64>,
     deadline: Option<Instant>,
 ) {
     let mut usage = Usage::default();
     let mut turns = 0_u32;
+    let mut grant_calls = BTreeMap::new();
     loop {
         if observe_cancel(&inner, &run_id, deadline).await {
             finish_agent(
@@ -152,7 +163,7 @@ async fn run_agent(
             .await;
             return;
         }
-        if budget.lock().await.exhausted {
+        if budget.state.lock().await.exhausted {
             finish_agent(&inner, &run_id, budget_output(agent.clone(), usage), false).await;
             return;
         }
@@ -217,6 +228,20 @@ async fn run_agent(
         let response = tokio::select! {
             response = inner.provider.complete(request) => Some(response),
             _ = wait_cancel(&inner, &run_id, deadline) => None,
+            _ = budget.exhausted.notified() => {
+                if budget.state.lock().await.exhausted {
+                    drop(permit);
+                    finish_agent(
+                        &inner,
+                        &run_id,
+                        budget_output(agent.clone(), usage.clone()),
+                        false,
+                    )
+                    .await;
+                    return;
+                }
+                continue
+            },
         };
         drop(permit);
         let Some(response) = response else {
@@ -255,7 +280,12 @@ async fn run_agent(
             }
         };
         turns = turns.saturating_add(1);
-        let exhausted = match record_usage(&budget, &turn.usage, token_limit).await {
+        let model_usage = Usage {
+            input_tokens: turn.usage.input_tokens,
+            output_tokens: turn.usage.output_tokens,
+            tool_calls: 0,
+        };
+        let exhausted = match record_usage(&budget, &model_usage, token_limit).await {
             Ok(exhausted) => exhausted,
             Err(error) => {
                 finish_agent(
@@ -268,7 +298,7 @@ async fn run_agent(
                 return;
             }
         };
-        usage = match add_usage(&usage, &turn.usage) {
+        usage = match add_usage(&usage, &model_usage) {
             Ok(usage) => usage,
             Err(error) => {
                 finish_agent(
@@ -320,6 +350,55 @@ async fn run_agent(
             output.output = latest_output;
             finish_agent(&inner, &run_id, output, false).await;
             return;
+        }
+        if turn.stop == ModelStop::ToolUse {
+            match execute_tool_batch(
+                &inner,
+                &run_id,
+                &agent,
+                &turn.tool_calls,
+                &mut usage,
+                &mut grant_calls,
+                &budget,
+                tool_limit,
+                deadline,
+            )
+            .await
+            {
+                ToolBatchOutcome::Continue => {
+                    if deliver_pending_steers(&inner, &run_id, &agent.session_id)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
+                ToolBatchOutcome::Cancelled => {
+                    finish_agent(
+                        &inner,
+                        &run_id,
+                        cancelled_output(agent.clone(), usage),
+                        false,
+                    )
+                    .await;
+                    return;
+                }
+                ToolBatchOutcome::BudgetExhausted => {
+                    finish_agent(&inner, &run_id, budget_output(agent.clone(), usage), false).await;
+                    return;
+                }
+                ToolBatchOutcome::Failed(message) => {
+                    finish_agent(
+                        &inner,
+                        &run_id,
+                        failed_output(agent.clone(), message, usage),
+                        false,
+                    )
+                    .await;
+                    return;
+                }
+            }
         }
         let turn_limit_reached = inner
             .store
@@ -415,6 +494,327 @@ async fn run_agent(
                 }
             }
             Err(_) => return,
+        }
+    }
+}
+
+enum ToolBatchOutcome {
+    Continue,
+    Cancelled,
+    BudgetExhausted,
+    Failed(String),
+}
+
+enum ToolReservation {
+    Execute,
+    AgentExhausted(MuzenError),
+    RunExhausted(MuzenError),
+}
+
+async fn execute_tool_batch(
+    inner: &Inner,
+    run_id: &RunId,
+    agent: &AgentSnapshot,
+    calls: &[ModelToolCall],
+    usage: &mut Usage,
+    grant_calls: &mut BTreeMap<(ToolProviderId, String), u64>,
+    budget: &RunBudget,
+    tool_limit: Option<u64>,
+    deadline: Option<Instant>,
+) -> ToolBatchOutcome {
+    if calls.is_empty() {
+        return ToolBatchOutcome::Failed("tool-use turn contained no tool calls".to_owned());
+    }
+    let session = match inner.store.session(&agent.session_id).await {
+        Ok(session) => session,
+        Err(error) => return ToolBatchOutcome::Failed(error.message().to_owned()),
+    };
+    for call in calls {
+        if observe_cancel(inner, run_id, deadline).await {
+            return ToolBatchOutcome::Cancelled;
+        }
+        if budget.state.lock().await.exhausted {
+            return ToolBatchOutcome::BudgetExhausted;
+        }
+        let Some(grant) = session
+            .spec
+            .agent
+            .tools
+            .iter()
+            .find(|grant| grant.provider == call.provider && grant.tool == call.name)
+        else {
+            let error = MuzenError::permission_denied(format!(
+                "tool {} from provider {} is outside agent authority",
+                call.name, call.provider
+            ));
+            if let Err(error) = append_tool_result(inner, run_id, agent, call, Err(&error)).await {
+                return ToolBatchOutcome::Failed(error.message().to_owned());
+            }
+            continue;
+        };
+        let provider = session
+            .spec
+            .tool_providers
+            .iter()
+            .find(|provider| provider.id() == &call.provider);
+        if let Some(ToolProvider::Builtin { .. }) = provider {
+            let required = match call.name.as_str() {
+                "agent.spawn" => Some(ToolEffect::AgentSpawn),
+                "agent.message" => Some(ToolEffect::AgentMessage),
+                _ => None,
+            };
+            if required.is_some_and(|effect| !grant.effects.contains(&effect)) {
+                let error = MuzenError::permission_denied(format!(
+                    "tool {} requires the matching agent effect",
+                    call.name
+                ));
+                if let Err(error) =
+                    append_tool_result(inner, run_id, agent, call, Err(&error)).await
+                {
+                    return ToolBatchOutcome::Failed(error.message().to_owned());
+                }
+                continue;
+            }
+        }
+        match reserve_tool_call(
+            budget,
+            usage,
+            grant_calls,
+            grant,
+            session
+                .spec
+                .agent
+                .budget
+                .as_ref()
+                .map(|value| value.max_tool_calls),
+            tool_limit,
+        )
+        .await
+        {
+            Ok(ToolReservation::Execute) => {}
+            Ok(ToolReservation::AgentExhausted(error)) => {
+                if let Err(error) =
+                    append_tool_result(inner, run_id, agent, call, Err(&error)).await
+                {
+                    return ToolBatchOutcome::Failed(error.message().to_owned());
+                }
+                return ToolBatchOutcome::BudgetExhausted;
+            }
+            Ok(ToolReservation::RunExhausted(error)) => {
+                if let Err(error) =
+                    append_tool_result(inner, run_id, agent, call, Err(&error)).await
+                {
+                    return ToolBatchOutcome::Failed(error.message().to_owned());
+                }
+                return ToolBatchOutcome::BudgetExhausted;
+            }
+            Err(error) => return ToolBatchOutcome::Failed(error.message().to_owned()),
+        }
+        if let Err(error) = append_events(
+            inner,
+            run_id,
+            vec![activity("tool.started", agent, tool_payload(call))],
+            Vec::new(),
+        )
+        .await
+        {
+            return ToolBatchOutcome::Failed(error.message().to_owned());
+        }
+        let result = execute_tool(inner, run_id, agent, provider, call).await;
+        if observe_cancel(inner, run_id, deadline).await {
+            return ToolBatchOutcome::Cancelled;
+        }
+        if let Err(error) = append_tool_result(inner, run_id, agent, call, result.as_ref()).await {
+            return ToolBatchOutcome::Failed(error.message().to_owned());
+        }
+        tokio::task::yield_now().await;
+    }
+    ToolBatchOutcome::Continue
+}
+
+async fn reserve_tool_call(
+    budget: &RunBudget,
+    usage: &mut Usage,
+    grant_calls: &mut BTreeMap<(ToolProviderId, String), u64>,
+    grant: &crate::agent_runtime::ToolGrant,
+    agent_limit: Option<u32>,
+    run_limit: Option<u64>,
+) -> Result<ToolReservation, MuzenError> {
+    let key = (grant.provider.clone(), grant.tool.clone());
+    let grant_used = grant_calls.get(&key).copied().unwrap_or(0);
+    if grant
+        .max_calls
+        .is_some_and(|limit| grant_used >= u64::from(limit.get()))
+    {
+        return Ok(ToolReservation::AgentExhausted(
+            MuzenError::resource_exhausted("tool grant maxCalls exhausted"),
+        ));
+    }
+    if agent_limit.is_some_and(|limit| usage.tool_calls >= u64::from(limit)) {
+        return Ok(ToolReservation::AgentExhausted(
+            MuzenError::resource_exhausted("agent maxToolCalls exhausted"),
+        ));
+    }
+    let mut state = budget.state.lock().await;
+    if run_limit.is_some_and(|limit| state.usage.tool_calls >= limit) {
+        state.exhausted = true;
+        drop(state);
+        budget.exhausted.notify_waiters();
+        return Ok(ToolReservation::RunExhausted(
+            MuzenError::resource_exhausted("run maxTotalToolCalls exhausted"),
+        ));
+    }
+    state.usage.tool_calls = state
+        .usage
+        .tool_calls
+        .checked_add(1)
+        .ok_or_else(|| MuzenError::internal("run tool call usage overflow"))?;
+    usage.tool_calls = usage
+        .tool_calls
+        .checked_add(1)
+        .ok_or_else(|| MuzenError::internal("agent tool call usage overflow"))?;
+    grant_calls.insert(key, grant_used + 1);
+    Ok(ToolReservation::Execute)
+}
+
+async fn execute_tool(
+    inner: &Inner,
+    run_id: &RunId,
+    agent: &AgentSnapshot,
+    provider: Option<&ToolProvider>,
+    call: &ModelToolCall,
+) -> Result<Value, MuzenError> {
+    match provider {
+        Some(ToolProvider::McpHttp { .. }) => Err(MuzenError::unsupported(
+            "MCP HTTP tool execution is not supported by the local runtime",
+        )),
+        Some(ToolProvider::Builtin { .. }) => match call.name.as_str() {
+            "agent.spawn" => {
+                let mut arguments = call.arguments.clone();
+                let object = arguments.as_object_mut().ok_or_else(|| {
+                    MuzenError::invalid_input("agent.spawn arguments must be an object")
+                })?;
+                object.insert(
+                    "parentSessionId".to_owned(),
+                    Value::String(agent.session_id.as_str().to_owned()),
+                );
+                let command: SpawnCommand = serde_json::from_value(arguments).map_err(|error| {
+                    MuzenError::invalid_input(format!("invalid agent.spawn arguments: {error}"))
+                })?;
+                let child = inner.store.spawn_agent(run_id, command).await?;
+                inner.notify_snapshot(run_id).await;
+                Ok(json!(child))
+            }
+            "agent.message" => {
+                let command: SendCommand =
+                    serde_json::from_value(call.arguments.clone()).map_err(|error| {
+                        MuzenError::invalid_input(format!(
+                            "invalid agent.message arguments: {error}"
+                        ))
+                    })?;
+                let receipt = inner.store.accept_send(run_id, command).await?;
+                inner.notify_snapshot(run_id).await;
+                Ok(json!(receipt.sequence.get()))
+            }
+            _ => Err(MuzenError::unsupported(format!(
+                "built-in tool {} is not supported",
+                call.name
+            ))),
+        },
+        None => Err(MuzenError::permission_denied(format!(
+            "tool provider {} is not available",
+            call.provider
+        ))),
+    }
+}
+
+async fn append_tool_result(
+    inner: &Inner,
+    run_id: &RunId,
+    agent: &AgentSnapshot,
+    call: &ModelToolCall,
+    result: Result<&Value, &MuzenError>,
+) -> Result<(), MuzenError> {
+    let (event_type, envelope, error) = match result {
+        Ok(value) => (
+            "tool.completed",
+            json!({
+                "callId": call.id,
+                "provider": call.provider,
+                "tool": call.name,
+                "result": value,
+            }),
+            None,
+        ),
+        Err(error) => {
+            let value = muzen_error_value(error);
+            (
+                "tool.failed",
+                json!({
+                    "callId": call.id,
+                    "provider": call.provider,
+                    "tool": call.name,
+                    "error": value,
+                }),
+                Some(value),
+            )
+        }
+    };
+    let mut payload = tool_payload(call);
+    if let Some(error) = error {
+        payload.insert("error".to_owned(), error);
+    }
+    let text = serde_json::to_string(&envelope)
+        .map_err(|error| MuzenError::internal(format!("failed to encode tool result: {error}")))?;
+    append_events(
+        inner,
+        run_id,
+        vec![activity(event_type, agent, payload)],
+        vec![AgentMessage {
+            id: new_message_id(),
+            session_id: agent.session_id.clone(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::Text { text }],
+            created_at: timestamp()?,
+        }],
+    )
+    .await
+}
+
+fn tool_payload(call: &ModelToolCall) -> BTreeMap<String, Value> {
+    BTreeMap::from([
+        ("provider".to_owned(), json!(call.provider)),
+        ("tool".to_owned(), json!(call.name)),
+    ])
+}
+
+fn muzen_error_value(error: &MuzenError) -> Value {
+    serde_json::to_value(error).unwrap_or_else(|_| {
+        json!({
+            "code": "internal",
+            "message": "failed to encode tool error",
+            "retryable": false,
+        })
+    })
+}
+
+async fn deliver_pending_steers(
+    inner: &Inner,
+    run_id: &RunId,
+    session_id: &crate::agent_runtime::SessionId,
+) -> Result<(), MuzenError> {
+    loop {
+        match inner.store.pending_send(run_id, session_id).await? {
+            Some(pending) if pending.delivery == MessageDelivery::Steer => {
+                if inner
+                    .store
+                    .deliver_send(run_id, session_id, MessageDelivery::Steer)
+                    .await?
+                {
+                    inner.notify_snapshot(run_id).await;
+                }
+            }
+            _ => return Ok(()),
         }
     }
 }
@@ -579,22 +979,23 @@ async fn request_deadline(inner: &Inner, run_id: &RunId) {
 }
 
 async fn record_usage(
-    budget: &Mutex<BudgetState>,
+    budget: &RunBudget,
     usage: &Usage,
     limit: Option<u64>,
 ) -> Result<bool, MuzenError> {
-    let mut budget = budget.lock().await;
-    budget.usage = add_usage(&budget.usage, usage)?;
+    let mut state = budget.state.lock().await;
+    state.usage = add_usage(&state.usage, usage)?;
     if limit.is_some_and(|limit| {
-        budget
+        state
             .usage
             .input_tokens
-            .saturating_add(budget.usage.output_tokens)
+            .saturating_add(state.usage.output_tokens)
             >= limit
     }) {
-        budget.exhausted = true;
+        state.exhausted = true;
+        budget.exhausted.notify_waiters();
     }
-    Ok(budget.exhausted)
+    Ok(state.exhausted)
 }
 
 fn assistant_message(agent: &AgentSnapshot, turn: &ModelTurn) -> Result<AgentMessage, MuzenError> {

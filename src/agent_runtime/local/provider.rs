@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::agent_runtime::{AgentDefinition, AgentMessage, ContentBlock, ModelProfile, Usage};
+use crate::agent_runtime::{
+    AgentDefinition, AgentMessage, ContentBlock, ModelProfile, ToolProviderId, Usage,
+};
 
 #[derive(Debug, Clone)]
 pub struct ModelRequest {
@@ -13,11 +15,21 @@ pub struct ModelRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelStop {
     EndTurn,
+    ToolUse,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelToolCall {
+    pub id: String,
+    pub provider: ToolProviderId,
+    pub name: String,
+    pub arguments: Value,
 }
 
 #[derive(Debug, Clone)]
 pub struct ModelTurn {
     pub content: Vec<ContentBlock>,
+    pub tool_calls: Vec<ModelToolCall>,
     pub usage: Usage,
     pub stop: ModelStop,
 }

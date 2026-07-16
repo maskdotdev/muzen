@@ -21,7 +21,7 @@ pub use ids::{
 };
 pub use local::{
     LocalRuntimeConfig, LocalStoreConfig, ModelProvider, ModelProviderError, ModelRequest,
-    ModelStop, ModelTurn,
+    ModelStop, ModelToolCall, ModelTurn,
 };
 pub use runtime_types::*;
 pub use types::*;

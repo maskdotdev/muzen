@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,14 +12,15 @@ use serde_json::{json, Value};
 
 use super::{
     LocalRuntime, LocalRuntimeConfig, ModelProvider, ModelProviderError, ModelRequest, ModelStop,
-    ModelTurn,
+    ModelToolCall, ModelTurn,
 };
 use crate::agent_runtime::client::RuntimeTransport;
 use crate::agent_runtime::{
-    AgentEvent, AgentInput, AgentStatus, CancelOptions, ContentBlock, CreateOptions, ErrorCode,
-    EventOptions, ExistingSessionRoot, IdempotencyKey, MessageDelivery, MessagePage, MessageRole,
-    ModelProfileId, Muzen, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId, SessionSpec,
-    SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, Usage,
+    AgentEvent, AgentInput, AgentName, AgentStatus, CancelOptions, ContentBlock, CreateOptions,
+    ErrorCode, EventOptions, ExistingSessionRoot, IdempotencyKey, MessageDelivery, MessagePage,
+    MessageRole, ModelProfileId, Muzen, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId,
+    SessionSpec, SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus,
+    ToolEffect, ToolGrant, ToolProviderId, Usage,
 };
 
 enum Script {
@@ -35,6 +36,7 @@ enum Script {
 
 struct ScriptedProvider {
     scripts: Mutex<VecDeque<Script>>,
+    named_scripts: Mutex<BTreeMap<String, VecDeque<Script>>>,
     requests: Mutex<Vec<ModelRequest>>,
     active: AtomicUsize,
     max_active: AtomicUsize,
@@ -44,10 +46,20 @@ impl ScriptedProvider {
     fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
         Arc::new(Self {
             scripts: Mutex::new(scripts.into_iter().collect()),
+            named_scripts: Mutex::new(BTreeMap::new()),
             requests: Mutex::new(Vec::new()),
             active: AtomicUsize::new(0),
             max_active: AtomicUsize::new(0),
         })
+    }
+
+    fn named(scripts: impl IntoIterator<Item = (String, Vec<Script>)>) -> Arc<Self> {
+        let provider = Self::new([]);
+        *provider.named_scripts.lock() = scripts
+            .into_iter()
+            .map(|(name, scripts)| (name, scripts.into()))
+            .collect();
+        provider
     }
 
     fn max_active(&self) -> usize {
@@ -70,11 +82,14 @@ impl Drop for ActiveCall<'_> {
 #[async_trait]
 impl ModelProvider for ScriptedProvider {
     async fn complete(&self, request: ModelRequest) -> Result<ModelTurn, ModelProviderError> {
+        let agent_name = request.agent.name.as_str().to_owned();
         self.requests.lock().push(request);
         let script = self
-            .scripts
+            .named_scripts
             .lock()
-            .pop_front()
+            .get_mut(&agent_name)
+            .and_then(VecDeque::pop_front)
+            .or_else(|| self.scripts.lock().pop_front())
             .expect("scripted provider turn");
         let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
         self.max_active.fetch_max(active, Ordering::AcqRel);
@@ -128,6 +143,7 @@ fn turn(text: &str, input_tokens: u64, output_tokens: u64) -> Script {
             content: vec![ContentBlock::Text {
                 text: text.to_owned(),
             }],
+            tool_calls: Vec::new(),
             usage: Usage {
                 input_tokens,
                 output_tokens,
@@ -145,6 +161,7 @@ fn delayed_turn(delay: Duration, text: &str) -> Script {
             content: vec![ContentBlock::Text {
                 text: text.to_owned(),
             }],
+            tool_calls: Vec::new(),
             usage: Usage {
                 input_tokens: 2,
                 output_tokens: 1,
@@ -153,6 +170,40 @@ fn delayed_turn(delay: Duration, text: &str) -> Script {
             stop: ModelStop::EndTurn,
         },
     }
+}
+
+fn tool_turn(calls: Vec<ModelToolCall>) -> Script {
+    Script::Turn {
+        delay: Duration::ZERO,
+        turn: ModelTurn {
+            content: Vec::new(),
+            tool_calls: calls,
+            usage: Usage {
+                input_tokens: 1,
+                output_tokens: 1,
+                tool_calls: 0,
+            },
+            stop: ModelStop::ToolUse,
+        },
+    }
+}
+
+fn tool_call(id: &str, provider: &str, name: &str, arguments: Value) -> ModelToolCall {
+    ModelToolCall {
+        id: id.to_owned(),
+        provider: ToolProviderId::new(provider).expect("provider id"),
+        name: name.to_owned(),
+        arguments,
+    }
+}
+
+fn grant(spec: &mut SessionSpec, provider: &str, tool: &str, effect: Option<ToolEffect>) {
+    spec.agent.tools.push(ToolGrant {
+        provider: ToolProviderId::new(provider).expect("provider id"),
+        tool: tool.to_owned(),
+        effects: effect.into_iter().collect(),
+        max_calls: None,
+    });
 }
 
 async fn memory_runtime(provider: Arc<ScriptedProvider>) -> Muzen {
@@ -843,6 +894,519 @@ async fn send_to_terminal_agent_in_live_run_conflicts() {
     run.cancel(CancelOptions::default()).await.expect("cancel");
     let result = run.wait().await.expect("partial result");
     assert_eq!(result.status, TerminalRunStatus::Partial);
+}
+
+#[tokio::test]
+async fn model_tool_spawn_creates_and_runs_path_ordered_child() {
+    let mut root_spec = session_spec();
+    grant(
+        &mut root_spec,
+        "builtin",
+        "agent.spawn",
+        Some(ToolEffect::AgentSpawn),
+    );
+    let mut child_agent = root_spec.agent.clone();
+    child_agent.name = AgentName::new("child").expect("agent name");
+    let provider = ScriptedProvider::named([
+        (
+            "builder".to_owned(),
+            vec![
+                tool_turn(vec![tool_call(
+                    "spawn-1",
+                    "builtin",
+                    "agent.spawn",
+                    json!({ "agent": child_agent, "input": input("child input") }),
+                )]),
+                turn("parent done", 1, 1),
+            ],
+        ),
+        ("child".to_owned(), vec![turn("child done", 1, 1)]),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let session = muzen
+        .create_session(root_spec, CreateOptions::default())
+        .await
+        .expect("root session");
+    let mut run_limits = limits();
+    run_limits.max_depth = 1;
+    run_limits.max_total_tool_calls = None;
+    let run = session
+        .run(
+            input("root input"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+    let result = run.wait().await.expect("result");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    assert_eq!(result.outputs.len(), 2);
+    assert_eq!(result.outputs[0].path, vec![0]);
+    assert_eq!(result.outputs[1].path, vec![0, 0]);
+    assert_eq!(
+        result.outputs[1].session_id,
+        run.snapshot().await.expect("snapshot").agents[1].session_id
+    );
+    let events = all_events(&run).await;
+    for event_type in [
+        "tool.started",
+        "tool.completed",
+        "agent.created",
+        "agent.started",
+        "agent.completed",
+    ] {
+        assert!(events.iter().any(|event| event.event_type == event_type));
+    }
+    let requests = provider.requests();
+    let parent_second = requests
+        .iter()
+        .find(|request| {
+            request.agent.name.as_str() == "builder"
+                && request
+                    .transcript
+                    .iter()
+                    .any(|message| message.role == MessageRole::Tool)
+        })
+        .expect("parent second request");
+    let tool_message = parent_second
+        .transcript
+        .iter()
+        .find(|message| message.role == MessageRole::Tool)
+        .expect("tool result");
+    let ContentBlock::Text { text } = &tool_message.content[0] else {
+        panic!("tool result text")
+    };
+    let envelope: Value = serde_json::from_str(text).expect("tool envelope");
+    assert_eq!(envelope["callId"], "spawn-1");
+    assert!(envelope["result"].is_string());
+}
+
+#[tokio::test]
+async fn model_tool_message_follow_up_extends_target() {
+    let provider = ScriptedProvider::new([]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let mut sender_spec = session_spec();
+    sender_spec.agent.name = AgentName::new("sender").expect("name");
+    grant(
+        &mut sender_spec,
+        "builtin",
+        "agent.message",
+        Some(ToolEffect::AgentMessage),
+    );
+    let mut target_spec = session_spec();
+    target_spec.agent.name = AgentName::new("target").expect("name");
+    let sender = muzen
+        .create_session(sender_spec, CreateOptions::default())
+        .await
+        .expect("sender");
+    let target = muzen
+        .create_session(target_spec, CreateOptions::default())
+        .await
+        .expect("target");
+    *provider.named_scripts.lock() = BTreeMap::from([
+        (
+            "sender".to_owned(),
+            vec![
+                tool_turn(vec![tool_call(
+                    "message-1",
+                    "builtin",
+                    "agent.message",
+                    json!({
+                        "sessionId": target.id(),
+                        "input": input("from sender"),
+                        "delivery": "follow_up"
+                    }),
+                )]),
+                turn("sender done", 1, 1),
+            ]
+            .into(),
+        ),
+        (
+            "target".to_owned(),
+            vec![
+                delayed_turn(Duration::from_millis(30), "target first"),
+                turn("target second", 1, 1),
+            ]
+            .into(),
+        ),
+    ]);
+    let mut run_limits = limits();
+    run_limits.max_total_tool_calls = None;
+    let run = start_roots(
+        &muzen,
+        &[sender.id().clone(), target.id().clone()],
+        run_limits,
+    )
+    .await;
+    assert_eq!(
+        run.wait().await.expect("result").status,
+        TerminalRunStatus::Completed
+    );
+    let messages = target
+        .messages(MessagePage::default())
+        .await
+        .expect("target messages");
+    assert!(messages
+        .items
+        .iter()
+        .any(|message| message.content == input("from sender").content));
+    assert_eq!(
+        provider
+            .requests()
+            .iter()
+            .filter(|request| request.agent.name.as_str() == "target")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn tool_authority_and_unsupported_failures_return_results_and_continue() {
+    for case in ["missing_grant", "missing_effect", "mcp"] {
+        let provider = ScriptedProvider::new([]);
+        let muzen = memory_runtime(Arc::clone(&provider)).await;
+        let mut spec = session_spec();
+        let (provider_id, tool_name, arguments) = match case {
+            "missing_grant" => ("builtin", "agent.absent", json!({})),
+            "missing_effect" => {
+                grant(&mut spec, "builtin", "agent.message", None);
+                ("builtin", "agent.message", Value::Null)
+            }
+            "mcp" => ("mcp", "issues.search", json!({ "query": "x" })),
+            _ => unreachable!(),
+        };
+        let session = muzen
+            .create_session(spec, CreateOptions::default())
+            .await
+            .expect("session");
+        *provider.scripts.lock() = vec![
+            tool_turn(vec![tool_call(
+                "authority-1",
+                provider_id,
+                tool_name,
+                arguments,
+            )]),
+            turn("continued", 1, 1),
+        ]
+        .into();
+        let mut run_limits = limits();
+        run_limits.max_total_tool_calls = None;
+        let run = session
+            .run(
+                input("go"),
+                SingleRunOptions {
+                    limits: run_limits,
+                    idempotency_key: None,
+                    metadata: Default::default(),
+                },
+            )
+            .await
+            .expect("run");
+        let result = run.wait().await.expect("result");
+        assert_eq!(result.status, TerminalRunStatus::Completed, "{case}");
+        assert_eq!(result.usage.tool_calls, u64::from(case == "mcp"), "{case}");
+        let events = all_events(&run).await;
+        assert!(events.iter().any(|event| event.event_type == "tool.failed"));
+        let requests = provider.requests();
+        assert!(requests[1]
+            .transcript
+            .iter()
+            .any(|message| message.role == MessageRole::Tool));
+    }
+}
+
+#[tokio::test]
+async fn tool_grant_and_agent_budgets_fail_the_exceeding_call() {
+    for grant_limit in [true, false] {
+        let provider = ScriptedProvider::new([]);
+        let muzen = memory_runtime(Arc::clone(&provider)).await;
+        let mut spec = session_spec();
+        grant(
+            &mut spec,
+            "builtin",
+            "agent.message",
+            Some(ToolEffect::AgentMessage),
+        );
+        let tool_grant = spec
+            .agent
+            .tools
+            .iter_mut()
+            .find(|grant| grant.tool == "agent.message")
+            .expect("grant");
+        if grant_limit {
+            tool_grant.max_calls = NonZeroU32::new(1);
+        } else {
+            spec.agent.budget.as_mut().expect("budget").max_tool_calls = 1;
+        }
+        let session = muzen
+            .create_session(spec, CreateOptions::default())
+            .await
+            .expect("session");
+        let call = |id: &str| {
+            tool_call(
+                id,
+                "builtin",
+                "agent.message",
+                json!({
+                    "sessionId": session.id(),
+                    "input": input("again"),
+                    "delivery": "follow_up"
+                }),
+            )
+        };
+        *provider.scripts.lock() = vec![tool_turn(vec![call("one"), call("two")])].into();
+        let mut run_limits = limits();
+        run_limits.max_total_tool_calls = None;
+        let result = session
+            .run(
+                input("go"),
+                SingleRunOptions {
+                    limits: run_limits,
+                    idempotency_key: None,
+                    metadata: Default::default(),
+                },
+            )
+            .await
+            .expect("run")
+            .wait()
+            .await
+            .expect("result");
+        assert_eq!(
+            result.outputs[0].status,
+            TerminalAgentStatus::BudgetExhausted
+        );
+        assert_eq!(result.usage.tool_calls, 1);
+    }
+}
+
+#[tokio::test]
+async fn run_tool_budget_exhaustion_marks_every_live_agent() {
+    let provider = ScriptedProvider::new([]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let mut first_spec = session_spec();
+    first_spec.agent.name = AgentName::new("first").expect("name");
+    grant(
+        &mut first_spec,
+        "builtin",
+        "agent.message",
+        Some(ToolEffect::AgentMessage),
+    );
+    let mut second_spec = session_spec();
+    second_spec.agent.name = AgentName::new("second").expect("name");
+    let first = muzen
+        .create_session(first_spec, CreateOptions::default())
+        .await
+        .expect("first");
+    let second = muzen
+        .create_session(second_spec, CreateOptions::default())
+        .await
+        .expect("second");
+    let call = |id: &str| {
+        tool_call(
+            id,
+            "builtin",
+            "agent.message",
+            json!({
+                "sessionId": second.id(),
+                "input": input("hold"),
+                "delivery": "follow_up"
+            }),
+        )
+    };
+    *provider.named_scripts.lock() = BTreeMap::from([
+        (
+            "first".to_owned(),
+            vec![tool_turn(vec![call("one"), call("two")])].into(),
+        ),
+        (
+            "second".to_owned(),
+            vec![delayed_turn(Duration::from_secs(5), "late")].into(),
+        ),
+    ]);
+    let mut run_limits = limits();
+    run_limits.max_total_tool_calls = Some(1);
+    let result = start_roots(
+        &muzen,
+        &[first.id().clone(), second.id().clone()],
+        run_limits,
+    )
+    .await
+    .wait()
+    .await
+    .expect("result");
+    assert_eq!(result.status, TerminalRunStatus::Failed);
+    assert!(result
+        .outputs
+        .iter()
+        .all(|output| output.status == TerminalAgentStatus::BudgetExhausted));
+    assert_eq!(result.usage.tool_calls, 1);
+}
+
+#[tokio::test]
+async fn self_steer_from_tool_batch_precedes_next_model_request() {
+    let provider = ScriptedProvider::new([]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let mut spec = session_spec();
+    grant(
+        &mut spec,
+        "builtin",
+        "agent.message",
+        Some(ToolEffect::AgentMessage),
+    );
+    let session = muzen
+        .create_session(spec, CreateOptions::default())
+        .await
+        .expect("session");
+    *provider.scripts.lock() = vec![
+        tool_turn(vec![tool_call(
+            "steer-1",
+            "builtin",
+            "agent.message",
+            json!({
+                "sessionId": session.id(),
+                "input": input("steered in batch"),
+                "delivery": "steer"
+            }),
+        )]),
+        turn("done", 1, 1),
+    ]
+    .into();
+    let mut run_limits = limits();
+    run_limits.max_total_tool_calls = None;
+    session
+        .run(
+            input("go"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run")
+        .wait()
+        .await
+        .expect("result");
+    let requests = provider.requests();
+    let transcript = &requests[1].transcript;
+    let tool_index = transcript
+        .iter()
+        .position(|message| message.role == MessageRole::Tool)
+        .expect("tool result");
+    let steer_index = transcript
+        .iter()
+        .position(|message| message.content == input("steered in batch").content)
+        .expect("steer");
+    assert!(tool_index < steer_index);
+}
+
+#[tokio::test]
+async fn cancel_during_tool_batch_stops_durable_tool_events_at_cancel_boundary() {
+    let provider = ScriptedProvider::new([]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let mut spec = session_spec();
+    grant(
+        &mut spec,
+        "builtin",
+        "agent.message",
+        Some(ToolEffect::AgentMessage),
+    );
+    let session = muzen
+        .create_session(spec, CreateOptions::default())
+        .await
+        .expect("session");
+    let call = |id: &str| {
+        tool_call(
+            id,
+            "builtin",
+            "agent.message",
+            json!({
+                "sessionId": session.id(),
+                "input": input("later"),
+                "delivery": "follow_up"
+            }),
+        )
+    };
+    *provider.scripts.lock() = vec![tool_turn(vec![call("first"), call("second")])].into();
+    let mut run_limits = limits();
+    run_limits.max_total_tool_calls = None;
+    let run = session
+        .run(
+            input("go"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+    wait_for_event(&run, "tool.completed").await;
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    let result = run.wait().await.expect("result");
+    assert_eq!(result.outputs[0].status, TerminalAgentStatus::Cancelled);
+    let events = all_events(&run).await;
+    let cancel_sequence = events
+        .iter()
+        .find(|event| event.event_type == "run.cancel_requested")
+        .expect("cancel event")
+        .sequence;
+    assert!(!events.iter().any(|event| {
+        event.sequence > cancel_sequence && event.event_type.starts_with("tool.")
+    }));
+}
+
+#[tokio::test]
+async fn sqlite_reopen_preserves_tool_result_transcript() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("tool-runtime.db");
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![tool_call(
+            "mcp-1",
+            "mcp",
+            "issues.search",
+            json!({ "query": "durable" }),
+        )]),
+        turn("done", 1, 1),
+    ]);
+    let muzen = sqlite_runtime(&path, provider).await;
+    let session = muzen
+        .create_session(session_spec(), CreateOptions::default())
+        .await
+        .expect("session");
+    let session_id = session.id().clone();
+    let mut run_limits = limits();
+    run_limits.max_total_tool_calls = None;
+    session
+        .run(
+            input("persist tools"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run")
+        .wait()
+        .await
+        .expect("result");
+    muzen.close().await.expect("close");
+    let reopened = sqlite_runtime(&path, ScriptedProvider::new([])).await;
+    let messages = reopened
+        .get_session(&session_id)
+        .await
+        .expect("session")
+        .messages(MessagePage::default())
+        .await
+        .expect("messages");
+    assert!(messages
+        .items
+        .iter()
+        .any(|message| message.role == MessageRole::Tool));
 }
 
 #[tokio::test]
