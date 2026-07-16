@@ -6,6 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{HeaderMap, HeaderValue as AxumHeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
+use base64::Engine as _;
 use futures::{StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -17,12 +24,114 @@ use super::{
 use crate::agent_runtime::client::RuntimeTransport;
 use crate::agent_runtime::{
     AgentEvent, AgentInput, AgentName, AgentStatus, CancelOptions, ContentBlock, CreateOptions,
-    ErrorCode, EventOptions, ExecutionErrorCode, ExistingSessionRoot, IdempotencyKey,
-    MessageDelivery, MessagePage, MessageRole, ModelProfileId, Muzen, OutputContract, Run,
-    RunLimits, RunRoot, RunSpec, SendCommand, SessionId, SessionSpec, SingleRunOptions,
-    SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProviderId,
-    Usage,
+    ErrorCode, EventOptions, ExecutionErrorCode, ExistingSessionRoot, HeaderSecret, HeaderValue,
+    IdempotencyKey, MessageDelivery, MessagePage, MessageRole, ModelProfileId, Muzen,
+    OutputContract, PutSecretInput, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId,
+    SessionSpec, SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus,
+    ToolEffect, ToolGrant, ToolProvider, ToolProviderId, Usage,
 };
+
+struct FakeMcpState {
+    requests: Mutex<Vec<(HeaderMap, Value)>>,
+    call_sse: bool,
+    call_error: bool,
+    call_status: StatusCode,
+}
+
+struct FakeMcpServer {
+    url: String,
+    state: Arc<FakeMcpState>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for FakeMcpServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl FakeMcpServer {
+    async fn start(call_sse: bool, call_error: bool, call_status: StatusCode) -> Self {
+        let state = Arc::new(FakeMcpState {
+            requests: Mutex::new(Vec::new()),
+            call_sse,
+            call_error,
+            call_status,
+        });
+        let app = Router::new()
+            .route("/mcp", post(fake_mcp_handler))
+            .with_state(Arc::clone(&state));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("MCP listener");
+        let address = listener.local_addr().expect("MCP address");
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("fake MCP server");
+        });
+        Self {
+            url: format!("http://{address}/mcp"),
+            state,
+            task,
+        }
+    }
+}
+
+async fn fake_mcp_handler(
+    State(state): State<Arc<FakeMcpState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    state.requests.lock().push((headers, body.clone()));
+    let id = body.get("id").cloned().unwrap_or(Value::Null);
+    match body["method"].as_str() {
+        Some("initialize") => {
+            let mut response = Json(json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": { "protocolVersion": "2025-03-26", "capabilities": {},
+                    "serverInfo": { "name": "fake", "version": "1" } }
+            }))
+            .into_response();
+            response.headers_mut().insert(
+                "mcp-session-id",
+                AxumHeaderValue::from_static("session-test"),
+            );
+            response
+        }
+        Some("notifications/initialized") => StatusCode::ACCEPTED.into_response(),
+        Some("tools/list") => Json(json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": { "tools": [{
+                "name": "issues_search", "description": "Search issues",
+                "inputSchema": {
+                    "type": "object", "properties": { "query": { "type": "string" } },
+                    "required": ["query"]
+                }
+            }] }
+        }))
+        .into_response(),
+        Some("tools/call") if !state.call_status.is_success() => {
+            (state.call_status, "call failed").into_response()
+        }
+        Some("tools/call") => {
+            let result = if state.call_error {
+                json!({ "content": [{ "type": "text", "text": "remote tool failed" }], "isError": true })
+            } else {
+                json!({ "content": [{ "type": "text", "text": "found issue" }] })
+            };
+            let message = json!({ "jsonrpc": "2.0", "id": id, "result": result });
+            if state.call_sse {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "text/event-stream")
+                    .body(Body::from(format!("event: message\ndata: {message}\n\n")))
+                    .expect("SSE response")
+            } else {
+                Json(message).into_response()
+            }
+        }
+        _ => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
 
 enum Script {
     Turn {
@@ -117,6 +226,9 @@ fn session_spec() -> SessionSpec {
     let mut spec: SessionSpec =
         serde_json::from_value(fixture()["sessionSpec"].clone()).expect("session fixture");
     spec.agent.output = None;
+    spec.agent
+        .tools
+        .retain(|grant| grant.provider.as_str() != "mcp");
     spec
 }
 
@@ -279,6 +391,294 @@ async fn wait_for_event(run: &Run, event_type: &str) -> AgentEvent {
         }
     }
     panic!("event stream ended before {event_type}")
+}
+
+async fn mcp_session(
+    muzen: &Muzen,
+    url: String,
+    secret: Option<crate::agent_runtime::SecretRef>,
+) -> crate::agent_runtime::AgentSession {
+    let mut spec = session_spec();
+    spec.agent.tools.clear();
+    spec.agent.tools.push(ToolGrant {
+        provider: ToolProviderId::new("mcp").expect("provider"),
+        tool: "issues_search".to_owned(),
+        effects: vec![ToolEffect::NetworkRead],
+        max_calls: NonZeroU32::new(1),
+    });
+    spec.tool_providers.clear();
+    let mut headers = BTreeMap::from([(
+        "X-Tenant".to_owned(),
+        HeaderValue::Literal("tenant-a".to_owned()),
+    )]);
+    if let Some(secret) = secret {
+        headers.insert(
+            "Authorization".to_owned(),
+            HeaderValue::Secret(HeaderSecret { secret }),
+        );
+    }
+    spec.tool_providers.push(ToolProvider::McpHttp {
+        id: ToolProviderId::new("mcp").expect("provider"),
+        url,
+        credential: None,
+        headers,
+    });
+    muzen
+        .create_session(spec, CreateOptions::default())
+        .await
+        .expect("MCP session")
+}
+
+fn mcp_limits() -> RunLimits {
+    let mut value = limits();
+    value.max_total_tool_calls = Some(2);
+    value
+}
+
+#[tokio::test]
+async fn mcp_sse_tool_call_resolves_headers_session_and_result() {
+    let fake = FakeMcpServer::start(true, false, StatusCode::OK).await;
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![
+            tool_call(
+                "mcp-1",
+                "mcp",
+                "issues_search",
+                json!({ "query": "runtime" }),
+            ),
+            tool_call(
+                "mcp-2",
+                "mcp",
+                "issues_search",
+                json!({ "query": "over limit" }),
+            ),
+        ]),
+        turn("done", 2, 1),
+    ]);
+    let muzen = Muzen::local(LocalRuntimeConfig::memory(provider.clone()).with_loopback_http(true))
+        .await
+        .expect("runtime");
+    let secret = muzen
+        .put_secret(PutSecretInput {
+            value: base64::engine::general_purpose::STANDARD.encode("Bearer test-token"),
+            idempotency_key: None,
+        })
+        .await
+        .expect("secret");
+    let session = mcp_session(&muzen, fake.url.clone(), Some(secret)).await;
+    let run = session
+        .run(
+            input("search"),
+            SingleRunOptions {
+                limits: mcp_limits(),
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+    let result = run.wait().await.expect("result");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    assert_eq!(result.usage.tool_calls, 1);
+
+    let model_requests = provider.requests();
+    assert_eq!(model_requests[0].mcp_tools[0].name, "issues_search");
+    assert_eq!(
+        model_requests[0].mcp_tools[0].input_schema["required"],
+        json!(["query"])
+    );
+    let transcript = &model_requests[1].transcript;
+    let tool_message = transcript
+        .iter()
+        .find(|message| message.role == MessageRole::Tool)
+        .expect("tool result");
+    assert!(serde_json::to_string(&tool_message.content)
+        .expect("tool message")
+        .contains("found issue"));
+
+    let requests = fake.state.requests.lock();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(_, body)| body["method"] == "initialize")
+            .count(),
+        1
+    );
+    let (headers, call) = requests
+        .iter()
+        .find(|(_, body)| body["method"] == "tools/call")
+        .expect("tools/call");
+    assert_eq!(call["params"]["arguments"], json!({ "query": "runtime" }));
+    assert_eq!(headers["authorization"], "Bearer test-token");
+    assert_eq!(headers["x-tenant"], "tenant-a");
+    assert_eq!(headers["mcp-session-id"], "session-test");
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(_, body)| body["method"] == "tools/call")
+            .count(),
+        1,
+        "grant maxCalls must reject the second call before dispatch"
+    );
+}
+
+#[tokio::test]
+async fn mcp_is_error_and_http_failure_continue_with_tool_errors() {
+    for (is_error, status, retryable) in [
+        (true, StatusCode::OK, false),
+        (false, StatusCode::INTERNAL_SERVER_ERROR, true),
+    ] {
+        let fake = FakeMcpServer::start(false, is_error, status).await;
+        let provider = ScriptedProvider::new([
+            tool_turn(vec![tool_call(
+                "mcp-err",
+                "mcp",
+                "issues_search",
+                json!({}),
+            )]),
+            turn("continued", 1, 1),
+        ]);
+        let muzen =
+            Muzen::local(LocalRuntimeConfig::memory(provider.clone()).with_loopback_http(true))
+                .await
+                .expect("runtime");
+        let session = mcp_session(&muzen, fake.url.clone(), None).await;
+        let run = session
+            .run(
+                input("search"),
+                SingleRunOptions {
+                    limits: mcp_limits(),
+                    idempotency_key: None,
+                    metadata: Default::default(),
+                },
+            )
+            .await
+            .expect("run");
+        let result = run.wait().await.expect("result");
+        assert_eq!(result.status, TerminalRunStatus::Completed);
+        assert_eq!(result.usage.tool_calls, 1);
+        let events = all_events(&run).await;
+        let failed = events
+            .into_iter()
+            .find(|event| event.event_type == "tool.failed")
+            .expect("tool.failed");
+        assert_eq!(failed.payload["error"]["code"], "tool_error");
+        assert_eq!(failed.payload["error"]["retryable"], retryable);
+    }
+}
+
+#[tokio::test]
+async fn mcp_missing_secret_and_loopback_policy_fail_without_stopping_agent() {
+    for missing_secret in [true, false] {
+        let fake = FakeMcpServer::start(false, false, StatusCode::OK).await;
+        let provider = ScriptedProvider::new([
+            tool_turn(vec![tool_call(
+                "mcp-policy",
+                "mcp",
+                "issues_search",
+                json!({}),
+            )]),
+            turn("continued", 1, 1),
+        ]);
+        let muzen = Muzen::local(
+            LocalRuntimeConfig::memory(provider.clone()).with_loopback_http(missing_secret),
+        )
+        .await
+        .expect("runtime");
+        let unavailable =
+            crate::agent_runtime::SecretRef::new("secret_missing").expect("secret ref");
+        let session = mcp_session(
+            &muzen,
+            fake.url.clone(),
+            missing_secret.then_some(unavailable),
+        )
+        .await;
+        let run = session
+            .run(
+                input("search"),
+                SingleRunOptions {
+                    limits: mcp_limits(),
+                    idempotency_key: None,
+                    metadata: Default::default(),
+                },
+            )
+            .await
+            .expect("run");
+        assert_eq!(
+            run.wait().await.expect("result").status,
+            TerminalRunStatus::Completed
+        );
+        let events = all_events(&run).await;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "trace")
+                .count(),
+            1
+        );
+        let failed = events
+            .into_iter()
+            .find(|event| event.event_type == "tool.failed")
+            .expect("tool.failed");
+        assert_eq!(
+            failed.payload["error"]["code"],
+            if missing_secret {
+                "secretUnavailable"
+            } else {
+                "tool_error"
+            }
+        );
+        assert_eq!(failed.payload["error"]["retryable"], false);
+    }
+}
+
+#[tokio::test]
+async fn mcp_server_down_traces_discovery_once_and_call_is_retryable() {
+    let fake = FakeMcpServer::start(false, false, StatusCode::OK).await;
+    let url = fake.url.clone();
+    drop(fake);
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![tool_call(
+            "mcp-down",
+            "mcp",
+            "issues_search",
+            json!({}),
+        )]),
+        turn("continued", 1, 1),
+    ]);
+    let muzen = Muzen::local(LocalRuntimeConfig::memory(provider.clone()).with_loopback_http(true))
+        .await
+        .expect("runtime");
+    let session = mcp_session(&muzen, url, None).await;
+    let run = session
+        .run(
+            input("search"),
+            SingleRunOptions {
+                limits: mcp_limits(),
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+    assert_eq!(
+        run.wait().await.expect("result").status,
+        TerminalRunStatus::Completed
+    );
+    let events = all_events(&run).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.event_type == "trace")
+            .count(),
+        1
+    );
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == "tool.failed")
+        .expect("tool.failed");
+    assert_eq!(failed.payload["error"]["code"], "tool_error");
+    assert_eq!(failed.payload["error"]["retryable"], true);
 }
 
 #[tokio::test]
@@ -1235,7 +1635,15 @@ async fn tool_authority_and_unsupported_failures_return_results_and_continue() {
                 grant(&mut spec, "builtin", "agent.message", None);
                 ("builtin", "agent.message", Value::Null)
             }
-            "mcp" => ("mcp", "issues.search", json!({ "query": "x" })),
+            "mcp" => {
+                grant(
+                    &mut spec,
+                    "mcp",
+                    "issues.search",
+                    Some(ToolEffect::NetworkRead),
+                );
+                ("mcp", "issues.search", json!({ "query": "x" }))
+            }
             _ => unreachable!(),
         };
         let session = muzen
@@ -1563,8 +1971,15 @@ async fn sqlite_reopen_preserves_tool_result_transcript() {
         turn("done", 1, 1),
     ]);
     let muzen = sqlite_runtime(&path, provider).await;
+    let mut spec = session_spec();
+    grant(
+        &mut spec,
+        "mcp",
+        "issues.search",
+        Some(ToolEffect::NetworkRead),
+    );
     let session = muzen
-        .create_session(session_spec(), CreateOptions::default())
+        .create_session(spec, CreateOptions::default())
         .await
         .expect("session");
     let session_id = session.id().clone();

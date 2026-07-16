@@ -1,5 +1,6 @@
 mod credentials;
 mod engine;
+mod mcp;
 mod provider;
 mod provider_router;
 
@@ -28,7 +29,7 @@ use super::{
     AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
     CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage, ModelProtocol,
     MuzenError, Page, PutSecretInput, RunId, RunResult, RunSnapshot, RunSpec, SecretRef,
-    SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
+    SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand, ToolProviderKind,
 };
 
 pub use credentials::{CredentialResolver, ResolvedSecret};
@@ -110,6 +111,8 @@ struct Inner {
     accepting: AtomicBool,
     close_timeout: Duration,
     secrets: Arc<credentials::LocalSecretStore>,
+    mcp: mcp::McpToolClient,
+    mcp_trace_failures: Mutex<BTreeSet<(RunId, super::ToolProviderId)>>,
 }
 
 impl LocalRuntime {
@@ -119,6 +122,7 @@ impl LocalRuntime {
             LocalStoreConfig::Sqlite(path) => Arc::new(SqliteAgentStore::connect(path).await?),
         };
         let secrets = Arc::new(credentials::LocalSecretStore::default());
+        let mcp = mcp::McpToolClient::new(secrets.clone(), config.allow_loopback_http)?;
         let provider = match config.provider {
             Some(provider) => provider,
             None => Arc::new(provider_router::ProviderRouter::new(
@@ -136,6 +140,8 @@ impl LocalRuntime {
                 accepting: AtomicBool::new(true),
                 close_timeout: config.close_timeout,
                 secrets,
+                mcp,
+                mcp_trace_failures: Mutex::new(BTreeSet::new()),
             }),
         })
     }
@@ -200,6 +206,9 @@ impl Inner {
         self.tasks.lock().remove(run_id);
         self.scheduled.lock().remove(run_id);
         self.notifications.lock().remove(run_id);
+        self.mcp_trace_failures
+            .lock()
+            .retain(|(candidate, _)| candidate != run_id);
     }
 }
 
@@ -218,7 +227,7 @@ impl RuntimeTransport for LocalRuntime {
         Ok(Capabilities {
             protocol_version: "1".to_owned(),
             workspace_bases: Vec::new(),
-            tool_provider_kinds: Vec::new(),
+            tool_provider_kinds: vec![ToolProviderKind::Builtin, ToolProviderKind::McpHttp],
             model_protocols: vec![
                 ModelProtocol::Responses,
                 ModelProtocol::ChatCompletions,

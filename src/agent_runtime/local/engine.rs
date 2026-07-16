@@ -238,7 +238,7 @@ async fn run_agent(
             .await;
             return;
         }
-        let request = match model_request(&inner, &agent).await {
+        let request = match model_request(&inner, &run_id, &agent).await {
             Ok(request) => request,
             Err(error) => {
                 finish_agent(
@@ -683,7 +683,16 @@ async fn execute_tool_batch(
         if observe_cancel(inner, run_id, deadline).await {
             return ToolBatchOutcome::Cancelled;
         }
-        if let Err(error) = append_tool_result(inner, run_id, agent, call, result.as_ref()).await {
+        let appended = match result.as_ref() {
+            Ok(value) => append_tool_result(inner, run_id, agent, call, Ok(value)).await,
+            Err(ToolExecutionFailure::Runtime(error)) => {
+                append_tool_result(inner, run_id, agent, call, Err(error)).await
+            }
+            Err(ToolExecutionFailure::Execution(error)) => {
+                append_execution_tool_error(inner, run_id, agent, call, error).await
+            }
+        };
+        if let Err(error) = appended {
             return ToolBatchOutcome::Failed(error.message().to_owned());
         }
         tokio::task::yield_now().await;
@@ -744,47 +753,74 @@ async fn execute_tool(
     agent: &AgentSnapshot,
     provider: Option<&ToolProvider>,
     call: &ModelToolCall,
-) -> Result<Value, MuzenError> {
+) -> Result<Value, ToolExecutionFailure> {
     match provider {
-        Some(ToolProvider::McpHttp { .. }) => Err(MuzenError::unsupported(
-            "MCP HTTP tool execution is not supported by the local runtime",
-        )),
+        Some(provider @ ToolProvider::McpHttp { .. }) => inner
+            .mcp
+            .call(
+                &agent.session_id,
+                provider,
+                &call.name,
+                call.arguments.clone(),
+            )
+            .await
+            .map_err(ToolExecutionFailure::Execution),
         Some(ToolProvider::Builtin { .. }) => match call.name.as_str() {
             "agent.spawn" => {
                 let mut arguments = normalize_builtin_arguments(&call.name, call.arguments.clone());
                 let object = arguments.as_object_mut().ok_or_else(|| {
-                    MuzenError::invalid_input("agent.spawn arguments must be an object")
+                    ToolExecutionFailure::Runtime(MuzenError::invalid_input(
+                        "agent.spawn arguments must be an object",
+                    ))
                 })?;
                 object.insert(
                     "parentSessionId".to_owned(),
                     Value::String(agent.session_id.as_str().to_owned()),
                 );
                 let command: SpawnCommand = serde_json::from_value(arguments).map_err(|error| {
-                    MuzenError::invalid_input(format!("invalid agent.spawn arguments: {error}"))
+                    ToolExecutionFailure::Runtime(MuzenError::invalid_input(format!(
+                        "invalid agent.spawn arguments: {error}"
+                    )))
                 })?;
-                let child = inner.store.spawn_agent(run_id, command).await?;
+                let child = inner
+                    .store
+                    .spawn_agent(run_id, command)
+                    .await
+                    .map_err(ToolExecutionFailure::Runtime)?;
                 inner.notify_snapshot(run_id).await;
                 Ok(json!(child))
             }
             "agent.message" => {
                 let arguments = normalize_builtin_arguments(&call.name, call.arguments.clone());
                 let command: SendCommand = serde_json::from_value(arguments).map_err(|error| {
-                    MuzenError::invalid_input(format!("invalid agent.message arguments: {error}"))
+                    ToolExecutionFailure::Runtime(MuzenError::invalid_input(format!(
+                        "invalid agent.message arguments: {error}"
+                    )))
                 })?;
-                let receipt = inner.store.accept_send(run_id, command).await?;
+                let receipt = inner
+                    .store
+                    .accept_send(run_id, command)
+                    .await
+                    .map_err(ToolExecutionFailure::Runtime)?;
                 inner.notify_snapshot(run_id).await;
                 Ok(json!(receipt.sequence.get()))
             }
-            _ => Err(MuzenError::unsupported(format!(
-                "built-in tool {} is not supported",
-                call.name
+            _ => Err(ToolExecutionFailure::Runtime(MuzenError::unsupported(
+                format!("built-in tool {} is not supported", call.name),
             ))),
         },
-        None => Err(MuzenError::permission_denied(format!(
-            "tool provider {} is not available",
-            call.provider
-        ))),
+        None => Err(ToolExecutionFailure::Runtime(
+            MuzenError::permission_denied(format!(
+                "tool provider {} is not available",
+                call.provider
+            )),
+        )),
     }
+}
+
+enum ToolExecutionFailure {
+    Runtime(MuzenError),
+    Execution(ExecutionError),
 }
 
 fn normalize_builtin_arguments(tool: &str, mut arguments: Value) -> Value {
@@ -894,6 +930,40 @@ async fn append_tool_result(
     .await
 }
 
+async fn append_execution_tool_error(
+    inner: &Inner,
+    run_id: &RunId,
+    agent: &AgentSnapshot,
+    call: &ModelToolCall,
+    error: &ExecutionError,
+) -> Result<(), MuzenError> {
+    let value = execution_error_value(error);
+    let envelope = json!({
+        "callId": call.id,
+        "provider": call.provider,
+        "tool": call.name,
+        "arguments": call.arguments,
+        "error": value,
+    });
+    let mut payload = tool_payload(call);
+    payload.insert("error".to_owned(), value);
+    let text = serde_json::to_string(&envelope)
+        .map_err(|error| MuzenError::internal(format!("failed to encode tool result: {error}")))?;
+    append_events(
+        inner,
+        run_id,
+        vec![activity("tool.failed", agent, payload)],
+        vec![AgentMessage {
+            id: new_message_id(),
+            session_id: agent.session_id.clone(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::Text { text }],
+            created_at: timestamp()?,
+        }],
+    )
+    .await
+}
+
 fn tool_payload(call: &ModelToolCall) -> BTreeMap<String, Value> {
     BTreeMap::from([
         ("provider".to_owned(), json!(call.provider)),
@@ -987,7 +1057,11 @@ async fn finish(inner: &Inner, run_id: &RunId) -> Result<(), MuzenError> {
     Ok(())
 }
 
-async fn model_request(inner: &Inner, agent: &AgentSnapshot) -> Result<ModelRequest, MuzenError> {
+async fn model_request(
+    inner: &Inner,
+    run_id: &RunId,
+    agent: &AgentSnapshot,
+) -> Result<ModelRequest, MuzenError> {
     let session = inner.store.session(&agent.session_id).await?;
     let model = session
         .spec
@@ -1015,11 +1089,45 @@ async fn model_request(inner: &Inner, agent: &AgentSnapshot) -> Result<ModelRequ
             None => break,
         }
     }
+    let mut mcp_tools = Vec::new();
+    for provider in &session.spec.tool_providers {
+        if !matches!(provider, ToolProvider::McpHttp { .. })
+            || !session
+                .spec
+                .agent
+                .tools
+                .iter()
+                .any(|grant| &grant.provider == provider.id())
+        {
+            continue;
+        }
+        match inner.mcp.list_tools(&agent.session_id, provider).await {
+            Ok(tools) => mcp_tools.extend(tools),
+            Err(error) => {
+                let key = (run_id.clone(), provider.id().clone());
+                let first = inner.mcp_trace_failures.lock().insert(key);
+                if first {
+                    let payload = BTreeMap::from([
+                        ("provider".to_owned(), json!(provider.id())),
+                        ("error".to_owned(), execution_error_value(&error)),
+                    ]);
+                    append_events(
+                        inner,
+                        run_id,
+                        vec![activity("trace", agent, payload)],
+                        Vec::new(),
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
     Ok(ModelRequest {
         agent: session.spec.agent,
         model,
         transcript,
         tool_providers: session.spec.tool_providers,
+        mcp_tools,
     })
 }
 

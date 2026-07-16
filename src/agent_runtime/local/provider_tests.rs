@@ -12,6 +12,7 @@ use futures::TryStreamExt;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
+use super::mcp::McpToolDefinition;
 use super::provider::{anthropic_request, chat_request, responses_request, ModelRequest};
 use super::LocalRuntimeConfig;
 use crate::agent_runtime::{
@@ -901,6 +902,7 @@ fn all_protocol_replay_paths_use_wire_safe_builtin_names() {
         model: spec.models.remove(0),
         transcript: vec![assistant, legacy_tool],
         tool_providers: spec.tool_providers,
+        mcp_tools: Vec::new(),
     };
     for body in [
         anthropic_request(&request),
@@ -912,6 +914,73 @@ fn all_protocol_replay_paths_use_wire_safe_builtin_names() {
         assert!(wire.contains("agent_message"));
         assert!(!wire.contains("agent.spawn"));
         assert!(!wire.contains("agent.message"));
+    }
+}
+
+#[test]
+fn all_protocol_tool_definitions_include_real_mcp_schemas_and_filter_names() {
+    let mut spec = session_spec();
+    grant_agent_builtins(&mut spec);
+    for name in ["issues_search", "bad.name", "agent_message"] {
+        spec.agent.tools.push(ToolGrant {
+            provider: ToolProviderId::new("mcp").expect("provider"),
+            tool: name.to_owned(),
+            effects: vec![ToolEffect::NetworkRead],
+            max_calls: None,
+        });
+    }
+    let schema = json!({
+        "type": "object", "properties": { "query": { "type": "string", "minLength": 3 } }
+    });
+    let mcp_tools = ["issues_search", "bad.name", "agent_message"]
+        .into_iter()
+        .map(|name| McpToolDefinition {
+            provider: ToolProviderId::new("mcp").expect("provider"),
+            name: name.to_owned(),
+            description: Some("MCP description".to_owned()),
+            input_schema: schema.clone(),
+        })
+        .collect();
+    let request = ModelRequest {
+        agent: spec.agent,
+        model: spec.models.remove(0),
+        transcript: Vec::new(),
+        tool_providers: spec.tool_providers,
+        mcp_tools,
+    };
+    for body in [
+        anthropic_request(&request),
+        chat_request(&request),
+        responses_request(&request),
+    ] {
+        let tools = body["tools"].as_array().expect("tools");
+        let names = tools
+            .iter()
+            .map(|tool| {
+                tool["name"]
+                    .as_str()
+                    .or_else(|| tool["function"]["name"].as_str())
+                    .expect("tool name")
+            })
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"issues_search"));
+        assert!(!names.contains(&"bad.name"));
+        assert_eq!(
+            names
+                .iter()
+                .filter(|name| **name == "agent_message")
+                .count(),
+            1
+        );
+        let wire = tools
+            .iter()
+            .find(|tool| {
+                tool["name"] == "issues_search" || tool["function"]["name"] == "issues_search"
+            })
+            .expect("MCP definition")
+            .to_string();
+        assert!(wire.contains("minLength"));
+        assert!(wire.contains("MCP description"));
     }
 }
 

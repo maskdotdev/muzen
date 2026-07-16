@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 
+use super::mcp::McpToolDefinition;
 use crate::agent_runtime::{
     AgentDefinition, AgentMessage, ContentBlock, ExecutionErrorCode, MessageRole, ModelProfile,
     ToolProvider, ToolProviderId, Usage,
@@ -23,6 +24,7 @@ pub struct ModelRequest {
     pub model: ModelProfile,
     pub transcript: Vec<AgentMessage>,
     pub tool_providers: Vec<ToolProvider>,
+    pub(crate) mcp_tools: Vec<McpToolDefinition>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +238,33 @@ fn visible_builtin_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)
         .collect()
 }
 
+fn safe_wire_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn visible_mcp_tools(request: &ModelRequest) -> Vec<&McpToolDefinition> {
+    let mut occupied = visible_builtin_grants(request)
+        .into_iter()
+        .map(|(_, name)| wire_tool_name(name).to_owned())
+        .collect::<BTreeSet<_>>();
+    let mut tools = Vec::new();
+    for grant in &request.agent.tools {
+        let Some(tool) = request.mcp_tools.iter().find(|tool| {
+            tool.provider == grant.provider && tool.name == grant.tool && safe_wire_name(&tool.name)
+        }) else {
+            continue;
+        };
+        if occupied.insert(tool.name.clone()) {
+            tools.push(tool);
+        }
+    }
+    tools
+}
+
 fn wire_tool_name(canonical: &str) -> &str {
     match canonical {
         "agent.spawn" => "agent_spawn",
@@ -320,14 +349,22 @@ fn tool_schema(name: &str) -> Value {
 }
 
 fn anthropic_tools(request: &ModelRequest) -> Vec<Value> {
-    visible_builtin_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| json!({ "name": wire_tool_name(name), "input_schema": tool_schema(name) }))
-        .collect()
+        .collect::<Vec<_>>();
+    tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
+        let mut value = json!({ "name": tool.name, "input_schema": tool.input_schema });
+        if let Some(description) = &tool.description {
+            value["description"] = json!(description);
+        }
+        value
+    }));
+    tools
 }
 
 fn openai_tools(request: &ModelRequest) -> Vec<Value> {
-    visible_builtin_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
@@ -335,18 +372,36 @@ fn openai_tools(request: &ModelRequest) -> Vec<Value> {
                 "function": { "name": wire_tool_name(name), "parameters": tool_schema(name) }
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
+        let mut function = json!({ "name": tool.name, "parameters": tool.input_schema });
+        if let Some(description) = &tool.description {
+            function["description"] = json!(description);
+        }
+        json!({ "type": "function", "function": function })
+    }));
+    tools
 }
 
 fn responses_tools(request: &ModelRequest) -> Vec<Value> {
-    visible_builtin_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
                 "type": "function", "name": wire_tool_name(name), "parameters": tool_schema(name)
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
+        let mut value = json!({
+            "type": "function", "name": tool.name, "parameters": tool.input_schema
+        });
+        if let Some(description) = &tool.description {
+            value["description"] = json!(description);
+        }
+        value
+    }));
+    tools
 }
 
 fn assistant_calls(message: &AgentMessage) -> Option<Vec<Value>> {
@@ -584,14 +639,23 @@ fn responses_input(request: &ModelRequest) -> Vec<Value> {
     result
 }
 
-fn tool_provider(request: &ModelRequest, name: &str) -> ToolProviderId {
-    visible_builtin_grants(request)
+fn resolve_tool(request: &ModelRequest, wire_name: &str) -> (ToolProviderId, String) {
+    if let Some((provider, name)) = visible_builtin_grants(request)
         .into_iter()
-        .find(|(_, tool)| *tool == name)
-        .map(|(provider, _)| provider.clone())
-        .unwrap_or_else(|| {
-            ToolProviderId::new(UNRESOLVED_TOOL_PROVIDER).expect("valid unresolved provider id")
-        })
+        .find(|(_, tool)| wire_tool_name(tool) == wire_name)
+    {
+        return (provider.clone(), name.to_owned());
+    }
+    if let Some(tool) = visible_mcp_tools(request)
+        .into_iter()
+        .find(|tool| tool.name == wire_name)
+    {
+        return (tool.provider.clone(), tool.name.clone());
+    }
+    (
+        ToolProviderId::new(UNRESOLVED_TOOL_PROVIDER).expect("valid unresolved provider id"),
+        canonical_tool_name(wire_name).to_owned(),
+    )
 }
 
 fn parse_arguments(value: &Value) -> Value {
@@ -616,11 +680,12 @@ pub(super) fn parse_anthropic(
                 text: block["text"].as_str().unwrap_or_default().to_owned(),
             }),
             Some("tool_use") => {
-                let name = canonical_tool_name(block["name"].as_str().unwrap_or_default());
+                let (provider, name) =
+                    resolve_tool(request, block["name"].as_str().unwrap_or_default());
                 tool_calls.push(ModelToolCall {
                     id: block["id"].as_str().unwrap_or_default().to_owned(),
-                    provider: tool_provider(request, name),
-                    name: name.to_owned(),
+                    provider,
+                    name,
                     arguments: block.get("input").cloned().unwrap_or_else(|| json!({})),
                 });
             }
@@ -658,11 +723,14 @@ pub(super) fn parse_chat(
         .into_iter()
         .flatten()
         .map(|call| {
-            let name = canonical_tool_name(call["function"]["name"].as_str().unwrap_or_default());
+            let (provider, name) = resolve_tool(
+                request,
+                call["function"]["name"].as_str().unwrap_or_default(),
+            );
             ModelToolCall {
                 id: call["id"].as_str().unwrap_or_default().to_owned(),
-                provider: tool_provider(request, name),
-                name: name.to_owned(),
+                provider,
+                name,
                 arguments: parse_arguments(&call["function"]["arguments"]),
             }
         })
@@ -696,15 +764,16 @@ pub(super) fn parse_responses(
                 }
             }
             Some("function_call") => {
-                let name = canonical_tool_name(item["name"].as_str().unwrap_or_default());
+                let (provider, name) =
+                    resolve_tool(request, item["name"].as_str().unwrap_or_default());
                 tool_calls.push(ModelToolCall {
                     id: item["call_id"]
                         .as_str()
                         .or_else(|| item["id"].as_str())
                         .unwrap_or_default()
                         .to_owned(),
-                    provider: tool_provider(request, name),
-                    name: name.to_owned(),
+                    provider,
+                    name,
                     arguments: parse_arguments(&item["arguments"]),
                 });
             }
