@@ -1,4 +1,5 @@
 from .client import Client, RemoteClient, create_muzen, create_muzen_client
+from .agent import Agent, AgentResult, discover_local_runner_binary
 from .models import anthropic, openai
 from .sources import (
     custom_source,
@@ -81,6 +82,8 @@ from .webhooks import (
 
 __all__ = [
     "Client",
+    "Agent",
+    "AgentResult",
     "ContextBudgetUsage",
     "ContextEngineConfig",
     "CrossRepoContractCandidate",
@@ -158,4 +161,5 @@ __all__ = [
     "raw_snapshot",
     "source_key",
     "webhook_delivery_status",
+    "discover_local_runner_binary",
 ]

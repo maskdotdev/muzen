@@ -650,3 +650,13 @@ async def connect_http(
     from .agent_transports import connect_http as _connect_http
 
     return await _connect_http(base_url, bearer_token=bearer_token)
+
+
+# Imported last so the ergonomic facade can build on the wire contracts above
+# while remaining available from ``muzen.agent``.
+from .agent_facade import (
+    Agent,
+    AgentConversation,
+    AgentResult,
+    discover_local_runner_binary,
+)
