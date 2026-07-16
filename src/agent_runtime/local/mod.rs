@@ -1,5 +1,10 @@
+mod credentials;
 mod engine;
 mod provider;
+mod provider_router;
+
+#[cfg(test)]
+mod provider_tests;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::num::{NonZeroU32, NonZeroU64};
@@ -26,6 +31,7 @@ use super::{
     SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
 };
 
+pub use credentials::{CredentialResolver, ResolvedSecret};
 pub use provider::{
     ModelProvider, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn,
 };
@@ -39,26 +45,45 @@ pub enum LocalStoreConfig {
 }
 
 pub struct LocalRuntimeConfig {
-    pub provider: Arc<dyn ModelProvider>,
+    pub provider: Option<Arc<dyn ModelProvider>>,
     pub store: LocalStoreConfig,
     pub close_timeout: Duration,
+    pub allow_loopback_http: bool,
 }
 
 impl LocalRuntimeConfig {
     pub fn memory(provider: Arc<dyn ModelProvider>) -> Self {
         Self {
-            provider,
+            provider: Some(provider),
             store: LocalStoreConfig::Memory,
             close_timeout: Duration::from_secs(5),
+            allow_loopback_http: false,
         }
     }
 
     pub fn sqlite(provider: Arc<dyn ModelProvider>, path: impl Into<PathBuf>) -> Self {
         Self {
-            provider,
+            provider: Some(provider),
             store: LocalStoreConfig::Sqlite(path.into()),
             close_timeout: Duration::from_secs(5),
+            allow_loopback_http: false,
         }
+    }
+
+    /// Uses the built-in real-provider router and an ephemeral secret store.
+    pub fn memory_with_model_router() -> Self {
+        Self {
+            provider: None,
+            store: LocalStoreConfig::Memory,
+            close_timeout: Duration::from_secs(5),
+            allow_loopback_http: false,
+        }
+    }
+
+    /// Permits explicit loopback `http://` model endpoints for local testing.
+    pub fn with_loopback_http(mut self, enabled: bool) -> Self {
+        self.allow_loopback_http = enabled;
+        self
     }
 }
 
@@ -74,6 +99,7 @@ struct Inner {
     tasks: Mutex<BTreeMap<RunId, JoinHandle<()>>>,
     accepting: AtomicBool,
     close_timeout: Duration,
+    secrets: Arc<credentials::LocalSecretStore>,
 }
 
 impl LocalRuntime {
@@ -82,15 +108,24 @@ impl LocalRuntime {
             LocalStoreConfig::Memory => Arc::new(MemoryAgentStore::new()),
             LocalStoreConfig::Sqlite(path) => Arc::new(SqliteAgentStore::connect(path).await?),
         };
+        let secrets = Arc::new(credentials::LocalSecretStore::default());
+        let provider = match config.provider {
+            Some(provider) => provider,
+            None => Arc::new(provider_router::ProviderRouter::new(
+                secrets.clone(),
+                config.allow_loopback_http,
+            )?) as Arc<dyn ModelProvider>,
+        };
         Ok(Self {
             inner: Arc::new(Inner {
                 store,
-                provider: config.provider,
+                provider,
                 notifications: Mutex::new(BTreeMap::new()),
                 scheduled: Mutex::new(BTreeSet::new()),
                 tasks: Mutex::new(BTreeMap::new()),
                 accepting: AtomicBool::new(true),
                 close_timeout: config.close_timeout,
+                secrets,
             }),
         })
     }
@@ -183,16 +218,13 @@ impl RuntimeTransport for LocalRuntime {
         })
     }
 
-    async fn put_secret(&self, _input: PutSecretInput) -> Result<SecretRef, MuzenError> {
-        Err(MuzenError::unsupported(
-            "local in-process runtime does not support secrets yet",
-        ))
+    async fn put_secret(&self, input: PutSecretInput) -> Result<SecretRef, MuzenError> {
+        self.inner.secrets.put(input)
     }
 
-    async fn delete_secret(&self, _secret: &SecretRef) -> Result<(), MuzenError> {
-        Err(MuzenError::unsupported(
-            "local in-process runtime does not support secrets yet",
-        ))
+    async fn delete_secret(&self, secret: &SecretRef) -> Result<(), MuzenError> {
+        self.inner.secrets.delete(secret);
+        Ok(())
     }
 
     async fn create_session(

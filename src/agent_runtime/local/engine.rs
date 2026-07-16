@@ -742,6 +742,7 @@ async fn append_tool_result(
                 "callId": call.id,
                 "provider": call.provider,
                 "tool": call.name,
+                "arguments": call.arguments,
                 "result": value,
             }),
             None,
@@ -754,6 +755,7 @@ async fn append_tool_result(
                     "callId": call.id,
                     "provider": call.provider,
                     "tool": call.name,
+                    "arguments": call.arguments,
                     "error": value,
                 }),
                 Some(value),
@@ -906,6 +908,7 @@ async fn model_request(inner: &Inner, agent: &AgentSnapshot) -> Result<ModelRequ
         agent: session.spec.agent,
         model,
         transcript,
+        tool_providers: session.spec.tool_providers,
     })
 }
 
@@ -999,11 +1002,34 @@ async fn record_usage(
 }
 
 fn assistant_message(agent: &AgentSnapshot, turn: &ModelTurn) -> Result<AgentMessage, MuzenError> {
+    let mut content = turn.content.clone();
+    if !turn.tool_calls.is_empty() {
+        let calls = turn
+            .tool_calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "id": call.id,
+                    "provider": call.provider,
+                    "name": call.name,
+                    "arguments": call.arguments,
+                })
+            })
+            .collect::<Vec<_>>();
+        let text = serde_json::to_string(&json!({
+            "_muzen": super::provider::ASSISTANT_TOOL_ENVELOPE,
+            "calls": calls,
+        }))
+        .map_err(|error| {
+            MuzenError::internal(format!("failed to encode assistant tool calls: {error}"))
+        })?;
+        content.push(ContentBlock::Text { text });
+    }
     Ok(AgentMessage {
         id: new_message_id(),
         session_id: agent.session_id.clone(),
         role: MessageRole::Assistant,
-        content: turn.content.clone(),
+        content,
         created_at: timestamp()?,
     })
 }
@@ -1017,7 +1043,7 @@ fn output_value(turn: &ModelTurn) -> Value {
 
 fn provider_execution_error(error: &ModelProviderError) -> ExecutionError {
     ExecutionError {
-        code: ExecutionErrorCode::ModelError,
+        code: error.code(),
         message: error.message().to_owned(),
         retryable: error.retryable(),
         details: error.details().cloned(),

@@ -164,6 +164,7 @@ pub struct RunSnapshot {
 pub enum ExecutionErrorCode {
     ModelError,
     ToolError,
+    #[serde(rename = "secretUnavailable")]
     SecretUnavailable,
     WorkspaceError,
     BudgetExhausted,

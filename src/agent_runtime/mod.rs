@@ -20,8 +20,8 @@ pub use ids::{
     ToolProviderId,
 };
 pub use local::{
-    LocalRuntimeConfig, LocalStoreConfig, ModelProvider, ModelProviderError, ModelRequest,
-    ModelStop, ModelToolCall, ModelTurn,
+    CredentialResolver, LocalRuntimeConfig, LocalStoreConfig, ModelProvider, ModelProviderError,
+    ModelRequest, ModelStop, ModelToolCall, ModelTurn, ResolvedSecret,
 };
 pub use runtime_types::*;
 pub use types::*;
