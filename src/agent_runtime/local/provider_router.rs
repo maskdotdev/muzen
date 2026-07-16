@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -84,7 +85,18 @@ impl ProviderRouter {
         let base =
             Url::parse(base).map_err(|_| ModelProviderError::new("model base URL is invalid"))?;
         if request.model.base_url.is_some() {
-            let loopback = matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+            let loopback = base.host().is_some_and(|host| {
+                let serialized = host.to_string();
+                serialized == "localhost"
+                    || serialized
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                        .parse::<IpAddr>()
+                        .is_ok_and(|address| {
+                            address == IpAddr::V4(Ipv4Addr::LOCALHOST)
+                                || address == IpAddr::V6(Ipv6Addr::LOCALHOST)
+                        })
+            });
             let allowed = base.scheme() == "https"
                 || (base.scheme() == "http" && loopback && self.allow_loopback_http);
             if !allowed {

@@ -8,6 +8,9 @@ use crate::agent_runtime::{
     ToolProvider, ToolProviderId, Usage,
 };
 
+/// Internal persistence envelope used only to reconstruct provider tool-call history.
+/// LocalRuntime removes these blocks from public `messages()` pages, while the engine
+/// reads the unprojected store transcript.
 pub(crate) const ASSISTANT_TOOL_ENVELOPE: &str = "assistant_tool_calls";
 const UNRESOLVED_TOOL_PROVIDER: &str = "__muzen_unresolved_tool__";
 
@@ -215,12 +218,33 @@ fn canonical_tool_name(wire: &str) -> &str {
 }
 
 fn tool_schema(name: &str) -> Value {
+    // Model-facing built-ins advertise the same lenient text forms normalized by
+    // `engine::execute_tool`: a string or an explicit text ContentBlock.
+    let text_block = json!({
+        "type": "object",
+        "properties": {
+            "type": { "const": "text" },
+            "text": { "type": "string" }
+        },
+        "required": ["type", "text"],
+        "additionalProperties": false
+    });
+    let content_blocks = json!({
+        "oneOf": [
+            { "type": "string" },
+            {
+                "type": "array",
+                "items": { "oneOf": [{ "type": "string" }, text_block] }
+            }
+        ]
+    });
     let content = json!({
         "type": "object",
-        "properties": { "content": { "type": "array" } },
+        "properties": { "content": content_blocks },
         "required": ["content"],
         "additionalProperties": false
     });
+    let input = json!({ "oneOf": [{ "type": "string" }, content] });
     match name {
         "agent.spawn" => json!({
             "type": "object",
@@ -229,7 +253,7 @@ fn tool_schema(name: &str) -> Value {
                     "type": "object",
                     "properties": {
                         "name": { "type": "string", "minLength": 1 },
-                        "instructions": { "type": "array", "minItems": 1 },
+                        "instructions": content_blocks,
                         "model": { "type": "string", "minLength": 1 },
                         "tools": { "type": "array" },
                         "budget": { "type": "object" },
@@ -239,7 +263,7 @@ fn tool_schema(name: &str) -> Value {
                     "required": ["name", "instructions", "model", "tools"],
                     "additionalProperties": false
                 },
-                "input": content,
+                "input": input,
                 "idempotencyKey": { "type": "string" }
             },
             "required": ["agent", "input"],
@@ -249,7 +273,7 @@ fn tool_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "sessionId": { "type": "string" },
-                "input": content,
+                "input": input,
                 "delivery": { "type": "string", "enum": ["steer", "follow_up"] },
                 "idempotencyKey": { "type": "string" }
             },

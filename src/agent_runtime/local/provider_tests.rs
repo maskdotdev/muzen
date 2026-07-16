@@ -67,13 +67,29 @@ impl FakeServer {
         .await
     }
 
+    async fn queued_ipv6(responses: impl IntoIterator<Item = (StatusCode, Value)>) -> Self {
+        Self::start_on(
+            Arc::new(FakeState {
+                requests: Mutex::new(Vec::new()),
+                queued: Mutex::new(responses.into_iter().collect()),
+                responder: None,
+            }),
+            "[::1]:0",
+        )
+        .await
+    }
+
     async fn start(state: Arc<FakeState>) -> Self {
+        Self::start_on(state, "127.0.0.1:0").await
+    }
+
+    async fn start_on(state: Arc<FakeState>, address: &str) -> Self {
         let app = Router::new()
             .route("/v1/messages", post(fake_handler))
             .route("/v1/chat/completions", post(fake_handler))
             .route("/v1/responses", post(fake_handler))
             .with_state(Arc::clone(&state));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = tokio::net::TcpListener::bind(address)
             .await
             .expect("fake listener");
         let address = listener.local_addr().expect("fake address");
@@ -313,6 +329,36 @@ async fn chat_completions_router_runs_end_to_end() {
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["agent_spawn", "agent_message"]);
     assert!(!request.body.to_string().contains("agent.spawn"));
+    let spawn = &request.body["tools"][0]["function"]["parameters"];
+    let instructions = &spawn["properties"]["agent"]["properties"]["instructions"];
+    assert_eq!(instructions["oneOf"][0]["type"], "string");
+    assert_eq!(
+        instructions["oneOf"][1]["items"]["oneOf"][1]["properties"]["type"]["const"],
+        "text"
+    );
+    assert_eq!(spawn["properties"]["input"]["oneOf"][0]["type"], "string");
+}
+
+#[tokio::test]
+async fn ipv6_loopback_http_is_allowed_with_opt_in() {
+    let fake = FakeServer::queued_ipv6([(StatusCode::OK, json!({
+        "choices": [{"message": {"role": "assistant", "content": "ipv6 done"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 2, "completion_tokens": 1}
+    }))])
+    .await;
+    let muzen = router_runtime(true).await;
+    let secret = put_key(&muzen, "ipv6-key").await;
+    let mut spec = session_spec();
+    configure_model(
+        &mut spec,
+        ModelProviderKind::OpenaiCompatible,
+        ModelProtocol::ChatCompletions,
+        format!("{}/v1", fake.base_url()),
+        secret,
+    );
+    let result = run_once(&muzen, spec).await;
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    assert_eq!(fake.requests()[0].path, "/v1/chat/completions");
 }
 
 #[tokio::test]
@@ -366,7 +412,7 @@ async fn anthropic_tool_round_trip_reconstructs_calls_and_results() {
         if system == "parent instructions" && !has_result {
             let child = json!({
                 "name": "child",
-                "instructions": [{"type": "text", "text": "child instructions"}],
+                "instructions": ["child instructions"],
                 "model": "primary",
                 "tools": [],
                 "budget": {
@@ -386,7 +432,7 @@ async fn anthropic_tool_round_trip_reconstructs_calls_and_results() {
                         },
                         {
                             "type": "tool_use", "id": "spawn-1", "name": "agent_spawn",
-                            "input": {"agent": child, "input": {"content": [{"type": "text", "text": "work"}]}}
+                            "input": {"agent": child, "input": "work"}
                         }
                     ],
                     "usage": {"input_tokens": 4, "output_tokens": 2}, "stop_reason": "tool_use"
@@ -486,16 +532,23 @@ async fn anthropic_tool_round_trip_reconstructs_calls_and_results() {
             && block["tool_use_id"] == "unknown-1"
             && block["is_error"] == true
     }));
-    let persisted = serde_json::to_string(
-        &session
-            .messages(MessagePage::default())
-            .await
-            .expect("persisted messages")
-            .items,
-    )
-    .expect("persisted message JSON");
-    assert!(persisted.contains("agent.spawn"));
-    assert!(!persisted.contains("agent_spawn"));
+    let public_messages = session
+        .messages(MessagePage::default())
+        .await
+        .expect("public messages")
+        .items;
+    assert!(public_messages
+        .iter()
+        .filter(|message| { message.role == MessageRole::Assistant })
+        .all(|message| !serde_json::to_string(&message.content)
+            .expect("assistant content JSON")
+            .contains("assistant_tool_calls")));
+    assert!(public_messages
+        .iter()
+        .any(|message| { message.role == MessageRole::Assistant && message.content.is_empty() }));
+    let public_wire = serde_json::to_string(&public_messages).expect("public message JSON");
+    assert!(public_wire.contains("agent.spawn"));
+    assert!(!public_wire.contains("agent_spawn"));
     let events = run
         .events(EventOptions::default())
         .try_collect::<Vec<_>>()

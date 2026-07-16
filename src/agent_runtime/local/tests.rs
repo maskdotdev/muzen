@@ -427,6 +427,10 @@ async fn total_token_limit_marks_agent_budget_exhausted() {
         TerminalAgentStatus::BudgetExhausted
     );
     assert_eq!(result.usage.input_tokens + result.usage.output_tokens, 5);
+    assert_eq!(
+        result.outputs[0].error.as_ref().expect("error").message,
+        "run token budget exhausted"
+    );
 }
 
 #[tokio::test]
@@ -1119,7 +1123,7 @@ async fn tool_authority_and_unsupported_failures_return_results_and_continue() {
 }
 
 #[tokio::test]
-async fn tool_grant_and_agent_budgets_fail_the_exceeding_call() {
+async fn tool_grant_rejection_continues_but_agent_budget_terminates() {
     for grant_limit in [true, false] {
         let provider = ScriptedProvider::new([]);
         let muzen = memory_runtime(Arc::clone(&provider)).await;
@@ -1152,15 +1156,19 @@ async fn tool_grant_and_agent_budgets_fail_the_exceeding_call() {
                 "agent.message",
                 json!({
                     "sessionId": session.id(),
-                    "input": input("again"),
-                    "delivery": "follow_up"
+                    "input": { "content": "again" },
+                    "delivery": "steer"
                 }),
             )
         };
-        *provider.scripts.lock() = vec![tool_turn(vec![call("one"), call("two")])].into();
+        let mut scripts = vec![tool_turn(vec![call("one"), call("two")])];
+        if grant_limit {
+            scripts.push(turn("continued", 1, 1));
+        }
+        *provider.scripts.lock() = scripts.into();
         let mut run_limits = limits();
         run_limits.max_total_tool_calls = None;
-        let result = session
+        let run = session
             .run(
                 input("go"),
                 SingleRunOptions {
@@ -1170,14 +1178,34 @@ async fn tool_grant_and_agent_budgets_fail_the_exceeding_call() {
                 },
             )
             .await
-            .expect("run")
-            .wait()
-            .await
-            .expect("result");
-        assert_eq!(
-            result.outputs[0].status,
-            TerminalAgentStatus::BudgetExhausted
-        );
+            .expect("run");
+        let result = run.wait().await.expect("result");
+        let output = &result.outputs[0];
+        if grant_limit {
+            assert_eq!(output.status, TerminalAgentStatus::Completed);
+            assert_eq!(output.output, Some(json!("continued")));
+            let events = all_events(&run).await;
+            let failed = events
+                .iter()
+                .find(|event| event.event_type == "tool.failed")
+                .expect("grant failure event");
+            assert_eq!(
+                failed.payload["error"]["message"],
+                "tool grant maxCalls exhausted"
+            );
+            assert!(provider.requests()[1].transcript.iter().any(|message| {
+                message.role == MessageRole::Tool
+                    && serde_json::to_string(&message.content)
+                        .expect("tool result JSON")
+                        .contains("tool grant maxCalls exhausted")
+            }));
+        } else {
+            assert_eq!(output.status, TerminalAgentStatus::BudgetExhausted);
+            assert_eq!(
+                output.error.as_ref().expect("error").message,
+                "agent maxToolCalls exhausted"
+            );
+        }
         assert_eq!(result.usage.tool_calls, 1);
     }
 }
@@ -1242,6 +1270,12 @@ async fn run_tool_budget_exhaustion_marks_every_live_agent() {
         .outputs
         .iter()
         .all(|output| output.status == TerminalAgentStatus::BudgetExhausted));
+    assert!(result.outputs.iter().all(|output| {
+        output
+            .error
+            .as_ref()
+            .is_some_and(|error| error.message == "run maxTotalToolCalls exhausted")
+    }));
     assert_eq!(result.usage.tool_calls, 1);
 }
 

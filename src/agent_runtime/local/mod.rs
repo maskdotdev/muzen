@@ -260,7 +260,22 @@ impl RuntimeTransport for LocalRuntime {
         id: &SessionId,
         page: MessagePage,
     ) -> Result<Page<AgentMessage>, MuzenError> {
-        self.inner.store.messages(id, page).await
+        let mut page = self.inner.store.messages(id, page).await?;
+        for message in &mut page.items {
+            if message.role == super::MessageRole::Assistant {
+                message.content.retain(|block| match block {
+                    super::ContentBlock::Text { text } => {
+                        serde_json::from_str::<serde_json::Value>(text)
+                            .ok()
+                            .is_none_or(|value| {
+                                value["_muzen"] != provider::ASSISTANT_TOOL_ENVELOPE
+                            })
+                    }
+                    _ => true,
+                });
+            }
+        }
+        Ok(page)
     }
 
     async fn archive_session(

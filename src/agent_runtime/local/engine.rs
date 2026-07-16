@@ -130,13 +130,32 @@ async fn execute_inner(inner: Arc<Inner>, run_id: RunId) -> Result<(), MuzenErro
 #[derive(Default)]
 struct BudgetState {
     usage: Usage,
-    exhausted: bool,
+    exhaustion: Option<BudgetExhaustion>,
 }
 
 #[derive(Default)]
 struct RunBudget {
     state: Mutex<BudgetState>,
     exhausted: Notify,
+}
+
+#[derive(Clone, Copy)]
+enum BudgetExhaustion {
+    RunTokens,
+    AgentToolCalls,
+    RunToolCalls,
+    AgentTurns,
+}
+
+impl BudgetExhaustion {
+    fn message(self) -> &'static str {
+        match self {
+            Self::RunTokens => "run token budget exhausted",
+            Self::AgentToolCalls => "agent maxToolCalls exhausted",
+            Self::RunToolCalls => "run maxTotalToolCalls exhausted",
+            Self::AgentTurns => "agent maxTurns exhausted",
+        }
+    }
 }
 
 async fn run_agent(
@@ -163,8 +182,14 @@ async fn run_agent(
             .await;
             return;
         }
-        if budget.state.lock().await.exhausted {
-            finish_agent(&inner, &run_id, budget_output(agent.clone(), usage), false).await;
+        if let Some(exhaustion) = budget.state.lock().await.exhaustion {
+            finish_agent(
+                &inner,
+                &run_id,
+                budget_output(agent.clone(), usage, exhaustion),
+                false,
+            )
+            .await;
             return;
         }
         let permit = tokio::select! {
@@ -229,12 +254,12 @@ async fn run_agent(
             response = inner.provider.complete(request) => Some(response),
             _ = wait_cancel(&inner, &run_id, deadline) => None,
             _ = budget.exhausted.notified() => {
-                if budget.state.lock().await.exhausted {
+                if let Some(exhaustion) = budget.state.lock().await.exhaustion {
                     drop(permit);
                     finish_agent(
                         &inner,
                         &run_id,
-                        budget_output(agent.clone(), usage.clone()),
+                        budget_output(agent.clone(), usage.clone(), exhaustion),
                         false,
                     )
                     .await;
@@ -285,7 +310,7 @@ async fn run_agent(
             output_tokens: turn.usage.output_tokens,
             tool_calls: 0,
         };
-        let exhausted = match record_usage(&budget, &model_usage, token_limit).await {
+        let exhaustion = match record_usage(&budget, &model_usage, token_limit).await {
             Ok(exhausted) => exhausted,
             Err(error) => {
                 finish_agent(
@@ -345,8 +370,8 @@ async fn run_agent(
             .await;
             return;
         }
-        if exhausted {
-            let mut output = budget_output(agent.clone(), usage);
+        if let Some(exhaustion) = exhaustion {
+            let mut output = budget_output(agent.clone(), usage, exhaustion);
             output.output = latest_output;
             finish_agent(&inner, &run_id, output, false).await;
             return;
@@ -384,8 +409,14 @@ async fn run_agent(
                     .await;
                     return;
                 }
-                ToolBatchOutcome::BudgetExhausted => {
-                    finish_agent(&inner, &run_id, budget_output(agent.clone(), usage), false).await;
+                ToolBatchOutcome::BudgetExhausted(exhaustion) => {
+                    finish_agent(
+                        &inner,
+                        &run_id,
+                        budget_output(agent.clone(), usage, exhaustion),
+                        false,
+                    )
+                    .await;
                     return;
                 }
                 ToolBatchOutcome::Failed(message) => {
@@ -428,7 +459,8 @@ async fn run_agent(
             }
             Ok(AgentAdvance::Pending(delivery)) => {
                 if turn_limit_reached {
-                    let mut output = budget_output(agent.clone(), usage);
+                    let mut output =
+                        budget_output(agent.clone(), usage, BudgetExhaustion::AgentTurns);
                     output.output = latest_output;
                     finish_agent(&inner, &run_id, output, false).await;
                     return;
@@ -501,14 +533,15 @@ async fn run_agent(
 enum ToolBatchOutcome {
     Continue,
     Cancelled,
-    BudgetExhausted,
+    BudgetExhausted(BudgetExhaustion),
     Failed(String),
 }
 
 enum ToolReservation {
     Execute,
-    AgentExhausted(MuzenError),
-    RunExhausted(MuzenError),
+    GrantRejected(MuzenError),
+    AgentExhausted(BudgetExhaustion, MuzenError),
+    RunExhausted(BudgetExhaustion, MuzenError),
 }
 
 async fn execute_tool_batch(
@@ -533,8 +566,8 @@ async fn execute_tool_batch(
         if observe_cancel(inner, run_id, deadline).await {
             return ToolBatchOutcome::Cancelled;
         }
-        if budget.state.lock().await.exhausted {
-            return ToolBatchOutcome::BudgetExhausted;
+        if let Some(exhaustion) = budget.state.lock().await.exhaustion {
+            return ToolBatchOutcome::BudgetExhausted(exhaustion);
         }
         let Some(grant) = session
             .spec
@@ -592,21 +625,29 @@ async fn execute_tool_batch(
         .await
         {
             Ok(ToolReservation::Execute) => {}
-            Ok(ToolReservation::AgentExhausted(error)) => {
+            Ok(ToolReservation::GrantRejected(error)) => {
                 if let Err(error) =
                     append_tool_result(inner, run_id, agent, call, Err(&error)).await
                 {
                     return ToolBatchOutcome::Failed(error.message().to_owned());
                 }
-                return ToolBatchOutcome::BudgetExhausted;
+                continue;
             }
-            Ok(ToolReservation::RunExhausted(error)) => {
+            Ok(ToolReservation::AgentExhausted(exhaustion, error)) => {
                 if let Err(error) =
                     append_tool_result(inner, run_id, agent, call, Err(&error)).await
                 {
                     return ToolBatchOutcome::Failed(error.message().to_owned());
                 }
-                return ToolBatchOutcome::BudgetExhausted;
+                return ToolBatchOutcome::BudgetExhausted(exhaustion);
+            }
+            Ok(ToolReservation::RunExhausted(exhaustion, error)) => {
+                if let Err(error) =
+                    append_tool_result(inner, run_id, agent, call, Err(&error)).await
+                {
+                    return ToolBatchOutcome::Failed(error.message().to_owned());
+                }
+                return ToolBatchOutcome::BudgetExhausted(exhaustion);
             }
             Err(error) => return ToolBatchOutcome::Failed(error.message().to_owned()),
         }
@@ -646,22 +687,24 @@ async fn reserve_tool_call(
         .max_calls
         .is_some_and(|limit| grant_used >= u64::from(limit.get()))
     {
-        return Ok(ToolReservation::AgentExhausted(
+        return Ok(ToolReservation::GrantRejected(
             MuzenError::resource_exhausted("tool grant maxCalls exhausted"),
         ));
     }
     if agent_limit.is_some_and(|limit| usage.tool_calls >= u64::from(limit)) {
         return Ok(ToolReservation::AgentExhausted(
-            MuzenError::resource_exhausted("agent maxToolCalls exhausted"),
+            BudgetExhaustion::AgentToolCalls,
+            MuzenError::resource_exhausted(BudgetExhaustion::AgentToolCalls.message()),
         ));
     }
     let mut state = budget.state.lock().await;
     if run_limit.is_some_and(|limit| state.usage.tool_calls >= limit) {
-        state.exhausted = true;
+        state.exhaustion = Some(BudgetExhaustion::RunToolCalls);
         drop(state);
         budget.exhausted.notify_waiters();
         return Ok(ToolReservation::RunExhausted(
-            MuzenError::resource_exhausted("run maxTotalToolCalls exhausted"),
+            BudgetExhaustion::RunToolCalls,
+            MuzenError::resource_exhausted(BudgetExhaustion::RunToolCalls.message()),
         ));
     }
     state.usage.tool_calls = state
@@ -690,7 +733,7 @@ async fn execute_tool(
         )),
         Some(ToolProvider::Builtin { .. }) => match call.name.as_str() {
             "agent.spawn" => {
-                let mut arguments = call.arguments.clone();
+                let mut arguments = normalize_builtin_arguments(&call.name, call.arguments.clone());
                 let object = arguments.as_object_mut().ok_or_else(|| {
                     MuzenError::invalid_input("agent.spawn arguments must be an object")
                 })?;
@@ -706,12 +749,10 @@ async fn execute_tool(
                 Ok(json!(child))
             }
             "agent.message" => {
-                let command: SendCommand =
-                    serde_json::from_value(call.arguments.clone()).map_err(|error| {
-                        MuzenError::invalid_input(format!(
-                            "invalid agent.message arguments: {error}"
-                        ))
-                    })?;
+                let arguments = normalize_builtin_arguments(&call.name, call.arguments.clone());
+                let command: SendCommand = serde_json::from_value(arguments).map_err(|error| {
+                    MuzenError::invalid_input(format!("invalid agent.message arguments: {error}"))
+                })?;
                 let receipt = inner.store.accept_send(run_id, command).await?;
                 inner.notify_snapshot(run_id).await;
                 Ok(json!(receipt.sequence.get()))
@@ -725,6 +766,58 @@ async fn execute_tool(
             "tool provider {} is not available",
             call.provider
         ))),
+    }
+}
+
+fn normalize_builtin_arguments(tool: &str, mut arguments: Value) -> Value {
+    let Some(object) = arguments.as_object_mut() else {
+        return arguments;
+    };
+    match tool {
+        "agent.spawn" => {
+            if let Some(agent) = object.get_mut("agent").and_then(Value::as_object_mut) {
+                if let Some(instructions) = agent.get_mut("instructions") {
+                    normalize_content_blocks(instructions);
+                }
+            }
+            if let Some(input) = object.get_mut("input") {
+                normalize_agent_input(input);
+            }
+        }
+        "agent.message" => {
+            if let Some(input) = object.get_mut("input") {
+                normalize_agent_input(input);
+            }
+        }
+        _ => {}
+    }
+    arguments
+}
+
+fn normalize_agent_input(input: &mut Value) {
+    if input.is_string() {
+        let content = std::mem::take(input);
+        *input = json!({ "content": content });
+    }
+    if let Some(content) = input
+        .as_object_mut()
+        .and_then(|object| object.get_mut("content"))
+    {
+        normalize_content_blocks(content);
+    }
+}
+
+fn normalize_content_blocks(content: &mut Value) {
+    if content.is_string() {
+        let text = std::mem::take(content);
+        *content = Value::Array(vec![text]);
+    }
+    if let Some(blocks) = content.as_array_mut() {
+        for block in blocks {
+            if let Some(text) = block.as_str().map(str::to_owned) {
+                *block = json!({ "type": "text", "text": text });
+            }
+        }
     }
 }
 
@@ -985,20 +1078,22 @@ async fn record_usage(
     budget: &RunBudget,
     usage: &Usage,
     limit: Option<u64>,
-) -> Result<bool, MuzenError> {
+) -> Result<Option<BudgetExhaustion>, MuzenError> {
     let mut state = budget.state.lock().await;
     state.usage = add_usage(&state.usage, usage)?;
-    if limit.is_some_and(|limit| {
-        state
-            .usage
-            .input_tokens
-            .saturating_add(state.usage.output_tokens)
-            >= limit
-    }) {
-        state.exhausted = true;
+    if state.exhaustion.is_none()
+        && limit.is_some_and(|limit| {
+            state
+                .usage
+                .input_tokens
+                .saturating_add(state.usage.output_tokens)
+                >= limit
+        })
+    {
+        state.exhaustion = Some(BudgetExhaustion::RunTokens);
         budget.exhausted.notify_waiters();
     }
-    Ok(state.exhausted)
+    Ok(state.exhaustion)
 }
 
 fn assistant_message(agent: &AgentSnapshot, turn: &ModelTurn) -> Result<AgentMessage, MuzenError> {
@@ -1079,7 +1174,7 @@ fn cancelled_output(agent: AgentSnapshot, usage: Usage) -> AgentOutput {
     }
 }
 
-fn budget_output(agent: AgentSnapshot, usage: Usage) -> AgentOutput {
+fn budget_output(agent: AgentSnapshot, usage: Usage, exhaustion: BudgetExhaustion) -> AgentOutput {
     AgentOutput {
         session_id: agent.session_id,
         path: agent.path,
@@ -1088,7 +1183,7 @@ fn budget_output(agent: AgentSnapshot, usage: Usage) -> AgentOutput {
         usage,
         error: Some(execution_error(
             ExecutionErrorCode::BudgetExhausted,
-            "run token budget exhausted",
+            exhaustion.message(),
         )),
     }
 }
