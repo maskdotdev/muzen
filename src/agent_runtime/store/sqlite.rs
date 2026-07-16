@@ -10,7 +10,7 @@ use super::support::{
     is_terminal, new_message_id, new_run_id, new_session_id, public_agent_status,
     public_run_status, root_input, terminal_agent_event_type, terminal_event_type, timestamp,
 };
-use super::{body_digest, receipt, AgentStore, FinishRun, StoredRun, StoredSession};
+use super::{body_digest, receipt, AgentStore, FinishRun, RunActivity, StoredRun, StoredSession};
 use crate::agent_runtime::validation::{validate_run_spec, validate_session_spec};
 use crate::agent_runtime::{
     AgentEvent, AgentMessage, AgentSnapshot, AgentStatus, CommandReceipt, IdempotencyKey,
@@ -236,6 +236,22 @@ impl AgentStore for SqliteAgentStore {
 
     async fn mark_run_running(&self, id: &RunId) -> Result<CommandReceipt, MuzenError> {
         transition_running(self, id).await
+    }
+
+    async fn append_activity(
+        &self,
+        id: &RunId,
+        activity: RunActivity,
+    ) -> Result<CommandReceipt, MuzenError> {
+        append_activity(self, id, activity).await
+    }
+
+    async fn cancel_requested(&self, id: &RunId) -> Result<bool, MuzenError> {
+        let connection = self.connection.lock().await;
+        Ok(run_required(&connection, id)
+            .await?
+            .cancel_sequence
+            .is_some())
     }
 
     async fn request_cancel(
@@ -480,6 +496,91 @@ async fn transition_running(
     }
     transaction.commit().await.map_err(sql_error)?;
     receipt(events.last().expect("run has agents").sequence)
+}
+
+async fn append_activity(
+    store: &SqliteAgentStore,
+    id: &RunId,
+    activity: RunActivity,
+) -> Result<CommandReceipt, MuzenError> {
+    let connection = store.connection.lock().await;
+    let transaction = immediate(&connection).await?;
+    let mut record = run_required(&transaction, id).await?;
+    if is_terminal(record.stored.snapshot.status) {
+        return Err(MuzenError::conflict(format!(
+            "run {id} is already terminal"
+        )));
+    }
+    if activity.events.is_empty() {
+        return Err(MuzenError::internal(
+            "run activity must contain at least one event",
+        ));
+    }
+    ensure_sequence_capacity(&record.stored, activity.events.len() as u64)?;
+    for event in &activity.events {
+        if let Some(session_id) = &event.session_id {
+            ensure_tracked(&record, id, session_id)?;
+        }
+    }
+    let mut sessions = BTreeMap::new();
+    for message in &activity.messages {
+        ensure_tracked(&record, id, &message.session_id)?;
+        if !sessions.contains_key(&message.session_id) {
+            sessions.insert(
+                message.session_id.clone(),
+                session_required(&transaction, &message.session_id).await?,
+            );
+        }
+    }
+    let now = timestamp()?;
+    let mut events = Vec::with_capacity(activity.events.len());
+    for pending in activity.events {
+        let mut event = next_event(
+            &mut record.stored,
+            &pending.event_type,
+            now.clone(),
+            pending.session_id,
+        )?;
+        event.payload = pending.payload;
+        events.push(event);
+    }
+    update_run(&transaction, &record).await?;
+    for message in &activity.messages {
+        insert_message(&transaction, message).await?;
+        sessions
+            .get_mut(&message.session_id)
+            .expect("activity session was loaded")
+            .snapshot
+            .updated_at = now.clone();
+    }
+    for session in sessions.values() {
+        update_session(&transaction, session).await?;
+    }
+    for event in &events {
+        insert_event(&transaction, event).await?;
+    }
+    transaction.commit().await.map_err(sql_error)?;
+    receipt(events.last().expect("activity requires an event").sequence)
+}
+
+fn ensure_tracked(
+    record: &PersistedRun,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<(), MuzenError> {
+    if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| &agent.session_id == session_id)
+    {
+        Ok(())
+    } else {
+        Err(MuzenError::not_found(format!(
+            "agent session {session_id} is not tracked by run {id}"
+        )))
+    }
 }
 
 async fn request_cancel(

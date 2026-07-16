@@ -70,7 +70,7 @@ pub struct OutputContract {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ModelProvider {
+pub enum ModelProviderKind {
     OpenaiCompatible,
     Anthropic,
 }
@@ -87,7 +87,7 @@ pub enum ModelProtocol {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelProfile {
     pub id: ModelProfileId,
-    pub provider: ModelProvider,
+    pub provider: ModelProviderKind,
     pub protocol: ModelProtocol,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

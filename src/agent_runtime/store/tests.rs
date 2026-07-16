@@ -574,7 +574,7 @@ async fn shared_conformance_runs_against_sqlite_and_survives_reopen() {
             .await
             .expect("persisted events")
             .len(),
-        6
+        9
     );
     assert!(!reopened
         .messages(

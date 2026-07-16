@@ -7,6 +7,7 @@
 mod client;
 mod errors;
 mod ids;
+mod local;
 mod runtime_types;
 mod store;
 mod types;
@@ -17,6 +18,10 @@ pub use errors::{ErrorCode, MuzenError};
 pub use ids::{
     AgentName, ArtifactId, IdempotencyKey, ModelProfileId, RunId, SecretRef, SessionId,
     ToolProviderId,
+};
+pub use local::{
+    LocalRuntimeConfig, LocalStoreConfig, ModelProvider, ModelProviderError, ModelRequest,
+    ModelStop, ModelTurn,
 };
 pub use runtime_types::*;
 pub use types::*;

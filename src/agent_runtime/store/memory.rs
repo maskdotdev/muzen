@@ -5,7 +5,7 @@ use super::support::{
     is_terminal, new_message_id, new_run_id, new_session_id, public_agent_status,
     public_run_status, root_input, terminal_agent_event_type, terminal_event_type, timestamp,
 };
-use super::{body_digest, receipt, AgentStore, FinishRun, StoredRun, StoredSession};
+use super::{body_digest, receipt, AgentStore, FinishRun, RunActivity, StoredRun, StoredSession};
 use crate::agent_runtime::validation::{validate_run_spec, validate_session_spec};
 use crate::agent_runtime::{
     AgentEvent, AgentMessage, AgentSnapshot, AgentStatus, CommandReceipt, IdempotencyKey,
@@ -406,6 +406,50 @@ impl AgentStore for MemoryAgentStore {
         last.ok_or_else(|| MuzenError::internal("a run must contain at least one agent"))
     }
 
+    async fn append_activity(
+        &self,
+        id: &RunId,
+        activity: RunActivity,
+    ) -> Result<CommandReceipt, MuzenError> {
+        let now = timestamp()?;
+        let mut state = self.state.lock();
+        validate_activity(&state, id, &activity)?;
+        let receipt = {
+            let record = run_mut(&mut state, id)?;
+            ensure_event_capacity(record, activity.events.len() as u64)?;
+            let mut last = None;
+            for event in activity.events {
+                last = Some(append_event(
+                    record,
+                    now.clone(),
+                    &event.event_type,
+                    event.session_id,
+                    event.payload,
+                )?);
+            }
+            last.expect("activity validation requires an event")
+        };
+        for message in activity.messages {
+            let session = state
+                .sessions
+                .get_mut(&message.session_id)
+                .expect("activity validation proved session existence");
+            session.stored.snapshot.updated_at = now.clone();
+            session.messages.push(message);
+        }
+        Ok(receipt)
+    }
+
+    async fn cancel_requested(&self, id: &RunId) -> Result<bool, MuzenError> {
+        let state = self.state.lock();
+        Ok(state
+            .runs
+            .get(id)
+            .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))?
+            .cancel_receipt
+            .is_some())
+    }
+
     async fn request_cancel(
         &self,
         id: &RunId,
@@ -598,6 +642,57 @@ fn run_mut<'a>(state: &'a mut State, id: &RunId) -> Result<&'a mut RunRecord, Mu
         .runs
         .get_mut(id)
         .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))
+}
+
+fn validate_activity(state: &State, id: &RunId, activity: &RunActivity) -> Result<(), MuzenError> {
+    let record = state
+        .runs
+        .get(id)
+        .ok_or_else(|| MuzenError::not_found(format!("run {id} was not found")))?;
+    if is_terminal(record.stored.snapshot.status) {
+        return Err(MuzenError::conflict(format!(
+            "run {id} is already terminal"
+        )));
+    }
+    if activity.events.is_empty() {
+        return Err(MuzenError::internal(
+            "run activity must contain at least one event",
+        ));
+    }
+    for event in &activity.events {
+        if let Some(session_id) = &event.session_id {
+            ensure_tracked(record, id, session_id)?;
+        }
+    }
+    for message in &activity.messages {
+        ensure_tracked(record, id, &message.session_id)?;
+        if !state.sessions.contains_key(&message.session_id) {
+            return Err(MuzenError::internal(
+                "run activity message references a missing agent session",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_tracked(
+    record: &RunRecord,
+    id: &RunId,
+    session_id: &SessionId,
+) -> Result<(), MuzenError> {
+    if record
+        .stored
+        .snapshot
+        .agents
+        .iter()
+        .any(|agent| &agent.session_id == session_id)
+    {
+        Ok(())
+    } else {
+        Err(MuzenError::not_found(format!(
+            "agent session {session_id} is not tracked by run {id}"
+        )))
+    }
 }
 
 fn validate_finish(

@@ -13,7 +13,7 @@ use crate::agent_runtime::{
 
 pub(crate) mod memory;
 pub(crate) mod sqlite;
-mod support;
+pub(crate) mod support;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredSession {
@@ -37,6 +37,19 @@ pub(crate) struct FinishRun {
     pub(crate) usage: Usage,
     pub(crate) artifacts: Vec<ArtifactRef>,
     pub(crate) metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActivityEvent {
+    pub(crate) event_type: String,
+    pub(crate) session_id: Option<SessionId>,
+    pub(crate) payload: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RunActivity {
+    pub(crate) events: Vec<ActivityEvent>,
+    pub(crate) messages: Vec<AgentMessage>,
 }
 
 #[async_trait]
@@ -69,6 +82,14 @@ pub(crate) trait AgentStore: Send + Sync {
     ) -> Result<Vec<AgentEvent>, MuzenError>;
 
     async fn mark_run_running(&self, id: &RunId) -> Result<CommandReceipt, MuzenError>;
+
+    async fn append_activity(
+        &self,
+        id: &RunId,
+        activity: RunActivity,
+    ) -> Result<CommandReceipt, MuzenError>;
+
+    async fn cancel_requested(&self, id: &RunId) -> Result<bool, MuzenError>;
 
     async fn request_cancel(
         &self,

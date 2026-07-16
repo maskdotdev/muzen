@@ -3,11 +3,12 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use serde_json::{json, Value};
 
-use super::{AgentStore, FinishRun};
+use super::support::{new_message_id, timestamp};
+use super::{ActivityEvent, AgentStore, FinishRun, RunActivity};
 use crate::agent_runtime::{
-    AgentInput, AgentOutput, AgentStatus, ErrorCode, ExistingSessionRoot, IdempotencyKey,
-    MessagePage, NewSessionRoot, RunId, RunRoot, RunSpec, SessionId, SessionSpec,
-    TerminalAgentStatus, TerminalRunStatus, Usage,
+    AgentInput, AgentMessage, AgentOutput, AgentStatus, ContentBlock, ErrorCode,
+    ExistingSessionRoot, IdempotencyKey, MessagePage, MessageRole, NewSessionRoot, RunId, RunRoot,
+    RunSpec, SessionId, SessionSpec, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 pub(super) struct ConformanceOutcome {
@@ -69,6 +70,44 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
         .mark_run_running(&first_run)
         .await
         .expect("start first run");
+    assert!(!store
+        .cancel_requested(&first_run)
+        .await
+        .expect("read cancellation state"));
+    store
+        .append_activity(
+            &first_run,
+            RunActivity {
+                events: vec![
+                    ActivityEvent {
+                        event_type: "model.started".to_owned(),
+                        session_id: Some(first.clone()),
+                        payload: BTreeMap::new(),
+                    },
+                    ActivityEvent {
+                        event_type: "message.accepted".to_owned(),
+                        session_id: Some(first.clone()),
+                        payload: BTreeMap::new(),
+                    },
+                    ActivityEvent {
+                        event_type: "model.completed".to_owned(),
+                        session_id: Some(first.clone()),
+                        payload: BTreeMap::new(),
+                    },
+                ],
+                messages: vec![AgentMessage {
+                    id: new_message_id(),
+                    session_id: first.clone(),
+                    role: MessageRole::Assistant,
+                    content: vec![ContentBlock::Text {
+                        text: "assistant".to_owned(),
+                    }],
+                    created_at: timestamp().expect("message timestamp"),
+                }],
+            },
+        )
+        .await
+        .expect("append run activity");
     store
         .finish_run(
             &first_run,
@@ -97,6 +136,9 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
             "agent.created",
             "run.started",
             "agent.started",
+            "model.started",
+            "message.accepted",
+            "model.completed",
             "agent.completed",
             "run.completed"
         ]
@@ -114,6 +156,10 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
         .request_cancel(&cancel_run, Some("conformance"))
         .await
         .expect("request cancellation");
+    assert!(store
+        .cancel_requested(&cancel_run)
+        .await
+        .expect("observe cancellation"));
     assert_eq!(
         store
             .request_cancel(&cancel_run, Some("retry"))
@@ -128,6 +174,24 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
         )
         .await
         .expect("finish cancelled run");
+    assert_eq!(
+        store
+            .append_activity(
+                &cancel_run,
+                RunActivity {
+                    events: vec![ActivityEvent {
+                        event_type: "trace".to_owned(),
+                        session_id: None,
+                        payload: BTreeMap::new(),
+                    }],
+                    messages: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("terminal runs reject activity")
+            .code(),
+        ErrorCode::Conflict
+    );
 
     let partial_run = store
         .create_run(run_spec(&[first.clone(), second.clone()], None))
@@ -194,8 +258,20 @@ pub(super) async fn assert_store_conformance<S: AgentStore>(store: &S) -> Confor
         )
         .await
         .expect("message tail");
-    assert_eq!(tail.items.len(), 1);
+    assert_eq!(tail.items.len(), 2);
     assert_eq!(tail.next, None);
+    let first_messages = store
+        .messages(
+            &first,
+            MessagePage {
+                after: None,
+                limit: NonZeroU32::new(10),
+            },
+        )
+        .await
+        .expect("ordered messages");
+    assert_eq!(first_messages.items[0].role, MessageRole::User);
+    assert_eq!(first_messages.items[1].role, MessageRole::Assistant);
 
     let root = NewSessionRoot {
         session: session_spec(),

@@ -64,6 +64,10 @@ impl MuzenError {
         Self::new(ErrorCode::ResourceExhausted, message)
     }
 
+    pub(crate) fn unsupported(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unsupported, message)
+    }
+
     fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,

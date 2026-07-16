@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use reqwest::Url;
 
 use super::{
-    AgentDefinition, AgentInput, ContentBlock, ModelProfile, ModelProtocol, ModelProvider,
+    AgentDefinition, AgentInput, ContentBlock, ModelProfile, ModelProtocol, ModelProviderKind,
     PutSecretInput, RunRoot, RunSpec, SessionSpec, ToolEffect, ToolProvider, WorkspaceBase,
 };
 
@@ -216,9 +216,9 @@ fn validate_model(model: &ModelProfile, path: &str) -> Result<(), SpecValidation
     let compatible = matches!(
         (model.provider, model.protocol),
         (
-            ModelProvider::OpenaiCompatible,
+            ModelProviderKind::OpenaiCompatible,
             ModelProtocol::Responses | ModelProtocol::ChatCompletions
-        ) | (ModelProvider::Anthropic, ModelProtocol::Messages)
+        ) | (ModelProviderKind::Anthropic, ModelProtocol::Messages)
     );
     if !compatible {
         return Err(SpecValidationError::at(

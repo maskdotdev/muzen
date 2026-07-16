@@ -57,7 +57,7 @@ pub(super) fn is_terminal(status: RunStatus) -> bool {
     )
 }
 
-pub(super) fn timestamp() -> Result<String, MuzenError> {
+pub(crate) fn timestamp() -> Result<String, MuzenError> {
     const RFC3339_MILLISECONDS: &[time::format_description::BorrowedFormatItem<'_>] =
         format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z");
     let now = OffsetDateTime::now_utc();
@@ -75,6 +75,6 @@ pub(super) fn new_run_id() -> Result<RunId, MuzenError> {
     RunId::new(format!("run_{}", Uuid::new_v4().simple())).map_err(MuzenError::internal)
 }
 
-pub(super) fn new_message_id() -> String {
+pub(crate) fn new_message_id() -> String {
     format!("msg_{}", Uuid::new_v4().simple())
 }

@@ -68,6 +68,13 @@ pub struct Muzen {
 }
 
 impl Muzen {
+    pub async fn local(config: super::LocalRuntimeConfig) -> Result<Self, MuzenError> {
+        let transport = super::local::LocalRuntime::connect(config).await?;
+        Ok(Self {
+            transport: Arc::new(transport),
+        })
+    }
+
     pub async fn capabilities(&self) -> Result<Capabilities, MuzenError> {
         self.transport.capabilities().await
     }
@@ -229,7 +236,7 @@ impl Run {
     }
 }
 
-fn is_terminal_run_event(event_type: &str) -> bool {
+pub(crate) fn is_terminal_run_event(event_type: &str) -> bool {
     matches!(
         event_type,
         "run.completed" | "run.partial" | "run.failed" | "run.cancelled"
