@@ -459,3 +459,10 @@ function isObject(value: unknown): value is JsonObject {
 function invalid(path: string, message: string): MuzenError {
   return new MuzenError("invalid_input", `${path} ${message}`, false, { path });
 }
+
+export {
+  connectHttp,
+  connectLocalRunner,
+  type HttpOptions,
+  type LocalRunnerOptions,
+} from "./agent-transports.js";
