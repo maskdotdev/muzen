@@ -133,6 +133,10 @@ pub struct RunnerRunSummary {
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
     #[serde(default)]
+    pub current_rss_bytes: Option<u64>,
+    #[serde(default)]
+    pub peak_rss_bytes: Option<u64>,
+    #[serde(default)]
     pub completion_diagnostics: Vec<RunnerSessionCompletionDiagnostic>,
     #[serde(default)]
     pub model_metrics: ModelMetricsSnapshot,
@@ -212,6 +216,16 @@ pub struct RunnerReviewQualityDiagnostics {
     pub budgets_used: BTreeMap<String, usize>,
     #[serde(default)]
     pub explicit_caller_cap_sessions: usize,
+    #[serde(default)]
+    pub orchestrator_candidate_findings: usize,
+    #[serde(default)]
+    pub child_candidate_findings: usize,
+    #[serde(default)]
+    pub merged_candidate_findings: usize,
+    #[serde(default)]
+    pub validation_rescue_attempts: usize,
+    #[serde(default)]
+    pub validation_rescue_supported: usize,
     pub candidate_findings: usize,
     pub rescued_candidates: usize,
     pub rejected_candidates: usize,

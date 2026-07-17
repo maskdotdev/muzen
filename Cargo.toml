@@ -20,7 +20,7 @@ ignore = "0.4.25"
 libc = "0.2.177"
 libsql = { version = "0.9", default-features = false, features = ["core"] }
 memchr = "2.7.6"
-moka = { version = "0.12.11", features = ["future"] }
+moka = { version = "0.12.11", features = ["future", "sync"] }
 num_cpus = "1.17.0"
 parking_lot = "0.12.5"
 rayon = "1.11.0"

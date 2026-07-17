@@ -239,6 +239,10 @@ function reproductionSummary({
     shared: summarizeRunMetrics(path.join(sharedDir, "metrics.jsonl")),
     process: summarizeRunMetrics(path.join(processDir, "metrics.jsonl")),
   };
+  const memory = {
+    shared: readOptionalJson(path.join(sharedDir, "summary.json"))?.memory ?? null,
+    process: readOptionalJson(path.join(processDir, "summary.json"))?.memory ?? null,
+  };
   const admission = {
     shared: summarizeRunAdmission(sharedDir),
     process: summarizeRunAdmission(processDir),
@@ -306,6 +310,10 @@ function reproductionSummary({
     observedRuns: summarizeObservedRuns(compare.cases),
     fakeModel: fakeModelMetrics,
     release,
+    memory: {
+      ...memory,
+      deltaSharedMinusProcess: memoryDelta(memory.shared, memory.process),
+    },
     admission,
     isolation,
     totals: compare.totals,
@@ -315,6 +323,26 @@ function reproductionSummary({
       process: entry.process.orchestrator,
       delta: entry.delta,
     })),
+  };
+}
+
+function memoryDelta(shared, process) {
+  if (!shared || !process) return null;
+  return {
+    peakAggregateRssBytes: nullableDelta(
+      shared.peakAggregateRssBytes,
+      process.peakAggregateRssBytes,
+    ),
+    peakRunnerRssBytes: nullableDelta(shared.peakRunnerRssBytes, process.peakRunnerRssBytes),
+    peakHarnessRssBytes: nullableDelta(shared.peakHarnessRssBytes, process.peakHarnessRssBytes),
+    peakProcessTreeRssBytes: nullableDelta(
+      shared.peakProcessTreeRssBytes,
+      process.peakProcessTreeRssBytes,
+    ),
+    finalRunnerRssBytes: nullableDelta(
+      shared.finalSample?.runnerRssBytes,
+      process.finalSample?.runnerRssBytes,
+    ),
   };
 }
 
@@ -1060,6 +1088,10 @@ function runCheckedAsync(command, commandArgs, env, cwd = process.cwd()) {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readOptionalJson(file) {
+  return fs.existsSync(file) ? readJson(file) : null;
 }
 
 function readJsonl(file) {

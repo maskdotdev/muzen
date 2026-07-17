@@ -110,9 +110,10 @@ fn schema_marks_wired_run_methods_and_callbacks_implemented() {
 #[test]
 fn stateful_methods_match_sdk_to_runner_registry() {
     for method in schema::sdk_to_runner_methods() {
+        let expected_stateful = !method.starts_with("runner.") || method == "runner.debugState";
         assert_eq!(
             protocol::stateful_method(method),
-            !method.starts_with("runner."),
+            expected_stateful,
             "{method} stateful classification drifted"
         );
     }
@@ -482,18 +483,64 @@ fn stdio_reads_artifacts_snapshots_and_cancel_status() {
         .expect("snapshot content")
         .contains("fixture"));
 
-    let cancel = send_jsonrpc(
+    let retained = send_jsonrpc(
         &mut session,
         &mut writer,
         json!({
             "jsonrpc": "2.0",
             "id": 5,
+            "method": "runner.debugState"
+        }),
+    );
+    assert_eq!(retained[0]["result"]["reports"], 1);
+    assert_eq!(retained[0]["result"]["activeRuns"], 0);
+    assert_eq!(retained[0]["result"]["contextEngines"], 0);
+    assert!(
+        retained[0]["result"]["retainedRedactedArtifacts"]
+            .as_u64()
+            .expect("redacted artifacts")
+            > 0
+    );
+    assert_eq!(retained[0]["result"]["snapshotReaders"], 1);
+
+    let cancel = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
             "method": "run.cancel",
             "params": {"runId": "resource-run"}
         }),
     );
     assert_eq!(cancel[0]["result"]["status"], "completed");
     assert_eq!(cancel[0]["result"]["cancelled"], false);
+
+    let release = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "run.release",
+            "params": {"runId": "resource-run"}
+        }),
+    );
+    assert_eq!(release[0]["result"]["released"], true);
+    let released = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "runner.debugState"
+        }),
+    );
+    assert_eq!(released[0]["result"]["reports"], 0);
+    assert_eq!(released[0]["result"]["retainedRedactedArtifacts"], 0);
+    assert_eq!(released[0]["result"]["retainedRawArtifacts"], 0);
+    assert_eq!(released[0]["result"]["retainedArtifactBytes"], 0);
+    assert_eq!(released[0]["result"]["snapshotReaders"], 0);
 }
 
 #[test]
@@ -615,6 +662,104 @@ fn stdio_context_index_pack_and_query() {
         approval[0]["result"]["learning"]["status"],
         json!("approved")
     );
+    let retained = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "runner.debugState"
+        }),
+    );
+    assert_eq!(retained[0]["result"]["reports"], 0);
+    assert_eq!(retained[0]["result"]["contextEngines"], 1);
+}
+
+#[test]
+fn stdio_context_index_retention_evicts_oldest_snapshot() {
+    let mut session = RunnerStdioSession::default();
+    let mut writer = Vec::new();
+    let mut snapshot_ids = Vec::new();
+
+    for index in 0..=session::MAX_STANDALONE_CONTEXT_ENGINES {
+        let repo = tempfile::tempdir().expect("temp repo");
+        std::fs::create_dir_all(repo.path().join("src")).expect("src dir");
+        let file_name = format!("src/module_{index}.rs");
+        std::fs::write(
+            repo.path().join(&file_name),
+            format!("pub fn module_{index}() -> usize {{ {index} }}\n"),
+        )
+        .expect("source file");
+        let response = send_jsonrpc(
+            &mut session,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": index + 1,
+                "method": "context.index",
+                "params": {
+                    "repo": repo.path(),
+                    "changedFiles": [file_name]
+                }
+            }),
+        );
+        snapshot_ids.push(
+            response[0]["result"]["snapshotId"]
+                .as_str()
+                .expect("snapshot id")
+                .to_string(),
+        );
+    }
+
+    let retained = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "runner.debugState"
+        }),
+    );
+    assert_eq!(
+        retained[0]["result"]["contextEngines"],
+        session::MAX_STANDALONE_CONTEXT_ENGINES
+    );
+
+    let evicted = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "context.pack",
+            "params": {
+                "snapshotId": snapshot_ids[0],
+                "purpose": "tests",
+                "maxTokens": 12000
+            }
+        }),
+    );
+    assert!(evicted[0]["error"]["message"]
+        .as_str()
+        .expect("error message")
+        .contains("context index not found"));
+
+    let newest = snapshot_ids.last().expect("newest snapshot id");
+    let retained_pack = send_jsonrpc(
+        &mut session,
+        &mut writer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "context.pack",
+            "params": {
+                "snapshotId": newest,
+                "purpose": "tests",
+                "maxTokens": 12000
+            }
+        }),
+    );
+    assert_eq!(retained_pack[0]["result"]["purpose"], json!("tests"));
 }
 
 #[test]

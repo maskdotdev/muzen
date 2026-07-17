@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { MuzenUnsupportedFeatureError } from "./errors.js";
 import {
   RunnerProtocolError,
-  RunnerStdioClient,
+  type RunnerClient,
 } from "./protocol.js";
 import {
   delay,
@@ -87,7 +87,7 @@ export class RunnerBackedMuzen implements Muzen {
   readonly workers: MuzenWorkers;
 
   constructor(
-    private readonly runner: RunnerStdioClient,
+    private readonly runner: RunnerClient,
     private readonly options: Pick<CreateMuzenOptions, "secrets"> = {},
   ) {
     this.webhooks = new RunnerBackedMuzenWebhooks(runner);
@@ -170,6 +170,7 @@ export class RunnerBackedMuzen implements Muzen {
         source,
         events,
         result,
+        () => this.sessions.delete(reviewId),
       );
       this.sessions.set(reviewId, review);
       return review;
@@ -227,6 +228,7 @@ export class RunnerBackedMuzen implements Muzen {
     );
     let startSent = false;
     let startSettled = false;
+    let shouldRelease = false;
     const stopCancelOnAbort = onAbort(options.signal, () => {
       if (!startSent || startSettled) {
         return;
@@ -243,6 +245,7 @@ export class RunnerBackedMuzen implements Muzen {
         "run.start",
         toSwarmStartParams(runId, options),
       );
+      shouldRelease = true;
       startSettled = true;
       throwIfAborted(options.signal);
       if (hookError) {
@@ -254,6 +257,9 @@ export class RunnerBackedMuzen implements Muzen {
       stopCancelOnAbort();
       unsubscribeCallbacks();
       unsubscribe();
+      if (shouldRelease) {
+        await this.runner.request("run.release", { runId }).catch(() => {});
+      }
     }
   }
 
@@ -285,7 +291,7 @@ class RunnerBackedWorkspace implements MuzenWorkspace {
 
   constructor(
     private readonly muzen: Muzen,
-    runner: RunnerStdioClient,
+    runner: RunnerClient,
     readonly id: string,
   ) {
     this.context = new RunnerBackedContextWorkspace(runner);
@@ -300,7 +306,7 @@ class RunnerBackedWorkspace implements MuzenWorkspace {
 }
 
 class RunnerBackedContextWorkspace implements MuzenContextWorkspace {
-  constructor(private readonly runner: RunnerStdioClient) {}
+  constructor(private readonly runner: RunnerClient) {}
 
   async index(options: ContextIndexOptions): Promise<ContextManifest> {
     return (await this.runner.request(
@@ -387,7 +393,7 @@ class RunnerBackedMuzenWebhooks implements MuzenWebhooks {
   readonly github: MuzenWebhookHandler;
   readonly gitlab: MuzenWebhookHandler;
 
-  constructor(runner: RunnerStdioClient) {
+  constructor(runner: RunnerClient) {
     this.github = new RunnerBackedMuzenWebhookHandler(runner, "github");
     this.gitlab = new RunnerBackedMuzenWebhookHandler(runner, "gitlab");
   }
@@ -395,7 +401,7 @@ class RunnerBackedMuzenWebhooks implements MuzenWebhooks {
 
 class RunnerBackedMuzenWebhookHandler implements MuzenWebhookHandler {
   constructor(
-    private readonly runner: RunnerStdioClient,
+    private readonly runner: RunnerClient,
     private readonly provider: MuzenWebhookProvider,
   ) {}
 
@@ -428,7 +434,7 @@ class RunnerBackedMuzenWebhookHandler implements MuzenWebhookHandler {
 }
 
 class RunnerBackedMuzenWorkers implements MuzenWorkers {
-  constructor(private readonly runner: RunnerStdioClient) {}
+  constructor(private readonly runner: RunnerClient) {}
 
   async runOnce(
     options: MuzenWorkerRunOnceOptions = {},
@@ -468,12 +474,13 @@ class RunnerBackedReviewSession implements ReviewSession {
   private readonly listeners = new Set<(event: ReviewEvent) => void>();
 
   constructor(
-    private readonly runner: RunnerStdioClient,
+    private readonly runner: RunnerClient,
     readonly id: string,
     private currentStatus: ReviewStatus,
     readonly source: ReviewSource,
     private readonly recordedEvents: ReviewEvent[],
     private currentResult?: ReviewResult,
+    private readonly onRelease?: () => void,
   ) {}
 
   get status(): ReviewStatus {
@@ -637,6 +644,13 @@ class RunnerBackedReviewSession implements ReviewSession {
       source: this.source,
       result: this.currentResult,
     };
+  }
+
+  async release(): Promise<void> {
+    await this.runner.request("run.release", {
+      runId: this.id,
+    });
+    this.onRelease?.();
   }
 
   private record(event: ReviewEvent): void {

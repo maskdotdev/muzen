@@ -60,7 +60,10 @@ pub(crate) fn is_textish(path: &Path) -> bool {
                 | "mts"
                 | "php"
                 | "pl"
+                | "po"
+                | "pot"
                 | "proto"
+                | "properties"
                 | "py"
                 | "rake"
                 | "rb"
@@ -99,6 +102,9 @@ mod tests {
             "app/assets/stylesheets/embed.css.scss",
             "lib/tasks/disqus.thor",
             "config/site_settings.yml",
+            "src/main/resources/messages.properties",
+            "locale/messages.po",
+            "locale/messages.pot",
         ] {
             assert!(is_textish(Path::new(path)), "{path} should be text");
         }

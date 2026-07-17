@@ -11,10 +11,12 @@ use crate::reviewer_kernel::model_retry::{complete_model_turn, ModelTurnOutcome}
 use crate::reviewer_kernel::policy::{ReviewerPolicy, SessionEvidence};
 use crate::reviewer_kernel::review_contract::{AgentBudget, TokenUsage, ToolCounts};
 use crate::reviewer_kernel::session_metrics::record_usage;
-use crate::reviewer_kernel::system::peak_rss_bytes;
+use crate::reviewer_kernel::system::{current_rss_bytes, peak_rss_bytes};
 use crate::reviewer_kernel::tool_batch::ToolBatchRunner;
 use crate::reviewer_kernel::tool_engine::ToolEngine;
-use crate::reviewer_kernel::transcript::{enforce_prompt_budget, estimate_prompt_tokens};
+use crate::reviewer_kernel::transcript::{
+    enforce_prompt_budget, estimate_prompt_tokens, estimate_transcript_bytes,
+};
 
 pub(crate) struct AgentLoopRuntime {
     pub(crate) model_router: Arc<dyn ConcurrentModelRouter>,
@@ -148,6 +150,8 @@ impl AgentLoopRuntime {
                 self.policy
                     .plan_model_started_runtime_event(&scope, turn_id),
             );
+            let estimated_prompt_tokens = estimate_prompt_tokens(&transcript);
+            let estimated_transcript_bytes = estimate_transcript_bytes(&transcript);
             self.events
                 .emit_planned_runtime(self.policy.plan_agent_trace_event(
                     &scope,
@@ -174,8 +178,10 @@ impl AgentLoopRuntime {
                         "toolCallsUsed": tool_calls_used,
                         "builtinToolCallsUsed": tool_counts.total(),
                         "transcriptItems": transcript.len(),
-                        "estimatedPromptTokens": estimate_prompt_tokens(&transcript),
+                        "estimatedPromptTokens": estimated_prompt_tokens,
+                        "estimatedTranscriptBytes": estimated_transcript_bytes,
                         "maxPromptTokens": scope.budget.max_prompt_tokens,
+                        "currentRssBytes": current_rss_bytes(),
                         "peakRssBytes": peak_rss_bytes(),
                     }),
                 ));

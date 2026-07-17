@@ -127,6 +127,14 @@ pub struct ContextIndexReport {
     pub rule_count: usize,
     pub diff_hunk_count: usize,
     pub evidence_count: usize,
+    pub file_content_bytes: usize,
+    pub lexical_documents: usize,
+    pub lexical_terms: usize,
+    pub graph_nodes: usize,
+    pub graph_edges: usize,
+    pub relationship_count: usize,
+    pub skeleton_count: usize,
+    pub semantic_vector_count: usize,
     pub elapsed_ms: u64,
     /// Files whose derived data (chunks, skeletons, symbols) came from
     /// the content-hash cache (R9).
@@ -254,85 +262,79 @@ impl ContextIndex {
         let mut parsed_files = 0usize;
         let mut parsed_bytes = 0u64;
         for (meta_index, file) in snapshot.manifest.files.iter().enumerate() {
-            match file.capture_status {
-                SnapshotCaptureStatus::Captured => {
-                    if parsed_files >= request.limits.max_indexed_files
-                        || parsed_bytes as usize >= request.limits.max_indexed_bytes
-                    {
-                        skips.push(ContextIndexSkip {
-                            path: file.rel_path.clone(),
-                            reason: ContextIndexSkipReason::BudgetExceeded,
-                        });
-                        continue;
-                    }
-                    parsed_files += 1;
-                    parsed_bytes = parsed_bytes.saturating_add(file.size);
-                    if file.is_changed {
-                        indexed_changed_files += 1;
-                    }
-                    let kind = evidence_kind_for_file(file);
-                    if kind == ContextEvidenceKind::RepositoryRule {
-                        rule_count += 1;
-                    }
-                    let content = snapshot
-                        .read_bounded(file.file_id, request.limits.max_indexed_bytes)
-                        .ok()
-                        .and_then(|(bytes, _truncated)| String::from_utf8(bytes).ok());
-                    match content {
-                        Some(content) => {
-                            let chunked = chunked_kind(kind, &content);
-                            let mut derived = derived_for_file(
-                                derived_cache.as_ref(),
-                                file,
-                                &content,
-                                chunked,
-                                request.limits.chunk_max_tokens,
-                                &mut derived_cache_hits,
-                                &mut derived_cache_misses,
-                            );
-                            let parsed = std::mem::take(&mut derived.parsed);
-                            symbol_graph.add_parsed(file.rel_path.clone(), &parsed);
-                            parsed_by_file.insert(file.rel_path.clone(), parsed);
-                            file_contents.insert(file.rel_path.clone(), content);
-                            prepared.push(PreparedFile {
-                                meta_index,
-                                kind,
-                                chunked,
-                                derived: Some(derived),
-                            });
-                        }
-                        None => prepared.push(PreparedFile {
-                            meta_index,
-                            kind,
-                            chunked: false,
-                            derived: None,
-                        }),
-                    }
+            if file.is_text_candidate {
+                if parsed_files >= request.limits.max_indexed_files
+                    || parsed_bytes as usize >= request.limits.max_indexed_bytes
+                {
+                    skips.push(ContextIndexSkip {
+                        path: file.rel_path.clone(),
+                        reason: ContextIndexSkipReason::BudgetExceeded,
+                    });
+                    continue;
                 }
-                SnapshotCaptureStatus::NotTextCandidate => {
-                    if should_emit_uncaptured_text_summary(file) {
-                        let kind = evidence_kind_for_file(file);
-                        if kind == ContextEvidenceKind::RepositoryRule {
-                            rule_count += 1;
-                        }
+                parsed_files += 1;
+                parsed_bytes = parsed_bytes.saturating_add(file.size);
+                if file.is_changed {
+                    indexed_changed_files += 1;
+                }
+                let kind = evidence_kind_for_file(file);
+                if kind == ContextEvidenceKind::RepositoryRule {
+                    rule_count += 1;
+                }
+                let content = snapshot
+                    .read_bounded(file.file_id, request.limits.max_indexed_bytes)
+                    .ok()
+                    .and_then(|(bytes, _truncated)| String::from_utf8(bytes).ok());
+                match content {
+                    Some(content) => {
+                        let chunked = chunked_kind(kind, &content);
+                        let mut derived = derived_for_file(
+                            derived_cache.as_ref(),
+                            file,
+                            &content,
+                            chunked,
+                            request.limits.chunk_max_tokens,
+                            &mut derived_cache_hits,
+                            &mut derived_cache_misses,
+                        );
+                        let parsed = std::mem::take(&mut derived.parsed);
+                        symbol_graph.add_parsed(file.rel_path.clone(), &parsed);
+                        parsed_by_file.insert(file.rel_path.clone(), parsed);
+                        file_contents.insert(file.rel_path.clone(), content);
                         prepared.push(PreparedFile {
                             meta_index,
                             kind,
-                            chunked: false,
-                            derived: None,
-                        });
-                    } else {
-                        skips.push(ContextIndexSkip {
-                            path: file.rel_path.clone(),
-                            reason: ContextIndexSkipReason::BinaryFile,
+                            chunked,
+                            derived: Some(derived),
                         });
                     }
+                    None => prepared.push(PreparedFile {
+                        meta_index,
+                        kind,
+                        chunked: false,
+                        derived: None,
+                    }),
                 }
-                SnapshotCaptureStatus::SkippedMemoryLimit
-                | SnapshotCaptureStatus::SkippedUnreadable => skips.push(ContextIndexSkip {
+            } else if should_emit_uncaptured_text_summary(file) {
+                let kind = evidence_kind_for_file(file);
+                if kind == ContextEvidenceKind::RepositoryRule {
+                    rule_count += 1;
+                }
+                prepared.push(PreparedFile {
+                    meta_index,
+                    kind,
+                    chunked: false,
+                    derived: None,
+                });
+            } else {
+                skips.push(ContextIndexSkip {
                     path: file.rel_path.clone(),
-                    reason: ContextIndexSkipReason::Unavailable,
-                }),
+                    reason: if file.capture_status == SnapshotCaptureStatus::SkippedUnreadable {
+                        ContextIndexSkipReason::Unavailable
+                    } else {
+                        ContextIndexSkipReason::BinaryFile
+                    },
+                });
             }
         }
 
@@ -613,6 +615,17 @@ impl ContextIndex {
             rule_count,
             diff_hunk_count,
             evidence_count: evidence.len(),
+            file_content_bytes: file_contents.values().map(String::len).sum(),
+            lexical_documents: lexical.document_count(),
+            lexical_terms: lexical.term_count(),
+            graph_nodes: graph.node_count(),
+            graph_edges: graph.edge_count(),
+            relationship_count: relationships.len(),
+            skeleton_count: skeletons.len(),
+            semantic_vector_count: semantic_vectors
+                .as_ref()
+                .map(|vectors| vectors.vector_count())
+                .unwrap_or(0),
             elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             derived_cache_hits,
             derived_cache_misses,

@@ -152,6 +152,70 @@ describe("runner-backed Muzen preview", () => {
     ]);
   });
 
+  it("releases retained runner state after a swarm run returns", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const runner = {
+      pid: undefined,
+      handshake: async () => ({}),
+      request: async (method: string, params: unknown) => {
+        calls.push({ method, params });
+        if (method === "run.start") {
+          return {
+            runId: (params as { runId: string }).runId,
+            status: "completed",
+            summary: {
+              sessions: 1,
+              completedSessions: 1,
+              modelCalls: 1,
+              toolCalls: 1,
+              totalTokens: 12,
+            },
+            findings: [],
+            snapshots: [{ files: 1, capturedFiles: 1 }],
+            sessionOutputs: [
+              {
+                sessionId: "agent-1",
+                status: "done",
+                completed: true,
+                output: "done",
+              },
+            ],
+          };
+        }
+        if (method === "run.release") {
+          return { released: true };
+        }
+        throw new Error(`unexpected method ${method}`);
+      },
+      onNotification: () => () => {},
+      onRequest: () => () => {},
+      close: async () => {},
+    };
+    const muzen = new RunnerBackedMuzen(runner as never);
+
+    const result = await muzen.runSwarm({
+      repo: "/repo",
+      agents: [{ id: "agent-1", objective: "Check fixture." }],
+      model: {
+        kind: "callback",
+        handler: () => ({
+          content: "done",
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        }),
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ["run.start", "run.release"],
+    );
+    assert.equal(
+      (calls[1].params as { runId: string }).runId,
+      (calls[0].params as { runId: string }).runId,
+    );
+  });
+
   it(
     "runs a local review, replays events, and waits for a result",
     { skip: runnerPath ? false : "MUZEN_RUNNER_PATH is not set" },
@@ -190,6 +254,42 @@ describe("runner-backed Muzen preview", () => {
       assert.equal((await review.refresh()).id, review.id);
     },
   );
+
+  it("recycles the local runner after released idle state crosses policy", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "muzen-sdk-recycle-"));
+    tempDirs.push(dir);
+    await writeFile(join(dir, "runner-recycle.js"), recycleRunnerScript());
+    await writeFile(join(dir, "Cargo.toml"), "[package]\nname = \"fixture\"\n");
+    await writeFile(join(dir, "README.md"), "fixture\n");
+    const runnerScript = join(dir, "runner-recycle.js");
+    const reviewRepo = dir;
+    const muzen = await createMuzen({
+      runnerPath: process.execPath,
+      runnerArgs: [runnerScript],
+      runnerRecycle: {
+        completedRuns: 1,
+        rssBytes: Number.MAX_SAFE_INTEGER,
+        totalTokens: Number.MAX_SAFE_INTEGER,
+      },
+    });
+    try {
+      const first = await muzen.review(local(reviewRepo));
+      const firstResult = await first.wait();
+      const firstPid = firstResult.metadata?.pid;
+      await first.release();
+
+      const second = await muzen.review(local(reviewRepo));
+      const secondResult = await second.wait();
+      const secondPid = secondResult.metadata?.pid;
+      await second.release();
+
+      assert.equal(typeof firstPid, "number");
+      assert.equal(typeof secondPid, "number");
+      assert.notEqual(secondPid, firstPid);
+    } finally {
+      await muzen.close();
+    }
+  });
 
   it(
     "handles GitHub webhooks through the Rust runner core",
@@ -325,6 +425,57 @@ describe("runner-backed Muzen preview", () => {
     },
   );
 });
+
+function recycleRunnerScript(): string {
+  return `
+const readline = require("node:readline");
+let reports = 0;
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  const id = request.id;
+  const method = request.method;
+  if (method === "runner.handshake") {
+    respond(id, {
+      protocolVersion: "muzen.runner.v1",
+      runnerName: "fake-recycle-runner",
+      runnerVersion: "0.0.0",
+      capabilities: { supportedMethods: [], plannedMethods: [], transports: ["stdio-jsonl"] }
+    });
+  } else if (method === "run.start") {
+    reports = 1;
+    respond(id, {
+      runId: request.params.runId,
+      status: "completed",
+      summary: { sessions: 1, completedSessions: 1, modelCalls: 1, toolCalls: 0, totalTokens: 12 },
+      findings: [],
+      snapshots: [{ files: 1, capturedFiles: 1 }],
+      metadata: { pid: process.pid }
+    });
+  } else if (method === "run.release") {
+    reports = 0;
+    respond(id, { runId: request.params.runId, released: true, reason: "released" });
+  } else if (method === "runner.debugState") {
+    respond(id, {
+      reports,
+      activeRuns: 0,
+      runThreads: 0,
+      finishedRunThreads: 0,
+      contextEngines: 0,
+      retainedRedactedArtifacts: 0,
+      retainedRawArtifacts: 0,
+      retainedArtifactBytes: 0,
+      snapshotReaders: reports
+    });
+  } else {
+    respond(id, null);
+  }
+});
+function respond(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
+}
+`;
+}
 
 function smokeReviewModel(path: string): ReviewOptions["model"] {
   return {

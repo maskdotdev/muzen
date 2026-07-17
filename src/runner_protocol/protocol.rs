@@ -7,7 +7,8 @@ use serde_json::Value;
 use super::schema::sdk_to_runner_methods;
 
 pub(crate) fn stateful_method(method: &str) -> bool {
-    !method.starts_with("runner.") && sdk_to_runner_methods().any(|registered| registered == method)
+    sdk_to_runner_methods().any(|registered| registered == method)
+        && (!method.starts_with("runner.") || method == "runner.debugState")
 }
 
 pub(crate) fn write_response<W: Write>(writer: &mut W, response: &JsonRpcResponse) -> Result<()> {

@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -6,10 +7,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tempfile::TempDir;
 
 use crate::review_sources::ReviewSource;
+use crate::reviewer_kernel::snapshots::SnapshotSourceRoot;
 use crate::runner_protocol::{RunnerCallbackTransport, RUNNER_PROTOCOL_VERSION};
+use ignore::WalkBuilder;
 
 const GITHUB_BASE_URL: &str = "https://github.com";
 const GITHUB_API_BASE_URL: &str = "https://api.github.com";
@@ -19,15 +21,19 @@ const MATERIALIZED_BASE_REF: &str = "refs/remotes/origin/HEAD";
 const MATERIALIZED_PR_BASE_REF: &str = "refs/remotes/origin/muzen-review-base";
 
 pub(crate) struct MaterializedRunSource {
-    repo_root: PathBuf,
+    repo_root: SnapshotSourceRoot,
     changed_files: Vec<String>,
     inline_diff: Option<String>,
-    _temp_dir: Option<TempDir>,
 }
 
 impl MaterializedRunSource {
+    #[cfg(test)]
     pub(crate) fn repo_root(&self) -> &Path {
-        &self.repo_root
+        self.repo_root.path()
+    }
+
+    pub(crate) fn snapshot_source_root(&self) -> SnapshotSourceRoot {
+        self.repo_root.clone()
     }
 
     pub(crate) fn changed_files(&self) -> &[String] {
@@ -65,12 +71,7 @@ pub(crate) fn materialize_run_source(
     transport: Option<&Arc<dyn RunnerCallbackTransport>>,
 ) -> Result<MaterializedRunSource> {
     if let Some(repo) = repo {
-        return Ok(MaterializedRunSource {
-            repo_root: repo.to_path_buf(),
-            changed_files: changed_files.to_vec(),
-            inline_diff: None,
-            _temp_dir: None,
-        });
+        return materialize_external_root(repo, changed_files, "muzen-local-");
     }
 
     let Some(source) = source else {
@@ -82,18 +83,12 @@ pub(crate) fn materialize_run_source(
     }
 
     match source {
-        ReviewSource::Local { repo } => Ok(MaterializedRunSource {
-            repo_root: repo.clone(),
-            changed_files: changed_files.to_vec(),
-            inline_diff: None,
-            _temp_dir: None,
-        }),
-        ReviewSource::RawSnapshot { root } => Ok(MaterializedRunSource {
-            repo_root: root.clone(),
-            changed_files: changed_files.to_vec(),
-            inline_diff: None,
-            _temp_dir: None,
-        }),
+        ReviewSource::Local { repo } => {
+            materialize_external_root(repo, changed_files, "muzen-local-")
+        }
+        ReviewSource::RawSnapshot { root } => {
+            materialize_external_root(root, changed_files, "muzen-raw-snapshot-")
+        }
         ReviewSource::GithubPullRequest { .. } | ReviewSource::GitlabMergeRequest { .. } => {
             materialize_provider_source(source, changed_files, provider)
         }
@@ -121,12 +116,11 @@ fn materialize_callback_source(
     let value = transport.request("source.materialize", json!(params))?;
     let result = serde_json::from_value::<SourceMaterializeResult>(value)
         .context("invalid source.materialize result")?;
-    Ok(MaterializedRunSource {
-        repo_root: result.root,
-        changed_files: result.changed_files,
-        inline_diff: None,
-        _temp_dir: None,
-    })
+    materialize_external_root(
+        &result.root,
+        &result.changed_files,
+        "muzen-callback-source-",
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -237,11 +231,83 @@ fn materialize_provider_source(
     let inline_diff = infer_inline_diff(&repo_root, &plan);
 
     Ok(MaterializedRunSource {
-        repo_root,
+        repo_root: SnapshotSourceRoot::temp(repo_root, temp_dir),
         changed_files: inferred_changed_files,
         inline_diff,
-        _temp_dir: Some(temp_dir),
     })
+}
+
+fn materialize_external_root(
+    root: &Path,
+    changed_files: &[String],
+    temp_prefix: &str,
+) -> Result<MaterializedRunSource> {
+    let source_root = fs::canonicalize(root)
+        .with_context(|| format!("failed to canonicalize source root {}", root.display()))?;
+    if !source_root.is_dir() {
+        anyhow::bail!("source root is not a directory: {}", source_root.display());
+    }
+    let temp_dir = tempfile::Builder::new()
+        .prefix(temp_prefix)
+        .tempdir()
+        .context("failed to create immutable source directory")?;
+    let repo_root = temp_dir.path().to_path_buf();
+    copy_dir_contents(&source_root, &repo_root).with_context(|| {
+        format!(
+            "failed to materialize immutable source root from {}",
+            source_root.display()
+        )
+    })?;
+    Ok(MaterializedRunSource {
+        repo_root: SnapshotSourceRoot::temp(repo_root, temp_dir),
+        changed_files: changed_files.to_vec(),
+        inline_diff: None,
+    })
+}
+
+fn copy_dir_contents(source: &Path, dest: &Path) -> Result<()> {
+    let mut walker = WalkBuilder::new(source);
+    walker.hidden(false).follow_links(false);
+    walker.filter_entry(|entry| entry.file_name().to_str().is_none_or(|name| name != ".git"));
+    for entry in walker.build() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to walk source root {}", source.display()))
+            }
+        };
+        if entry.path() == source {
+            continue;
+        }
+        let rel = entry.path().strip_prefix(source).with_context(|| {
+            format!(
+                "failed to resolve source-relative path for {}",
+                entry.path().display()
+            )
+        })?;
+        let target = dest.join(rel);
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            fs::create_dir_all(&target)
+                .with_context(|| format!("failed to create directory {}", target.display()))?;
+        } else if file_type.is_file() {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create directory {}", parent.display()))?;
+            }
+            fs::copy(entry.path(), &target).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    entry.path().display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 fn resolve_provider_pr_checkout(

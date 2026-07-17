@@ -129,9 +129,9 @@ fn plan_local_review(
         source_provider.as_ref(),
         None,
     )?;
-    let repo_root = materialized.repo_root().to_path_buf();
+    let repo_root = materialized.snapshot_source_root();
     #[cfg(test)]
-    let target_path = select_target_path(&repo_root, materialized.changed_files())?;
+    let target_path = select_target_path(repo_root.path(), materialized.changed_files())?;
     let changed_files =
         changed_file_specs(materialized.changed_files(), change_descriptor.as_ref());
     let change = review_change_spec(
@@ -159,7 +159,7 @@ fn plan_local_review(
             .as_ref()
             .and_then(|limits| limits.max_active_sessions),
     );
-    let snapshot = SnapshotSpec::new(&repo_root, change).with_path_policy(
+    let snapshot = SnapshotSpec::from_source_root(repo_root, change).with_path_policy(
         SnapshotPathPolicy::standard(max_file_bytes, max_search_matches),
     );
     let session = default_review_orchestrator_session(

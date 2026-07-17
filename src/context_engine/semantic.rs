@@ -282,6 +282,10 @@ impl InMemoryVectorIndex {
     pub fn get(&self, id: &str) -> Option<&EmbeddingVector> {
         self.vectors.get(id)
     }
+
+    pub fn vector_count(&self) -> usize {
+        self.vectors.len()
+    }
 }
 
 impl VectorIndex for InMemoryVectorIndex {

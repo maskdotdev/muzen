@@ -266,6 +266,14 @@ impl ContextGraph {
         self.edges.iter()
     }
 
+    pub(crate) fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub(crate) fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
     pub fn edges_from(&self, id: &ContextNodeId) -> impl Iterator<Item = &ContextEdge> {
         self.edges_from
             .get(id)

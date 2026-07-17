@@ -382,6 +382,28 @@ pub struct RunCancelResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct RunReleaseResult {
+    pub run_id: String,
+    pub released: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerDebugStateResult {
+    pub reports: usize,
+    pub active_runs: usize,
+    pub run_threads: usize,
+    pub finished_run_threads: usize,
+    pub context_engines: usize,
+    pub retained_redacted_artifacts: usize,
+    pub retained_raw_artifacts: usize,
+    pub retained_artifact_bytes: usize,
+    pub snapshot_readers: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct RunHeartbeatParams {
     pub protocol_version: String,
     pub run_id: String,

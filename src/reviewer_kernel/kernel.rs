@@ -119,8 +119,8 @@ impl RunBuilder {
         for snapshot_spec in self.spec.snapshots {
             let change: ChangeScopeV1 = snapshot_spec.change.clone().into();
             let path_policy: PathPolicyV1 = snapshot_spec.path_policy.into();
-            let mut snapshot = RepoSnapshot::build_with_capture_policy(
-                &snapshot_spec.repo_root,
+            let mut snapshot = RepoSnapshot::build_with_source_root(
+                snapshot_spec.repo_root,
                 &path_policy,
                 &change,
                 snapshot_spec.capture_policy,

@@ -44,17 +44,91 @@ fn public_snapshot_capture_policy_reports_memory_envelope_skips() {
     assert_eq!(manifest.capture_skipped_file_count, 1);
     assert!(manifest.capture_skipped_bytes > 0);
     assert!(manifest.files[0].capture_skipped_memory_limit());
-    assert!(matches!(
-        report
-            .snapshot_reader(&report.snapshot.snapshot_id)
-            .unwrap()
-            .read_text_path("README.md", 64 * 1024),
-        Err(
-            crate::reviewer_kernel::kernel_types::RuntimeError::LimitExceeded {
-                kind: "snapshot_capture_bytes"
-            }
-        )
+    let text = report
+        .snapshot_reader(&report.snapshot.snapshot_id)
+        .unwrap()
+        .read_text_path("README.md", 64 * 1024)
+        .unwrap();
+    assert_eq!(text.content, "needle\n");
+}
+
+#[test]
+fn disk_backed_snapshot_content_is_readable_and_searchable() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("README.md"),
+        "disk-backed-needle\nsecond line\n",
+    )
+    .unwrap();
+    let change = test_change_with_file("README.md");
+    let policy = PathPolicyV1::bench(64 * 1024, 20);
+    let snapshot = RepoSnapshot::build_with_capture_policy(
+        temp.path(),
+        &policy,
+        &change,
+        crate::reviewer_kernel::kernel_types::SnapshotCapturePolicy::new(0),
+    )
+    .unwrap();
+    let manifest_file = &snapshot.manifest.files[0];
+    assert!(manifest_file.is_text_candidate);
+    assert!(manifest_file.content_ref.is_some());
+    assert!(
+        manifest_file.capture_status
+            == crate::reviewer_kernel::kernel_types::SnapshotCaptureStatus::SkippedMemoryLimit
+    );
+
+    let engine = ToolEngine::new(
+        snapshot,
+        Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20)),
+    )
+    .unwrap();
+    let tokio = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let results = tokio.block_on(engine.execute_batch(
+        test_scope("disk-backed-session"),
+        TurnId(0),
+        vec![
+            ModelToolCall {
+                call_id: ToolCallId("read-disk-backed".to_string()),
+                index: 0,
+                name: ToolId::from(ToolName::ReadFile),
+                raw_arguments: serde_json::json!({ "path": "README.md" }).to_string(),
+            },
+            ModelToolCall {
+                call_id: ToolCallId("search-disk-backed".to_string()),
+                index: 1,
+                name: ToolId::from(ToolName::SearchText),
+                raw_arguments: serde_json::json!({ "query": "disk-backed-needle" }).to_string(),
+            },
+        ],
+        tokio_util::sync::CancellationToken::new(),
     ));
+
+    assert_eq!(results.len(), 2);
+    assert!(results[0].ok);
+    assert!(results[0]
+        .data
+        .as_ref()
+        .unwrap()
+        .get("content")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .contains("disk-backed-needle"));
+    assert!(results[1].ok);
+    assert_eq!(
+        results[1]
+            .data
+            .as_ref()
+            .unwrap()
+            .get("returnedMatches")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        1
+    );
 }
 
 #[test]

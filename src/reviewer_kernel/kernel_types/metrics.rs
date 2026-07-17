@@ -173,6 +173,11 @@ pub struct ReviewQualityDiagnostics {
     pub sessions_run: usize,
     pub budgets_used: BTreeMap<String, usize>,
     pub explicit_caller_cap_sessions: usize,
+    pub orchestrator_candidate_findings: usize,
+    pub child_candidate_findings: usize,
+    pub merged_candidate_findings: usize,
+    pub validation_rescue_attempts: usize,
+    pub validation_rescue_supported: usize,
     pub candidate_findings: usize,
     pub rescued_candidates: usize,
     pub rejected_candidates: usize,
@@ -205,6 +210,11 @@ impl ReviewQualityDiagnostics {
         self.sessions_run += other.sessions_run;
         merge_counts(&mut self.budgets_used, other.budgets_used);
         self.explicit_caller_cap_sessions += other.explicit_caller_cap_sessions;
+        self.orchestrator_candidate_findings += other.orchestrator_candidate_findings;
+        self.child_candidate_findings += other.child_candidate_findings;
+        self.merged_candidate_findings += other.merged_candidate_findings;
+        self.validation_rescue_attempts += other.validation_rescue_attempts;
+        self.validation_rescue_supported += other.validation_rescue_supported;
         self.candidate_findings += other.candidate_findings;
         self.rescued_candidates += other.rescued_candidates;
         self.rejected_candidates += other.rejected_candidates;
@@ -230,6 +240,11 @@ impl Default for ReviewQualityDiagnostics {
             sessions_run: 0,
             budgets_used: BTreeMap::new(),
             explicit_caller_cap_sessions: 0,
+            orchestrator_candidate_findings: 0,
+            child_candidate_findings: 0,
+            merged_candidate_findings: 0,
+            validation_rescue_attempts: 0,
+            validation_rescue_supported: 0,
             candidate_findings: 0,
             rescued_candidates: 0,
             rejected_candidates: 0,

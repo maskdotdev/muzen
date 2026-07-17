@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tempfile::TempDir;
+
 use crate::reviewer_kernel::kernel_types::{
     RepoPath, RuntimeError, RuntimeResult, SnapshotCapturePolicy, SnapshotCaptureStatus, SnapshotId,
 };
@@ -12,19 +14,69 @@ use crate::reviewer_kernel::review_contract::{
 };
 use crate::workspace::RepoSnapshot;
 
+#[derive(Debug, Clone)]
+pub(crate) struct SnapshotSourceRoot {
+    root: PathBuf,
+    retention: SnapshotSourceRetention,
+}
+
+#[derive(Debug, Clone)]
+enum SnapshotSourceRetention {
+    External,
+    Temp(Arc<TempDir>),
+}
+
+impl SnapshotSourceRoot {
+    pub(crate) fn external(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            retention: SnapshotSourceRetention::External,
+        }
+    }
+
+    pub(crate) fn temp(root: impl Into<PathBuf>, temp_dir: TempDir) -> Self {
+        Self {
+            root: root.into(),
+            retention: SnapshotSourceRetention::Temp(Arc::new(temp_dir)),
+        }
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        self.keepalive();
+        &self.root
+    }
+
+    fn keepalive(&self) {
+        if let SnapshotSourceRetention::Temp(temp_dir) = &self.retention {
+            let _ = Arc::strong_count(temp_dir);
+        }
+    }
+}
+
 pub struct SnapshotSpec {
     pub snapshot_id: Option<SnapshotId>,
-    pub repo_root: PathBuf,
+    pub repo_root: SnapshotSourceRoot,
     pub change: ChangeSpec,
     pub path_policy: SnapshotPathPolicy,
     pub capture_policy: SnapshotCapturePolicy,
 }
 
 impl SnapshotSpec {
+    #[cfg(test)]
     pub fn new(repo_root: impl Into<PathBuf>, change: ChangeSpec) -> Self {
         Self {
             snapshot_id: None,
-            repo_root: repo_root.into(),
+            repo_root: SnapshotSourceRoot::external(repo_root),
+            change,
+            path_policy: SnapshotPathPolicy::default(),
+            capture_policy: SnapshotCapturePolicy::default(),
+        }
+    }
+
+    pub(crate) fn from_source_root(repo_root: SnapshotSourceRoot, change: ChangeSpec) -> Self {
+        Self {
+            snapshot_id: None,
+            repo_root,
             change,
             path_policy: SnapshotPathPolicy::default(),
             capture_policy: SnapshotCapturePolicy::default(),
@@ -408,11 +460,6 @@ impl SnapshotReader {
 
     pub fn read_text(&self, path: &RepoPath, max_bytes: usize) -> RuntimeResult<SnapshotTextFile> {
         let file = self.snapshot.lookup(path)?;
-        if file.capture_status == SnapshotCaptureStatus::SkippedMemoryLimit {
-            return Err(RuntimeError::LimitExceeded {
-                kind: "snapshot_capture_bytes",
-            });
-        }
         let content_hash = file.content_hash.clone().ok_or(RuntimeError::Invariant(
             "text candidate missing snapshot content hash",
         ))?;
@@ -464,8 +511,9 @@ impl SnapshotSummary {
                 .manifest
                 .files
                 .iter()
-                .filter_map(|file| file.snapshot_content.as_ref())
-                .map(|content| content.len() as u64)
+                .filter_map(|file| file.content_ref.as_ref())
+                .filter_map(|content_ref| content_ref.eager_len())
+                .map(|len| len as u64)
                 .sum(),
         }
     }
@@ -504,7 +552,10 @@ impl SnapshotManifest {
                 content_hash: file.content_hash.clone(),
                 is_changed: file.is_changed,
                 is_text_candidate: file.is_text_candidate,
-                captured: file.snapshot_content.is_some(),
+                captured: file
+                    .content_ref
+                    .as_ref()
+                    .is_some_and(|content_ref| content_ref.is_eager()),
                 capture_status: file.capture_status,
             })
             .collect::<Vec<_>>();
@@ -513,8 +564,8 @@ impl SnapshotManifest {
             .manifest
             .files
             .iter()
-            .filter_map(|file| file.snapshot_content.as_ref())
-            .map(|content| content.len())
+            .filter_map(|file| file.content_ref.as_ref())
+            .filter_map(|content_ref| content_ref.eager_len())
             .sum();
         let changed_files = snapshot
             .manifest

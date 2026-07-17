@@ -38,6 +38,20 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             ],
         ),
         object(
+            "RunnerDebugStateResult",
+            vec![
+                required("reports", "integer"),
+                required("activeRuns", "integer"),
+                required("runThreads", "integer"),
+                required("finishedRunThreads", "integer"),
+                required("contextEngines", "integer"),
+                required("retainedRedactedArtifacts", "integer"),
+                required("retainedRawArtifacts", "integer"),
+                required("retainedArtifactBytes", "integer"),
+                required("snapshotReaders", "integer"),
+            ],
+        ),
+        object(
             "RunnerProtocolSchema",
             vec![
                 required("schemaVersion", "string"),
@@ -468,6 +482,14 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
             ],
         ),
         object(
+            "RunReleaseResult",
+            vec![
+                required("runId", "string"),
+                required("released", "boolean"),
+                required("reason", "string"),
+            ],
+        ),
+        object(
             "RunnerRunResult",
             vec![
                 required("protocolVersion", "string"),
@@ -498,6 +520,8 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 required("artifacts", "integer"),
                 required("artifactBytes", "integer"),
                 required("snapshotCount", "integer"),
+                optional("currentRssBytes", "integer"),
+                optional("peakRssBytes", "integer"),
                 defaulted(
                     "completionDiagnostics",
                     "RunnerSessionCompletionDiagnostic[]",
@@ -615,6 +639,11 @@ pub(super) fn payload_definitions() -> Vec<RunnerPayloadSchema> {
                 defaulted("sessionsRun", "integer", "0"),
                 defaulted("budgetsUsed", "Record<string, integer>", "{}"),
                 defaulted("explicitCallerCapSessions", "integer", "0"),
+                defaulted("orchestratorCandidateFindings", "integer", "0"),
+                defaulted("childCandidateFindings", "integer", "0"),
+                defaulted("mergedCandidateFindings", "integer", "0"),
+                defaulted("validationRescueAttempts", "integer", "0"),
+                defaulted("validationRescueSupported", "integer", "0"),
                 required("candidateFindings", "integer"),
                 required("rescuedCandidates", "integer"),
                 required("rejectedCandidates", "integer"),

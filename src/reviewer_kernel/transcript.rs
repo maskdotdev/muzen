@@ -54,6 +54,12 @@ pub(crate) fn estimate_prompt_tokens(transcript: &[ConversationItem]) -> usize {
     transcript.iter().map(estimate_item_tokens).sum()
 }
 
+pub(crate) fn estimate_transcript_bytes(transcript: &[ConversationItem]) -> usize {
+    serde_json::to_vec(transcript)
+        .map(|bytes| bytes.len())
+        .unwrap_or(0)
+}
+
 fn estimate_item_tokens(item: &ConversationItem) -> usize {
     let chars = match item {
         ConversationItem::System { content }

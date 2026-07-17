@@ -441,6 +441,8 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
         artifacts: summary.artifacts,
         artifact_bytes: summary.artifact_bytes,
         snapshot_count: summary.snapshot_count,
+        current_rss_bytes: summary.current_rss_bytes,
+        peak_rss_bytes: summary.peak_rss_bytes,
         completion_diagnostics: summary
             .completion_diagnostics
             .iter()
@@ -502,6 +504,13 @@ fn runner_summary_from_review(summary: &ReviewRunSummary) -> RunnerRunSummary {
             sessions_run: summary.quality_diagnostics.sessions_run,
             budgets_used: summary.quality_diagnostics.budgets_used.clone(),
             explicit_caller_cap_sessions: summary.quality_diagnostics.explicit_caller_cap_sessions,
+            orchestrator_candidate_findings: summary
+                .quality_diagnostics
+                .orchestrator_candidate_findings,
+            child_candidate_findings: summary.quality_diagnostics.child_candidate_findings,
+            merged_candidate_findings: summary.quality_diagnostics.merged_candidate_findings,
+            validation_rescue_attempts: summary.quality_diagnostics.validation_rescue_attempts,
+            validation_rescue_supported: summary.quality_diagnostics.validation_rescue_supported,
             candidate_findings: summary.quality_diagnostics.candidate_findings,
             rescued_candidates: summary.quality_diagnostics.rescued_candidates,
             rejected_candidates: summary.quality_diagnostics.rejected_candidates,

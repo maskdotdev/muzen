@@ -58,6 +58,49 @@ node bench/review-quality/summarize-results.mjs \
   bench/results-review-quality/cal-pr-8330.json
 ```
 
+## Real Review Memory Harnesses
+
+The JS, Python, and Rust memory harnesses all drive the same production
+`muzen-runner stdio` review path with a shared runner. They are for comparing
+host harness overhead around the Rust runner, not for replacing the scored JS
+review-quality harness.
+
+```sh
+cargo build --release --bin muzen-runner --bin muzen-review-memory-bench
+
+node bench/review-quality/tools/run-muzen-martian-concurrent.mjs \
+  --runner-path target/release/muzen-runner \
+  --runner-mode shared \
+  --model gpt-4o \
+  --sessions 0 \
+  --max-active 10 \
+  --concurrency 10 \
+  --limit 50 \
+  --skip-semantic true \
+  --output-dir bench/results-real-review-memory-js
+
+python3 bench/review-quality/tools/run-muzen-martian-concurrent.py \
+  --runner-path target/release/muzen-runner \
+  --model gpt-4o \
+  --max-active 10 \
+  --concurrency 10 \
+  --limit 50 \
+  --output-dir bench/results-real-review-memory-python
+
+target/release/muzen-review-memory-bench \
+  --runner-path target/release/muzen-runner \
+  --model gpt-4o \
+  --max-active 10 \
+  --concurrency 10 \
+  --limit 50 \
+  --output-dir bench/results-real-review-memory-rust
+```
+
+All three write `summary.json` with peak runner, harness, aggregate RSS, token
+counts, model/tool counts, and per-case validity. The Python and Rust harnesses
+intentionally emit lean memory summaries; the JS harness remains the full
+scored/trace-rich review-quality harness.
+
 Golden files are data only:
 
 ```json

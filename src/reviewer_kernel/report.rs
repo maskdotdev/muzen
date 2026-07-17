@@ -11,6 +11,7 @@ use crate::reviewer_kernel::kernel_types::{
     ToolProviderHealthSnapshot, ToolProviderHealthState,
 };
 use crate::reviewer_kernel::review_contract::{FileReviewV1, FindingV1};
+use crate::reviewer_kernel::system::{current_rss_bytes, peak_rss_bytes};
 
 use crate::reviewer_kernel::events::*;
 use crate::reviewer_kernel::snapshots::*;
@@ -205,6 +206,8 @@ pub struct ReviewRunSummary {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub snapshot_count: usize,
+    pub current_rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
     pub completion_diagnostics: Vec<SessionCompletionDiagnostic>,
     pub model_metrics: ModelMetricsSnapshot,
     pub quality_diagnostics: ReviewQualityDiagnostics,
@@ -227,6 +230,8 @@ impl ReviewRunSummary {
             artifacts: metrics.artifacts,
             artifact_bytes: metrics.artifact_bytes,
             snapshot_count: metrics.snapshot_metrics.len(),
+            current_rss_bytes: current_rss_bytes(),
+            peak_rss_bytes: peak_rss_bytes(),
             completion_diagnostics: metrics.completion_diagnostics.clone(),
             model_metrics: metrics.model_metrics.clone(),
             quality_diagnostics: metrics.quality_diagnostics.clone(),

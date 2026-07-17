@@ -577,6 +577,13 @@ class RemoteReviewSession implements ReviewSession {
     this.currentResult = snapshot.result;
     return snapshot;
   }
+
+  async release(): Promise<void> {
+    await this.client.requestJson(
+      `/v1/reviews/${encodeURIComponent(this.id)}/release`,
+      { method: "POST" },
+    );
+  }
 }
 
 function remoteReviewOptions(options: ReviewOptions): ReviewOptions {

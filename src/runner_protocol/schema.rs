@@ -82,6 +82,12 @@ const SDK_TO_RUNNER_METHODS: &[MethodSpec] = &[
         Some("RunnerProtocolSchema"),
     ),
     sdk_to_runner(
+        "runner.debugState",
+        "Return read-only state retention counts for the current stateful runner session.",
+        None,
+        Some("RunnerDebugStateResult"),
+    ),
+    sdk_to_runner(
         "run.start",
         "Start a review run.",
         Some("RunStartParams"),
@@ -104,6 +110,12 @@ const SDK_TO_RUNNER_METHODS: &[MethodSpec] = &[
         "Read final run report.",
         Some("RunLookupParams"),
         Some("RunnerRunResult"),
+    ),
+    sdk_to_runner(
+        "run.release",
+        "Release a terminal run report and its retained artifacts from a stateful runner.",
+        Some("RunLookupParams"),
+        Some("RunReleaseResult"),
     ),
     sdk_to_runner(
         "artifact.read",

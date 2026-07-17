@@ -1,9 +1,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use moka::future::Cache;
-
-use crate::reviewer_kernel::kernel_types::{stable_id, RuntimeError, RuntimeLimits, RuntimeResult};
+use crate::reviewer_kernel::kernel_types::{RuntimeError, RuntimeLimits, RuntimeResult};
 use crate::workspace::{FileMeta, RepoSnapshot};
 
 use super::metrics::ConcurrentAtomicCounters;
@@ -12,7 +10,6 @@ use super::metrics::ConcurrentAtomicCounters;
 pub(crate) struct ReadService {
     snapshot: Arc<RepoSnapshot>,
     limits: Arc<RuntimeLimits>,
-    file_cache: Cache<String, Arc<Vec<u8>>>,
     counters: Arc<ConcurrentAtomicCounters>,
 }
 
@@ -25,32 +22,18 @@ impl ReadService {
         Self {
             snapshot,
             limits,
-            file_cache: Cache::new(10_000),
             counters,
         }
     }
 
     pub(super) async fn read_file(&self, file: &FileMeta) -> RuntimeResult<ReadResult> {
-        let key = stable_id(&[
-            &self.snapshot.snapshot_id.0,
-            &file.file_id.0.to_string(),
-            &file.fingerprint,
-        ]);
-        if let Some(bytes) = self.file_cache.get(&key).await {
-            self.counters
-                .read_cache_hits
-                .fetch_add(1, Ordering::Relaxed);
-            return decode_read(bytes.as_ref(), false);
-        }
         let (bytes, truncated) = self
             .snapshot
             .read_bounded(file.file_id, self.limits.max_file_bytes_read)?;
         self.counters
             .read_file_reads
             .fetch_add(1, Ordering::Relaxed);
-        let bytes = Arc::new(bytes);
-        self.file_cache.insert(key, Arc::clone(&bytes)).await;
-        decode_read(bytes.as_ref(), truncated)
+        decode_read(&bytes, truncated)
     }
 }
 

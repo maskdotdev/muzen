@@ -13,14 +13,16 @@ use crate::reviewer_kernel::dispatch::RuntimeEventDispatcher;
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::model::ConcurrentModelRouter;
 use crate::reviewer_kernel::policy::ReviewerPolicy;
-use crate::reviewer_kernel::review_contract::{AgentBudget, Role};
+use crate::reviewer_kernel::review_contract::{AgentBudget, BudgetSource, Role};
 use crate::reviewer_kernel::tool_engine::registry::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
 };
 use crate::reviewer_kernel::tool_engine::ToolEngine;
 use crate::workspace::RepoSnapshot;
 
-use super::findings::{compact_child_packet, invalid_child_packet, parse_child_packet};
+use super::findings::{
+    compact_child_packet, invalid_child_packet, parse_child_packet, CandidateFinding,
+};
 use super::prompts::child_task_packet;
 use super::schemas::{child_final_instruction, child_response_format};
 use super::sessions::{run_session_loop, SessionKind, SessionRunConfig};
@@ -101,6 +103,7 @@ pub(crate) struct AutonomousDelegateState {
     child_sequence: AtomicUsize,
     max_child_sessions: usize,
     child_reports: Mutex<Vec<AgentLoopReport>>,
+    child_candidates: Mutex<Vec<ChildCandidateDiscovery>>,
 }
 
 impl AutonomousDelegateState {
@@ -120,6 +123,7 @@ impl AutonomousDelegateState {
                 .max_child_sessions
                 .unwrap_or(DEFAULT_MAX_CHILD_SESSIONS),
             child_reports: Mutex::new(Vec::new()),
+            child_candidates: Mutex::new(Vec::new()),
         }
     }
 
@@ -150,6 +154,14 @@ impl AutonomousDelegateState {
 
     pub(super) fn child_reports(&self) -> Vec<AgentLoopReport> {
         self.child_reports.lock().clone()
+    }
+
+    fn record_child_candidates(&self, candidates: Vec<ChildCandidateDiscovery>) {
+        self.child_candidates.lock().extend(candidates);
+    }
+
+    pub(super) fn child_candidate_discoveries(&self) -> Vec<ChildCandidateDiscovery> {
+        self.child_candidates.lock().clone()
     }
 
     pub(super) fn agent_loop_runtime(&self) -> AgentLoopRuntime {
@@ -214,14 +226,36 @@ pub(super) struct DelegateToolPacket {
     pub(super) status: String,
     pub(super) summary: String,
     pub(super) artifact_id: Option<ArtifactId>,
+    pub(super) candidate_count: usize,
+    pub(super) completed: bool,
+    pub(super) finalization_reason: String,
+    pub(super) schema_validation_success: bool,
     pub(super) compact: Value,
     full: Value,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ChildCandidateDiscovery {
+    pub(super) candidate: CandidateFinding,
+    pub(super) child_session_id: String,
+    pub(super) task_type: &'static str,
+    pub(super) artifact_id: Option<ArtifactId>,
 }
 
 pub(super) async fn run_child_delegate(
     state: Arc<AutonomousDelegateState>,
     kind: DelegateTaskKind,
     request: DelegateTaskRequest,
+    cancel: CancellationToken,
+) -> RuntimeResult<DelegateToolPacket> {
+    run_child_delegate_with_budget(state, kind, request, child_budget(kind), cancel).await
+}
+
+pub(super) async fn run_child_delegate_with_budget(
+    state: Arc<AutonomousDelegateState>,
+    kind: DelegateTaskKind,
+    request: DelegateTaskRequest,
+    budget: AgentBudget,
     cancel: CancellationToken,
 ) -> RuntimeResult<DelegateToolPacket> {
     let _permit = state
@@ -248,13 +282,7 @@ pub(super) async fn run_child_delegate(
         model_profile_id: state.model_profile_id_for(kind),
         response_format: None,
         capabilities: CapabilitySet::review_read_only(),
-        budget: AgentBudget {
-            max_turns: 8,
-            max_tool_calls: 64,
-            max_prompt_tokens: 96_000,
-            max_output_tokens: 4_096,
-            budget_source: crate::reviewer_kernel::review_contract::BudgetSource::AdaptiveReview,
-        },
+        budget,
     };
     let report = run_session_loop(
         Arc::clone(&state),
@@ -304,14 +332,93 @@ pub(super) async fn run_child_delegate(
         .and_then(Value::as_str)
         .unwrap_or(report.status.as_str())
         .to_string();
+    let candidate_count = parsed
+        .get("candidateFindings")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let completed = report.completed;
+    let finalization_reason = report.diagnostic.finalization_reason.clone();
+    let schema_validation_success = report.diagnostic.final_output.schema_validation_success;
+    if kind != DelegateTaskKind::ValidateFinding {
+        state.record_child_candidates(extract_child_candidates(
+            kind,
+            &child_id,
+            &parsed,
+            &artifact_id,
+        ));
+    }
     let packet = DelegateToolPacket {
         session_id: child_id.0.clone(),
         status,
         summary,
         artifact_id: Some(artifact_id.clone()),
+        candidate_count,
+        completed,
+        finalization_reason,
+        schema_validation_success,
         compact,
         full: parsed,
     };
     state.record_child_report(report);
     Ok(packet)
+}
+
+pub(super) fn child_budget(kind: DelegateTaskKind) -> AgentBudget {
+    match kind {
+        DelegateTaskKind::SearchCode => AgentBudget {
+            max_turns: 6,
+            max_tool_calls: 32,
+            max_prompt_tokens: 64_000,
+            max_output_tokens: 3_072,
+            budget_source: BudgetSource::AdaptiveReview,
+        },
+        DelegateTaskKind::ExploreCode => AgentBudget {
+            max_turns: 8,
+            max_tool_calls: 64,
+            max_prompt_tokens: 96_000,
+            max_output_tokens: 4_096,
+            budget_source: BudgetSource::AdaptiveReview,
+        },
+        DelegateTaskKind::ValidateFinding => AgentBudget {
+            max_turns: 4,
+            max_tool_calls: 8,
+            max_prompt_tokens: 32_000,
+            max_output_tokens: 1_536,
+            budget_source: BudgetSource::AdaptiveReview,
+        },
+    }
+}
+
+pub(super) fn lead_generation_child_budget() -> AgentBudget {
+    AgentBudget {
+        max_turns: 4,
+        max_tool_calls: 6,
+        max_prompt_tokens: 32_000,
+        max_output_tokens: 1_536,
+        budget_source: BudgetSource::AdaptiveReview,
+    }
+}
+
+fn extract_child_candidates(
+    kind: DelegateTaskKind,
+    child_id: &SessionId,
+    packet: &Value,
+    artifact_id: &ArtifactId,
+) -> Vec<ChildCandidateDiscovery> {
+    packet
+        .get("candidateFindings")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value::<CandidateFinding>(item.clone()).ok())
+                .map(|candidate| ChildCandidateDiscovery {
+                    candidate,
+                    child_session_id: child_id.0.clone(),
+                    task_type: kind.tool_name(),
+                    artifact_id: Some(artifact_id.clone()),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }

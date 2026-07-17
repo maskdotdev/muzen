@@ -131,6 +131,9 @@ pub(super) fn compact_child_packet(
         "status": packet.get("status").cloned().unwrap_or_else(|| json!("insufficient")),
         "summary": packet.get("summary").cloned().unwrap_or_else(|| json!("")),
         "checkedPaths": compact_string_array(packet.get("checkedPaths"), 40),
+        "openQuestions": compact_string_array(packet.get("openQuestions"), 12),
+        "suggestedNextSearches": compact_string_array(packet.get("suggestedNextSearches"), 12),
+        "evidence": compact_evidence_array(packet.get("evidence"), 16),
         "candidateCount": packet.get("candidateFindings").and_then(Value::as_array).map_or(0, Vec::len),
         "openQuestionCount": packet.get("openQuestions").and_then(Value::as_array).map_or(0, Vec::len),
         "artifactId": artifact_id.0,
@@ -146,6 +149,30 @@ fn compact_string_array(value: Option<&Value>, max_items: usize) -> Vec<String> 
                 .filter_map(Value::as_str)
                 .take(max_items)
                 .map(|item| truncate_chars(item, 240))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn compact_evidence_array(value: Option<&Value>, max_items: usize) -> Vec<Value> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .take(max_items)
+                .map(|item| {
+                    json!({
+                        "path": item.get("path").and_then(Value::as_str).unwrap_or_default(),
+                        "startLine": item.get("startLine").and_then(Value::as_u64),
+                        "endLine": item.get("endLine").and_then(Value::as_u64),
+                        "whyItMatters": item
+                            .get("whyItMatters")
+                            .and_then(Value::as_str)
+                            .map(|text| truncate_chars(text, 360))
+                            .unwrap_or_default(),
+                    })
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
@@ -191,6 +218,7 @@ pub(super) fn build_findings(
     let changed_ranges = changed_line_ranges_by_path(&snapshot.diff.content);
     let mut seen_candidate_keys = BTreeSet::new();
     let mut seen_candidate_ids = BTreeSet::new();
+    let mut accepted_candidates: Vec<&CandidateFinding> = Vec::new();
     let mut findings = Vec::new();
     let mut rejection_reasons = BTreeMap::new();
     let mut publication_decisions = Vec::new();
@@ -233,7 +261,7 @@ pub(super) fn build_findings(
             ));
             continue;
         };
-        if !validation.status.trim().eq_ignore_ascii_case("supported") {
+        if !validation_status_publishable(&validation.status) {
             let reason = validation_rejection_reason(&validation.status);
             record_candidate_rejection(&mut rejection_reasons, &reason);
             publication_decisions.push(rejected_publication_decision(
@@ -254,6 +282,18 @@ pub(super) fn build_findings(
             ));
             continue;
         }
+        if accepted_candidates
+            .iter()
+            .any(|accepted| candidate_is_duplicate_published_behavior(candidate, accepted))
+        {
+            record_candidate_rejection(&mut rejection_reasons, "duplicate_published_behavior");
+            publication_decisions.push(rejected_publication_decision(
+                candidate,
+                "duplicate_published_behavior",
+                Some(validation),
+            ));
+            continue;
+        }
         let validation_has_summary = !validation.summary.trim().is_empty();
         findings.push(candidate_to_finding(
             tools,
@@ -269,6 +309,7 @@ pub(super) fn build_findings(
             validator_status: Some(validation.status.clone()),
             validator_session_id: validation.child_session_id.clone(),
         });
+        accepted_candidates.push(candidate);
     }
     FindingBuildOutcome {
         findings,
@@ -308,6 +349,109 @@ fn validation_rejection_reason(status: &str) -> String {
         _ => format!("validator_{normalized}"),
     }
 }
+
+fn validation_status_publishable(status: &str) -> bool {
+    let normalized = status.trim().to_ascii_lowercase();
+    normalized == "supported"
+}
+
+fn candidate_is_duplicate_published_behavior(
+    candidate: &CandidateFinding,
+    accepted: &CandidateFinding,
+) -> bool {
+    let failure_tokens = candidate_failure_tokens(candidate);
+    let accepted_failure_tokens = candidate_failure_tokens(accepted);
+    let title_overlap = token_overlap(
+        &candidate_title_tokens(candidate),
+        &candidate_title_tokens(accepted),
+    );
+    let failure_overlap = token_overlap(&failure_tokens, &accepted_failure_tokens);
+    (title_overlap >= 0.75 && failure_overlap >= 0.45)
+        || (title_overlap >= 0.55 && failure_overlap >= 0.60)
+        || (candidate_locations_overlap(candidate, accepted)
+            && failure_overlap >= 0.35
+            && shared_distinctive_token_count(&failure_tokens, &accepted_failure_tokens) >= 2)
+}
+
+fn candidate_title_tokens(candidate: &CandidateFinding) -> BTreeSet<String> {
+    normalized_tokens(&candidate.title)
+}
+
+fn candidate_failure_tokens(candidate: &CandidateFinding) -> BTreeSet<String> {
+    normalized_tokens(&format!(
+        "{} {} {} {}",
+        candidate.title,
+        candidate.claim,
+        candidate.negative_outcome,
+        candidate.behavior_after.as_deref().unwrap_or_default()
+    ))
+}
+
+fn token_overlap(left: &BTreeSet<String>, right: &BTreeSet<String>) -> f32 {
+    let denominator = left.len().min(right.len());
+    if denominator == 0 {
+        return 0.0;
+    }
+    let intersection = left.intersection(right).count();
+    intersection as f32 / denominator as f32
+}
+
+fn shared_distinctive_token_count(left: &BTreeSet<String>, right: &BTreeSet<String>) -> usize {
+    left.intersection(right)
+        .filter(|token| token.len() >= 6 && !DUPLICATE_PATH_STOP_WORDS.contains(&token.as_str()))
+        .count()
+}
+
+fn candidate_locations_overlap(candidate: &CandidateFinding, accepted: &CandidateFinding) -> bool {
+    let left = candidate_location_tokens(candidate);
+    let right = candidate_location_tokens(accepted);
+    left.iter().any(|path| right.contains(path))
+}
+
+fn candidate_location_tokens(candidate: &CandidateFinding) -> BTreeSet<String> {
+    std::iter::once(candidate.path.as_str())
+        .chain(candidate.related_paths.iter().map(String::as_str))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn normalized_tokens(text: &str) -> BTreeSet<String> {
+    text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .filter_map(normalized_token)
+        .collect()
+}
+
+fn normalized_token(token: &str) -> Option<String> {
+    let mut normalized = token.trim().to_ascii_lowercase();
+    if normalized.len() < 4 || DUPLICATE_STOP_WORDS.contains(&normalized.as_str()) {
+        return None;
+    }
+    for suffix in ["ing", "ed", "s", "es"] {
+        if normalized.len() > suffix.len() + 4 && normalized.ends_with(suffix) {
+            normalized.truncate(normalized.len() - suffix.len());
+            break;
+        }
+    }
+    if normalized.len() < 4 || DUPLICATE_STOP_WORDS.contains(&normalized.as_str()) {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+const DUPLICATE_STOP_WORDS: &[&str] = &[
+    "about", "after", "again", "because", "before", "being", "between", "changed", "could", "from",
+    "into", "same", "that", "their", "then", "this", "through", "when", "where", "while", "with",
+    "without",
+];
+
+const DUPLICATE_PATH_STOP_WORDS: &[&str] = &[
+    "access", "before", "caller", "callers", "changed", "context", "encode", "encoded", "encoder",
+    "encoding", "failure", "format", "invalid", "missing", "produce", "produces", "return",
+    "returns", "token", "tokens", "value", "values",
+];
 
 fn changed_paths_for_snapshot(snapshot: &RepoSnapshot) -> BTreeSet<String> {
     snapshot
@@ -390,7 +534,7 @@ fn candidate_to_finding(
         title: candidate.title.clone(),
         claim: finding_claim(candidate),
         severity: parse_severity(candidate.severity.as_deref()),
-        confidence: if validation_has_summary { 0.85 } else { 0.8 },
+        confidence: finding_confidence(validation, validation_has_summary),
         validation_status: ValidationStatus::Validated,
         report_status: ReportStatus::Included,
         publishability: FindingPublishability::Publishable,
@@ -424,6 +568,24 @@ fn finding_claim(candidate: &CandidateFinding) -> String {
             "{}\n\nNegative outcome: {negative_outcome}",
             candidate.claim
         )
+    }
+}
+
+fn finding_confidence(validation: &ValidationPacket, validation_has_summary: bool) -> f32 {
+    if validation
+        .status
+        .trim()
+        .eq_ignore_ascii_case("review_concern")
+    {
+        if validation_has_summary {
+            0.68
+        } else {
+            0.62
+        }
+    } else if validation_has_summary {
+        0.85
+    } else {
+        0.8
     }
 }
 

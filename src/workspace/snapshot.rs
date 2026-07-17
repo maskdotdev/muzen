@@ -2,17 +2,24 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ignore::WalkBuilder;
+use moka::sync::Cache;
 
 use crate::reviewer_kernel::kernel_types::*;
 use crate::reviewer_kernel::review_contract::{ChangeScopeV1, ChangedFileStatus, PathPolicyV1};
+use crate::reviewer_kernel::snapshots::SnapshotSourceRoot;
 use crate::workspace::is_textish;
+
+const SNAPSHOT_CONTENT_CACHE_BYTES: u64 = 128 * 1024 * 1024;
+
+static SNAPSHOT_CONTENT_CACHE: OnceLock<Cache<String, Arc<Vec<u8>>>> = OnceLock::new();
 
 #[derive(Debug)]
 pub(crate) struct RepoSnapshot {
     pub(crate) snapshot_id: SnapshotId,
+    pub(crate) source: SnapshotSourceRoot,
     /// Canonicalized checkout root the snapshot was captured from.
     /// Read-only git history access (co-change mining) roots here.
     pub(crate) source_root: PathBuf,
@@ -45,10 +52,33 @@ pub(crate) struct FileMeta {
     pub(crate) size: u64,
     pub(crate) fingerprint: String,
     pub(crate) content_hash: Option<String>,
-    pub(crate) snapshot_content: Option<Arc<[u8]>>,
+    pub(crate) content_ref: Option<SnapshotContentRef>,
     pub(crate) capture_status: SnapshotCaptureStatus,
     pub(crate) is_changed: bool,
     pub(crate) is_text_candidate: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum SnapshotContentRef {
+    Eager(Arc<[u8]>),
+    Disk {
+        expected_size: u64,
+        expected_hash: String,
+    },
+}
+
+impl SnapshotContentRef {
+    pub(crate) fn eager_len(&self) -> Option<usize> {
+        match self {
+            Self::Eager(content) => Some(content.len()),
+            Self::Disk { .. } => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_eager(&self) -> bool {
+        matches!(self, Self::Eager(_))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +115,21 @@ impl RepoSnapshot {
         change: &ChangeScopeV1,
         capture_policy: SnapshotCapturePolicy,
     ) -> RuntimeResult<Arc<Self>> {
+        Self::build_with_source_root(
+            SnapshotSourceRoot::external(root),
+            policy,
+            change,
+            capture_policy,
+        )
+    }
+
+    pub(crate) fn build_with_source_root(
+        source: SnapshotSourceRoot,
+        policy: &PathPolicyV1,
+        change: &ChangeScopeV1,
+        capture_policy: SnapshotCapturePolicy,
+    ) -> RuntimeResult<Arc<Self>> {
+        let root = source.path();
         let root_path = fs::canonicalize(root).map_err(|error| {
             RuntimeError::RepoUnavailable(format!(
                 "failed to canonicalize repo root {}: {error}",
@@ -173,33 +218,44 @@ impl RepoSnapshot {
             let size = candidate.meta.len();
             let can_read_text =
                 is_textish(repo_path.as_path()) && size <= policy.max_file_bytes as u64;
-            let (captured, capture_status) = if can_read_text {
-                let budgeted_size = usize::try_from(size).unwrap_or(usize::MAX);
-                if captured_text_bytes.saturating_add(budgeted_size)
-                    > capture_policy.max_captured_text_bytes
-                {
-                    #[cfg(test)]
-                    {
-                        capture_skipped_files += 1;
-                        capture_skipped_bytes += size;
-                    }
-                    (None, SnapshotCaptureStatus::SkippedMemoryLimit)
-                } else {
-                    match snapshot_file_content(&candidate.path, policy.max_file_bytes) {
-                        Ok(content) => {
+            let (content_hash, content_ref, capture_status, is_text_candidate) = if can_read_text {
+                match snapshot_file_content(&candidate.path, policy.max_file_bytes) {
+                    Ok(content) => {
+                        let content_hash = content.hash.clone();
+                        let budgeted_size = content.bytes.len();
+                        if captured_text_bytes.saturating_add(budgeted_size)
+                            <= capture_policy.max_captured_text_bytes
+                        {
                             captured_text_bytes =
                                 captured_text_bytes.saturating_add(content.bytes.len());
-                            (Some(content), SnapshotCaptureStatus::Captured)
+                            (
+                                Some(content_hash),
+                                Some(SnapshotContentRef::Eager(capture_snapshot_content(content))),
+                                SnapshotCaptureStatus::Captured,
+                                true,
+                            )
+                        } else {
+                            #[cfg(test)]
+                            {
+                                capture_skipped_files += 1;
+                                capture_skipped_bytes += size;
+                            }
+                            (
+                                Some(content_hash.clone()),
+                                Some(SnapshotContentRef::Disk {
+                                    expected_size: size,
+                                    expected_hash: content_hash,
+                                }),
+                                SnapshotCaptureStatus::SkippedMemoryLimit,
+                                true,
+                            )
                         }
-                        Err(_) => (None, SnapshotCaptureStatus::SkippedUnreadable),
                     }
+                    Err(_) => (None, None, SnapshotCaptureStatus::SkippedUnreadable, false),
                 }
             } else {
-                (None, SnapshotCaptureStatus::NotTextCandidate)
+                (None, None, SnapshotCaptureStatus::NotTextCandidate, false)
             };
-            let content_hash = captured.as_ref().map(|content| content.hash.clone());
-            let snapshot_content = captured.map(capture_snapshot_content);
-            let is_text_candidate = snapshot_content.is_some();
             let is_changed = changed_paths.contains(&repo_path.display());
             let file_id = FileId(files.len() as u32);
             let fingerprint = stable_id(&[
@@ -217,7 +273,7 @@ impl RepoSnapshot {
                 size,
                 fingerprint,
                 content_hash,
-                snapshot_content,
+                content_ref,
                 capture_status,
                 is_changed,
                 is_text_candidate,
@@ -273,6 +329,7 @@ impl RepoSnapshot {
         });
         Ok(Arc::new(Self {
             snapshot_id,
+            source,
             source_root: root_path,
             manifest_hash,
             path_policy_hash,
@@ -333,26 +390,68 @@ impl RepoSnapshot {
         if file.size > max_bytes as u64 {
             return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
         }
-        let content = file
-            .snapshot_content
-            .as_ref()
-            .ok_or(RuntimeError::Invariant(
-                "text candidate missing snapshot content",
-            ))?;
-        if content.len() > max_bytes {
-            return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
-        }
-        let bytes = content.to_vec();
-        let expected_hash = file.content_hash.as_ref().ok_or(RuntimeError::Invariant(
+        let content_ref = file.content_ref.as_ref().ok_or(RuntimeError::Invariant(
+            "text candidate missing snapshot content ref",
+        ))?;
+        let meta_expected_hash = file.content_hash.as_ref().ok_or(RuntimeError::Invariant(
             "text candidate missing snapshot content hash",
         ))?;
-        if content_hash(&bytes) != *expected_hash {
-            return Err(RuntimeError::SnapshotStale {
-                path: file.rel_path.display(),
-            });
+        match content_ref {
+            SnapshotContentRef::Eager(content) => {
+                if content.len() > max_bytes {
+                    return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
+                }
+                let bytes = content.to_vec();
+                if content_hash(&bytes) != *meta_expected_hash {
+                    return Err(RuntimeError::SnapshotStale {
+                        path: file.rel_path.display(),
+                    });
+                }
+                Ok((bytes, false))
+            }
+            SnapshotContentRef::Disk {
+                expected_size,
+                expected_hash: disk_expected_hash,
+            } => {
+                if *expected_size != file.size || disk_expected_hash != meta_expected_hash {
+                    return Err(RuntimeError::Invariant(
+                        "disk content ref does not match file meta",
+                    ));
+                }
+                let cache_key = stable_id(&[
+                    &self.snapshot_id.0,
+                    &file.file_id.0.to_string(),
+                    &file.fingerprint,
+                    disk_expected_hash,
+                ]);
+                let cache = snapshot_content_cache();
+                if let Some(bytes) = cache.get(&cache_key) {
+                    return Ok((bytes.as_ref().clone(), false));
+                }
+                let path = self.source.path().join(file.rel_path.as_path());
+                let content = snapshot_file_content(&path, max_bytes)?;
+                if content.bytes.len() as u64 != *expected_size
+                    || content.hash != *disk_expected_hash
+                {
+                    return Err(RuntimeError::SnapshotStale {
+                        path: file.rel_path.display(),
+                    });
+                }
+                let bytes = Arc::new(content.bytes);
+                cache.insert(cache_key, Arc::clone(&bytes));
+                Ok((bytes.as_ref().clone(), false))
+            }
         }
-        Ok((bytes.to_vec(), false))
     }
+}
+
+fn snapshot_content_cache() -> &'static Cache<String, Arc<Vec<u8>>> {
+    SNAPSHOT_CONTENT_CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(SNAPSHOT_CONTENT_CACHE_BYTES)
+            .weigher(|_key, value: &Arc<Vec<u8>>| value.len().try_into().unwrap_or(u32::MAX))
+            .build()
+    })
 }
 
 #[derive(Debug, Clone)]

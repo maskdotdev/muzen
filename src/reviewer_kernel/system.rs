@@ -1,4 +1,5 @@
 use std::env;
+use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -30,6 +31,20 @@ pub(crate) fn peak_rss_bytes() -> Option<u64> {
             Some(raw.saturating_mul(1024))
         }
     }
+}
+
+pub(crate) fn current_rss_bytes() -> Option<u64> {
+    let pid = std::process::id().to_string();
+    let output = Command::new("ps")
+        .args(["-o", "rss=", "-p", pid.as_str()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let rss_kb = text.trim().parse::<u64>().ok()?;
+    Some(rss_kb.saturating_mul(1024))
 }
 
 pub(crate) fn redact_known_secrets(text: &str, secrets: &[&str]) -> String {

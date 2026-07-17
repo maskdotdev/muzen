@@ -89,6 +89,19 @@ class SharedRunnerClient {
     }
   }
 
+  async release(runId, { framesPath, name }) {
+    this.activeRuns.set(runId, { framesPath, name });
+    try {
+      return await this.request("run.release", { runId }, { runId });
+    } finally {
+      this.activeRuns.delete(runId);
+    }
+  }
+
+  async debugState() {
+    return await this.request("runner.debugState", undefined);
+  }
+
   request(method, params, { runId = null } = {}) {
     if (!this.child || this.child.exitCode !== null) {
       return Promise.reject(new Error("shared runner is not running"));
@@ -204,6 +217,7 @@ const postPrepareCooldownMs = nonnegativeInt(
   args.postPrepareCooldownMs || "3000",
   "--post-prepare-cooldown-ms",
 );
+const postRunIdleMs = nonnegativeInt(args.postRunIdleMs || "1000", "--post-run-idle-ms");
 const maxCapturedTextBytes = args.maxCapturedTextBytes
   ? positiveInt(args.maxCapturedTextBytes, "--max-captured-text-bytes")
   : null;
@@ -321,9 +335,25 @@ try {
       preparedJobs,
     }),
   );
+  if (runnerClient) {
+    await recordRunnerDebugState(runnerClient, {
+      metricsPath,
+      state,
+      event: "runner_debug_state_final_active_zero",
+    });
+    if (postRunIdleMs > 0) {
+      await sleep(postRunIdleMs);
+      await recordRunnerDebugState(runnerClient, {
+        metricsPath,
+        state,
+        event: "runner_debug_state_post_idle",
+        idleMs: postRunIdleMs,
+      });
+    }
+  }
 } finally {
   clearInterval(sampler);
-  sampleProcesses(state);
+  sampleProcesses(state, { event: "shutdown" });
   if (runnerClient) await runnerClient.close();
 }
 
@@ -337,6 +367,7 @@ const reviewSummary = buildReviewSummary({
   completedAt: Date.now(),
   concurrency,
   postPrepareCooldownMs,
+  postRunIdleMs,
   sampleIntervalMs,
   outputDir,
   traceRoot,
@@ -484,10 +515,12 @@ async function runReviewCase(testCase, options) {
     outputPath,
     framesPath: job.framesPath,
   });
+  sampleProcesses(options.state, { event: "start" });
 
   let run;
   let report = null;
   let error = null;
+  let release = null;
   try {
     run = await options.runnerClient.run(job.runStart, {
       framesPath: job.framesPath,
@@ -498,6 +531,37 @@ async function runReviewCase(testCase, options) {
     writeProductionReviewReport(report, outputPath);
     fs.writeFileSync(stdoutPath, `${JSON.stringify(report, null, 2)}\n`);
     fs.writeFileSync(stderrPath, run.stderr || "");
+    sampleProcesses(options.state, { event: "before_release" });
+    try {
+      release = await options.runnerClient.release(runId, {
+        framesPath: job.framesPath,
+        name: testCase.name,
+      });
+      appendJsonl(options.metricsPath, {
+        event: "release",
+        atUtc: new Date().toISOString(),
+        name: testCase.name,
+        runId,
+        released: release?.released ?? null,
+        reason: release?.reason ?? null,
+      });
+      await recordRunnerDebugState(options.runnerClient, {
+        metricsPath: options.metricsPath,
+        state: options.state,
+        event: "runner_debug_state_after_release",
+        name: testCase.name,
+        runId,
+      });
+      sampleProcesses(options.state, { event: "after_release" });
+    } catch (releaseError) {
+      appendJsonl(options.metricsPath, {
+        event: "release_error",
+        atUtc: new Date().toISOString(),
+        name: testCase.name,
+        runId,
+        error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+      });
+    }
   } catch (caught) {
     error = caught instanceof Error ? caught : new Error(String(caught));
     fs.writeFileSync(stderrPath, `${error.stack || error.message}\n`);
@@ -524,6 +588,7 @@ async function runReviewCase(testCase, options) {
     stderrPath,
     stdoutPath,
     error: error ? error.message : report?.error || null,
+    release,
   };
   appendJsonl(options.metricsPath, record);
   if (code === 0) {
@@ -564,6 +629,7 @@ async function runReviewCaseProcess(testCase, options) {
     outputPath,
     framesPath: job.framesPath,
   });
+  sampleProcesses(options.state, { event: "start" });
 
   let run;
   let report = null;
@@ -588,6 +654,7 @@ async function runReviewCaseProcess(testCase, options) {
     writeProductionReviewReport(report, outputPath);
     fs.writeFileSync(stdoutPath, `${JSON.stringify(report, null, 2)}\n`);
     fs.writeFileSync(stderrPath, run.stderr || "");
+    sampleProcesses(options.state, { event: "finish_before_exit" });
   } catch (caught) {
     error = caught instanceof Error ? caught : new Error(String(caught));
     fs.writeFileSync(stderrPath, `${error.stack || error.message}\n`);
@@ -639,8 +706,8 @@ function frameRunId(frame) {
   );
 }
 
-function sampleProcesses(state) {
-  if (state.active.size === 0) return;
+function sampleProcesses(state, { event = "sample" } = {}) {
+  if (state.active.size === 0 && event === "sample") return;
   if (state.runnerMode === "process") {
     const harness = processMetrics([state.harnessPid]);
     const processes = [];
@@ -672,6 +739,7 @@ function sampleProcesses(state) {
     state.peakProcessTreeRssBytes = Math.max(state.peakProcessTreeRssBytes, aggregateRssBytes);
     appendJsonl(samplesPath, {
       atUtc: new Date().toISOString(),
+      event,
       active: state.active.size,
       aggregateRssBytes,
       runnerRssBytes: processes.reduce((sum, process) => sum + process.rssBytes, 0),
@@ -711,6 +779,7 @@ function sampleProcesses(state) {
   state.peakProcessTreeRssBytes = Math.max(state.peakProcessTreeRssBytes, processTree.rssBytes);
   appendJsonl(samplesPath, {
     atUtc: new Date().toISOString(),
+    event,
     active: state.active.size,
     aggregateRssBytes,
     runnerRssBytes: runner.rssBytes,
@@ -744,6 +813,36 @@ function sampleProcesses(state) {
       },
     ],
   });
+}
+
+async function recordRunnerDebugState(
+  runnerClient,
+  { metricsPath, state, event, name = null, runId = null, idleMs = null },
+) {
+  try {
+    const debugState = await runnerClient.debugState();
+    appendJsonl(metricsPath, {
+      event,
+      atUtc: new Date().toISOString(),
+      name,
+      runId,
+      active: state.active.size,
+      runnerPid: state.runnerPid,
+      idleMs,
+      debugState,
+    });
+  } catch (error) {
+    appendJsonl(metricsPath, {
+      event: `${event}_error`,
+      atUtc: new Date().toISOString(),
+      name,
+      runId,
+      active: state.active.size,
+      runnerPid: state.runnerPid,
+      idleMs,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function processTreeMetrics(rootPid) {
@@ -913,6 +1012,7 @@ function buildReviewSummary({
   completedAt,
   concurrency,
   postPrepareCooldownMs,
+  postRunIdleMs,
   sampleIntervalMs,
   outputDir,
   traceRoot,
@@ -925,6 +1025,14 @@ function buildReviewSummary({
   peakProcessTreeRssBytes,
   runnerMode,
 }) {
+  const memory = summarizeMemorySamples(samplesPath, {
+    sampleIntervalMs,
+    peakAggregateRssBytes,
+    peakRunnerRssBytes,
+    peakHarnessRssBytes,
+    peakProcessTreeRssBytes,
+  });
+  const runnerDebugState = summarizeRunnerDebugState(metricsPath);
   const totals = {
     goldenIssues: sum(cases, "goldenIssues"),
     findings: sum(cases, "findings"),
@@ -951,6 +1059,7 @@ function buildReviewSummary({
     runnerMode,
     concurrency,
     postPrepareCooldownMs,
+    postRunIdleMs,
     sampleIntervalMs,
     caseCount: cases.length,
     validCount: cases.filter((testCase) => testCase.reviewValid).length,
@@ -968,6 +1077,8 @@ function buildReviewSummary({
     peakHarnessRssMiB: bytesToMiB(peakHarnessRssBytes),
     peakProcessTreeRssBytes,
     peakProcessTreeRssMiB: bytesToMiB(peakProcessTreeRssBytes),
+    memory,
+    runnerDebugState,
     totals,
     rawMatcherDiagnostics: {
       hits: totals.hits,
@@ -977,6 +1088,77 @@ function buildReviewSummary({
         "The local matcher can over-count semantic hits; use the semantic summary for precision and recall.",
     },
     results: cases,
+  };
+}
+
+function summarizeRunnerDebugState(metricsPath) {
+  const samples = fs.existsSync(metricsPath)
+    ? fs
+        .readFileSync(metricsPath, "utf8")
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.event?.startsWith("runner_debug_state") && entry.debugState)
+    : [];
+  return {
+    sampleCount: samples.length,
+    afterReleaseCount: samples.filter((sample) => sample.event === "runner_debug_state_after_release")
+      .length,
+    finalActiveZero: samples.find((sample) => sample.event === "runner_debug_state_final_active_zero")
+      ?.debugState ?? null,
+    postIdle: samples.find((sample) => sample.event === "runner_debug_state_post_idle")
+      ?.debugState ?? null,
+    maxReports: maxStat(samples.map((sample) => sample.debugState?.reports)),
+    maxActiveRuns: maxStat(samples.map((sample) => sample.debugState?.activeRuns)),
+    maxRunThreads: maxStat(samples.map((sample) => sample.debugState?.runThreads)),
+    maxContextEngines: maxStat(samples.map((sample) => sample.debugState?.contextEngines)),
+    maxRetainedArtifactBytes: maxStat(
+      samples.map((sample) => sample.debugState?.retainedArtifactBytes),
+    ),
+  };
+}
+
+function summarizeMemorySamples(samplesPath, peaks) {
+  const samples = fs.existsSync(samplesPath)
+    ? fs
+        .readFileSync(samplesPath, "utf8")
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line))
+    : [];
+  return {
+    sampleIntervalMs: peaks.sampleIntervalMs,
+    sampleCount: samples.length,
+    maxActive: Math.max(0, ...samples.map((sample) => Number(sample.active || 0))),
+    peakAggregateRssBytes: peaks.peakAggregateRssBytes,
+    peakAggregateRssMiB: bytesToMiB(peaks.peakAggregateRssBytes),
+    peakRunnerRssBytes: peaks.peakRunnerRssBytes,
+    peakRunnerRssMiB: bytesToMiB(peaks.peakRunnerRssBytes),
+    peakHarnessRssBytes: peaks.peakHarnessRssBytes,
+    peakHarnessRssMiB: bytesToMiB(peaks.peakHarnessRssBytes),
+    peakProcessTreeRssBytes: peaks.peakProcessTreeRssBytes,
+    peakProcessTreeRssMiB: bytesToMiB(peaks.peakProcessTreeRssBytes),
+    finalSample: compactMemorySample(samples.at(-1)),
+    maxRunnerSample: compactMemorySample(
+      samples.reduce(
+        (best, sample) =>
+          Number(sample.runnerRssBytes || 0) > Number(best?.runnerRssBytes || 0) ? sample : best,
+        null,
+      ),
+    ),
+  };
+}
+
+function compactMemorySample(sample) {
+  if (!sample) return null;
+  return {
+    atUtc: sample.atUtc,
+    event: sample.event ?? "sample",
+    active: sample.active,
+    aggregateRssBytes: sample.aggregateRssBytes,
+    runnerRssBytes: sample.runnerRssBytes,
+    harnessRssBytes: sample.harnessRssBytes,
+    processTreeRssBytes: sample.processTreeRssBytes,
   };
 }
 
@@ -1067,6 +1249,11 @@ function bytesToMiB(bytes) {
   return Math.round((bytes / 1024 / 1024) * 10) / 10;
 }
 
+function maxStat(values) {
+  const finite = values.filter((value) => Number.isFinite(value));
+  return finite.length ? Math.max(...finite) : null;
+}
+
 function formatMiB(bytes) {
   return (bytes / 1024 / 1024).toFixed(1);
 }
@@ -1139,6 +1326,7 @@ Options:
   --sample-interval-ms <n>      Process tree RSS sample interval (default: 5000)
   --post-prepare-cooldown-ms <n>
                                 Wait after git/job prep before runner admission (default: 3000)
+  --post-run-idle-ms <n>        Shared-runner idle delay before final debug sample (default: 1000)
   --max-captured-text-bytes <n> Snapshot text capture budget per run
 `);
 }

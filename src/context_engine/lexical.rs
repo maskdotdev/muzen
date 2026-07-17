@@ -155,6 +155,14 @@ impl LexicalIndex {
         ranked.truncate(limit);
         ranked
     }
+
+    pub fn document_count(&self) -> usize {
+        self.doc_ids.len()
+    }
+
+    pub fn term_count(&self) -> usize {
+        self.postings.len()
+    }
 }
 
 /// Term counts of one evidence body, the cacheable postings

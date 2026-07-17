@@ -42,6 +42,18 @@ export interface RunnerClientOptions {
   runnerArgs?: string[];
 }
 
+export interface RunnerClient {
+  readonly pid: number | undefined;
+  handshake(input?: {
+    clientName?: string;
+    clientVersion?: string;
+  }): Promise<unknown>;
+  request(method: string, params?: unknown): Promise<unknown>;
+  onNotification(listener: RunnerNotificationListener): () => void;
+  onRequest(method: string, handler: RunnerRequestHandler): () => void;
+  close(): Promise<void>;
+}
+
 export class RunnerProtocolError extends Error {
   readonly code: number;
   readonly kind?: string;
@@ -54,7 +66,7 @@ export class RunnerProtocolError extends Error {
   }
 }
 
-export class RunnerStdioClient {
+export class RunnerStdioClient implements RunnerClient {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly lines: ReadlineInterface;
   private readonly pending = new Map<
@@ -86,6 +98,10 @@ export class RunnerStdioClient {
       crlfDelay: Number.POSITIVE_INFINITY,
     });
     this.lines.on("line", (line) => this.handleLine(line));
+  }
+
+  get pid(): number | undefined {
+    return this.child.pid;
   }
 
   async handshake(input: {

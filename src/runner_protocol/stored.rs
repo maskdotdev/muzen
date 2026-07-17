@@ -61,6 +61,26 @@ impl RunnerStoredRun {
         }
     }
 
+    pub(crate) fn redacted_artifact_count(&self) -> usize {
+        self.redacted_artifacts.len()
+    }
+
+    pub(crate) fn raw_artifact_count(&self) -> usize {
+        self.raw_artifacts.len()
+    }
+
+    pub(crate) fn retained_artifact_bytes(&self) -> usize {
+        self.redacted_artifacts
+            .iter()
+            .chain(self.raw_artifacts.iter())
+            .map(|artifact| artifact.bytes)
+            .sum()
+    }
+
+    pub(crate) fn snapshot_reader_count(&self) -> usize {
+        self.snapshot_readers.len()
+    }
+
     pub(crate) fn snapshot_reader(
         &self,
         snapshot_id: Option<&str>,

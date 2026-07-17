@@ -1,4 +1,4 @@
-import { RunnerStdioClient } from "./protocol.js";
+import type { RunnerClient } from "./protocol.js";
 import { throwIfAborted } from "./review-flow.js";
 import type {
   ReviewCallbackModelSpec,
@@ -14,7 +14,7 @@ import type {
 } from "./types.js";
 
 export function registerReviewCallbacks(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   options: ReviewOptions,
   localOptions: {
     secrets?: MuzenSecretResolverOptions;
@@ -56,7 +56,7 @@ export function registerReviewCallbacks(
 }
 
 function registerSourceMaterializeHandler(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   sourceProvider: ReviewOptions["sourceProvider"],
   signal?: AbortSignal,
 ): () => void {
@@ -107,7 +107,7 @@ function normalizeSourceMaterializeResult(
 }
 
 function registerReviewModelHandler(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   model: ReviewOptions["model"],
   signal?: AbortSignal,
 ): () => void {
@@ -169,7 +169,7 @@ function normalizeModelResult(result: ReviewModelResult): unknown {
 }
 
 function registerReviewToolHandlers(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   tools: ReviewTool[],
   signal?: AbortSignal,
 ): () => void {
@@ -256,7 +256,7 @@ function normalizeToolResult(result: ReviewToolResult): unknown {
 }
 
 function registerReviewHeartbeatHandler(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   handler: ReviewHeartbeatHandler | undefined,
   signal?: AbortSignal,
 ): () => void {
@@ -304,7 +304,7 @@ function normalizeHeartbeatResult(
 }
 
 function registerSecretResolver(
-  runner: RunnerStdioClient,
+  runner: RunnerClient,
   secrets: MuzenSecretResolverOptions | undefined,
   signal?: AbortSignal,
 ): () => void {

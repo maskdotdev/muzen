@@ -183,10 +183,11 @@ function decideResponse(state, body, sequence) {
 }
 
 function requestLooksLikeValidateFinding(body, responseFormatName) {
+  if (String(responseFormatName).includes("autonomous_review_result")) return false;
   if (String(responseFormatName).includes("validate_finding")) return true;
   const serialized = JSON.stringify(body);
   return (
-    serialized.includes("fake_candidate_early_success") ||
+    serialized.includes("You are Muzen's validate_finding child") ||
     serialized.includes("Return the final validate_finding packet")
   );
 }
@@ -232,6 +233,8 @@ function finalJson(responseFormatName, finalMode, validationStatus) {
           title: "Changed line returns success before pending work finishes",
           claim:
             "The changed line reports success before pending work finishes, so failed pending work can be silently skipped.",
+          negativeOutcome:
+            "Failed pending work can be silently skipped after the changed line reports success.",
           severity: "medium",
           path: "src/example.txt",
           startLine: 2,

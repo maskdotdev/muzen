@@ -17,7 +17,11 @@ pub(super) fn build_run_metrics(
     snapshot_id: &SnapshotId,
     reports: &[AgentLoopReport],
     findings: usize,
-    candidate_count: usize,
+    orchestrator_candidate_count: usize,
+    child_candidate_count: usize,
+    merged_candidate_count: usize,
+    validation_rescue_attempts: usize,
+    validation_rescue_supported: usize,
     rejection_reasons: BTreeMap<String, usize>,
     note_count: usize,
     verdict: &str,
@@ -44,7 +48,13 @@ pub(super) fn build_run_metrics(
     let sessions = reports.len();
     let mut quality_diagnostics = ReviewQualityDiagnostics::default();
     quality_diagnostics.sessions_run = sessions;
-    quality_diagnostics.candidate_findings = candidate_count;
+    quality_diagnostics.orchestrator_candidate_findings = orchestrator_candidate_count;
+    quality_diagnostics.child_candidate_findings = child_candidate_count;
+    quality_diagnostics.merged_candidate_findings = merged_candidate_count;
+    quality_diagnostics.validation_rescue_attempts = validation_rescue_attempts;
+    quality_diagnostics.validation_rescue_supported = validation_rescue_supported;
+    quality_diagnostics.candidate_findings = merged_candidate_count;
+    quality_diagnostics.rescued_candidates = validation_rescue_supported;
     quality_diagnostics.rejected_candidates = rejection_reasons.values().sum();
     quality_diagnostics.rejection_reasons = rejection_reasons;
     quality_diagnostics

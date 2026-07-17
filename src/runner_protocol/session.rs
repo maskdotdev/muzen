@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 
@@ -19,12 +19,15 @@ use super::schema::{protocol_schema, runner_check, runner_handshake};
 use super::stored::RunnerStoredRun;
 use super::transport::{InteractiveTransport, RunnerCallbackTransport, TransportEvent};
 use super::types::{
-    RunCancelResult, RunLookupParams, RunStartParams, RunStatusResult, RunnerHandshakeParams,
-    WebhookHandleParams, WorkerRunOnceParams, WorkerRunOnceResult,
+    RunCancelResult, RunLookupParams, RunReleaseResult, RunStartParams, RunStatusResult,
+    RunnerDebugStateResult, RunnerHandshakeParams, WebhookHandleParams, WorkerRunOnceParams,
+    WorkerRunOnceResult,
 };
 use super::RUNNER_PROTOCOL_VERSION;
 use crate::context_engine::SnapshotContextEngine;
 use crate::review_sessions::{Muzen, ReviewSessionError, WebhookHeaders};
+
+pub(crate) const MAX_STANDALONE_CONTEXT_ENGINES: usize = 4;
 
 #[cfg(test)]
 pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<i32>
@@ -156,11 +159,40 @@ pub(crate) struct RunnerStdioSession {
 pub(super) struct RunnerStdioState {
     pub(super) reports: BTreeMap<String, RunnerStoredRun>,
     active_runs: BTreeMap<String, ActiveRun>,
-    pub(super) context_engines: BTreeMap<String, SnapshotContextEngine>,
+    pub(super) context_engines: StandaloneContextEngines,
 }
 
 struct ActiveRun {
     cancel: CancellationToken,
+}
+
+#[derive(Default)]
+pub(super) struct StandaloneContextEngines {
+    engines: BTreeMap<String, SnapshotContextEngine>,
+    insertion_order: VecDeque<String>,
+}
+
+impl StandaloneContextEngines {
+    pub(super) fn insert(&mut self, snapshot_id: String, engine: SnapshotContextEngine) {
+        if !self.engines.contains_key(&snapshot_id) {
+            self.insertion_order.push_back(snapshot_id.clone());
+        }
+        self.engines.insert(snapshot_id, engine);
+        while self.engines.len() > MAX_STANDALONE_CONTEXT_ENGINES {
+            let Some(oldest) = self.insertion_order.pop_front() else {
+                break;
+            };
+            self.engines.remove(&oldest);
+        }
+    }
+
+    pub(super) fn get(&self, snapshot_id: &str) -> Option<&SnapshotContextEngine> {
+        self.engines.get(snapshot_id)
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.engines.len()
+    }
 }
 
 fn execute_interactive_run_start(
@@ -269,6 +301,8 @@ impl RunnerStdioSession {
             "run.status" => self.handle_run_status(request),
             "run.result" => self.handle_run_result(request),
             "run.cancel" => self.handle_run_cancel(request),
+            "run.release" => self.handle_run_release(request),
+            "runner.debugState" => self.handle_runner_debug_state(request),
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
             "snapshot.readText" => self.handle_snapshot_read_text(request),
@@ -365,6 +399,8 @@ impl RunnerStdioSession {
             "run.status" => self.handle_run_status(request),
             "run.result" => self.handle_run_result(request),
             "run.cancel" => self.handle_run_cancel(request),
+            "run.release" => self.handle_run_release(request),
+            "runner.debugState" => self.handle_runner_debug_state(request),
             "artifact.read" => self.handle_artifact_read(request),
             "artifact.export" => self.handle_artifact_export(request),
             "snapshot.readText" => self.handle_snapshot_read_text(request),
@@ -472,6 +508,79 @@ impl RunnerStdioSession {
         ))
     }
 
+    fn handle_run_release(&mut self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let params = match parse_params::<RunLookupParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let result = {
+            let mut state = self.state.lock().expect("runner state poisoned");
+            if state.active_runs.contains_key(&params.run_id) {
+                return Ok(JsonRpcResponse::error(
+                    request.id,
+                    JsonRpcError::invalid_params(format!(
+                        "runId {} is still active",
+                        params.run_id
+                    )),
+                ));
+            }
+            let released = state.reports.remove(&params.run_id).is_some();
+            RunReleaseResult {
+                run_id: params.run_id,
+                released,
+                reason: if released {
+                    "terminal run state released".to_string()
+                } else {
+                    "run state was not retained".to_string()
+                },
+            }
+        };
+        self.drain_finished_run_threads();
+        Ok(JsonRpcResponse::success(request.id, json!(result)))
+    }
+
+    fn handle_runner_debug_state(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        if request.params.is_some() {
+            return Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_params("runner.debugState does not accept params"),
+            ));
+        }
+        let state = self.state.lock().expect("runner state poisoned");
+        let result = RunnerDebugStateResult {
+            reports: state.reports.len(),
+            active_runs: state.active_runs.len(),
+            run_threads: self.run_threads.len(),
+            finished_run_threads: self
+                .run_threads
+                .iter()
+                .filter(|handle| handle.is_finished())
+                .count(),
+            context_engines: state.context_engines.len(),
+            retained_redacted_artifacts: state
+                .reports
+                .values()
+                .map(RunnerStoredRun::redacted_artifact_count)
+                .sum(),
+            retained_raw_artifacts: state
+                .reports
+                .values()
+                .map(RunnerStoredRun::raw_artifact_count)
+                .sum(),
+            retained_artifact_bytes: state
+                .reports
+                .values()
+                .map(RunnerStoredRun::retained_artifact_bytes)
+                .sum(),
+            snapshot_readers: state
+                .reports
+                .values()
+                .map(RunnerStoredRun::snapshot_reader_count)
+                .sum(),
+        };
+        Ok(JsonRpcResponse::success(request.id, json!(result)))
+    }
+
     fn handle_webhook(&self, request: JsonRpcRequest, provider: &str) -> Result<JsonRpcResponse> {
         let params = match parse_params::<WebhookHandleParams>(request.params) {
             Ok(params) => params,
@@ -526,6 +635,20 @@ impl RunnerStdioSession {
             )),
             Err(error) => Ok(JsonRpcResponse::error(request.id, error)),
         }
+    }
+}
+
+impl RunnerStdioSession {
+    fn drain_finished_run_threads(&mut self) {
+        let mut pending = Vec::new();
+        for handle in self.run_threads.drain(..) {
+            if handle.is_finished() {
+                let _ = handle.join();
+            } else {
+                pending.push(handle);
+            }
+        }
+        self.run_threads = pending;
     }
 }
 

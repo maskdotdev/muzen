@@ -462,7 +462,7 @@ fn overlapping_interactive_run_starts_keep_callbacks_reports_and_artifacts_isola
         read_b.result.as_ref().unwrap()["artifact"]["content"],
         "artifact owned by run-b"
     );
-    let cross_read = read_artifact(&mut session, transport, 35, "run-a", &artifact_b);
+    let cross_read = read_artifact(&mut session, transport.clone(), 35, "run-a", &artifact_b);
     assert!(
         cross_read
             .error
@@ -471,6 +471,27 @@ fn overlapping_interactive_run_starts_keep_callbacks_reports_and_artifacts_isola
             .message
             .contains("unknown artifactId"),
         "run-a must not read run-b's artifact by id"
+    );
+    let release_a = session
+        .handle_interactive_request(
+            run_lookup_request_for(36, "run.release", "run-a"),
+            transport.clone(),
+        )
+        .expect("run-a release")
+        .expect("run-a release response");
+    assert_eq!(release_a.result.as_ref().unwrap()["released"], true);
+    let released_result_a = session
+        .handle_interactive_request(run_lookup_request_for(37, "run.result", "run-a"), transport)
+        .expect("released run-a result")
+        .expect("released run-a result response");
+    assert!(
+        released_result_a
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("unknown runId"),
+        "released runs must not keep terminal result state"
     );
 }
 

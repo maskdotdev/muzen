@@ -15,7 +15,12 @@ pub(super) fn autonomous_candidate_rejection_reason(
     if path.is_empty() {
         return Some("invalid_path");
     }
-    if !changed_paths.contains(path) {
+    let primary_path_changed = changed_paths.contains(path);
+    let has_changed_related_path = candidate
+        .related_paths
+        .iter()
+        .any(|related_path| changed_paths.contains(related_path.trim()));
+    if !primary_path_changed && !has_changed_related_path {
         return Some("unchanged_path");
     }
     if title.is_empty() || claim.is_empty() {
@@ -27,22 +32,26 @@ pub(super) fn autonomous_candidate_rejection_reason(
     let Some((start_line, end_line)) = candidate.start_line.zip(candidate.end_line) else {
         return Some("missing_line_range");
     };
-    if let Some(ranges) = changed_ranges.get(path) {
-        if !ranges
-            .iter()
-            .any(|(start, end)| ranges_overlap(start_line, end_line.max(start_line), *start, *end))
-        {
-            return Some("line_range_not_changed");
+    if primary_path_changed {
+        if let Some(ranges) = changed_ranges.get(path) {
+            if !ranges.iter().any(|(start, end)| {
+                ranges_overlap(start_line, end_line.max(start_line), *start, *end)
+            }) {
+                return Some("line_range_not_changed");
+            }
+        } else if !changed_ranges.is_empty() {
+            return Some("path_has_no_changed_lines");
         }
-    } else if !changed_ranges.is_empty() {
-        return Some("path_has_no_changed_lines");
     }
 
     let behavior_before = candidate.behavior_before.as_deref().unwrap_or_default();
     let behavior_after = candidate.behavior_after.as_deref().unwrap_or_default();
     let title_and_claim = format!("{title} {claim} {negative_outcome}");
     let title_claim_describes_negative_outcome = describes_negative_outcome(&title_and_claim);
+    let spelling_identifier_issue = is_spelling_identifier_issue_text(&title_and_claim);
     if behavior_comparison_missing(behavior_before, behavior_after)
+        && !is_documentation_contract_mismatch_text(&title_and_claim)
+        && !spelling_identifier_issue
         && !title_claim_describes_negative_outcome
     {
         return Some("missing_behavior_comparison");
@@ -53,6 +62,9 @@ pub(super) fn autonomous_candidate_rejection_reason(
     {
         return Some("non_finding_text");
     }
+    if is_inline_comment_only_documentation_contract_text(&format!("{title} {claim}")) {
+        return Some("weak_documentation_contract");
+    }
     if is_bundled_finding_text(&title_and_claim) {
         return Some("bundled_claim");
     }
@@ -61,11 +73,15 @@ pub(super) fn autonomous_candidate_rejection_reason(
         behavior_before,
         behavior_after,
         title_claim_describes_negative_outcome,
-    ) {
+    ) && !spelling_identifier_issue
+    {
         return Some("speculative_claim");
     }
+    if is_test_fixture_path(path) && claims_production_user_or_security_impact(&title_and_claim) {
+        return Some("test_fixture_production_impact");
+    }
     let full_text = format!("{title_and_claim} {behavior_before} {behavior_after}");
-    if !describes_negative_outcome(&full_text) {
+    if !describes_negative_outcome(&full_text) && !spelling_identifier_issue {
         return Some("missing_negative_outcome");
     }
     None
@@ -163,6 +179,136 @@ fn is_hypothetical_finding_text(text: &str) -> bool {
     .any(|needle| normalized.contains(needle))
 }
 
+fn is_documentation_contract_mismatch_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let mentions_documentation = [
+        "javadoc",
+        "doc comment",
+        "documentation",
+        "documented",
+        "documents",
+        "comment",
+        "contract",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    if !mentions_documentation {
+        return false;
+    }
+    let mentions_actual_contract = [
+        "actual",
+        "implementation",
+        "implementations",
+        "requires",
+        "expects",
+        "enforced",
+        "fixed",
+        "constraint",
+        "shortcut",
+        "format",
+        "length",
+        "count",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    mentions_actual_contract && describes_negative_outcome(&normalized)
+}
+
+fn is_spelling_identifier_issue_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let spelling_signal = [
+        "misspell",
+        "spelling",
+        "typo",
+        "missing letter",
+        "identifier",
+        "method name",
+        "helper name",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    let maintenance_signal = [
+        "maintenance",
+        "maintainer",
+        "maintainers",
+        "search",
+        "discoverability",
+        "readability",
+        "future caller",
+        "future callers",
+        "propagate the typo",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    spelling_signal && maintenance_signal
+}
+
+fn is_inline_comment_only_documentation_contract_text(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let inline_comment_signal = normalized.contains("todo")
+        || normalized.contains("inline comment")
+        || normalized.contains("comment sits")
+        || normalized.contains("comment suggests")
+        || normalized.contains("comment says");
+    if !inline_comment_signal {
+        return false;
+    }
+    let public_contract_signal = [
+        "javadoc",
+        "public api",
+        "api documentation",
+        "schema",
+        "generated doc",
+        "generated documentation",
+        "example",
+        "caller",
+        "callers",
+        "implementer",
+        "implementers",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    !public_contract_signal
+}
+
+fn is_test_fixture_path(path: &str) -> bool {
+    path.contains("/src/test/")
+        || path.contains("/tests/")
+        || path.starts_with("test/")
+        || path.starts_with("tests/")
+        || path.starts_with("testsuite/")
+        || path.contains("/testsuite/")
+}
+
+fn claims_production_user_or_security_impact(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let direct_user_or_security_impact = [
+        " user ",
+        " users ",
+        " authenticate",
+        " authentication",
+        " login",
+        " browser flow",
+        " mfa",
+        " second-factor",
+        " security",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    if direct_user_or_security_impact {
+        return true;
+    }
+    let mentions_credential = normalized.contains(" credential")
+        || normalized.contains(" credentials")
+        || normalized.contains(" recovery code")
+        || normalized.contains(" recovery-code");
+    let mentions_auth_flow = normalized.contains("authenticator")
+        || normalized.contains("authentication")
+        || normalized.contains("authenticate")
+        || normalized.contains("login");
+    mentions_credential && mentions_auth_flow
+}
+
 fn is_hedged_finding_text(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     [
@@ -208,32 +354,74 @@ fn is_non_bug_observation_text(text: &str) -> bool {
         "crash",
         "invalid",
         "incorrect",
+        "inconsistent",
         "mismatch",
+        "does not preserve",
+        "fails to preserve",
+        "not preserved",
+        "lost",
+        "drops",
+        "dropped",
+        "stale",
         "does not expose",
         "unparsed",
         "cannot",
         "never",
+        "regression",
     ]
     .iter()
     .any(|needle| normalized.contains(needle));
-    let has_clean_signal = [
-        "correct",
-        "preserve",
-        "preserves",
-        "continues",
-        "still parses",
-        "still consumes",
-        "still returns",
-        "still persists",
-        "still writes",
-        "consistent",
-        "no bug",
-        "no issue",
-        "no new incompatible",
-    ]
-    .iter()
-    .any(|needle| normalized.contains(needle));
+    let has_clean_signal = ["correct", "consistent"]
+        .iter()
+        .any(|needle| contains_ascii_word(&normalized, needle))
+        || text_contains_clean_preservation_observation(&normalized)
+        || [
+            "continues",
+            "still parses",
+            "still consumes",
+            "still returns",
+            "still persists",
+            "still writes",
+            "no bug",
+            "no issue",
+            "no new incompatible",
+        ]
+        .iter()
+        .any(|needle| normalized.contains(needle));
     has_clean_signal && !has_failure_signal
+}
+
+fn text_contains_clean_preservation_observation(text: &str) -> bool {
+    if !text.contains("preserve") {
+        return false;
+    }
+    ![
+        "does not preserve",
+        "do not preserve",
+        "did not preserve",
+        "doesn't preserve",
+        "don't preserve",
+        "didn't preserve",
+        "fails to preserve",
+        "failed to preserve",
+        "not preserve",
+        "not preserved",
+        "without preserving",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+fn contains_ascii_word(text: &str, word: &str) -> bool {
+    text.match_indices(word).any(|(start, _)| {
+        let before_is_boundary = start == 0
+            || !text.as_bytes()[start - 1].is_ascii_alphanumeric()
+                && text.as_bytes()[start - 1] != b'_';
+        let end = start + word.len();
+        let after_is_boundary = end == text.len()
+            || !text.as_bytes()[end].is_ascii_alphanumeric() && text.as_bytes()[end] != b'_';
+        before_is_boundary && after_is_boundary
+    })
 }
 
 fn is_counterfactual_support_observation_text(text: &str) -> bool {
@@ -271,9 +459,6 @@ fn is_bundled_finding_text(text: &str) -> bool {
         "separate bug",
         "independent issue",
         "independent bug",
-        " and also ",
-        "; also ",
-        ". also ",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
@@ -298,6 +483,9 @@ fn describes_negative_outcome(text: &str) -> bool {
     {
         return true;
     }
+    if describes_localization_failure(&normalized) {
+        return true;
+    }
     let tokens = normalized
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .filter(|token| !token.is_empty())
@@ -306,10 +494,14 @@ fn describes_negative_outcome(text: &str) -> bool {
         "wrong",
         "incorrect",
         "invalid",
+        "fail",
         "fails",
         "failed",
         "failure",
         "failing",
+        "reject",
+        "rejects",
+        "rejected",
         "breaks",
         "broken",
         "missing",
@@ -355,11 +547,47 @@ fn describes_negative_outcome(text: &str) -> bool {
         "unscoped",
         "unchecked",
         "mismatch",
+        "inconsistent",
         "regression",
         "corrupt",
+        "accidentally",
     ]
     .iter()
     .any(|needle| tokens.contains(needle))
+}
+
+fn describes_localization_failure(normalized: &str) -> bool {
+    let localization_context = [
+        "locale",
+        "localized",
+        "localization",
+        "translation",
+        "translated",
+        "language",
+        "simplified chinese",
+        "traditional chinese",
+        "zh_cn",
+        "zh-tw",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle));
+    if !localization_context {
+        return false;
+    }
+    [
+        "wrong language",
+        "mixed-language",
+        "copied",
+        "copy-source",
+        "inconsistent",
+        "traditional chinese",
+        "simplified chinese",
+        " see ",
+        "will see",
+        "can see",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn push_line_range(ranges: &mut Vec<(usize, usize)>, line: usize) {

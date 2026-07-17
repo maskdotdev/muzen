@@ -904,6 +904,13 @@ export interface CreateMuzenOptions {
   clientName?: string;
   clientVersion?: string;
   secrets?: MuzenSecretResolverOptions;
+  runnerRecycle?: false | Partial<RunnerRecycleOptions>;
+}
+
+export interface RunnerRecycleOptions {
+  rssBytes: number;
+  completedRuns: number;
+  totalTokens: number;
 }
 
 export interface MuzenSecretResolverOptions {
@@ -1047,4 +1054,5 @@ export interface ReviewSession {
   ): Promise<ReviewArtifactExport>;
   cancel(reason?: string | ReviewCancelOptions): Promise<void>;
   refresh(): Promise<ReviewSessionSnapshot>;
+  release(): Promise<void>;
 }

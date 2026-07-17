@@ -23,6 +23,7 @@ const fixtureLineBytes = positiveInt(args.fixtureLineBytes || "80", "--fixture-l
 const latencyMs = nonnegativeInt(args.latencyMs || "25", "--latency-ms");
 const jitterMs = nonnegativeInt(args.jitterMs || "0", "--jitter-ms");
 const maxConcurrent = positiveInt(args.maxConcurrent || "1", "--max-concurrent");
+const sampleIntervalMs = positiveInt(args.sampleIntervalMs || "1000", "--sample-interval-ms");
 const maxToolCalls = positiveInt(args.maxToolCalls || "6", "--max-tool-calls");
 const maxTurns = positiveInt(args.maxTurns || "10", "--max-turns");
 const toolsBeforeFinal = args.toolsBeforeFinal || "1";
@@ -48,6 +49,8 @@ const postPrepareCooldownMs = nonnegativeInt(
   "--post-prepare-cooldown-ms",
 );
 const failOnRegression = booleanArg(args.failOnRegression || "true", "--fail-on-regression");
+const maxSharedPeakRunnerRssBytes = optionalMib(args.maxSharedPeakRunnerRssMib);
+const maxSharedFinalRunnerRssBytes = optionalMib(args.maxSharedFinalRunnerRssMib);
 
 if (!fs.existsSync(runnerPath)) {
   fail(`runner not found at ${runnerPath}; run: cargo build --release --bin muzen-runner`);
@@ -109,6 +112,8 @@ for (const concurrency of concurrencies) {
       String(maxConcurrent),
       "--post-prepare-cooldown-ms",
       String(postPrepareCooldownMs),
+      "--sample-interval-ms",
+      String(sampleIntervalMs),
       "--progress",
       "false",
     ],
@@ -150,6 +155,7 @@ const report = {
     latencyMs,
     jitterMs,
     maxConcurrent,
+    sampleIntervalMs,
     maxToolCalls,
     maxTurns,
     toolsBeforeFinal,
@@ -164,8 +170,13 @@ const report = {
     viaCodexProxy,
     postPrepareCooldownMs,
     failOnRegression,
+    maxSharedPeakRunnerRssBytes,
+    maxSharedFinalRunnerRssBytes,
   },
-  regressions: summarizeRegressions(runs),
+  regressions: summarizeRegressions(runs, {
+    maxSharedPeakRunnerRssBytes,
+    maxSharedFinalRunnerRssBytes,
+  }),
   runs,
 };
 
@@ -202,6 +213,11 @@ function compactRun(summary, { concurrency, outputDir }) {
       shared: sharedHarness,
       process: processHarness,
       deltaSharedMinusProcess: harness.deltaSharedMinusProcess ?? null,
+    },
+    memory: {
+      shared: summary.memory?.shared ?? null,
+      process: summary.memory?.process ?? null,
+      deltaSharedMinusProcess: summary.memory?.deltaSharedMinusProcess ?? null,
     },
     release: summary.release,
     isolation: summary.isolation,
@@ -241,7 +257,7 @@ function compactFakeModel(fakeModel) {
   };
 }
 
-function summarizeRegressions(runs) {
+function summarizeRegressions(runs, memoryBudgets) {
   return {
     parityFailures: runs.filter((run) => Object.values(run.parity).some((value) => !value)),
     releaseFailures: runs.filter(
@@ -269,14 +285,54 @@ function summarizeRegressions(runs) {
     maxProviderQueueMeanDeltaMs: maxStat(
       runs.map((run) => Math.abs(run.fakeProviderQueuedMs.meanDeltaSharedMinusProcess ?? 0)),
     ),
+    memoryBudgetFailures: summarizeMemoryBudgetFailures(runs, memoryBudgets),
   };
+}
+
+function summarizeMemoryBudgetFailures(
+  runs,
+  { maxSharedPeakRunnerRssBytes, maxSharedFinalRunnerRssBytes },
+) {
+  return runs
+    .map((run) => {
+      const failures = [];
+      const peakRunnerRssBytes = run.memory?.shared?.peakRunnerRssBytes ?? null;
+      const finalRunnerRssBytes = run.memory?.shared?.finalSample?.runnerRssBytes ?? null;
+      if (
+        maxSharedPeakRunnerRssBytes != null &&
+        peakRunnerRssBytes != null &&
+        peakRunnerRssBytes > maxSharedPeakRunnerRssBytes
+      ) {
+        failures.push({
+          metric: "shared.peakRunnerRssBytes",
+          actual: peakRunnerRssBytes,
+          budget: maxSharedPeakRunnerRssBytes,
+        });
+      }
+      if (
+        maxSharedFinalRunnerRssBytes != null &&
+        finalRunnerRssBytes != null &&
+        finalRunnerRssBytes > maxSharedFinalRunnerRssBytes
+      ) {
+        failures.push({
+          metric: "shared.finalSample.runnerRssBytes",
+          actual: finalRunnerRssBytes,
+          budget: maxSharedFinalRunnerRssBytes,
+        });
+      }
+      return failures.length > 0
+        ? { concurrency: run.concurrency, outputDir: run.outputDir, failures }
+        : null;
+    })
+    .filter(Boolean);
 }
 
 function hasBlockingRegressions(regressions) {
   return (
     (regressions.parityFailures?.length ?? 0) > 0 ||
     (regressions.releaseFailures?.length ?? 0) > 0 ||
-    (regressions.isolationFailures?.length ?? 0) > 0
+    (regressions.isolationFailures?.length ?? 0) > 0 ||
+    (regressions.memoryBudgetFailures?.length ?? 0) > 0
   );
 }
 
@@ -360,6 +416,15 @@ function nonnegativeInt(value, name) {
   return parsed;
 }
 
+function optionalMib(value) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    fail("memory budget must be a non-negative number of MiB");
+  }
+  return Math.round(parsed * 1024 * 1024);
+}
+
 function booleanArg(value, name) {
   if (value === true || value === "true") return true;
   if (value === false || value === "false") return false;
@@ -377,6 +442,6 @@ function fail(message) {
 
 function usage() {
   process.stderr.write(
-    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--sessions N] [--max-active N] [--fixture-extra-lines N] [--fixture-line-bytes N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--fail-on-regression true|false] [--post-prepare-cooldown-ms 3000]\n",
+    "Usage: run-fake-runner-mode-sweep.mjs [--runner-path target/release/muzen-runner] [--output-dir /tmp/sweep] [--concurrency 1,2,3,5,8] [--cases N] [--sessions N] [--max-active N] [--fixture-extra-lines N] [--fixture-line-bytes N] [--latency-ms 25] [--max-concurrent 1] [--final-mode clean|candidate] [--invalid-final-attempts N] [--http-error-attempts-per-request N] [--via-codex-proxy true|false] [--max-shared-peak-runner-rss-mib N] [--max-shared-final-runner-rss-mib N] [--fail-on-regression true|false] [--post-prepare-cooldown-ms 3000]\n",
   );
 }

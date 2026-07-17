@@ -85,7 +85,11 @@ fn materializes_raw_snapshot_source_from_host_bundle() {
         materialize_run_source(None, Some(&source), &["src/lib.rs".to_string()], None, None)
             .unwrap();
 
-    assert_eq!(materialized.repo_root(), bundle.path());
+    assert_ne!(materialized.repo_root(), bundle.path());
+    assert!(materialized.repo_root().join("src/lib.rs").is_file());
+    fs::write(bundle.path().join("src/lib.rs"), "mutated\n").expect("mutate original");
+    let copied = fs::read_to_string(materialized.repo_root().join("src/lib.rs")).unwrap();
+    assert_eq!(copied, "pub fn fixture() {}\n");
     assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);
 }
 
@@ -108,7 +112,11 @@ fn materializes_custom_source_through_callback_provider() {
         materialize_run_source(None, Some(&source), &[], Some(&provider), Some(&transport))
             .unwrap();
 
-    assert_eq!(materialized.repo_root(), bundle.path());
+    assert_ne!(materialized.repo_root(), bundle.path());
+    assert!(materialized.repo_root().join("src/lib.rs").is_file());
+    fs::write(bundle.path().join("src/lib.rs"), "mutated\n").expect("mutate original");
+    let copied = fs::read_to_string(materialized.repo_root().join("src/lib.rs")).unwrap();
+    assert_eq!(copied, "pub fn fixture() {}\n");
     assert_eq!(materialized.changed_files(), &["src/lib.rs".to_string()]);
 }
 

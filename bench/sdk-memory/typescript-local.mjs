@@ -39,7 +39,7 @@ async function main() {
   }
 
   const sdkPackage = JSON.parse(readFileSync(packagePath, "utf8"));
-  const { createMuzen, local } = await import(pathToFileURL(sdkEntry).href);
+  const { createMuzen, openai } = await import(pathToFileURL(sdkEntry).href);
 
   const runnerPath = args.runnerPath ?? defaultRunnerPath();
   const repo = resolve(process.cwd(), args.repo);
@@ -58,20 +58,17 @@ async function main() {
       clientName: "@muzen/sdk-memory-bench",
     });
     sampler.sample();
-    const review = await muzen.review(
-      local(repo, {
-        changedFiles: args.changedFiles,
-      }),
-      {
-        sessions: buildSessions(args.sessions, args),
-        limits: {
-          maxActiveSessions,
-          maxFileBytes: args.maxFileKb * 1024,
-          maxSearchMatches: args.maxSearchMatches,
-        },
+    result = await muzen.runSwarm({
+      repo,
+      files: args.changedFiles,
+      agents: buildAgents(args.sessions, args),
+      model: benchmarkModel(args, openai),
+      limits: {
+        maxActiveSessions,
+        maxFileBytes: args.maxFileKb * 1024,
+        maxSearchMatches: args.maxSearchMatches,
       },
-    );
-    result = await review.wait();
+    });
     if (args.holdMs > 0) {
       await delay(args.holdMs);
     }
@@ -121,10 +118,12 @@ async function main() {
     result: result
       ? {
           status: result.status,
-          conclusion: result.conclusion,
-          summary: result.summary,
-          findings: result.findings.length,
-          coverage: result.coverage,
+          agents: result.usage.agents,
+          completedAgents: result.usage.completedAgents,
+          outputs: result.outputs.length,
+          modelCalls: result.usage.modelCalls,
+          toolCalls: result.usage.toolCalls,
+          totalTokens: result.usage.totalTokens,
           metadata: result.metadata ?? {},
         }
       : undefined,
@@ -142,9 +141,73 @@ async function main() {
   return benchmarkFailures.length === 0 ? 0 : 1;
 }
 
-function buildSessions(count, options) {
+function benchmarkModel(options, openai) {
+  if (options.openaiModel) {
+    return openai({
+      model: options.openaiModel,
+      maxOutputTokens: options.maxOutputTokens,
+      temperature: 0,
+    });
+  }
+  return {
+    kind: "callback",
+    handler(request) {
+      const toolResults = request.transcript.filter(
+        (item) => item && typeof item === "object" && item.kind === "tool_result",
+      );
+      if (toolResults.length === 0) {
+        return {
+          toolCalls: [
+            { toolId: "read_diff", arguments: {} },
+            { toolId: "list_changed_files", arguments: {} },
+            { toolId: "read_file", arguments: { path: "Cargo.toml" } },
+            { toolId: "search_text", arguments: { query: "fn|class|export|pub|TODO" } },
+          ],
+          usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+        };
+      }
+      return {
+        content: JSON.stringify({
+          summary: "SDK memory benchmark completed.",
+          fileVerdicts: [
+            {
+              path: "Cargo.toml",
+              verdict: "clean",
+              summary: "No benchmark issues found.",
+            },
+          ],
+          findings: [],
+        }),
+        usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+      };
+    },
+  };
+}
+
+function buildAgents(count, options) {
   return Array.from({ length: count }, (_, index) => {
     const role = ROLES[index % ROLES.length];
+    if (options.openaiModel) {
+      return {
+        id: `typescript-sdk-bench-session-${index}`,
+        objective:
+          `SDK memory benchmark as ${role}: perform a deeper bounded repository scan with several read and search tools, then write a concise final assessment.`,
+        instructions: [
+          {
+            kind: "system",
+            text:
+              "This is a real-model memory benchmark. Use exactly five repository tool calls before finalizing: read_diff, list_changed_files, read_file for Cargo.toml, read_file for src/workspace/snapshot.rs, and search_text for SnapshotContentRef. After the fifth tool result, do not call more tools; return a concise final answer.",
+            trusted: true,
+          },
+        ],
+        budget: {
+          maxTurns: options.maxTurns,
+          maxToolCalls: options.maxToolCalls,
+          maxPromptTokens: 32_000,
+          maxOutputTokens: options.maxOutputTokens,
+        },
+      };
+    }
     return {
       id: `typescript-sdk-bench-session-${index}`,
       role,
@@ -169,10 +232,18 @@ function benchmarkFailuresFor(reviewResult, error, sampler) {
     failures.push("no review result returned");
   } else {
     if (reviewResult.status !== "completed") {
-      failures.push(`review status was ${reviewResult.status}`);
+      failures.push(`swarm status was ${reviewResult.status}`);
     }
-    if ((reviewResult.coverage?.filesReviewed ?? 0) === 0) {
-      failures.push("no files were reviewed");
+    if (reviewResult.outputs.length === 0) {
+      failures.push("no agent outputs returned");
+    }
+    if (reviewResult.usage.completedAgents !== reviewResult.usage.agents) {
+      failures.push(
+        `completed ${reviewResult.usage.completedAgents} of ${reviewResult.usage.agents} agents`,
+      );
+    }
+    if (reviewResult.usage.toolCalls === 0) {
+      failures.push("no repository tools were called");
     }
   }
   if (sampler.peakCombinedRssBytes === 0) {
@@ -310,6 +381,7 @@ function parseArgs(argv) {
     maxSearchMatches: 120,
     holdMs: 1000,
     sampleMs: 25,
+    openaiModel: undefined,
     runnerPath: undefined,
     output: undefined,
     changedFiles: [],
@@ -335,6 +407,8 @@ function parseArgs(argv) {
       parsed.maxFileKb = positiveInt(requireValue(argv, ++index, arg), arg);
     } else if (arg === "--max-search-matches") {
       parsed.maxSearchMatches = positiveInt(requireValue(argv, ++index, arg), arg);
+    } else if (arg === "--openai-model") {
+      parsed.openaiModel = requireValue(argv, ++index, arg);
     } else if (arg === "--hold-ms") {
       parsed.holdMs = nonNegativeInt(requireValue(argv, ++index, arg), arg);
     } else if (arg === "--sample-ms") {
@@ -392,6 +466,7 @@ Options:
   --max-output-tokens N       Per-agent max output tokens. Default: 512
   --max-file-kb N             Snapshot file limit. Default: 200
   --max-search-matches N      Search result limit. Default: 120
+  --openai-model MODEL        Use a real OpenAI hosted model instead of callback
   --changed-file PATH         Changed file to pass to the SDK. Repeatable.
   --runner-path PATH          muzen-runner path. Default: MUZEN_RUNNER_PATH, release, debug, PATH
   --hold-ms N                 Keep processes alive after review for sampling. Default: 1000
