@@ -103,6 +103,55 @@ test("JSON-RPC demultiplexer handles interleaved notifications", async () => {
   assert.deepEqual(await queue.next(), { sequence: 1 });
 });
 
+function sseEvent(sequence: number, type: string): string {
+  return `id: ${sequence}\nevent: run.event\ndata: ${JSON.stringify({ runId: "run-idle", sequence, type, timestamp: "now", payload: {} })}\n\n`;
+}
+
+test("HTTP events reconnect after idle with cursor and no duplicates", async () => {
+  const requests: Array<{ after: string | null; lastEventId: string | undefined }> = [];
+  let firstResponse: ServerResponse | undefined;
+  const server = createServer((request, response) => {
+    if (request.url === "/v1/runs/run-idle") {
+      const body = JSON.stringify({ id: "run-idle", status: "running", roots: [], agents: [], lastSequence: 0, createdAt: "now", updatedAt: "now" });
+      response.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+      response.end(body);
+      return;
+    }
+    const url = new URL(request.url ?? "", "http://127.0.0.1");
+    const lastEventId = request.headers["last-event-id"];
+    requests.push({
+      after: url.searchParams.get("after"),
+      lastEventId: Array.isArray(lastEventId) ? lastEventId[0] : lastEventId,
+    });
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    if (requests.length === 1) {
+      firstResponse = response;
+      response.write(sseEvent(1, "run.started"));
+      return;
+    }
+    response.end(sseEvent(2, "agent.completed") + sseEvent(3, "run.completed"));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("HTTP test server did not bind TCP");
+  const muzen = await connectHttp(`http://127.0.0.1:${address.port}`, { sseIdleTimeoutMs: 50 });
+  try {
+    const run = await muzen.getRun("run-idle");
+    const events = [];
+    for await (const event of run.events()) events.push(event);
+    assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3]);
+    assert.deepEqual(requests, [
+      { after: null, lastEventId: undefined },
+      { after: "1", lastEventId: "1" },
+    ]);
+  } finally {
+    firstResponse?.destroy();
+    await muzen.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+  }
+});
+
 test("local runner full lifecycle, replay, unsubscribe, and errors", async (t) => {
   const runner = binary("MUZEN_AGENT_RUNNER_BIN", "muzen-agent-runner");
   if (runner === undefined) return t.skip("muzen-agent-runner is missing; set MUZEN_AGENT_RUNNER_BIN or build target/debug/muzen-agent-runner");

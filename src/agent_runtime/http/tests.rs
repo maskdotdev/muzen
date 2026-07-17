@@ -1,11 +1,19 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::convert::Infallible;
 use std::num::{NonZeroU32, NonZeroU64};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use axum::body::{Body, Bytes};
+use axum::extract::State;
+use axum::http::{HeaderMap, Uri};
+use axum::response::Response;
+use axum::routing::get;
+use axum::Router;
 use base64::Engine as _;
-use futures::{future::join_all, StreamExt, TryStreamExt};
+use futures::{future::join_all, stream, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -266,6 +274,127 @@ async fn concurrent_run_stress(store: LocalStoreConfig) {
     server.abort();
     let _ = tokio::time::timeout(Duration::from_secs(1), runtime.close()).await;
     outcome.expect("concurrent runs, result polling, and slow SSE must not wedge");
+}
+
+#[derive(Default)]
+struct IdleReconnectServerState {
+    requests: Mutex<Vec<(Option<String>, Option<String>)>>,
+    attempts: AtomicUsize,
+}
+
+fn fake_sse_event(sequence: u64, event_type: &str) -> String {
+    format!(
+        "id: {sequence}\nevent: run.event\ndata: {{\"runId\":\"run-idle\",\"sequence\":{sequence},\"type\":\"{event_type}\",\"timestamp\":\"now\",\"payload\":{{}}}}\n\n"
+    )
+}
+
+async fn idle_reconnect_events(
+    State(state): State<Arc<IdleReconnectServerState>>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response<Body> {
+    state.requests.lock().push((
+        uri.query().map(str::to_owned),
+        headers
+            .get("last-event-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned),
+    ));
+    let attempt = state.attempts.fetch_add(1, Ordering::SeqCst);
+    let body = if attempt == 0 {
+        let first = stream::once(async {
+            Ok::<Bytes, Infallible>(Bytes::from(fake_sse_event(1, "run.started")))
+        });
+        Body::from_stream(first.chain(stream::pending::<Result<Bytes, Infallible>>()))
+    } else {
+        Body::from(format!(
+            "{}{}",
+            fake_sse_event(2, "agent.completed"),
+            fake_sse_event(3, "run.completed")
+        ))
+    };
+    Response::builder()
+        .header("content-type", "text/event-stream")
+        .body(body)
+        .expect("fake SSE response")
+}
+
+#[tokio::test]
+async fn http_events_reconnect_after_idle_with_cursor_and_no_duplicates() {
+    let state = Arc::new(IdleReconnectServerState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let app = Router::new()
+        .route("/v1/runs/{run_id}/events", get(idle_reconnect_events))
+        .with_state(state.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    let transport = super::HttpTransport::new(
+        format!("http://{address}"),
+        HttpTransportOptions {
+            bearer_token: None,
+            sse_idle_timeout: Some(Duration::from_millis(100)),
+        },
+    )
+    .expect("HTTP transport");
+    let events = tokio::time::timeout(
+        Duration::from_secs(2),
+        transport
+            .events(
+                &RunId::new("run-idle").expect("run id"),
+                EventOptions::default(),
+            )
+            .try_collect::<Vec<_>>(),
+    )
+    .await
+    .expect("idle reconnect must be bounded")
+    .expect("idle reconnect stays transparent");
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let requests = state.requests.lock();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0], (None, None));
+    assert_eq!(
+        requests[1],
+        (Some("after=1".to_owned()), Some("1".to_owned()))
+    );
+    drop(requests);
+    server.abort();
+}
+
+#[tokio::test]
+async fn http_events_connect_timeout_surfaces_unavailable() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move {
+        let (_socket, _) = listener.accept().await.expect("accept");
+        futures::future::pending::<()>().await;
+    });
+    let transport = super::HttpTransport::new(
+        format!("http://{address}"),
+        HttpTransportOptions {
+            bearer_token: None,
+            sse_idle_timeout: Some(Duration::from_millis(100)),
+        },
+    )
+    .expect("HTTP transport");
+    let mut events = transport.events(
+        &RunId::new("run-connect-timeout").expect("run id"),
+        EventOptions::default(),
+    );
+    let error = tokio::time::timeout(Duration::from_secs(1), events.next())
+        .await
+        .expect("connect timeout must be bounded")
+        .expect("stream yields the connect error")
+        .expect_err("stalled response headers must fail");
+    assert_eq!(error.code(), ErrorCode::Unavailable);
+    assert!(error.retryable());
+    server.abort();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -620,6 +749,7 @@ async fn auth_error_shapes_archive_conflict_and_key_disagreement() {
         &base,
         HttpTransportOptions {
             bearer_token: Some("secret-token".to_owned()),
+            ..HttpTransportOptions::default()
         },
     )
     .unwrap();

@@ -578,6 +578,7 @@ impl Agent {
                 self.service_base_url.as_deref().unwrap_or_default(),
                 HttpTransportOptions {
                     bearer_token: self.bearer_token.clone(),
+                    ..HttpTransportOptions::default()
                 },
             )?
         } else {

@@ -57,6 +57,7 @@ _TERMINAL_EVENTS = {
 }
 _ARTIFACT_CHUNK_BYTES = 64 * 1024
 _END = object()
+_SSE_IDLE = object()
 
 
 def _unavailable(message: str) -> MuzenError:
@@ -317,7 +318,12 @@ _STATUS_CODES = {
 
 
 class _HttpTransport:
-    def __init__(self, base_url: str, bearer_token: Optional[str]) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        bearer_token: Optional[str],
+        sse_idle_timeout: Optional[float] = 30.0,
+    ) -> None:
         parsed = urlsplit(base_url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise MuzenError("invalid_input", "base_url must be an HTTP(S) URL", False)
@@ -328,11 +334,14 @@ class _HttpTransport:
         self.port = parsed.port
         self.prefix = parsed.path.rstrip("/")
         self.bearer_token = bearer_token
+        if sse_idle_timeout is not None and sse_idle_timeout <= 0:
+            raise MuzenError("invalid_input", "sse_idle_timeout must be positive", False)
+        self.sse_idle_timeout = sse_idle_timeout
         self._closed = False
 
-    def _connection(self) -> http.client.HTTPConnection:
+    def _connection(self, timeout: Optional[float] = 30.0) -> http.client.HTTPConnection:
         connection_type = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
-        return connection_type(self.host, self.port, timeout=30)
+        return connection_type(self.host, self.port, timeout=timeout)
 
     def _headers(self, idempotency_key: Optional[str] = None) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -403,25 +412,31 @@ class _HttpTransport:
         loop = asyncio.get_running_loop()
         connection_holder: List[http.client.HTTPConnection] = []
         stopped = False
+        cursor = after
+        task: Optional[asyncio.Task[Any]] = None
 
         def publish(item: Any) -> None:
             if not stopped:
                 asyncio.run_coroutine_threadsafe(queue.put(item), loop).result()
 
-        def read_stream() -> None:
-            connection = self._connection()
+        def read_stream(stream_after: Optional[int]) -> None:
+            connection = self._connection(self.sse_idle_timeout)
             connection_holder.append(connection)
             parser = _SSEParser()
+            response_started = False
             try:
                 query = ""
-                if after is not None:
-                    query = "?" + urlencode({"after": after})
+                if stream_after is not None:
+                    query = "?" + urlencode({"after": stream_after})
                 headers = self._headers()
                 headers["Accept"] = "text/event-stream"
+                if stream_after is not None:
+                    headers["Last-Event-ID"] = str(stream_after)
                 connection.request("GET", self.prefix + "/v1/runs/%s/events%s" % (quote(run_id, safe=""), query), headers=headers)
                 response = connection.getresponse()
                 if response.status < 200 or response.status >= 300:
                     self._raise_http(response.status, response.read())
+                response_started = True
                 while True:
                     chunk = response.read1(4096)
                     if not chunk:
@@ -431,6 +446,11 @@ class _HttpTransport:
                         return
                     for payload in parser.feed(chunk):
                         publish(json.loads(payload))
+            except TimeoutError as exc:
+                if response_started and self.sse_idle_timeout is not None:
+                    publish(_SSE_IDLE)
+                else:
+                    publish(_unavailable("SSE transport failed: %s" % exc))
             except MuzenError as exc:
                 publish(exc)
             except (OSError, http.client.HTTPException, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -438,28 +458,41 @@ class _HttpTransport:
             finally:
                 connection.close()
 
-        task = asyncio.create_task(asyncio.to_thread(read_stream))
         try:
             while True:
-                item = await queue.get()
-                if item is _END:
-                    raise _unavailable("SSE stream ended before a terminal run event")
-                if isinstance(item, BaseException):
-                    raise item
-                event = _event(item)
-                yield event
-                if event.type in _TERMINAL_EVENTS:
-                    return
+                connection_holder.clear()
+                task = asyncio.create_task(asyncio.to_thread(read_stream, cursor))
+                reconnect = False
+                while True:
+                    item = await queue.get()
+                    if item is _SSE_IDLE:
+                        reconnect = True
+                        break
+                    if item is _END:
+                        raise _unavailable("SSE stream ended before a terminal run event")
+                    if isinstance(item, BaseException):
+                        raise item
+                    event = _event(item)
+                    if cursor is not None and event.sequence <= cursor:
+                        continue
+                    cursor = event.sequence
+                    yield event
+                    if event.type in _TERMINAL_EVENTS:
+                        return
+                if reconnect:
+                    await task
+                    task = None
         finally:
             stopped = True
             if connection_holder:
                 connection_holder[0].close()
-            if not task.done():
+            if task is not None and not task.done():
                 task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, OSError):
-                pass
+            if task is not None:
+                try:
+                    await task
+                except (asyncio.CancelledError, OSError):
+                    pass
 
     async def close(self) -> None:
         self._closed = True
@@ -790,8 +823,12 @@ async def connect_local_runner(
     return _MuzenImpl(_RunnerTransport(process, close_timeout))
 
 
-async def connect_http(base_url: str, bearer_token: Optional[str] = None) -> Muzen:
-    return _MuzenImpl(_HttpTransport(base_url, bearer_token))
+async def connect_http(
+    base_url: str,
+    bearer_token: Optional[str] = None,
+    sse_idle_timeout: Optional[float] = 30.0,
+) -> Muzen:
+    return _MuzenImpl(_HttpTransport(base_url, bearer_token, sse_idle_timeout))
 
 
 async def connect(options: Optional[Mapping[str, Any]] = None) -> Muzen:

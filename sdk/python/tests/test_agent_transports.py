@@ -7,6 +7,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -25,7 +26,7 @@ from muzen.agent import (
     connect_local_runner,
     normalize_agent_input,
 )
-from muzen.agent_transports import _JsonRpcDemultiplexer, _SSEParser
+from muzen.agent_transports import _HttpTransport, _JsonRpcDemultiplexer, _SSEParser
 
 
 def _binary(env_name, name):
@@ -170,6 +171,79 @@ def test_json_rpc_demultiplexer_handles_interleaved_notifications():
         assert await queue.get() == {"sequence": 1}
 
     asyncio.run(exercise())
+
+
+def _sse_event(sequence, event_type):
+    payload = json.dumps(
+        {
+            "runId": "run-idle",
+            "sequence": sequence,
+            "type": event_type,
+            "timestamp": "now",
+            "payload": {},
+        },
+        separators=(",", ":"),
+    )
+    return ("id: %d\nevent: run.event\ndata: %s\n\n" % (sequence, payload)).encode()
+
+
+class _IdleSseHandler(BaseHTTPRequestHandler):
+    requests = None
+    release = None
+    lock = None
+
+    def do_GET(self):
+        parsed = urlsplit(self.path)
+        with self.lock:
+            attempt = len(self.requests)
+            self.requests.append(
+                (parse_qs(parsed.query).get("after"), self.headers.get("Last-Event-ID"))
+            )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        if attempt == 0:
+            self.wfile.write(_sse_event(1, "run.started"))
+            self.wfile.flush()
+            self.release.wait(timeout=5)
+            return
+        self.wfile.write(_sse_event(2, "agent.completed"))
+        self.wfile.write(_sse_event(3, "run.completed"))
+        self.wfile.flush()
+
+    def log_message(self, format, *args):
+        pass
+
+
+def test_http_events_reconnect_after_idle_with_cursor_and_no_duplicates():
+    handler = type("IdleSseHandler", (_IdleSseHandler,), {})
+    handler.requests = []
+    handler.release = threading.Event()
+    handler.lock = threading.Lock()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    async def exercise():
+        transport = _HttpTransport(
+            "http://127.0.0.1:%d" % server.server_port,
+            None,
+            sse_idle_timeout=0.1,
+        )
+        try:
+            return [event async for event in transport.events("run-idle", None)]
+        finally:
+            await transport.close()
+
+    try:
+        events = asyncio.run(asyncio.wait_for(exercise(), timeout=2))
+        assert [event.sequence for event in events] == [1, 2, 3]
+        assert handler.requests == [(None, None), (["1"], "1")]
+    finally:
+        handler.release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_local_runner_full_lifecycle_replay_unsubscribe_and_errors():

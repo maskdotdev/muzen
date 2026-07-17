@@ -300,11 +300,16 @@ class HttpTransport implements Transport {
   private readonly baseUrl: URL;
   private closed = false;
 
-  constructor(baseUrl: string, private readonly bearerToken?: string) {
+  constructor(
+    baseUrl: string,
+    private readonly bearerToken?: string,
+    private readonly sseIdleTimeoutMs: number | null = 30_000,
+  ) {
     let parsed: URL;
     try { parsed = new URL(baseUrl); } catch { throw new MuzenError("invalid_input", "baseUrl must be an HTTP(S) URL", false); }
     if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.hostname === "") throw new MuzenError("invalid_input", "baseUrl must be an HTTP(S) URL", false);
     if (parsed.search !== "" || parsed.hash !== "") throw new MuzenError("invalid_input", "baseUrl must not contain a query or fragment", false);
+    if (sseIdleTimeoutMs !== null && (!Number.isFinite(sseIdleTimeoutMs) || sseIdleTimeoutMs <= 0)) throw new MuzenError("invalid_input", "sseIdleTimeoutMs must be positive", false);
     parsed.pathname = parsed.pathname.replace(/\/$/, "");
     this.baseUrl = parsed;
   }
@@ -355,31 +360,87 @@ class HttpTransport implements Transport {
 
   async *events(runId: string, after: number | undefined, signal: AbortSignal | undefined): AsyncIterable<AgentEvent> {
     if (this.closed) throw unavailable("HTTP transport is closed");
-    const path = `/v1/runs/${encodeURIComponent(runId)}/events${after === undefined ? "" : `?after=${after}`}`;
-    const headers = this.makeHeaders();
-    headers.set("Accept", "text/event-stream");
-    let response: Response;
-    try { response = await fetch(this.endpoint(path), { headers, signal }); }
-    catch (error) { throw unavailable(`SSE transport failed: ${String(error)}`); }
-    if (!response.ok) throw await this.httpError(response);
-    if (response.body === null) throw unavailable("SSE response has no body");
-    const reader = response.body.getReader();
-    const parser = new SseParser();
-    try {
-      for (;;) {
-        let read: ReadableStreamReadResult<Uint8Array>;
-        try { read = await reader.read(); } catch (error) { throw unavailable(`SSE transport failed: ${String(error)}`); }
-        const payloads = parser.feed(read.value ?? new Uint8Array(), read.done);
-        for (const payload of payloads) {
-          let event: AgentEvent;
-          try { event = JSON.parse(payload) as AgentEvent; } catch (error) { throw unavailable(`SSE event contained invalid JSON: ${String(error)}`); }
-          yield event;
-          if (TERMINAL_EVENTS.has(event.type)) return;
-        }
-        if (read.done) throw unavailable("SSE stream ended before a terminal run event");
+    let cursor = after;
+    for (;;) {
+      const path = `/v1/runs/${encodeURIComponent(runId)}/events${cursor === undefined ? "" : `?after=${cursor}`}`;
+      const headers = this.makeHeaders();
+      headers.set("Accept", "text/event-stream");
+      if (cursor !== undefined) headers.set("Last-Event-ID", String(cursor));
+      const controller = new AbortController();
+      const abort = () => controller.abort(signal?.reason);
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
+      let connectTimedOut = false;
+      let connectTimer: ReturnType<typeof setTimeout> | undefined;
+      if (this.sseIdleTimeoutMs !== null) {
+        connectTimer = setTimeout(() => {
+          connectTimedOut = true;
+          controller.abort();
+        }, this.sseIdleTimeoutMs);
       }
-    } finally {
-      await reader.cancel().catch(() => undefined);
+      let response: Response;
+      try {
+        response = await fetch(this.endpoint(path), { headers, signal: controller.signal });
+      } catch (error) {
+        signal?.removeEventListener("abort", abort);
+        if (connectTimedOut) throw unavailable("SSE connection exceeded the idle timeout");
+        throw unavailable(`SSE transport failed: ${String(error)}`);
+      } finally {
+        if (connectTimer !== undefined) clearTimeout(connectTimer);
+      }
+      if (!response.ok) {
+        signal?.removeEventListener("abort", abort);
+        throw await this.httpError(response);
+      }
+      if (response.body === null) {
+        signal?.removeEventListener("abort", abort);
+        throw unavailable("SSE response has no body");
+      }
+      const reader = response.body.getReader();
+      const parser = new SseParser();
+      let reconnect = false;
+      try {
+        for (;;) {
+          let read: ReadableStreamReadResult<Uint8Array>;
+          let readTimedOut = false;
+          let readTimer: ReturnType<typeof setTimeout> | undefined;
+          if (this.sseIdleTimeoutMs !== null) {
+            readTimer = setTimeout(() => {
+              readTimedOut = true;
+              controller.abort();
+            }, this.sseIdleTimeoutMs);
+          }
+          try {
+            read = await reader.read();
+          } catch (error) {
+            if (readTimedOut) {
+              reconnect = true;
+              break;
+            }
+            throw unavailable(`SSE transport failed: ${String(error)}`);
+          } finally {
+            if (readTimer !== undefined) clearTimeout(readTimer);
+          }
+          if (readTimedOut) {
+            reconnect = true;
+            break;
+          }
+          const payloads = parser.feed(read.value ?? new Uint8Array(), read.done);
+          for (const payload of payloads) {
+            let event: AgentEvent;
+            try { event = JSON.parse(payload) as AgentEvent; } catch (error) { throw unavailable(`SSE event contained invalid JSON: ${String(error)}`); }
+            if (cursor !== undefined && event.sequence <= cursor) continue;
+            cursor = event.sequence;
+            yield event;
+            if (TERMINAL_EVENTS.has(event.type)) return;
+          }
+          if (read.done) throw unavailable("SSE stream ended before a terminal run event");
+        }
+      } finally {
+        signal?.removeEventListener("abort", abort);
+        await reader.cancel().catch(() => undefined);
+      }
+      if (!reconnect) return;
     }
   }
 
@@ -525,8 +586,15 @@ export async function connectLocalRunner(options: LocalRunnerOptions): Promise<M
   return new MuzenImpl(new RunnerTransport(child, closeTimeoutMs));
 }
 
-export interface HttpOptions { bearerToken?: string; }
+export interface HttpOptions {
+  bearerToken?: string;
+  sseIdleTimeoutMs?: number | null;
+}
 
 export async function connectHttp(baseUrl: string, options: HttpOptions = {}): Promise<Muzen> {
-  return new MuzenImpl(new HttpTransport(baseUrl, options.bearerToken));
+  return new MuzenImpl(new HttpTransport(
+    baseUrl,
+    options.bearerToken,
+    options.sseIdleTimeoutMs === undefined ? 30_000 : options.sseIdleTimeoutMs,
+  ));
 }

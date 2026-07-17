@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -19,9 +20,19 @@ use super::super::{
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
 const LAST_EVENT_ID_HEADER: &str = "last-event-id";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct HttpTransportOptions {
     pub bearer_token: Option<String>,
+    pub sse_idle_timeout: Option<Duration>,
+}
+
+impl Default for HttpTransportOptions {
+    fn default() -> Self {
+        Self {
+            bearer_token: None,
+            sse_idle_timeout: Some(Duration::from_secs(30)),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -29,6 +40,7 @@ pub struct HttpTransport {
     client: reqwest::Client,
     base_url: Url,
     bearer_token: Option<String>,
+    sse_idle_timeout: Option<Duration>,
     artifact_runs: Arc<Mutex<BTreeMap<ArtifactId, RunId>>>,
 }
 
@@ -53,6 +65,7 @@ impl HttpTransport {
             client: reqwest::Client::new(),
             base_url,
             bearer_token: options.bearer_token,
+            sse_idle_timeout: options.sse_idle_timeout,
             artifact_runs: Arc::new(Mutex::new(BTreeMap::new())),
         })
     }
@@ -195,62 +208,134 @@ impl RuntimeTransport for HttpTransport {
     }
 
     fn events(&self, id: &RunId, options: EventOptions) -> EventStream {
-        let mut url = self.endpoint(["v1", "runs", id.as_str(), "events"]);
-        if let Some(after) = options.after {
-            url.query_pairs_mut()
-                .append_pair("after", &after.to_string());
-        }
+        let url = self.endpoint(["v1", "runs", id.as_str(), "events"]);
         let client = self.clone();
-        let after = options.after;
-        let state = EventStreamState::Connecting { client, url, after };
-        Box::pin(futures::stream::try_unfold(state, |state| async move {
-            let mut state = match state {
-                EventStreamState::Connecting { client, url, after } => {
-                    let mut request = client.request(Method::GET, url);
-                    if let Some(after) = after {
-                        request = request.header(LAST_EVENT_ID_HEADER, after.to_string());
-                    }
-                    let response = request.send().await.map_err(transport_error)?;
-                    if !response.status().is_success() {
-                        return Err(decode_error_response(response).await);
+        let state = EventStreamState::Connecting {
+            client,
+            url,
+            last_sequence: options.after,
+        };
+        Box::pin(futures::stream::try_unfold(state, |mut state| async move {
+            loop {
+                state = match state {
+                    EventStreamState::Connecting {
+                        client,
+                        mut url,
+                        last_sequence,
+                    } => {
+                        if let Some(last_sequence) = last_sequence {
+                            url.query_pairs_mut()
+                                .append_pair("after", &last_sequence.to_string());
+                        }
+                        let mut request = client.request(Method::GET, url.clone());
+                        if let Some(last_sequence) = last_sequence {
+                            request =
+                                request.header(LAST_EVENT_ID_HEADER, last_sequence.to_string());
+                        }
+                        let response = match client.sse_idle_timeout {
+                            Some(idle_timeout) => {
+                                tokio::time::timeout(idle_timeout, request.send())
+                                    .await
+                                    .map_err(|_| {
+                                        MuzenError::unavailable(
+                                            "SSE connection exceeded the idle timeout",
+                                        )
+                                    })?
+                                    .map_err(transport_error)?
+                            }
+                            None => request.send().await.map_err(transport_error)?,
+                        };
+                        if !response.status().is_success() {
+                            return Err(decode_error_response(response).await);
+                        }
+                        url.set_query(None);
+                        EventStreamState::Reading {
+                            client,
+                            url,
+                            response,
+                            parser: SseParser::default(),
+                            saw_terminal: false,
+                            last_sequence,
+                        }
                     }
                     EventStreamState::Reading {
+                        client,
+                        url,
                         response,
-                        parser: SseParser::default(),
-                        saw_terminal: false,
-                    }
-                }
-                reading => reading,
-            };
-            let EventStreamState::Reading {
-                response,
-                parser,
-                saw_terminal,
-            } = &mut state
-            else {
-                unreachable!()
-            };
-            loop {
-                if let Some(event) = parser.events.pop_front() {
-                    *saw_terminal |= is_terminal_run_event(&event.event_type);
-                    return Ok(Some((event, state)));
-                }
-                match response.chunk().await.map_err(transport_error)? {
-                    Some(chunk) => parser.push(&chunk)?,
-                    None => {
-                        parser.finish()?;
-                        if let Some(event) = parser.events.pop_front() {
-                            *saw_terminal |= is_terminal_run_event(&event.event_type);
-                            return Ok(Some((event, state)));
+                        parser,
+                        saw_terminal,
+                        last_sequence,
+                    } => EventStreamState::Reading {
+                        client,
+                        url,
+                        response,
+                        parser,
+                        saw_terminal,
+                        last_sequence,
+                    },
+                };
+
+                let EventStreamState::Reading {
+                    client,
+                    url,
+                    mut response,
+                    mut parser,
+                    mut saw_terminal,
+                    mut last_sequence,
+                } = state
+                else {
+                    continue;
+                };
+
+                state = loop {
+                    while let Some(event) = parser.events.pop_front() {
+                        if last_sequence.is_some_and(|sequence| event.sequence <= sequence) {
+                            continue;
                         }
-                        if !*saw_terminal {
-                            return Err(MuzenError::unavailable(
-                                "SSE stream ended before a terminal run event",
-                            ));
-                        }
-                        return Ok(None);
+                        last_sequence = Some(event.sequence);
+                        saw_terminal |= is_terminal_run_event(&event.event_type);
+                        let state = EventStreamState::Reading {
+                            client,
+                            url,
+                            response,
+                            parser,
+                            saw_terminal,
+                            last_sequence,
+                        };
+                        return Ok(Some((event, state)));
                     }
-                }
+
+                    let chunk = match client.sse_idle_timeout {
+                        Some(idle_timeout) => {
+                            match tokio::time::timeout(idle_timeout, response.chunk()).await {
+                                Ok(result) => result.map_err(transport_error)?,
+                                Err(_) => {
+                                    break EventStreamState::Connecting {
+                                        client,
+                                        url,
+                                        last_sequence,
+                                    };
+                                }
+                            }
+                        }
+                        None => response.chunk().await.map_err(transport_error)?,
+                    };
+                    match chunk {
+                        Some(chunk) => parser.push(&chunk)?,
+                        None => {
+                            parser.finish()?;
+                            if !parser.events.is_empty() {
+                                continue;
+                            }
+                            if !saw_terminal {
+                                return Err(MuzenError::unavailable(
+                                    "SSE stream ended before a terminal run event",
+                                ));
+                            }
+                            return Ok(None);
+                        }
+                    }
+                };
             }
         }))
     }
@@ -382,12 +467,15 @@ enum EventStreamState {
     Connecting {
         client: HttpTransport,
         url: Url,
-        after: Option<u64>,
+        last_sequence: Option<u64>,
     },
     Reading {
+        client: HttpTransport,
+        url: Url,
         response: Response,
         parser: SseParser,
         saw_terminal: bool,
+        last_sequence: Option<u64>,
     },
 }
 
