@@ -412,6 +412,143 @@ def test_http_tool_pump_replays_request_when_answer_transport_drops():
     ]
 
 
+class _RetryingPumpRun(_FakeRun):
+    def __init__(self, session_id, failures, *, always_fail=False):
+        super().__init__(
+            session_id,
+            output=("garbage completion" if always_fail else "tool-backed completion"),
+        )
+        self.failures = failures
+        self.always_fail = always_fail
+        self.event_attempts = 0
+        self.after = []
+        self.cancel_requests = 0
+        self.finished = asyncio.Event()
+
+    async def events(self, *, after=None):
+        self.event_attempts += 1
+        self.after.append(after)
+        if self.always_fail or self.event_attempts <= self.failures:
+            raise MuzenError("unavailable", "event stream unavailable", True)
+        yield AgentEvent(
+            run_id=self.id,
+            sequence=1,
+            type="tool.requested",
+            timestamp="2026-07-16T00:00:00Z",
+            payload={
+                "callId": "call-1",
+                "provider": "local_tools",
+                "tool": "lookup",
+                "arguments": {"query": "runtime"},
+                "timeoutMs": 120000,
+            },
+        )
+        yield AgentEvent(
+            run_id=self.id,
+            sequence=2,
+            type="run.completed",
+            timestamp="2026-07-16T00:00:01Z",
+            payload={},
+        )
+
+    async def wait(self):
+        await self.finished.wait()
+        return self._result
+
+    async def cancel(self, *, reason=None, idempotency_key=None):
+        self.cancel_requests += 1
+        self.finished.set()
+
+
+class _RetryingPumpSession:
+    def __init__(self, run):
+        self.id = "session-pump"
+        self.run_handle = run
+        self.archived = False
+
+    async def run(self, prompt, *, limits, idempotency_key=None):
+        return self.run_handle
+
+    async def archive(self, *, idempotency_key=None):
+        self.archived = True
+
+
+class _RetryingPumpClient(_PumpClient):
+    def __init__(self, failures, *, always_fail=False):
+        super().__init__()
+        self.run = _RetryingPumpRun(
+            "session-pump", failures, always_fail=always_fail
+        )
+        self.session = _RetryingPumpSession(self.run)
+
+    async def put_secret(self, value):
+        return "secret-1"
+
+    async def create_session(self, spec, *, idempotency_key=None):
+        return self.session
+
+    async def answer_tool_call(self, run_id, input):
+        self.answers.append((run_id, input))
+        self.run.finished.set()
+
+
+def test_http_tool_pump_recovers_after_two_failures_at_same_cursor():
+    @tool
+    def lookup(query: str) -> str:
+        return "found " + query
+
+    async def exercise():
+        client = _RetryingPumpClient(2)
+        agent = Agent(
+            client=client,
+            instructions="use tools",
+            model="gpt-test",
+            api_key="test",
+            tools=[lookup],
+            transport="http",
+        )
+        try:
+            result = await asyncio.wait_for(agent.run("look it up"), timeout=3)
+        finally:
+            await agent.close()
+        assert result.text == "tool-backed completion"
+        assert client.run.event_attempts == 3
+        assert client.run.after == [None, None, None]
+        assert [answer.outcome for _, answer in client.answers] == [
+            {"result": "found runtime"}
+        ]
+
+    asyncio.run(exercise())
+
+
+def test_http_tool_pump_permanent_failure_cancels_run_and_surfaces_error():
+    @tool
+    def lookup(query: str) -> str:
+        return "found " + query
+
+    async def exercise():
+        client = _RetryingPumpClient(0, always_fail=True)
+        agent = Agent(
+            client=client,
+            instructions="use tools",
+            model="gpt-test",
+            api_key="test",
+            tools=[lookup],
+            transport="http",
+        )
+        try:
+            with pytest.raises(MuzenError, match="event stream unavailable") as caught:
+                await asyncio.wait_for(agent.run("look it up"), timeout=3)
+        finally:
+            await agent.close()
+        assert caught.value.code == "unavailable"
+        assert caught.value.retryable
+        assert client.run.event_attempts == 6
+        assert client.run.cancel_requests == 1
+
+    asyncio.run(exercise())
+
+
 def test_session_reuses_one_session_and_one_shot_does_not():
     fake = _FakeMuzen()
 

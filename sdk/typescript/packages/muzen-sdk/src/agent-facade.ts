@@ -30,7 +30,7 @@ const BUILTIN_PROVIDER_ID = "builtin";
 const LOCAL_TOOLS_PROVIDER_ID = "local_tools";
 const DEFAULT_MAX_INPUT_TOKENS = 128_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
-const MAX_EVENT_RESUME_ATTEMPTS = 3;
+const MAX_EVENT_RESUME_ATTEMPTS = 5;
 
 export interface AgentOptions {
   instructions?: string | ContentBlock | readonly ContentBlock[];
@@ -345,7 +345,25 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     const wait = run.wait();
     const pump = pumpClientToolRun(client, run, this.tools, controller.signal);
     try {
-      await Promise.race([wait.then(() => undefined), pump]);
+      const outcome = await Promise.race([
+        wait.then(
+          () => ({ source: "wait" as const }),
+          (error: unknown) => ({ source: "wait_error" as const, error }),
+        ),
+        pump.then(
+          () => ({ source: "pump" as const }),
+          (error: unknown) => ({ source: "pump_error" as const, error }),
+        ),
+      ]);
+      if (outcome.source === "pump_error") {
+        try {
+          await run.cancel();
+        } catch {
+          // Cancellation is best-effort; preserve the pump transport error.
+        }
+        throw outcome.error;
+      }
+      if (outcome.source === "wait_error") throw outcome.error;
       return await wait;
     } finally {
       controller.abort();

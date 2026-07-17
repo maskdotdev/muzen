@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { pumpClientToolRun } from "./agent-facade.js";
+import { Agent, pumpClientToolRun } from "./agent-facade.js";
 import {
   MuzenError,
   type AgentEvent,
+  type AgentSession,
   type AnswerToolCallInput,
   type Muzen,
   type Run,
+  type RunResult,
 } from "./agent.js";
 import { tool } from "./tools.js";
 
@@ -180,4 +182,88 @@ test("client tool pump resumes with its cursor and does not re-execute a replaye
   assert.deepEqual(afterValues, [undefined, 1]);
   assert.equal(answers.length, 2);
   assert.deepEqual(answers[1], answers[0]);
+});
+
+test("permanent client tool pump failure retries five times, cancels the run, and preserves the error", async () => {
+  const transportError = new MuzenError("unavailable", "event stream unavailable", true);
+  let eventAttempts = 0;
+  let cancelRequests = 0;
+  let finishWait: ((result: RunResult) => void) | undefined;
+  const wait = new Promise<RunResult>((resolve) => {
+    finishWait = resolve;
+  });
+  const garbageResult: RunResult = {
+    runId: "run-1",
+    status: "completed",
+    outputs: [{
+      sessionId: "session-1",
+      path: [],
+      status: "completed",
+      output: "garbage completion",
+      usage: { inputTokens: 0, outputTokens: 0, toolCalls: 0 },
+    }],
+    usage: { inputTokens: 0, outputTokens: 0, toolCalls: 0 },
+    artifacts: [],
+    metadata: {},
+  };
+  const run = {
+    id: "run-1",
+    async *events(): AsyncIterable<AgentEvent> {
+      eventAttempts += 1;
+      throw transportError;
+    },
+    wait: () => wait,
+    async cancel(): Promise<{ sequence: number }> {
+      cancelRequests += 1;
+      finishWait?.(garbageResult);
+      throw new MuzenError("internal", "cancel failed", false);
+    },
+  } as unknown as Run;
+  const session = {
+    id: "session-1",
+    async run(): Promise<Run> {
+      return run;
+    },
+    async archive(): Promise<void> {},
+  } as unknown as AgentSession;
+  const client = {
+    async putSecret(): Promise<string> {
+      return "secret-1";
+    },
+    async createSession(): Promise<AgentSession> {
+      return session;
+    },
+    async close(): Promise<void> {},
+  } as unknown as Muzen;
+  const lookup = tool({
+    name: "lookup",
+    description: "Look up a query.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: () => ({ found: true }),
+  });
+  const agent = new Agent({
+    client,
+    instructions: "Use tools.",
+    model: "gpt-test",
+    apiKey: "test",
+    tools: [lookup],
+    transport: "http",
+  });
+
+  try {
+    await assert.rejects(
+      agent.run("look it up"),
+      (error: unknown) => error === transportError,
+    );
+  } finally {
+    await agent.close();
+  }
+
+  assert.equal(eventAttempts, 6);
+  assert.equal(cancelRequests, 1);
 });

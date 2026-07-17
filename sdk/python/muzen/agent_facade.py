@@ -63,6 +63,8 @@ _BUILTIN_PROVIDER_ID = "builtin"
 _LOCAL_TOOLS_PROVIDER_ID = "local_tools"
 _DEFAULT_MAX_INPUT_TOKENS = 128_000
 _DEFAULT_MAX_OUTPUT_TOKENS = 4_096
+_MAX_EVENT_RESUME_ATTEMPTS = 5
+_INITIAL_EVENT_RESUME_DELAY_SECONDS = 0.025
 
 
 def discover_local_runner_binary() -> Optional[str]:
@@ -381,20 +383,42 @@ class Agent(AbstractAsyncContextManager):
         if self._transport != "http" or not self._tools:
             return await run.wait()
         pump = asyncio.create_task(self._pump_client_tools(run))
+        wait = asyncio.create_task(run.wait())
         try:
-            return await run.wait()
+            done, _ = await asyncio.wait(
+                {wait, pump}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if pump in done:
+                try:
+                    await pump
+                except asyncio.CancelledError:
+                    return await wait
+                except Exception:
+                    try:
+                        await run.cancel()
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    try:
+                        await wait
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    raise
+            return await wait
         finally:
-            pump.cancel()
-            try:
-                await pump
-            except (asyncio.CancelledError, Exception):
-                # The run's wait path owns terminal transport failures. The pump
-                # is auxiliary and must never outlive that path.
-                pass
+            for task in (pump, wait):
+                if not task.done():
+                    task.cancel()
+            for task in (pump, wait):
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    # Cancellation during teardown is auxiliary and must not
+                    # replace the run result or the pump's transport error.
+                    pass
 
     async def _pump_client_tools(self, run: Any) -> None:
         after: Optional[int] = None
-        failed_after: object = object()
+        resume_failures = 0
         while True:
             try:
                 async for event in run.events(after=after):
@@ -411,11 +435,18 @@ class Agent(AbstractAsyncContextManager):
                     ):
                         await self._answer_client_tool(run.id, event.payload)
                     after = event.sequence
+                    resume_failures = 0
                 return
             except MuzenError as exc:
-                if not exc.retryable or failed_after == after:
+                if (
+                    not exc.retryable
+                    or resume_failures >= _MAX_EVENT_RESUME_ATTEMPTS
+                ):
                     raise
-                failed_after = after
+                await asyncio.sleep(
+                    _INITIAL_EVENT_RESUME_DELAY_SECONDS * (2 ** resume_failures)
+                )
+                resume_failures += 1
 
     async def _answer_client_tool(
         self, run_id: str, payload: Mapping[str, Any]
