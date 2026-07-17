@@ -87,6 +87,10 @@ class ToolGrant:
     provider: ToolProviderId
     tool: str
     effects: Tuple[ToolEffect, ...]
+    description: Optional[str] = None
+    input_schema: Optional[JsonObject] = field(
+        default=None, metadata={"wire": "inputSchema"}
+    )
     max_calls: Optional[int] = field(default=None, metadata={"wire": "maxCalls"})
 
 
@@ -130,6 +134,13 @@ class BuiltinToolProvider:
 
 
 @dataclass(frozen=True)
+class ClientToolProvider:
+    id: ToolProviderId
+    timeout_ms: Optional[int] = field(default=None, metadata={"wire": "timeoutMs"})
+    kind: Literal["client"] = field(default="client", init=False)
+
+
+@dataclass(frozen=True)
 class McpToolProvider:
     id: ToolProviderId
     url: str
@@ -138,7 +149,7 @@ class McpToolProvider:
     kind: Literal["mcp_http"] = field(default="mcp_http", init=False)
 
 
-ToolProvider = Union[BuiltinToolProvider, McpToolProvider]
+ToolProvider = Union[BuiltinToolProvider, ClientToolProvider, McpToolProvider]
 
 
 @dataclass(frozen=True)
@@ -368,6 +379,12 @@ class AgentEvent:
 
 
 @dataclass(frozen=True)
+class AnswerToolCallInput:
+    call_id: str = field(metadata={"wire": "callId"})
+    outcome: JsonObject
+
+
+@dataclass(frozen=True)
 class CommandReceipt:
     sequence: int
 
@@ -392,7 +409,7 @@ class SpawnCommand:
 class Capabilities:
     protocol_version: str
     workspace_bases: Tuple[Literal["path", "git", "snapshot"], ...]
-    tool_provider_kinds: Tuple[Literal["builtin", "mcp_http"], ...]
+    tool_provider_kinds: Tuple[Literal["builtin", "client", "mcp_http"], ...]
     model_protocols: Tuple[Literal["responses", "chat_completions", "messages"], ...]
     max_replay_batch: int
 
@@ -485,6 +502,9 @@ class Muzen(Protocol):
     async def get_session(self, session_id: SessionId) -> AgentSession: ...
     async def start_run(self, spec: RunSpec) -> Run: ...
     async def get_run(self, run_id: RunId) -> Run: ...
+    async def answer_tool_call(
+        self, run_id: RunId, input: AnswerToolCallInput
+    ) -> None: ...
     async def close(self) -> None: ...
 
 
@@ -498,6 +518,12 @@ def define_agent(definition: AgentDefinition) -> AgentDefinition:
     for index, grant in enumerate(definition.tools):
         _non_empty(grant.provider, "tools[%d].provider" % index)
         _non_empty(grant.tool, "tools[%d].tool" % index)
+        if grant.description is not None:
+            _non_empty(grant.description, "tools[%d].description" % index)
+        if grant.input_schema is not None and not isinstance(grant.input_schema, dict):
+            raise _invalid(
+                "tools[%d].inputSchema" % index, "must be a JSON Schema object"
+            )
         if grant.max_calls is not None:
             _positive_integer(grant.max_calls, "tools[%d].max_calls" % index)
     if definition.budget is not None:
@@ -550,6 +576,8 @@ def _agent_definition_from_wire(value: Mapping[str, Any]) -> AgentDefinition:
                 provider=item["provider"],
                 tool=item["tool"],
                 effects=tuple(item["effects"]),
+                description=item.get("description"),
+                input_schema=item.get("inputSchema"),
                 max_calls=item.get("maxCalls"),
             )
             for item in value["tools"]

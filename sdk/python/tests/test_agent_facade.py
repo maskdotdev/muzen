@@ -1,7 +1,10 @@
 import asyncio
 import json
 import os
+import socket
+import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,6 +14,7 @@ import pytest
 
 from muzen import Agent, tool
 from muzen.agent import (
+    AgentEvent,
     AgentOutput,
     AgentResult,
     ExecutionError,
@@ -216,20 +220,184 @@ def test_instructions_swarm_grants_defaults_and_lazy_secret():
     asyncio.run(exercise())
 
 
-def test_http_transport_rejects_function_tools():
+def test_builtin_grant_rejects_model_visible_tool_name_collision():
     @tool
-    def lookup(query: str) -> str:
+    def agent_spawn(query: str) -> str:
         return query
 
-    with pytest.raises(MuzenError, match="remote service cannot reach") as caught:
+    with pytest.raises(MuzenError, match="unique function names") as caught:
         Agent(
             instructions="do it",
             model="gpt-test",
-            tools=[lookup],
-            transport="http",
-            base_url="https://muzen.example",
+            api_key="test",
+            can_spawn=True,
+            tools=[agent_spawn],
         )
     assert caught.value.code == "invalid_input"
+
+    Agent(
+        instructions="do it",
+        model="gpt-test",
+        api_key="test",
+        tools=[agent_spawn],
+    )
+
+
+def test_http_transport_constructs_client_tools_with_real_signatures():
+    @tool
+    def lookup(query: str) -> str:
+        """Look up an issue."""
+        return query
+
+    fake = _FakeMuzen()
+    agent = Agent(
+        client=fake,
+        instructions="do it",
+        model="gpt-test",
+        api_key="test",
+        tools=[lookup],
+        transport="http",
+    )
+    grant = agent._spec_template.agent.tools[0]
+    assert grant.provider == "local_tools"
+    assert grant.description == "Look up an issue."
+    assert grant.input_schema == {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "additionalProperties": False,
+        "required": ["query"],
+    }
+    assert [
+        (provider.id, provider.kind)
+        for provider in agent._spec_template.tool_providers
+    ] == [("local_tools", "client")]
+    assert agent._tool_server is None
+    asyncio.run(agent.close())
+
+
+class _PumpClient:
+    def __init__(self, error_code=None):
+        self.answers = []
+        self.error_code = error_code
+
+    async def answer_tool_call(self, run_id, input):
+        self.answers.append((run_id, input))
+        if self.error_code is not None:
+            raise MuzenError(self.error_code, "answer raced", False)
+
+    async def close(self):
+        pass
+
+
+class _PumpRun:
+    def __init__(self, tool_name, arguments):
+        self.id = "run-tools"
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.after = []
+
+    async def events(self, *, after=None):
+        self.after.append(after)
+        yield AgentEvent(
+            run_id=self.id,
+            sequence=1,
+            type="tool.requested",
+            timestamp="2026-07-16T00:00:00Z",
+            payload={
+                "callId": "call-1",
+                "provider": "local_tools",
+                "tool": self.tool_name,
+                "arguments": self.arguments,
+                "timeoutMs": 120000,
+            },
+        )
+        yield AgentEvent(
+            run_id=self.id,
+            sequence=2,
+            type="run.completed",
+            timestamp="2026-07-16T00:00:01Z",
+            payload={},
+        )
+
+
+def _pump_outcome(handler, tool_name, arguments, error_code=None):
+    client = _PumpClient(error_code)
+    agent = Agent(
+        client=client,
+        instructions="use tools",
+        model="gpt-test",
+        api_key="test",
+        tools=[handler],
+        transport="http",
+    )
+
+    async def exercise():
+        run = _PumpRun(tool_name, arguments)
+        await agent._pump_client_tools(run)
+        await agent.close()
+        assert run.after == [None]
+
+    asyncio.run(exercise())
+    assert len(client.answers) == 1
+    return client.answers[0][1].outcome
+
+
+def test_http_tool_pump_posts_tool_errors_and_unknown_tools():
+    @tool
+    def explode(query: str) -> str:
+        raise RuntimeError("handler exploded")
+
+    assert _pump_outcome(explode, "explode", {"query": "x"}) == {
+        "error": {"message": "handler exploded", "retryable": False}
+    }
+    unknown = _pump_outcome(explode, "missing_tool", {"query": "x"})
+    assert unknown["error"]["retryable"] is False
+    assert "missing_tool" in unknown["error"]["message"]
+
+
+@pytest.mark.parametrize("code", ["conflict", "not_found"])
+def test_http_tool_pump_swallows_benign_answer_races(code):
+    @tool
+    def lookup(query: str) -> str:
+        return "found " + query
+
+    assert _pump_outcome(lookup, "lookup", {"query": "x"}, code) == {
+        "result": "found x"
+    }
+
+
+def test_http_tool_pump_replays_request_when_answer_transport_drops():
+    @tool
+    def lookup(query: str) -> str:
+        return "found " + query
+
+    class ResumeClient(_PumpClient):
+        async def answer_tool_call(self, run_id, input):
+            self.answers.append((run_id, input))
+            if len(self.answers) == 1:
+                raise MuzenError("unavailable", "connection dropped", True)
+
+    client = ResumeClient()
+    agent = Agent(
+        client=client,
+        instructions="use tools",
+        model="gpt-test",
+        api_key="test",
+        tools=[lookup],
+        transport="http",
+    )
+
+    async def exercise():
+        run = _PumpRun("lookup", {"query": "x"})
+        await agent._pump_client_tools(run)
+        await agent.close()
+        assert run.after == [None, None]
+
+    asyncio.run(exercise())
+    assert [answer.outcome for _, answer in client.answers] == [
+        {"result": "found x"},
+        {"result": "found x"},
+    ]
 
 
 def test_session_reuses_one_session_and_one_shot_does_not():
@@ -373,8 +541,11 @@ def test_facade_local_runner_executes_python_tool_round_trip():
     binary = discover_local_runner_binary()
     if binary is None or not os.path.isfile(binary):
         pytest.skip("muzen-agent-runner is not built")
-    mcp_source = Path(__file__).resolve().parents[3] / "src/agent_runtime/local/mcp.rs"
-    if mcp_source.stat().st_mtime > os.path.getmtime(binary):
+    runtime_sources = [
+        Path(__file__).resolve().parents[3] / "src/agent_runtime/local/mcp.rs",
+        Path(__file__).resolve().parents[3] / "src/agent_runtime/types.rs",
+    ]
+    if any(source.stat().st_mtime > os.path.getmtime(binary) for source in runtime_sources):
         pytest.skip("built muzen-agent-runner predates MCP HTTP tool support")
     calls = []
 
@@ -436,3 +607,158 @@ def test_facade_local_runner_executes_python_tool_round_trip():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+class _HttpToolModelHandler(BaseHTTPRequestHandler):
+    requests = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        request = json.loads(self.rfile.read(length).decode("utf-8"))
+        self.requests.append(request)
+        result_blocks = [
+            block
+            for message in request.get("messages", [])
+            for block in message.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        if result_blocks:
+            response = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "model saw tool result: %s"
+                        % result_blocks[-1].get("content"),
+                    }
+                ],
+                "usage": {"input_tokens": 2, "output_tokens": 1},
+                "stop_reason": "end_turn",
+            }
+        else:
+            response = {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "http-search-1",
+                        "name": "search",
+                        "input": {"query": "http retry policy", "limit": 2},
+                    }
+                ],
+                "usage": {"input_tokens": 2, "output_tokens": 1},
+                "stop_reason": "tool_use",
+            }
+        body = json.dumps(response).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+
+def _agent_service_binary():
+    configured = os.environ.get("MUZEN_AGENT_SERVICE_BIN")
+    candidates = [Path(configured)] if configured else []
+    repo = Path(__file__).resolve().parents[3]
+    candidates.extend(
+        [
+            repo / "target" / "release" / "muzen-agent-service",
+            repo / "target" / "debug" / "muzen-agent-service",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    pytest.skip(
+        "muzen-agent-service is missing; set MUZEN_AGENT_SERVICE_BIN or build "
+        "target/release or target/debug"
+    )
+
+
+def _free_port():
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.close()
+    return port
+
+
+def _wait_for_service(port, process):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise AssertionError(
+                "muzen-agent-service exited with %s" % process.returncode
+            )
+        try:
+            connection = socket.create_connection(("127.0.0.1", port), timeout=0.1)
+            connection.close()
+            return
+        except OSError:
+            time.sleep(0.02)
+    raise AssertionError("muzen-agent-service did not listen before timeout")
+
+
+def test_facade_http_executes_python_tool_through_real_service():
+    service = _agent_service_binary()
+    port = _free_port()
+    process = subprocess.Popen(
+        [
+            service,
+            "--listen",
+            "127.0.0.1:%d" % port,
+            "--store",
+            "memory",
+            "--allow-loopback-http",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _HttpToolModelHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    calls = []
+
+    @tool
+    def search(query: str, limit: int = 5) -> dict:
+        """Search the product docs."""
+        calls.append((query, limit))
+        return {"policy": "retry exactly twice over HTTP"}
+
+    try:
+        _wait_for_service(port, process)
+        _HttpToolModelHandler.requests = []
+
+        async def exercise():
+            agent = Agent(
+                instructions="Answer using tools.",
+                model="claude-test",
+                tools=[search],
+                transport="http",
+                base_url="http://127.0.0.1:%d" % port,
+                model_base_url="http://127.0.0.1:%d" % server.server_port,
+                api_key="test",
+            )
+            try:
+                return await agent.run("find the HTTP retry policy")
+            finally:
+                await agent.close()
+
+        result = asyncio.run(exercise())
+        assert calls == [("http retry policy", 2)]
+        assert "retry exactly twice over HTTP" in result.text
+        assert len(_HttpToolModelHandler.requests) == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+        if process.stderr is not None:
+            process.stderr.close()

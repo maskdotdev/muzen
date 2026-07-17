@@ -17,6 +17,7 @@ from .agent import (
     AgentInputLike,
     AgentMessage,
     AgentSession,
+    AnswerToolCallInput,
     Artifact,
     ArtifactId,
     ArtifactRef,
@@ -523,6 +524,22 @@ class _MuzenImpl:
         run = _RunImpl(run_id, self._transport)
         await run.snapshot()
         return run
+
+    async def answer_tool_call(
+        self, run_id: str, input: AnswerToolCallInput
+    ) -> None:
+        if isinstance(self._transport, _RunnerTransport):
+            await self._transport.request(
+                "run.answer_tool_call",
+                {"runId": run_id, "input": to_wire(input)},
+            )
+            return
+        await self._transport.request(
+            "POST",
+            "/v1/runs/%s/tools/%s/result"
+            % (quote(run_id, safe=""), quote(input.call_id, safe="")),
+            input.outcome,
+        )
 
     async def close(self) -> None:
         await self._transport.close()

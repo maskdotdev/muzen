@@ -32,8 +32,10 @@ from .agent import (
     AgentDefinition,
     AgentInputLike,
     AgentOutput,
+    AnswerToolCallInput,
     ArtifactBlock,
     BuiltinToolProvider,
+    ClientToolProvider,
     ContentBlock,
     ImageBlock,
     McpToolProvider,
@@ -138,6 +140,7 @@ class Agent(AbstractAsyncContextManager):
         transport: str = "local_runner",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        model_base_url: Optional[str] = None,
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         max_total_tokens: Optional[int] = None,
@@ -146,11 +149,6 @@ class Agent(AbstractAsyncContextManager):
     ) -> None:
         if transport not in ("local_runner", "http"):
             raise _invalid("transport", "must be 'local_runner' or 'http'")
-        if tools and transport == "http":
-            raise _invalid(
-                "tools",
-                "require transport='local_runner'; a remote service cannot reach the client's loopback server",
-            )
         if transport == "http" and client is None and not base_url:
             raise _invalid("base_url", "is required for HTTP transport")
 
@@ -163,9 +161,22 @@ class Agent(AbstractAsyncContextManager):
         self._temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
         self._api_key: Optional[str] = None
         self._tools = tuple(tool(item) for item in (tools or ()))
-        if len({item.name for item in self._tools}) != len(self._tools):
+        names = {item.name for item in self._tools}
+        if len(names) != len(self._tools):
             raise _invalid("tools", "must have unique function names")
-        self._tool_server = LoopbackToolServer(self._tools) if self._tools else None
+        # The provider layer maps builtin agent.spawn/agent.message to the
+        # model-visible names agent_spawn/agent_message and routes those names
+        # back to the builtins, so a user tool with either name would be
+        # hijacked rather than called.
+        if (can_spawn and "agent_spawn" in names) or (
+            can_message and "agent_message" in names
+        ):
+            raise _invalid("tools", "must have unique function names")
+        self._tool_server = (
+            LoopbackToolServer(self._tools)
+            if self._tools and transport == "local_runner"
+            else None
+        )
 
         if spec is not None:
             conflicting = (
@@ -175,6 +186,7 @@ class Agent(AbstractAsyncContextManager):
                 or can_spawn
                 or can_message
                 or api_key is not None
+                or model_base_url is not None
                 or temperature is not None
                 or max_output_tokens is not None
                 or budget is not None
@@ -222,12 +234,20 @@ class Agent(AbstractAsyncContextManager):
                     )
                 )
             grants.extend(
-                ToolGrant(provider=_LOCAL_TOOLS_PROVIDER_ID, tool=item.name, effects=())
+                ToolGrant(
+                    provider=_LOCAL_TOOLS_PROVIDER_ID,
+                    tool=item.name,
+                    effects=(),
+                    description=item.description or None,
+                    input_schema=item.input_schema,
+                )
                 for item in self._tools
             )
             providers = []
             if can_spawn or can_message:
                 providers.append(BuiltinToolProvider(_BUILTIN_PROVIDER_ID))
+            if self._tools and transport == "http":
+                providers.append(ClientToolProvider(_LOCAL_TOOLS_PROVIDER_ID))
             contract = None if output is None else OutputContract(_output_schema(output))
             definition = AgentDefinition(
                 name="agent",
@@ -245,7 +265,11 @@ class Agent(AbstractAsyncContextManager):
                 credential="pending",
                 max_input_tokens=_DEFAULT_MAX_INPUT_TOKENS,
                 max_output_tokens=max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS,
-                base_url=base_url if transport == "local_runner" else None,
+                base_url=(
+                    model_base_url
+                    if model_base_url is not None
+                    else base_url if transport == "local_runner" else None
+                ),
                 temperature=temperature,
             )
             self._spec_template = SessionSpec(
@@ -278,7 +302,7 @@ class Agent(AbstractAsyncContextManager):
         session = await client.create_session(spec)
         try:
             run = await session.run(prompt, limits=limits or self._default_limits)
-            return self._result(await run.wait(), session.id)
+            return self._result(await self._wait_for_run(run), session.id)
         finally:
             await _archive_best_effort(session)
 
@@ -349,6 +373,81 @@ class Agent(AbstractAsyncContextManager):
         )
         return client, replace(self._spec_template, models=profiles)
 
+    async def _wait_for_run(self, run: Any) -> RunResult:
+        if self._transport != "http" or not self._tools:
+            return await run.wait()
+        pump = asyncio.create_task(self._pump_client_tools(run))
+        try:
+            return await run.wait()
+        finally:
+            pump.cancel()
+            try:
+                await pump
+            except (asyncio.CancelledError, Exception):
+                # The run's wait path owns terminal transport failures. The pump
+                # is auxiliary and must never outlive that path.
+                pass
+
+    async def _pump_client_tools(self, run: Any) -> None:
+        after: Optional[int] = None
+        failed_after: object = object()
+        while True:
+            try:
+                async for event in run.events(after=after):
+                    if event.type in (
+                        "run.completed",
+                        "run.partial",
+                        "run.failed",
+                        "run.cancelled",
+                    ):
+                        return
+                    if (
+                        event.type == "tool.requested"
+                        and event.payload.get("provider") == _LOCAL_TOOLS_PROVIDER_ID
+                    ):
+                        await self._answer_client_tool(run.id, event.payload)
+                    after = event.sequence
+                return
+            except MuzenError as exc:
+                if not exc.retryable or failed_after == after:
+                    raise
+                failed_after = after
+
+    async def _answer_client_tool(
+        self, run_id: str, payload: Mapping[str, Any]
+    ) -> None:
+        name = payload.get("tool")
+        selected = next((item for item in self._tools if item.name == name), None)
+        if selected is None:
+            outcome: Dict[str, Any] = {
+                "error": {
+                    "message": "unknown client tool: %s" % name,
+                    "retryable": False,
+                }
+            }
+        else:
+            try:
+                arguments = payload.get("arguments")
+                if not isinstance(arguments, dict):
+                    raise ValueError("client tool arguments must be an object")
+                value = await asyncio.to_thread(selected.invoke, arguments)
+                outcome = {"result": value}
+            except Exception as exc:
+                outcome = {
+                    "error": {"message": str(exc), "retryable": False}
+                }
+        client = await self._connection()
+        try:
+            await client.answer_tool_call(
+                run_id,
+                AnswerToolCallInput(
+                    call_id=str(payload.get("callId", "")), outcome=outcome
+                ),
+            )
+        except MuzenError as exc:
+            if exc.code not in ("conflict", "not_found"):
+                raise
+
     def _result(self, raw: RunResult, session_id: str) -> AgentResult:
         root = _root_output(raw, session_id)
         value = root.output
@@ -390,7 +489,9 @@ class AgentConversation(AbstractAsyncContextManager):
         run = await self._session.run(
             prompt, limits=limits or self._agent._default_limits
         )
-        return self._agent._result(await run.wait(), self._session.id)
+        return self._agent._result(
+            await self._agent._wait_for_run(run), self._session.id
+        )
 
 
 def _model_settings(model: str) -> Tuple[str, str, str, str]:
