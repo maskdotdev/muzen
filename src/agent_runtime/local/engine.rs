@@ -14,11 +14,13 @@ use crate::agent_runtime::output_schema::validate_instance;
 use crate::agent_runtime::store::support::{new_message_id, timestamp};
 use crate::agent_runtime::store::{ActivityEvent, AgentAdvance, FinishRun, RunActivity};
 use crate::agent_runtime::{
-    AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, ContentBlock, ExecutionError,
-    ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError, OutputContract,
-    RunId, SendCommand, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, ToolEffect,
-    ToolProvider, ToolProviderId, Usage,
+    AgentMessage, AgentOutput, AgentSnapshot, AgentStatus, AnswerToolCallOutcome, ContentBlock,
+    ExecutionError, ExecutionErrorCode, MessageDelivery, MessagePage, MessageRole, MuzenError,
+    OutputContract, RunId, SendCommand, SpawnCommand, TerminalAgentStatus, TerminalRunStatus,
+    ToolEffect, ToolProvider, ToolProviderId, Usage,
 };
+
+const DEFAULT_CLIENT_TOOL_TIMEOUT_MS: u64 = 120_000;
 
 pub(super) async fn execute(inner: Arc<Inner>, run_id: RunId) {
     let execution = AssertUnwindSafe(execute_inner(Arc::clone(&inner), run_id.clone()))
@@ -685,7 +687,7 @@ async fn execute_tool_batch(
         {
             return ToolBatchOutcome::Failed(error.message().to_owned());
         }
-        let result = execute_tool(inner, run_id, agent, provider, call).await;
+        let result = execute_tool(inner, run_id, agent, provider, call, deadline).await;
         if observe_cancel(inner, run_id, deadline).await {
             return ToolBatchOutcome::Cancelled;
         }
@@ -697,6 +699,7 @@ async fn execute_tool_batch(
             Err(ToolExecutionFailure::Execution(error)) => {
                 append_execution_tool_error(inner, run_id, agent, call, error).await
             }
+            Err(ToolExecutionFailure::Cancelled) => return ToolBatchOutcome::Cancelled,
         };
         if let Err(error) = appended {
             return ToolBatchOutcome::Failed(error.message().to_owned());
@@ -759,8 +762,69 @@ async fn execute_tool(
     agent: &AgentSnapshot,
     provider: Option<&ToolProvider>,
     call: &ModelToolCall,
+    deadline: Option<Instant>,
 ) -> Result<Value, ToolExecutionFailure> {
     match provider {
+        Some(ToolProvider::Client { timeout_ms, .. }) => {
+            let timeout_ms = timeout_ms
+                .map(std::num::NonZeroU64::get)
+                .unwrap_or(DEFAULT_CLIENT_TOOL_TIMEOUT_MS);
+            let mut answer = inner
+                .register_client_tool_call(run_id, &call.id)
+                .map_err(ToolExecutionFailure::Runtime)?;
+            let requested = BTreeMap::from([
+                ("callId".to_owned(), json!(call.id)),
+                ("provider".to_owned(), json!(call.provider)),
+                ("tool".to_owned(), json!(call.name)),
+                ("arguments".to_owned(), call.arguments.clone()),
+                ("timeoutMs".to_owned(), json!(timeout_ms)),
+            ]);
+            if let Err(error) = append_events(
+                inner,
+                run_id,
+                vec![activity("tool.requested", agent, requested)],
+                Vec::new(),
+            )
+            .await
+            {
+                inner.discard_client_tool_call(run_id, &call.id);
+                return Err(ToolExecutionFailure::Runtime(error));
+            }
+            let timeout = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
+            tokio::pin!(timeout);
+            let outcome = tokio::select! {
+                biased;
+                _ = wait_cancel(inner, run_id, deadline) => {
+                    inner.discard_client_tool_call(run_id, &call.id);
+                    return Err(ToolExecutionFailure::Cancelled);
+                }
+                answer = &mut answer => answer.map_err(|_| {
+                    ToolExecutionFailure::Runtime(MuzenError::internal(
+                        "client tool answer channel closed unexpectedly",
+                    ))
+                })?,
+                _ = &mut timeout => {
+                    inner.discard_client_tool_call(run_id, &call.id);
+                    return Err(ToolExecutionFailure::Execution(ExecutionError {
+                        code: ExecutionErrorCode::ToolError,
+                        message: "client tool call timed out".to_owned(),
+                        retryable: true,
+                        details: None,
+                    }));
+                }
+            };
+            match outcome {
+                AnswerToolCallOutcome::Result { result } => Ok(result),
+                AnswerToolCallOutcome::Error { error } => {
+                    Err(ToolExecutionFailure::Execution(ExecutionError {
+                        code: ExecutionErrorCode::ToolError,
+                        message: error.message,
+                        retryable: error.retryable.unwrap_or(false),
+                        details: None,
+                    }))
+                }
+            }
+        }
         Some(provider @ ToolProvider::McpHttp { .. }) => inner
             .mcp
             .call(
@@ -827,6 +891,7 @@ async fn execute_tool(
 enum ToolExecutionFailure {
     Runtime(MuzenError),
     Execution(ExecutionError),
+    Cancelled,
 }
 
 fn normalize_builtin_arguments(tool: &str, mut arguments: Value) -> Value {

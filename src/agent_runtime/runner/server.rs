@@ -19,10 +19,11 @@ use super::super::{
     AgentEvent, EventOptions, LocalRuntimeConfig, MuzenError, RunStatus, SessionId, SessionStatus,
 };
 use super::wire::{
-    ArtifactReadParams, EmptyParams, Notification, Request, Response, RpcError, RunCancelParams,
-    RunEventParams, RunEventsParams, RunEventsResult, RunParams, RunSendParams, RunSpawnParams,
-    RunStartParams, SecretDeleteParams, SessionArchiveParams, SessionCreateParams,
-    SessionMessagesParams, SessionParams, UnsubscribeParams, JSONRPC_VERSION, MUZEN_ERROR_CODE,
+    ArtifactReadParams, EmptyParams, Notification, Request, Response, RpcError,
+    RunAnswerToolCallParams, RunCancelParams, RunEventParams, RunEventsParams, RunEventsResult,
+    RunParams, RunSendParams, RunSpawnParams, RunStartParams, SecretDeleteParams,
+    SessionArchiveParams, SessionCreateParams, SessionMessagesParams, SessionParams,
+    UnsubscribeParams, JSONRPC_VERSION, MUZEN_ERROR_CODE,
 };
 
 type EventStream = Pin<Box<dyn Stream<Item = Result<AgentEvent, MuzenError>> + Send>>;
@@ -342,6 +343,10 @@ async fn dispatch(
             result!(state
                 .inner
                 .cancel(&params.run_id, params.options.unwrap_or_default()))
+        }
+        "run.answer_tool_call" => {
+            let params: RunAnswerToolCallParams = parse_params(params)?;
+            result!(state.inner.answer_tool_call(&params.run_id, params.input))
         }
         "artifact.read" => {
             let params: ArtifactReadParams = parse_params(params)?;

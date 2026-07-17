@@ -18,18 +18,20 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::{stream, Stream};
 use parking_lot::Mutex;
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
 use super::client::RuntimeTransport;
+use super::client::CLIENT_TOOL_ANSWER_MAX_BYTES;
 use super::store::memory::MemoryAgentStore;
 use super::store::sqlite::SqliteAgentStore;
 use super::store::AgentStore;
 use super::{
-    AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
-    CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage, ModelProtocol,
-    MuzenError, Page, PutSecretInput, RunId, RunResult, RunSnapshot, RunSpec, SecretRef,
-    SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand, ToolProviderKind,
+    AgentEvent, AgentMessage, AnswerToolCallInput, AnswerToolCallOutcome, ArtifactChunk,
+    ArtifactId, CancelOptions, Capabilities, CommandOptions, CommandReceipt, CreateOptions,
+    EventOptions, MessagePage, ModelProtocol, MuzenError, Page, PutSecretInput, RunId, RunResult,
+    RunSnapshot, RunSpec, SecretRef, SendCommand, SessionId, SessionSnapshot, SessionSpec,
+    SpawnCommand, ToolProviderKind,
 };
 
 pub use credentials::{CredentialResolver, ResolvedSecret};
@@ -113,6 +115,12 @@ struct Inner {
     secrets: Arc<credentials::LocalSecretStore>,
     mcp: mcp::McpToolClient,
     mcp_trace_failures: Mutex<BTreeSet<(RunId, super::ToolProviderId)>>,
+    client_tool_calls: Mutex<BTreeMap<(RunId, String), ClientToolCallState>>,
+}
+
+enum ClientToolCallState {
+    Pending(oneshot::Sender<AnswerToolCallOutcome>),
+    Answered,
 }
 
 impl LocalRuntime {
@@ -142,6 +150,7 @@ impl LocalRuntime {
                 secrets,
                 mcp,
                 mcp_trace_failures: Mutex::new(BTreeSet::new()),
+                client_tool_calls: Mutex::new(BTreeMap::new()),
             }),
         })
     }
@@ -209,6 +218,75 @@ impl Inner {
         self.mcp_trace_failures
             .lock()
             .retain(|(candidate, _)| candidate != run_id);
+        self.client_tool_calls
+            .lock()
+            .retain(|(candidate, _), _| candidate != run_id);
+    }
+
+    fn register_client_tool_call(
+        &self,
+        run_id: &RunId,
+        call_id: &str,
+    ) -> Result<oneshot::Receiver<AnswerToolCallOutcome>, MuzenError> {
+        let key = (run_id.clone(), call_id.to_owned());
+        let mut calls = self.client_tool_calls.lock();
+        if calls.contains_key(&key) {
+            return Err(MuzenError::conflict(format!(
+                "client tool call id is already active: {call_id}"
+            )));
+        }
+        let (answer, receiver) = oneshot::channel();
+        calls.insert(key, ClientToolCallState::Pending(answer));
+        Ok(receiver)
+    }
+
+    fn discard_client_tool_call(&self, run_id: &RunId, call_id: &str) {
+        self.client_tool_calls
+            .lock()
+            .remove(&(run_id.clone(), call_id.to_owned()));
+    }
+
+    fn answer_client_tool_call(
+        &self,
+        run_id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        let encoded = serde_json::to_vec(&input.outcome).map_err(|error| {
+            MuzenError::invalid_input(format!("client tool answer is not serializable: {error}"))
+        })?;
+        if encoded.len() > CLIENT_TOOL_ANSWER_MAX_BYTES {
+            return Err(MuzenError::invalid_input(format!(
+                "client tool answer exceeds {CLIENT_TOOL_ANSWER_MAX_BYTES} bytes"
+            )));
+        }
+        let key = (run_id.clone(), input.call_id.clone());
+        let mut calls = self.client_tool_calls.lock();
+        let Some(state) = calls.get_mut(&key) else {
+            return Err(MuzenError::not_found(format!(
+                "client tool call not found: {}",
+                input.call_id
+            )));
+        };
+        let ClientToolCallState::Pending(_) = state else {
+            return Err(MuzenError::conflict(format!(
+                "client tool call was already answered: {}",
+                input.call_id
+            )));
+        };
+        let ClientToolCallState::Pending(answer) =
+            std::mem::replace(state, ClientToolCallState::Answered)
+        else {
+            unreachable!()
+        };
+        if let Err(outcome) = answer.send(input.outcome) {
+            calls.remove(&key);
+            drop(outcome);
+            return Err(MuzenError::not_found(format!(
+                "client tool call not found: {}",
+                input.call_id
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -227,7 +305,11 @@ impl RuntimeTransport for LocalRuntime {
         Ok(Capabilities {
             protocol_version: "1".to_owned(),
             workspace_bases: Vec::new(),
-            tool_provider_kinds: vec![ToolProviderKind::Builtin, ToolProviderKind::McpHttp],
+            tool_provider_kinds: vec![
+                ToolProviderKind::Builtin,
+                ToolProviderKind::Client,
+                ToolProviderKind::McpHttp,
+            ],
             model_protocols: vec![
                 ModelProtocol::Responses,
                 ModelProtocol::ChatCompletions,
@@ -414,6 +496,14 @@ impl RuntimeTransport for LocalRuntime {
             .await?;
         self.inner.notify_snapshot(id).await;
         Ok(receipt)
+    }
+
+    async fn answer_tool_call(
+        &self,
+        id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        self.inner.answer_client_tool_call(id, input)
     }
 
     async fn artifact_chunk(

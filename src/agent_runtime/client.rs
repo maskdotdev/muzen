@@ -11,13 +11,15 @@ use super::validation::{
     validate_spawn_command,
 };
 use super::{
-    AgentEvent, AgentInput, AgentMessage, ArtifactChunk, ArtifactId, ArtifactRef, CancelOptions,
-    Capabilities, CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage,
-    MuzenError, Page, PutSecretInput, RunId, RunResult, RunRoot, RunSnapshot, RunSpec, SecretRef,
-    SendCommand, SessionId, SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand,
+    AgentEvent, AgentInput, AgentMessage, AnswerToolCallInput, ArtifactChunk, ArtifactId,
+    ArtifactRef, CancelOptions, Capabilities, CommandOptions, CommandReceipt, CreateOptions,
+    EventOptions, MessagePage, MuzenError, Page, PutSecretInput, RunId, RunResult, RunRoot,
+    RunSnapshot, RunSpec, SecretRef, SendCommand, SessionId, SessionSnapshot, SessionSpec,
+    SingleRunOptions, SpawnCommand,
 };
 
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<AgentEvent, MuzenError>> + Send>>;
+pub(crate) const CLIENT_TOOL_ANSWER_MAX_BYTES: usize = 1024 * 1024;
 
 #[async_trait]
 pub trait RuntimeTransport: Send + Sync {
@@ -51,6 +53,16 @@ pub trait RuntimeTransport: Send + Sync {
         id: &RunId,
         options: CancelOptions,
     ) -> Result<CommandReceipt, MuzenError>;
+    async fn answer_tool_call(
+        &self,
+        id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        let _ = (id, input);
+        Err(MuzenError::unsupported(
+            "runtime transport does not support client tool answers",
+        ))
+    }
     async fn artifact_chunk(
         &self,
         artifact_id: &ArtifactId,
@@ -131,6 +143,14 @@ impl Muzen {
     pub async fn get_run(&self, id: &RunId) -> Result<Run, MuzenError> {
         self.transport.run_snapshot(id).await?;
         Ok(Run::new(id.clone(), Arc::clone(&self.transport)))
+    }
+
+    pub async fn answer_tool_call(
+        &self,
+        run_id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        self.transport.answer_tool_call(run_id, input).await
     }
 
     pub async fn close(&self) -> Result<(), MuzenError> {

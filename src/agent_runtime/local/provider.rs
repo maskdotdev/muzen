@@ -238,6 +238,32 @@ fn visible_builtin_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)
         .collect()
 }
 
+fn visible_client_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)> {
+    let mut occupied = visible_builtin_grants(request)
+        .into_iter()
+        .map(|(_, name)| wire_tool_name(name).to_owned())
+        .collect::<BTreeSet<_>>();
+    request
+        .agent
+        .tools
+        .iter()
+        .filter(|grant| {
+            safe_wire_name(&grant.tool)
+                && request.tool_providers.iter().any(|provider| {
+                    matches!(provider, ToolProvider::Client { id, .. } if id == &grant.provider)
+                })
+                && occupied.insert(grant.tool.clone())
+        })
+        .map(|grant| (&grant.provider, grant.tool.as_str()))
+        .collect()
+}
+
+fn visible_direct_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)> {
+    let mut grants = visible_builtin_grants(request);
+    grants.extend(visible_client_grants(request));
+    grants
+}
+
 fn safe_wire_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
@@ -247,7 +273,7 @@ fn safe_wire_name(name: &str) -> bool {
 }
 
 fn visible_mcp_tools(request: &ModelRequest) -> Vec<&McpToolDefinition> {
-    let mut occupied = visible_builtin_grants(request)
+    let mut occupied = visible_direct_grants(request)
         .into_iter()
         .map(|(_, name)| wire_tool_name(name).to_owned())
         .collect::<BTreeSet<_>>();
@@ -349,7 +375,7 @@ fn tool_schema(name: &str) -> Value {
 }
 
 fn anthropic_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_builtin_grants(request)
+    let mut tools = visible_direct_grants(request)
         .into_iter()
         .map(|(_, name)| json!({ "name": wire_tool_name(name), "input_schema": tool_schema(name) }))
         .collect::<Vec<_>>();
@@ -364,7 +390,7 @@ fn anthropic_tools(request: &ModelRequest) -> Vec<Value> {
 }
 
 fn openai_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_builtin_grants(request)
+    let mut tools = visible_direct_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
@@ -384,7 +410,7 @@ fn openai_tools(request: &ModelRequest) -> Vec<Value> {
 }
 
 fn responses_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_builtin_grants(request)
+    let mut tools = visible_direct_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
@@ -640,7 +666,7 @@ fn responses_input(request: &ModelRequest) -> Vec<Value> {
 }
 
 fn resolve_tool(request: &ModelRequest, wire_name: &str) -> (ToolProviderId, String) {
-    if let Some((provider, name)) = visible_builtin_grants(request)
+    if let Some((provider, name)) = visible_direct_grants(request)
         .into_iter()
         .find(|(_, tool)| wire_tool_name(tool) == wire_name)
     {

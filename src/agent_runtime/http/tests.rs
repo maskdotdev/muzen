@@ -13,14 +13,15 @@ use tokio::net::TcpListener;
 
 use super::{router, HttpServiceConfig, HttpTransportOptions};
 use crate::agent_runtime::{
-    AgentInput, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
-    CommandOptions, CommandReceipt, ContentBlock, CreateOptions, ErrorCode, EventOptions,
-    EventStream, ExistingSessionRoot, IdempotencyKey, LocalRuntime, LocalRuntimeConfig,
-    LocalStoreConfig, MessageDelivery, MessagePage, ModelProvider, ModelProviderError,
-    ModelRequest, ModelStop, ModelTurn, Muzen, MuzenError, Page, PutSecretInput, Run, RunId,
-    RunLimits, RunResult, RunRoot, RunSnapshot, RunSpec, RunStatus, RuntimeTransport, SecretRef,
-    SendCommand, SessionId, SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand,
-    TerminalRunStatus, Usage,
+    AgentInput, AgentMessage, AnswerToolCallInput, AnswerToolCallOutcome, ArtifactChunk,
+    ArtifactId, CancelOptions, Capabilities, CommandOptions, CommandReceipt, ContentBlock,
+    CreateOptions, ErrorCode, EventOptions, EventStream, ExistingSessionRoot, IdempotencyKey,
+    LocalRuntime, LocalRuntimeConfig, LocalStoreConfig, MessageDelivery, MessagePage,
+    ModelProvider, ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn, Muzen,
+    MuzenError, Page, PutSecretInput, Run, RunId, RunLimits, RunResult, RunRoot, RunSnapshot,
+    RunSpec, RunStatus, RuntimeTransport, SecretRef, SendCommand, SessionId, SessionSnapshot,
+    SessionSpec, SingleRunOptions, SpawnCommand, TerminalRunStatus, ToolEffect, ToolGrant,
+    ToolProvider, ToolProviderId, Usage,
 };
 
 struct ScriptedProvider {
@@ -50,6 +51,17 @@ impl ScriptedProvider {
                             },
                         )
                     })
+                    .collect(),
+            ),
+        })
+    }
+
+    fn from_turns(turns: impl IntoIterator<Item = ModelTurn>) -> Arc<Self> {
+        Arc::new(Self {
+            turns: Mutex::new(
+                turns
+                    .into_iter()
+                    .map(|turn| (Duration::ZERO, turn))
                     .collect(),
             ),
         })
@@ -95,6 +107,60 @@ fn limits() -> RunLimits {
         max_total_tool_calls: Some(0),
         deadline_ms: None,
     }
+}
+
+fn client_session_spec(timeout_ms: u64) -> SessionSpec {
+    let mut spec = session_spec();
+    spec.agent.tools = vec![ToolGrant {
+        provider: ToolProviderId::new("client").expect("provider"),
+        tool: "lookup_issue".to_owned(),
+        effects: vec![ToolEffect::NetworkRead],
+        max_calls: None,
+    }];
+    spec.tool_providers = vec![ToolProvider::Client {
+        id: ToolProviderId::new("client").expect("provider"),
+        timeout_ms: NonZeroU64::new(timeout_ms),
+    }];
+    spec
+}
+
+fn client_tool_turn(call_id: impl Into<String>) -> ModelTurn {
+    ModelTurn {
+        content: Vec::new(),
+        tool_calls: vec![ModelToolCall {
+            id: call_id.into(),
+            provider: ToolProviderId::new("client").expect("provider"),
+            name: "lookup_issue".to_owned(),
+            arguments: serde_json::json!({ "query": "runtime" }),
+        }],
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 1,
+            tool_calls: 0,
+        },
+        stop: ModelStop::ToolUse,
+    }
+}
+
+fn completed_turn() -> ModelTurn {
+    ModelTurn {
+        content: vec![ContentBlock::Text {
+            text: "done".to_owned(),
+        }],
+        tool_calls: Vec::new(),
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 1,
+            tool_calls: 0,
+        },
+        stop: ModelStop::EndTurn,
+    }
+}
+
+fn client_limits() -> RunLimits {
+    let mut value = limits();
+    value.max_total_tool_calls = Some(1);
+    value
 }
 
 async fn start_server(
@@ -212,6 +278,185 @@ async fn sqlite_store_survives_five_concurrent_runs_with_slow_events() {
         directory.path().join("concurrent-runs.db"),
     ))
     .await;
+}
+
+async fn client_tool_http_round_trip(store: LocalStoreConfig) {
+    let provider =
+        ScriptedProvider::from_turns([client_tool_turn("http-client-call"), completed_turn()]);
+    let (base, runtime, server) =
+        start_server_with_store(provider, HttpServiceConfig::default(), store).await;
+    let muzen = Muzen::http(&base, HttpTransportOptions::default()).expect("HTTP client");
+    let session = muzen
+        .create_session(client_session_spec(5_000), CreateOptions::default())
+        .await
+        .expect("client session");
+    let run = session
+        .run(
+            input("client tool"),
+            SingleRunOptions {
+                limits: client_limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+
+    let mut live = run.events(EventOptions::default());
+    let requested = loop {
+        let event = live
+            .next()
+            .await
+            .expect("live event")
+            .expect("valid live event");
+        if event.event_type == "tool.requested" {
+            break event;
+        }
+    };
+    drop(live);
+    let mut replay = run.events(EventOptions {
+        after: Some(requested.sequence - 1),
+    });
+    let replayed = replay
+        .next()
+        .await
+        .expect("replayed event")
+        .expect("valid replayed event");
+    assert_eq!(replayed, requested);
+    drop(replay);
+
+    muzen
+        .answer_tool_call(
+            run.id(),
+            AnswerToolCallInput {
+                call_id: "http-client-call".to_owned(),
+                outcome: AnswerToolCallOutcome::Result {
+                    result: serde_json::json!({ "source": "client" }),
+                },
+            },
+        )
+        .await
+        .expect("HTTP tool answer");
+    assert_eq!(
+        run.wait().await.expect("completed run").status,
+        TerminalRunStatus::Completed
+    );
+    let events = run
+        .events(EventOptions::default())
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("all events");
+    let requested_index = events
+        .iter()
+        .position(|event| event.event_type == "tool.requested")
+        .expect("tool.requested");
+    let completed_index = events
+        .iter()
+        .position(|event| event.event_type == "tool.completed")
+        .expect("tool.completed");
+    assert!(requested_index < completed_index);
+
+    server.abort();
+    runtime.close().await.expect("runtime close");
+}
+
+#[tokio::test]
+async fn client_tool_http_round_trip_and_replay_memory_store() {
+    client_tool_http_round_trip(LocalStoreConfig::Memory).await;
+}
+
+#[tokio::test]
+async fn client_tool_http_round_trip_and_replay_sqlite_store() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    client_tool_http_round_trip(LocalStoreConfig::Sqlite(
+        directory.path().join("client-tool-round-trip.db"),
+    ))
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sqlite_client_tools_complete_five_out_of_order_concurrent_runs() {
+    let mut turns = (0..5)
+        .map(|index| client_tool_turn(format!("concurrent-client-{index}")))
+        .collect::<Vec<_>>();
+    turns.extend((0..5).map(|_| completed_turn()));
+    let provider = ScriptedProvider::from_turns(turns);
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let (base, runtime, server) = start_server_with_store(
+        provider,
+        HttpServiceConfig::default(),
+        LocalStoreConfig::Sqlite(directory.path().join("client-tool-concurrency.db")),
+    )
+    .await;
+    let muzen = Muzen::http(&base, HttpTransportOptions::default()).expect("HTTP client");
+    let sessions = join_all(
+        (0..5).map(|_| muzen.create_session(client_session_spec(5_000), CreateOptions::default())),
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()
+    .expect("sessions");
+    let runs = join_all(sessions.into_iter().map(|session| async move {
+        session
+            .run(
+                input("concurrent client tool"),
+                SingleRunOptions {
+                    limits: client_limits(),
+                    idempotency_key: None,
+                    metadata: BTreeMap::new(),
+                },
+            )
+            .await
+            .expect("run")
+    }))
+    .await;
+    let pending = join_all(runs.iter().cloned().map(|run| async move {
+        let mut events = run.events(EventOptions::default());
+        loop {
+            let event = events
+                .next()
+                .await
+                .expect("pending event")
+                .expect("valid pending event");
+            if event.event_type == "tool.requested" {
+                return (
+                    run,
+                    event.payload["callId"]
+                        .as_str()
+                        .expect("call id")
+                        .to_owned(),
+                );
+            }
+        }
+    }))
+    .await;
+    for (run, call_id) in pending.iter().rev() {
+        muzen
+            .answer_tool_call(
+                run.id(),
+                AnswerToolCallInput {
+                    call_id: call_id.clone(),
+                    outcome: AnswerToolCallOutcome::Result {
+                        result: serde_json::json!({ "callId": call_id }),
+                    },
+                },
+            )
+            .await
+            .expect("out-of-order answer");
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        for result in join_all(runs.iter().map(Run::wait)).await {
+            assert_eq!(
+                result.expect("completed concurrent run").status,
+                TerminalRunStatus::Completed
+            );
+        }
+    })
+    .await
+    .expect("concurrent client tools must not deadlock");
+
+    server.abort();
+    runtime.close().await.expect("runtime close");
 }
 
 #[tokio::test]

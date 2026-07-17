@@ -21,11 +21,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::net::TcpListener;
 
+use super::super::client::CLIENT_TOOL_ANSWER_MAX_BYTES;
 use super::super::{
-    AgentInput, ArtifactChunk, ArtifactId, CancelOptions, CommandOptions, CommandReceipt,
-    CreateOptions, ErrorCode, EventOptions, IdempotencyKey, MessagePage, MuzenError,
-    PutSecretInput, RunId, RunRoot, RunSpec, RuntimeTransport, SecretRef, SendCommand, SessionId,
-    SessionSpec, SingleRunOptions, SpawnCommand,
+    AgentInput, AnswerToolCallInput, AnswerToolCallOutcome, ArtifactChunk, ArtifactId,
+    CancelOptions, CommandOptions, CommandReceipt, CreateOptions, ErrorCode, EventOptions,
+    IdempotencyKey, MessagePage, MuzenError, PutSecretInput, RunId, RunRoot, RunSpec,
+    RuntimeTransport, SecretRef, SendCommand, SessionId, SessionSpec, SingleRunOptions,
+    SpawnCommand,
 };
 
 const ARTIFACT_CHUNK_BYTES: u32 = 64 * 1024;
@@ -60,7 +62,7 @@ struct AuthState {
     bearer_token: Option<String>,
 }
 
-/// Builds all sixteen v1 routes around an existing runtime transport.
+/// Builds all seventeen v1 routes around an existing runtime transport.
 pub fn router(inner: Arc<dyn RuntimeTransport>, config: HttpServiceConfig) -> Router {
     let state = ServiceState {
         inner,
@@ -87,6 +89,10 @@ pub fn router(inner: Arc<dyn RuntimeTransport>, config: HttpServiceConfig) -> Ro
         .route("/v1/runs/{run_id}/send", post(run_send))
         .route("/v1/runs/{run_id}/spawn", post(run_spawn))
         .route("/v1/runs/{run_id}/cancel", post(run_cancel))
+        .route(
+            "/v1/runs/{run_id}/tools/{call_id}/result",
+            post(run_tool_result),
+        )
         .route(
             "/v1/runs/{run_id}/artifacts/{artifact_id}",
             get(run_artifact),
@@ -401,6 +407,26 @@ async fn run_cancel(
             .insert((run, key.clone()), (options, receipt.clone()));
     }
     json_result(Ok(receipt))
+}
+
+async fn run_tool_result(
+    State(state): State<ServiceState>,
+    Path((run, call_id)): Path<(String, String)>,
+    body: Bytes,
+) -> Result<Json<Value>, HttpError> {
+    if body.len() > CLIENT_TOOL_ANSWER_MAX_BYTES {
+        return Err(HttpError::new(MuzenError::invalid_input(format!(
+            "client tool answer exceeds {CLIENT_TOOL_ANSWER_MAX_BYTES} bytes"
+        ))));
+    }
+    let run = RunId::new(run).map_err(invalid)?;
+    let outcome: AnswerToolCallOutcome = parse_json(&body)?;
+    json_result(
+        state
+            .inner
+            .answer_tool_call(&run, AnswerToolCallInput { call_id, outcome })
+            .await,
+    )
 }
 
 async fn run_artifact(

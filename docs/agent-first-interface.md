@@ -164,6 +164,7 @@ PutSecretInput {
 ```text
 ToolProvider =
   | { id: ToolProviderId, kind: "builtin" }
+  | { id: ToolProviderId, kind: "client", timeoutMs?: positive integer }
   | {
       id: ToolProviderId
       kind: "mcp_http"
@@ -189,9 +190,9 @@ ToolEffect =
   | "agent_message"
 ```
 
-V1 has two real Adapters at the Tool Provider Seam: Muzen built-ins and MCP
-over HTTP. In-process SDK callbacks and remote callback tunnels are not part of
-the v1 Interface.
+V1 has three Tool Provider paths: Muzen built-ins, client-executed tools, and
+MCP over HTTP. Client execution is an explicit event-and-command protocol; no
+callback function is serialized into an Agent or Session.
 
 Header values that carry credentials MUST be supplied as
 `{ secret: SecretRef }`. Literal values for `Authorization`,
@@ -208,6 +209,63 @@ runtime brokers. An `mcp_http` Tool Grant requesting `workspace_read` or
 receives no workspace path, overlay handle, or ambient Muzen credential.
 Network effects on MCP tools are declared authority and audit metadata; the
 tenant allowlist defines which MCP servers are trusted to honor them.
+
+### Client-executed tools
+
+A client tool provider delegates granted tool calls to the process consuming
+the Run event stream:
+
+```json
+{ "id": "sdk", "kind": "client", "timeoutMs": 120000 }
+```
+
+`timeoutMs` defaults to `120000` when absent and must not exceed `3600000`.
+When the model invokes a grant backed by this provider, the runtime persists a
+replayable `tool.requested` event before waiting:
+
+```json
+{
+  "callId": "call_123",
+  "provider": "sdk",
+  "tool": "lookup_issue",
+  "arguments": { "number": 42 },
+  "timeoutMs": 120000
+}
+```
+
+The payload above is the complete `AgentEvent.payload`; the enclosing event
+still carries `runId`, `sequence`, `type`, `timestamp`, and `sessionId`.
+Because the request is in the durable Run event log, an SDK reconnecting with
+`Last-Event-ID` or `after` can replay it under the normal exclusive cursor
+rules. There is no separate pending-call listing endpoint.
+
+The transport method is
+`answerToolCall(runId, { callId, outcome })`. `outcome` is untagged and has
+exactly one of these JSON shapes:
+
+```json
+{ "result": { "any": "JSON value" } }
+{ "error": { "message": "tool failed", "retryable": true } }
+```
+
+The HTTP form posts the outcome object directly (without the `callId` wrapper)
+to
+`POST /v1/runs/{runId}/tools/{callId}/result`. The maximum serialized request
+payload is 1 MiB. A result follows the ordinary `tool.completed` path; a
+client-reported error or timeout follows `tool.failed`, and the error is added
+to the tool transcript so the Agent can continue. The timeout message is
+`client tool call timed out`.
+
+The first accepted answer wins. A second answer while that accepted call is
+still tracked returns `conflict`; an unknown call, a call removed after
+timeout, or a call from a terminal Run returns `not_found`. Oversized answers
+return `invalid_input`. Run cancellation interrupts the wait promptly and
+uses the existing cancellation semantics.
+
+Pending client calls are process-local and do not survive service restart.
+Their `tool.requested` events remain durable, but an answer submitted after a
+restart returns `not_found`; restart recovery for pending calls is outside
+this milestone.
 
 ### Workspaces
 
@@ -662,6 +720,7 @@ model.started
 model.completed
 model.failed
 tool.started
+tool.requested
 tool.completed
 tool.failed
 artifact.created
@@ -747,7 +806,7 @@ Transport loss while waiting does make the current `wait()` call fail with
 Capabilities {
   protocolVersion: string
   workspaceBases: ("path" | "git" | "snapshot")[]
-  toolProviderKinds: ("builtin" | "mcp_http")[]
+  toolProviderKinds: ("builtin" | "client" | "mcp_http")[]
   modelProtocols: ("responses" | "chat_completions" | "messages")[]
   maxReplayBatch: positive integer
 }
@@ -786,6 +845,7 @@ run.unsubscribe
 run.send
 run.spawn
 run.cancel
+run.answer_tool_call
 artifact.read
 ```
 
@@ -819,6 +879,7 @@ GET    /v1/runs/{runId}/events
 POST   /v1/runs/{runId}/send
 POST   /v1/runs/{runId}/spawn
 POST   /v1/runs/{runId}/cancel
+POST   /v1/runs/{runId}/tools/{callId}/result
 GET    /v1/runs/{runId}/artifacts/{artifactId}
 ```
 
@@ -831,8 +892,10 @@ are present they must agree. SSE IDs are decimal Run sequences. Authentication
 and tenant identity are resolved before route dispatch. Resource IDs never
 select tenant scope by themselves.
 
-Mutating HTTP requests carry `Idempotency-Key`. A key reused with a different
-canonical request body returns `409 conflict`.
+Mutating HTTP requests carry `Idempotency-Key` where their command type has an
+idempotency field. Client tool answers intentionally do not: first-answer-wins
+and duplicate-answer conflict semantics are the retry contract. A key reused
+with a different canonical request body returns `409 conflict`.
 
 The response body always contains the full `MuzenError` shape. The normative
 HTTP status mapping is:

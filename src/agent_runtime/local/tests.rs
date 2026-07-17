@@ -25,12 +25,13 @@ use super::{
 };
 use crate::agent_runtime::client::RuntimeTransport;
 use crate::agent_runtime::{
-    AgentEvent, AgentInput, AgentName, AgentStatus, CancelOptions, ContentBlock, CreateOptions,
-    ErrorCode, EventOptions, ExecutionErrorCode, ExistingSessionRoot, HeaderSecret, HeaderValue,
-    IdempotencyKey, MessageDelivery, MessagePage, MessageRole, ModelProfileId, Muzen,
-    OutputContract, PutSecretInput, Run, RunLimits, RunRoot, RunSpec, SendCommand, SessionId,
-    SessionSpec, SingleRunOptions, SpawnCommand, TerminalAgentStatus, TerminalRunStatus,
-    ToolEffect, ToolGrant, ToolProvider, ToolProviderId, Usage,
+    AgentEvent, AgentInput, AgentName, AgentStatus, AnswerToolCallInput, AnswerToolCallOutcome,
+    CancelOptions, ContentBlock, CreateOptions, ErrorCode, EventOptions, ExecutionErrorCode,
+    ExistingSessionRoot, HeaderSecret, HeaderValue, IdempotencyKey, MessageDelivery, MessagePage,
+    MessageRole, ModelProfileId, Muzen, OutputContract, PutSecretInput, Run, RunLimits, RunRoot,
+    RunSpec, SendCommand, SessionId, SessionSpec, SingleRunOptions, SpawnCommand,
+    TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProvider, ToolProviderId,
+    Usage,
 };
 
 struct FakeMcpState {
@@ -486,6 +487,311 @@ fn mcp_limits() -> RunLimits {
     let mut value = limits();
     value.max_total_tool_calls = Some(2);
     value
+}
+
+fn client_session_spec(timeout_ms: u64) -> SessionSpec {
+    let mut spec = session_spec();
+    spec.agent.tools.clear();
+    spec.tool_providers.clear();
+    grant(
+        &mut spec,
+        "client",
+        "lookup_issue",
+        Some(ToolEffect::NetworkRead),
+    );
+    spec.tool_providers.push(ToolProvider::Client {
+        id: ToolProviderId::new("client").expect("provider"),
+        timeout_ms: NonZeroU64::new(timeout_ms),
+    });
+    spec
+}
+
+fn client_limits() -> RunLimits {
+    let mut value = limits();
+    value.max_total_tool_calls = Some(1);
+    value
+}
+
+#[tokio::test]
+async fn client_tool_answer_completes_and_reaches_the_next_model_turn() {
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![tool_call(
+            "client-call-1",
+            "client",
+            "lookup_issue",
+            json!({ "number": 42 }),
+        )]),
+        turn("done", 1, 1),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let mut spec = client_session_spec(5_000);
+    let ToolProvider::Client { timeout_ms, .. } = &mut spec.tool_providers[0] else {
+        panic!("client provider")
+    };
+    *timeout_ms = None;
+    let session = muzen
+        .create_session(spec, CreateOptions::default())
+        .await
+        .expect("client session");
+    let run = session
+        .run(
+            input("lookup"),
+            SingleRunOptions {
+                limits: client_limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    let requested = wait_for_event(&run, "tool.requested").await;
+    assert_eq!(
+        requested.payload,
+        BTreeMap::from([
+            ("arguments".to_owned(), json!({ "number": 42 })),
+            ("callId".to_owned(), json!("client-call-1")),
+            ("provider".to_owned(), json!("client")),
+            ("timeoutMs".to_owned(), json!(120_000)),
+            ("tool".to_owned(), json!("lookup_issue")),
+        ])
+    );
+    muzen
+        .answer_tool_call(
+            run.id(),
+            AnswerToolCallInput {
+                call_id: "client-call-1".to_owned(),
+                outcome: AnswerToolCallOutcome::Result {
+                    result: json!({ "title": "durable result" }),
+                },
+            },
+        )
+        .await
+        .expect("answer client tool");
+    let result = run.wait().await.expect("run result");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+
+    let requests = provider.requests();
+    let tool_message = requests[1]
+        .transcript
+        .iter()
+        .find(|message| message.role == MessageRole::Tool)
+        .expect("tool result reaches next model turn");
+    let ContentBlock::Text { text } = &tool_message.content[0] else {
+        panic!("tool result text")
+    };
+    let envelope: Value = serde_json::from_str(text).expect("tool result envelope");
+    assert_eq!(envelope["callId"], "client-call-1");
+    assert_eq!(envelope["result"], json!({ "title": "durable result" }));
+
+    let sequence = all_events(&run)
+        .await
+        .into_iter()
+        .map(|event| event.event_type)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sequence,
+        vec![
+            "run.queued",
+            "agent.created",
+            "run.started",
+            "agent.started",
+            "model.started",
+            "message.accepted",
+            "model.completed",
+            "tool.started",
+            "tool.requested",
+            "tool.completed",
+            "model.started",
+            "message.accepted",
+            "model.completed",
+            "agent.completed",
+            "run.completed",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn client_tool_timeout_continues_and_late_answer_is_not_found() {
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![tool_call(
+            "client-timeout",
+            "client",
+            "lookup_issue",
+            json!({}),
+        )]),
+        turn("continued", 1, 1),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let session = muzen
+        .create_session(client_session_spec(10), CreateOptions::default())
+        .await
+        .expect("client session");
+    let run = session
+        .run(
+            input("timeout"),
+            SingleRunOptions {
+                limits: client_limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    let result = run.wait().await.expect("run continues after timeout");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    let failed = all_events(&run)
+        .await
+        .into_iter()
+        .find(|event| event.event_type == "tool.failed")
+        .expect("tool.failed");
+    assert_eq!(failed.payload["error"]["code"], "tool_error");
+    assert_eq!(
+        failed.payload["error"]["message"],
+        "client tool call timed out"
+    );
+    assert!(provider.requests()[1].transcript.iter().any(|message| {
+        message.role == MessageRole::Tool
+            && serde_json::to_string(&message.content)
+                .expect("tool message")
+                .contains("client tool call timed out")
+    }));
+    let late = muzen
+        .answer_tool_call(
+            run.id(),
+            AnswerToolCallInput {
+                call_id: "client-timeout".to_owned(),
+                outcome: AnswerToolCallOutcome::Result {
+                    result: json!("late"),
+                },
+            },
+        )
+        .await
+        .expect_err("late answer");
+    assert_eq!(late.code(), ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn client_tool_answer_rejects_duplicates_unknown_calls_and_oversize_payloads() {
+    let provider = ScriptedProvider::new([
+        tool_turn(vec![tool_call(
+            "client-duplicate",
+            "client",
+            "lookup_issue",
+            json!({}),
+        )]),
+        delayed_turn(Duration::from_millis(100), "done"),
+    ]);
+    let muzen = memory_runtime(provider).await;
+    let session = muzen
+        .create_session(client_session_spec(5_000), CreateOptions::default())
+        .await
+        .expect("client session");
+    let run = session
+        .run(
+            input("answer"),
+            SingleRunOptions {
+                limits: client_limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    wait_for_event(&run, "tool.requested").await;
+    let answer = || AnswerToolCallInput {
+        call_id: "client-duplicate".to_owned(),
+        outcome: AnswerToolCallOutcome::Result { result: json!(1) },
+    };
+    muzen
+        .answer_tool_call(run.id(), answer())
+        .await
+        .expect("first answer");
+    assert_eq!(
+        muzen
+            .answer_tool_call(run.id(), answer())
+            .await
+            .expect_err("duplicate answer")
+            .code(),
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        muzen
+            .answer_tool_call(
+                run.id(),
+                AnswerToolCallInput {
+                    call_id: "unknown".to_owned(),
+                    outcome: AnswerToolCallOutcome::Result { result: json!(1) },
+                },
+            )
+            .await
+            .expect_err("unknown answer")
+            .code(),
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        muzen
+            .answer_tool_call(
+                run.id(),
+                AnswerToolCallInput {
+                    call_id: "unknown".to_owned(),
+                    outcome: AnswerToolCallOutcome::Result {
+                        result: json!("x".repeat(1024 * 1024 + 1)),
+                    },
+                },
+            )
+            .await
+            .expect_err("oversize answer")
+            .code(),
+        ErrorCode::InvalidInput
+    );
+    run.wait().await.expect("run result");
+}
+
+#[tokio::test]
+async fn cancelling_a_pending_client_tool_call_terminates_promptly() {
+    let provider = ScriptedProvider::new([tool_turn(vec![tool_call(
+        "client-cancel",
+        "client",
+        "lookup_issue",
+        json!({}),
+    )])]);
+    let muzen = memory_runtime(provider).await;
+    let session = muzen
+        .create_session(client_session_spec(60_000), CreateOptions::default())
+        .await
+        .expect("client session");
+    let run = session
+        .run(
+            input("cancel"),
+            SingleRunOptions {
+                limits: client_limits(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    wait_for_event(&run, "tool.requested").await;
+    run.cancel(CancelOptions::default()).await.expect("cancel");
+    let result = tokio::time::timeout(Duration::from_secs(1), run.wait())
+        .await
+        .expect("cancellation must not hang")
+        .expect("cancelled result");
+    assert_eq!(result.status, TerminalRunStatus::Cancelled);
+    assert_eq!(
+        muzen
+            .answer_tool_call(
+                run.id(),
+                AnswerToolCallInput {
+                    call_id: "client-cancel".to_owned(),
+                    outcome: AnswerToolCallOutcome::Result { result: json!(1) },
+                },
+            )
+            .await
+            .expect_err("answer after cancel")
+            .code(),
+        ErrorCode::NotFound
+    );
 }
 
 #[tokio::test]

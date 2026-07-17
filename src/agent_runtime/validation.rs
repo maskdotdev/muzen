@@ -261,6 +261,18 @@ fn validate_model(model: &ModelProfile, path: &str) -> Result<(), SpecValidation
 }
 
 fn validate_tool_provider(provider: &ToolProvider, path: &str) -> Result<(), SpecValidationError> {
+    if let ToolProvider::Client {
+        timeout_ms: Some(timeout_ms),
+        ..
+    } = provider
+    {
+        if timeout_ms.get() > 3_600_000 {
+            return Err(SpecValidationError::at(
+                format!("{path}.timeoutMs"),
+                "client tool timeoutMs must not exceed 3600000",
+            ));
+        }
+    }
     let ToolProvider::McpHttp { url, headers, .. } = provider else {
         return Ok(());
     };

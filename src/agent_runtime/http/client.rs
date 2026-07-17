@@ -9,11 +9,11 @@ use serde::de::DeserializeOwned;
 
 use super::super::client::is_terminal_run_event;
 use super::super::{
-    AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
-    CommandOptions, CommandReceipt, CreateOptions, ErrorCode, EventOptions, EventStream,
-    IdempotencyKey, MessagePage, MuzenError, Page, PutSecretInput, RunId, RunResult, RunSnapshot,
-    RunSpec, RuntimeTransport, SecretRef, SendCommand, SessionId, SessionSnapshot, SessionSpec,
-    SpawnCommand,
+    AgentEvent, AgentMessage, AnswerToolCallInput, ArtifactChunk, ArtifactId, CancelOptions,
+    Capabilities, CommandOptions, CommandReceipt, CreateOptions, ErrorCode, EventOptions,
+    EventStream, IdempotencyKey, MessagePage, MuzenError, Page, PutSecretInput, RunId, RunResult,
+    RunSnapshot, RunSpec, RuntimeTransport, SecretRef, SendCommand, SessionId, SessionSnapshot,
+    SessionSpec, SpawnCommand,
 };
 
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
@@ -292,6 +292,27 @@ impl RuntimeTransport for HttpTransport {
             options.idempotency_key.as_ref(),
         )
         .json(&options);
+        self.json(request).await
+    }
+
+    async fn answer_tool_call(
+        &self,
+        id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        let request = self
+            .request(
+                Method::POST,
+                self.endpoint([
+                    "v1",
+                    "runs",
+                    id.as_str(),
+                    "tools",
+                    input.call_id.as_str(),
+                    "result",
+                ]),
+            )
+            .json(&input.outcome);
         self.json(request).await
     }
 

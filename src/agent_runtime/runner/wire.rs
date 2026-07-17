@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::{
-    ArtifactId, CancelOptions, CommandOptions, CreateOptions, IdempotencyKey, MessagePage,
-    PutSecretInput, RunId, RunSpec, SecretRef, SendCommand, SessionId, SessionSpec, SpawnCommand,
+    AnswerToolCallInput, ArtifactId, CancelOptions, CommandOptions, CreateOptions, IdempotencyKey,
+    MessagePage, PutSecretInput, RunId, RunSpec, SecretRef, SendCommand, SessionId, SessionSpec,
+    SpawnCommand,
 };
 
 pub(crate) const JSONRPC_VERSION: &str = "2.0";
@@ -178,6 +179,13 @@ pub(crate) struct RunCancelParams {
     pub run_id: RunId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<CancelOptions>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RunAnswerToolCallParams {
+    pub run_id: RunId,
+    pub input: AnswerToolCallInput,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

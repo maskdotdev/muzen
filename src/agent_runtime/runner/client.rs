@@ -18,16 +18,17 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::super::client::RuntimeTransport;
 use super::super::{
-    AgentEvent, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
-    CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage, Muzen, MuzenError,
-    Page, PutSecretInput, RunId, RunResult, RunSnapshot, RunSpec, SecretRef, SendCommand,
-    SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
+    AgentEvent, AgentMessage, AnswerToolCallInput, ArtifactChunk, ArtifactId, CancelOptions,
+    Capabilities, CommandOptions, CommandReceipt, CreateOptions, EventOptions, MessagePage, Muzen,
+    MuzenError, Page, PutSecretInput, RunId, RunResult, RunSnapshot, RunSpec, SecretRef,
+    SendCommand, SessionId, SessionSnapshot, SessionSpec, SpawnCommand,
 };
 use super::wire::{
     put_secret_params, ArtifactReadParams, EmptyParams, Notification, OutboundRequest, Response,
-    RunCancelParams, RunEventParams, RunEventsParams, RunEventsResult, RunParams, RunSendParams,
-    RunSpawnParams, RunStartParams, SecretDeleteParams, SessionArchiveParams, SessionCreateParams,
-    SessionMessagesParams, SessionParams, UnsubscribeParams, JSONRPC_VERSION, MUZEN_ERROR_CODE,
+    RunAnswerToolCallParams, RunCancelParams, RunEventParams, RunEventsParams, RunEventsResult,
+    RunParams, RunSendParams, RunSpawnParams, RunStartParams, SecretDeleteParams,
+    SessionArchiveParams, SessionCreateParams, SessionMessagesParams, SessionParams,
+    UnsubscribeParams, JSONRPC_VERSION, MUZEN_ERROR_CODE,
 };
 
 type PendingResult = Result<Value, MuzenError>;
@@ -283,6 +284,21 @@ impl RuntimeTransport for RunnerTransport {
             RunCancelParams {
                 run_id: id.clone(),
                 options: (options != CancelOptions::default()).then_some(options),
+            },
+        )
+        .await
+    }
+
+    async fn answer_tool_call(
+        &self,
+        id: &RunId,
+        input: AnswerToolCallInput,
+    ) -> Result<(), MuzenError> {
+        self.request(
+            "run.answer_tool_call",
+            RunAnswerToolCallParams {
+                run_id: id.clone(),
+                input,
             },
         )
         .await

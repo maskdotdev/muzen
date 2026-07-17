@@ -120,6 +120,12 @@ pub enum ToolProvider {
     Builtin {
         id: ToolProviderId,
     },
+    Client {
+        id: ToolProviderId,
+        #[serde(rename = "timeoutMs")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<NonZeroU64>,
+    },
     McpHttp {
         id: ToolProviderId,
         url: String,
@@ -133,7 +139,7 @@ pub enum ToolProvider {
 impl ToolProvider {
     pub fn id(&self) -> &ToolProviderId {
         match self {
-            Self::Builtin { id } | Self::McpHttp { id, .. } => id,
+            Self::Builtin { id } | Self::Client { id, .. } | Self::McpHttp { id, .. } => id,
         }
     }
 }
@@ -277,6 +283,28 @@ pub struct PutSecretInput {
     pub value: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<IdempotencyKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AnswerToolCallInput {
+    pub call_id: String,
+    pub outcome: AnswerToolCallOutcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AnswerToolCallOutcome {
+    Result { result: Value },
+    Error { error: ClientToolCallError },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClientToolCallError {
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
 }
 
 impl fmt::Debug for PutSecretInput {
