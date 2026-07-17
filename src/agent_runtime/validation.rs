@@ -74,6 +74,26 @@ pub(crate) fn validate_session_spec(spec: &SessionSpec) -> Result<(), SpecValida
                 "tool name must not be empty",
             ));
         }
+        if grant
+            .description
+            .as_ref()
+            .is_some_and(|description| description.trim().is_empty())
+        {
+            return Err(SpecValidationError::at(
+                format!("{path}.description"),
+                "tool description must not be empty",
+            ));
+        }
+        if grant
+            .input_schema
+            .as_ref()
+            .is_some_and(|schema| !schema.is_object())
+        {
+            return Err(SpecValidationError::at(
+                format!("{path}.inputSchema"),
+                "tool inputSchema must be an object",
+            ));
+        }
         if let Some(ToolProvider::McpHttp { .. }) = spec
             .tool_providers
             .iter()

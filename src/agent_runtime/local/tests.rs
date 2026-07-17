@@ -371,6 +371,8 @@ fn grant(spec: &mut SessionSpec, provider: &str, tool: &str, effect: Option<Tool
     spec.agent.tools.push(ToolGrant {
         provider: ToolProviderId::new(provider).expect("provider id"),
         tool: tool.to_owned(),
+        description: None,
+        input_schema: None,
         effects: effect.into_iter().collect(),
         max_calls: None,
     });
@@ -457,6 +459,8 @@ async fn mcp_session(
     spec.agent.tools.push(ToolGrant {
         provider: ToolProviderId::new("mcp").expect("provider"),
         tool: "issues_search".to_owned(),
+        description: None,
+        input_schema: None,
         effects: vec![ToolEffect::NetworkRead],
         max_calls: NonZeroU32::new(1),
     });

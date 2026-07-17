@@ -149,6 +149,10 @@ impl ToolProvider {
 pub struct ToolGrant {
     pub provider: ToolProviderId,
     pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<Value>,
     pub effects: Vec<ToolEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_calls: Option<NonZeroU32>,

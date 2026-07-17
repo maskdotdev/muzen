@@ -114,6 +114,8 @@ fn client_session_spec(timeout_ms: u64) -> SessionSpec {
     spec.agent.tools = vec![ToolGrant {
         provider: ToolProviderId::new("client").expect("provider"),
         tool: "lookup_issue".to_owned(),
+        description: None,
+        input_schema: None,
         effects: vec![ToolEffect::NetworkRead],
         max_calls: None,
     }];

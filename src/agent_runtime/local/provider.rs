@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use super::mcp::McpToolDefinition;
 use crate::agent_runtime::{
     AgentDefinition, AgentMessage, ContentBlock, ExecutionErrorCode, MessageRole, ModelProfile,
-    ToolProvider, ToolProviderId, Usage,
+    ToolGrant, ToolProvider, ToolProviderId, Usage,
 };
 
 /// Internal persistence envelope used only to reconstruct provider tool-call history.
@@ -238,7 +238,7 @@ fn visible_builtin_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)
         .collect()
 }
 
-fn visible_client_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)> {
+fn visible_client_grants(request: &ModelRequest) -> Vec<&ToolGrant> {
     let mut occupied = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| wire_tool_name(name).to_owned())
@@ -254,13 +254,16 @@ fn visible_client_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)>
                 })
                 && occupied.insert(grant.tool.clone())
         })
-        .map(|grant| (&grant.provider, grant.tool.as_str()))
         .collect()
 }
 
 fn visible_direct_grants(request: &ModelRequest) -> Vec<(&ToolProviderId, &str)> {
     let mut grants = visible_builtin_grants(request);
-    grants.extend(visible_client_grants(request));
+    grants.extend(
+        visible_client_grants(request)
+            .into_iter()
+            .map(|grant| (&grant.provider, grant.tool.as_str())),
+    );
     grants
 }
 
@@ -375,10 +378,20 @@ fn tool_schema(name: &str) -> Value {
 }
 
 fn anthropic_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_direct_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| json!({ "name": wire_tool_name(name), "input_schema": tool_schema(name) }))
         .collect::<Vec<_>>();
+    tools.extend(visible_client_grants(request).into_iter().map(|grant| {
+        let mut value = json!({
+            "name": grant.tool,
+            "input_schema": grant.input_schema.clone().unwrap_or_else(|| tool_schema(&grant.tool))
+        });
+        if let Some(description) = &grant.description {
+            value["description"] = json!(description);
+        }
+        value
+    }));
     tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
         let mut value = json!({ "name": tool.name, "input_schema": tool.input_schema });
         if let Some(description) = &tool.description {
@@ -390,7 +403,7 @@ fn anthropic_tools(request: &ModelRequest) -> Vec<Value> {
 }
 
 fn openai_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_direct_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
@@ -399,6 +412,16 @@ fn openai_tools(request: &ModelRequest) -> Vec<Value> {
             })
         })
         .collect::<Vec<_>>();
+    tools.extend(visible_client_grants(request).into_iter().map(|grant| {
+        let mut function = json!({
+            "name": grant.tool,
+            "parameters": grant.input_schema.clone().unwrap_or_else(|| tool_schema(&grant.tool))
+        });
+        if let Some(description) = &grant.description {
+            function["description"] = json!(description);
+        }
+        json!({ "type": "function", "function": function })
+    }));
     tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
         let mut function = json!({ "name": tool.name, "parameters": tool.input_schema });
         if let Some(description) = &tool.description {
@@ -410,7 +433,7 @@ fn openai_tools(request: &ModelRequest) -> Vec<Value> {
 }
 
 fn responses_tools(request: &ModelRequest) -> Vec<Value> {
-    let mut tools = visible_direct_grants(request)
+    let mut tools = visible_builtin_grants(request)
         .into_iter()
         .map(|(_, name)| {
             json!({
@@ -418,6 +441,17 @@ fn responses_tools(request: &ModelRequest) -> Vec<Value> {
             })
         })
         .collect::<Vec<_>>();
+    tools.extend(visible_client_grants(request).into_iter().map(|grant| {
+        let mut value = json!({
+            "type": "function",
+            "name": grant.tool,
+            "parameters": grant.input_schema.clone().unwrap_or_else(|| tool_schema(&grant.tool))
+        });
+        if let Some(description) = &grant.description {
+            value["description"] = json!(description);
+        }
+        value
+    }));
     tools.extend(visible_mcp_tools(request).into_iter().map(|tool| {
         let mut value = json!({
             "type": "function", "name": tool.name, "parameters": tool.input_schema

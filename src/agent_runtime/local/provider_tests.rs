@@ -19,7 +19,7 @@ use crate::agent_runtime::{
     AgentInput, AgentMessage, ContentBlock, CreateOptions, EventOptions, ExecutionErrorCode,
     IdempotencyKey, MessagePage, MessageRole, ModelProtocol, ModelProviderKind, Muzen,
     OutputContract, PutSecretInput, RunLimits, SessionId, SessionSpec, SingleRunOptions,
-    TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProviderId,
+    TerminalAgentStatus, TerminalRunStatus, ToolEffect, ToolGrant, ToolProvider, ToolProviderId,
 };
 
 #[derive(Clone)]
@@ -205,12 +205,16 @@ fn grant_agent_builtins(spec: &mut SessionSpec) {
         ToolGrant {
             provider: ToolProviderId::new("builtin").expect("provider"),
             tool: "agent.spawn".to_owned(),
+            description: None,
+            input_schema: None,
             effects: vec![ToolEffect::AgentSpawn],
             max_calls: None,
         },
         ToolGrant {
             provider: ToolProviderId::new("builtin").expect("provider"),
             tool: "agent.message".to_owned(),
+            description: None,
+            input_schema: None,
             effects: vec![ToolEffect::AgentMessage],
             max_calls: None,
         },
@@ -918,6 +922,100 @@ fn all_protocol_replay_paths_use_wire_safe_builtin_names() {
 }
 
 #[test]
+fn client_tool_definitions_include_grant_metadata_and_retain_fallback_schema() {
+    let mut spec = session_spec();
+    let provider = ToolProviderId::new("client").expect("provider");
+    let schema = json!({
+        "type": "object",
+        "properties": { "number": { "type": "integer", "minimum": 1 } },
+        "required": ["number"],
+        "additionalProperties": false
+    });
+    spec.agent.tools = vec![
+        ToolGrant {
+            provider: provider.clone(),
+            tool: "lookup_issue".to_owned(),
+            description: Some("Look up an issue by number".to_owned()),
+            input_schema: Some(schema.clone()),
+            effects: vec![ToolEffect::NetworkRead],
+            max_calls: None,
+        },
+        ToolGrant {
+            provider: provider.clone(),
+            tool: "fallback_tool".to_owned(),
+            description: None,
+            input_schema: None,
+            effects: Vec::new(),
+            max_calls: None,
+        },
+    ];
+    spec.tool_providers = vec![ToolProvider::Client {
+        id: provider,
+        timeout_ms: None,
+    }];
+    let request = ModelRequest {
+        agent: spec.agent,
+        model: spec.models.remove(0),
+        transcript: Vec::new(),
+        tool_providers: spec.tool_providers,
+        mcp_tools: Vec::new(),
+    };
+
+    let anthropic = anthropic_request(&request);
+    assert_eq!(
+        anthropic["tools"],
+        json!([
+            {
+                "name": "lookup_issue",
+                "description": "Look up an issue by number",
+                "input_schema": schema
+            },
+            { "name": "fallback_tool", "input_schema": { "type": "object" } }
+        ])
+    );
+
+    let openai = chat_request(&request);
+    assert_eq!(
+        openai["tools"],
+        json!([
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup_issue",
+                    "description": "Look up an issue by number",
+                    "parameters": schema
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "fallback_tool",
+                    "parameters": { "type": "object" }
+                }
+            }
+        ])
+    );
+
+    let responses = responses_request(&request);
+    assert_eq!(
+        responses["tools"],
+        json!([
+            {
+                "type": "function",
+                "name": "lookup_issue",
+                "description": "Look up an issue by number",
+                "parameters": schema
+            },
+            {
+                "type": "function",
+                "name": "fallback_tool",
+                "parameters": { "type": "object" }
+            }
+        ])
+    );
+}
+
+#[test]
 fn all_protocol_tool_definitions_include_real_mcp_schemas_and_filter_names() {
     let mut spec = session_spec();
     grant_agent_builtins(&mut spec);
@@ -925,6 +1023,8 @@ fn all_protocol_tool_definitions_include_real_mcp_schemas_and_filter_names() {
         spec.agent.tools.push(ToolGrant {
             provider: ToolProviderId::new("mcp").expect("provider"),
             tool: name.to_owned(),
+            description: None,
+            input_schema: None,
             effects: vec![ToolEffect::NetworkRead],
             max_calls: None,
         });

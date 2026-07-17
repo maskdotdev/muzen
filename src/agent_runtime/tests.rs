@@ -94,6 +94,21 @@ fn client_tool_provider_timeout_is_bounded() {
 }
 
 #[test]
+fn tool_grant_metadata_must_have_valid_shapes() {
+    let mut session = fixture()["sessionSpec"].clone();
+    session["agent"]["tools"][0]["inputSchema"] = json!(["not", "an", "object"]);
+    let session: SessionSpec = serde_json::from_value(session).expect("wire shape is valid");
+    let error = validate_session_spec(&session).expect_err("array schema must fail");
+    assert_eq!(error.path, "agent.tools[0].inputSchema");
+
+    let mut session = fixture()["sessionSpec"].clone();
+    session["agent"]["tools"][0]["description"] = json!("  ");
+    let session: SessionSpec = serde_json::from_value(session).expect("wire shape is valid");
+    let error = validate_session_spec(&session).expect_err("blank description must fail");
+    assert_eq!(error.path, "agent.tools[0].description");
+}
+
+#[test]
 fn client_tool_answer_wire_is_strict_and_untagged() {
     let result: AnswerToolCallInput = serde_json::from_value(json!({
         "callId": "call-1",

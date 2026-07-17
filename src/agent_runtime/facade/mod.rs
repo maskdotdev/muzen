@@ -331,6 +331,8 @@ impl AgentBuilder {
                     grants.push(ToolGrant {
                         provider: tool_provider_id(BUILTIN_PROVIDER_ID),
                         tool: "agent.spawn".to_owned(),
+                        description: None,
+                        input_schema: None,
                         effects: vec![ToolEffect::AgentSpawn],
                         max_calls: None,
                     });
@@ -339,6 +341,8 @@ impl AgentBuilder {
                     grants.push(ToolGrant {
                         provider: tool_provider_id(BUILTIN_PROVIDER_ID),
                         tool: "agent.message".to_owned(),
+                        description: None,
+                        input_schema: None,
                         effects: vec![ToolEffect::AgentMessage],
                         max_calls: None,
                     });
@@ -346,6 +350,9 @@ impl AgentBuilder {
                 grants.extend(tools.iter().map(|tool| ToolGrant {
                     provider: tool_provider_id(LOCAL_TOOLS_PROVIDER_ID),
                     tool: tool.name().to_owned(),
+                    description:
+                        (!tool.description().is_empty()).then(|| tool.description().to_owned()),
+                    input_schema: Some(tool.input_schema().clone()),
                     effects: Vec::new(),
                     max_calls: None,
                 }));

@@ -176,6 +176,8 @@ ToolProvider =
 ToolGrant {
   provider: ToolProviderId
   tool: string
+  description?: string
+  inputSchema?: object
   effects: ToolEffect[]
   maxCalls?: positive integer
 }
@@ -217,6 +219,26 @@ the Run event stream:
 
 ```json
 { "id": "sdk", "kind": "client", "timeoutMs": 120000 }
+```
+
+Client-backed grants may carry a model-facing `description` and JSON Schema
+object in `inputSchema`. Both are optional, but are recommended so the model
+can select the right tool and produce valid arguments. Without `inputSchema`,
+Muzen advertises the permissive `{ "type": "object" }` fallback.
+
+```json
+{
+  "provider": "sdk",
+  "tool": "lookup_issue",
+  "description": "Look up an issue by number",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "number": { "type": "integer", "minimum": 1 } },
+    "required": ["number"],
+    "additionalProperties": false
+  },
+  "effects": ["network_read"]
+}
 ```
 
 `timeoutMs` defaults to `120000` when absent and must not exceed `3600000`.
