@@ -73,6 +73,16 @@ pub(crate) struct RunActivity {
 
 #[async_trait]
 pub(crate) trait AgentStore: Send + Sync {
+    #[cfg(test)]
+    fn arm_append_activity_probe(&self) -> bool {
+        false
+    }
+
+    #[cfg(test)]
+    async fn wait_append_activity_started(&self) {
+        panic!("append-activity probe is unavailable for this store")
+    }
+
     async fn create_session(
         &self,
         spec: SessionSpec,

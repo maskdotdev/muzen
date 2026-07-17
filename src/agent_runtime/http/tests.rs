@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use futures::{StreamExt, TryStreamExt};
+use futures::{future::join_all, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -16,10 +16,11 @@ use crate::agent_runtime::{
     AgentInput, AgentMessage, ArtifactChunk, ArtifactId, CancelOptions, Capabilities,
     CommandOptions, CommandReceipt, ContentBlock, CreateOptions, ErrorCode, EventOptions,
     EventStream, ExistingSessionRoot, IdempotencyKey, LocalRuntime, LocalRuntimeConfig,
-    MessageDelivery, MessagePage, ModelProvider, ModelProviderError, ModelRequest, ModelStop,
-    ModelTurn, Muzen, MuzenError, Page, PutSecretInput, RunId, RunLimits, RunResult, RunRoot,
-    RunSnapshot, RunSpec, RunStatus, RuntimeTransport, SecretRef, SendCommand, SessionId,
-    SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand, Usage,
+    LocalStoreConfig, MessageDelivery, MessagePage, ModelProvider, ModelProviderError,
+    ModelRequest, ModelStop, ModelTurn, Muzen, MuzenError, Page, PutSecretInput, Run, RunId,
+    RunLimits, RunResult, RunRoot, RunSnapshot, RunSpec, RunStatus, RuntimeTransport, SecretRef,
+    SendCommand, SessionId, SessionSnapshot, SessionSpec, SingleRunOptions, SpawnCommand,
+    TerminalRunStatus, Usage,
 };
 
 struct ScriptedProvider {
@@ -100,10 +101,23 @@ async fn start_server(
     provider: Arc<dyn ModelProvider>,
     config: HttpServiceConfig,
 ) -> (String, Arc<LocalRuntime>, tokio::task::JoinHandle<()>) {
+    start_server_with_store(provider, config, LocalStoreConfig::Memory).await
+}
+
+async fn start_server_with_store(
+    provider: Arc<dyn ModelProvider>,
+    config: HttpServiceConfig,
+    store: LocalStoreConfig,
+) -> (String, Arc<LocalRuntime>, tokio::task::JoinHandle<()>) {
     let runtime = Arc::new(
-        LocalRuntime::connect(LocalRuntimeConfig::memory(provider))
-            .await
-            .expect("runtime"),
+        LocalRuntime::connect(LocalRuntimeConfig {
+            provider: Some(provider),
+            store,
+            close_timeout: Duration::from_secs(5),
+            allow_loopback_http: false,
+        })
+        .await
+        .expect("runtime"),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("address");
@@ -112,6 +126,92 @@ async fn start_server(
         axum::serve(listener, app).await.expect("serve");
     });
     (format!("http://{address}"), runtime, task)
+}
+
+async fn exercise_concurrent_run_stress(base: &str) {
+    let muzen = Muzen::http(base, HttpTransportOptions::default()).expect("HTTP client");
+    let sessions =
+        join_all((0..5).map(|_| muzen.create_session(session_spec(), CreateOptions::default())))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("sessions");
+    let starts = sessions.into_iter().enumerate().map(|(index, session)| {
+        tokio::spawn(async move {
+            session
+                .run(
+                    input(&format!("concurrent run {index}")),
+                    SingleRunOptions {
+                        limits: limits(),
+                        idempotency_key: None,
+                        metadata: BTreeMap::new(),
+                    },
+                )
+                .await
+                .expect("start concurrent run")
+        })
+    });
+    let runs = join_all(starts)
+        .await
+        .into_iter()
+        .map(|result| result.expect("start task"))
+        .collect::<Vec<_>>();
+
+    let slow_run = runs[0].clone();
+    let slow_subscriber = tokio::spawn(async move {
+        let mut events = slow_run.events(EventOptions::default());
+        let mut terminal = false;
+        while let Some(event) = events.next().await {
+            let event = event.expect("slow event");
+            terminal |= event.event_type == "run.completed";
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(terminal, "slow subscriber reached the terminal event");
+    });
+    let pollers = runs.into_iter().map(|run: Run| {
+        tokio::spawn(async move {
+            loop {
+                if let Some(result) = run.result().await.expect("poll run result") {
+                    assert_eq!(result.status, TerminalRunStatus::Completed);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+    });
+    for poller in join_all(pollers).await {
+        poller.expect("result poller");
+    }
+    slow_subscriber.await.expect("slow subscriber");
+}
+
+async fn concurrent_run_stress(store: LocalStoreConfig) {
+    let provider =
+        ScriptedProvider::new((0..5).map(|_| (Duration::from_millis(300), "concurrent done")));
+    let (base, runtime, server) =
+        start_server_with_store(provider, HttpServiceConfig::default(), store).await;
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        exercise_concurrent_run_stress(&base),
+    )
+    .await;
+    server.abort();
+    let _ = tokio::time::timeout(Duration::from_secs(1), runtime.close()).await;
+    outcome.expect("concurrent runs, result polling, and slow SSE must not wedge");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn memory_store_survives_five_concurrent_runs_with_slow_events() {
+    concurrent_run_stress(LocalStoreConfig::Memory).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sqlite_store_survives_five_concurrent_runs_with_slow_events() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    concurrent_run_stress(LocalStoreConfig::Sqlite(
+        directory.path().join("concurrent-runs.db"),
+    ))
+    .await;
 }
 
 #[tokio::test]

@@ -1,10 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 use std::path::Path;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use libsql::{params, Builder, Connection};
+#[cfg(test)]
+use tokio::sync::Semaphore;
 
 use super::support::{
     is_terminal, new_message_id, new_run_id, new_session_id, public_agent_status,
@@ -25,15 +31,59 @@ use crate::agent_runtime::{
     SessionStatus, SpawnCommand, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
+mod actor;
 mod persistence;
 
+use actor::ConnectionActor;
 use persistence::*;
 
 const SCHEMA_VERSION: i64 = 1;
 
 pub(crate) struct SqliteAgentStore {
-    _database: libsql::Database,
-    connection: tokio::sync::Mutex<Connection>,
+    connection: ConnectionActor,
+    #[cfg(test)]
+    operation_probe: Arc<OperationProbe>,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct OperationProbe {
+    append_activity_armed: AtomicBool,
+    append_activity_started: Semaphore,
+}
+
+#[cfg(test)]
+impl Default for OperationProbe {
+    fn default() -> Self {
+        Self {
+            append_activity_armed: AtomicBool::new(false),
+            append_activity_started: Semaphore::new(0),
+        }
+    }
+}
+
+#[cfg(test)]
+impl OperationProbe {
+    fn arm_append_activity(&self) {
+        while let Ok(permit) = self.append_activity_started.try_acquire() {
+            permit.forget();
+        }
+        self.append_activity_armed.store(true, Ordering::Release);
+    }
+
+    fn signal_append_activity(&self) {
+        if self.append_activity_armed.swap(false, Ordering::AcqRel) {
+            self.append_activity_started.add_permits(1);
+        }
+    }
+
+    async fn wait_append_activity_started(&self) {
+        self.append_activity_started
+            .acquire()
+            .await
+            .expect("SQLite operation probe remains open")
+            .forget();
+    }
 }
 
 impl std::fmt::Debug for SqliteAgentStore {
@@ -57,16 +107,6 @@ impl SqliteAgentStore {
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(sql_error)?;
-        let store = Self {
-            _database: database,
-            connection: tokio::sync::Mutex::new(connection),
-        };
-        store.migrate().await?;
-        Ok(store)
-    }
-
-    async fn migrate(&self) -> Result<(), MuzenError> {
-        let connection = self.connection.lock().await;
         connection
             .execute_batch(SCHEMA_SQL)
             .await
@@ -86,12 +126,27 @@ impl SqliteAgentStore {
                 "unsupported agent store schema version {version:?}"
             )));
         }
-        Ok(())
+        Ok(Self {
+            connection: ConnectionActor::start(database, connection),
+            #[cfg(test)]
+            operation_probe: Arc::new(OperationProbe::default()),
+        })
     }
 }
 
 #[async_trait]
 impl AgentStore for SqliteAgentStore {
+    #[cfg(test)]
+    fn arm_append_activity_probe(&self) -> bool {
+        self.operation_probe.arm_append_activity();
+        true
+    }
+
+    #[cfg(test)]
+    async fn wait_append_activity_started(&self) {
+        self.operation_probe.wait_append_activity_started().await;
+    }
+
     async fn create_session(
         &self,
         spec: SessionSpec,
@@ -99,45 +154,21 @@ impl AgentStore for SqliteAgentStore {
     ) -> Result<SessionId, MuzenError> {
         validate_session_spec(&spec)?;
         let digest = body_digest(&spec)?;
-        let connection = self.connection.lock().await;
-        let transaction = immediate(&connection).await?;
-        if let Some(id) = replay_id(&transaction, "session.create", idempotency_key, digest).await?
-        {
-            transaction.commit().await.map_err(sql_error)?;
-            return SessionId::new(id).map_err(MuzenError::internal);
-        }
-
-        let id = new_session_id()?;
-        let now = timestamp()?;
-        let stored = StoredSession {
-            spec: spec.clone(),
-            snapshot: SessionSnapshot {
-                id: id.clone(),
-                status: SessionStatus::Open,
-                active_run_id: None,
-                created_at: now.clone(),
-                updated_at: now,
-                metadata: spec.metadata,
-            },
-            run_count: 0,
-            lifetime_usage: Usage::default(),
-        };
-        insert_session(&transaction, &stored).await?;
-        remember_id(
-            &transaction,
-            "session.create",
-            idempotency_key,
-            digest,
-            id.as_str(),
-        )
-        .await?;
-        transaction.commit().await.map_err(sql_error)?;
-        Ok(id)
+        let idempotency_key = idempotency_key.cloned();
+        self.connection
+            .call(move |connection| {
+                Box::pin(create_session(connection, spec, idempotency_key, digest))
+            })
+            .await
     }
 
     async fn session(&self, id: &SessionId) -> Result<StoredSession, MuzenError> {
-        let connection = self.connection.lock().await;
-        session_required(&connection, id).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { session_required(connection, &id).await })
+            })
+            .await
     }
 
     async fn messages(
@@ -145,70 +176,36 @@ impl AgentStore for SqliteAgentStore {
         id: &SessionId,
         page: MessagePage,
     ) -> Result<Page<AgentMessage>, MuzenError> {
-        let connection = self.connection.lock().await;
-        session_required(&connection, id).await?;
-        let after = match page.after.as_deref() {
-            None => -1,
-            Some(cursor) => message_ordinal(&connection, id, cursor)
-                .await?
-                .ok_or_else(|| {
-                    MuzenError::not_found(format!(
-                        "message cursor {cursor} was not found in agent session {id}"
-                    ))
-                })?,
-        };
-        let limit = page.limit.map_or(100_i64, |limit| i64::from(limit.get()));
-        let mut rows = connection
-            .query(
-                "SELECT message FROM muzen_agent_messages
-                 WHERE session_id = ?1 AND ordinal > ?2
-                 ORDER BY ordinal ASC LIMIT ?3",
-                params![id.as_str(), after, limit + 1],
-            )
+        let id = id.clone();
+        self.connection
+            .call(move |connection| Box::pin(messages(connection, id, page)))
             .await
-            .map_err(sql_error)?;
-        let mut items = Vec::<AgentMessage>::new();
-        while let Some(row) = rows.next().await.map_err(sql_error)? {
-            items.push(from_json(
-                row.get::<String>(0).map_err(sql_error)?,
-                "message",
-            )?);
-        }
-        let has_more = items.len() > limit as usize;
-        if has_more {
-            items.pop();
-        }
-        let next = has_more
-            .then(|| items.last().map(|message| message.id.clone()))
-            .flatten();
-        Ok(Page { items, next })
     }
 
     async fn archive_session(&self, id: &SessionId) -> Result<(), MuzenError> {
-        let connection = self.connection.lock().await;
-        let transaction = immediate(&connection).await?;
-        let mut session = session_required(&transaction, id).await?;
-        if session.snapshot.active_run_id.is_some() {
-            return Err(MuzenError::conflict(format!(
-                "agent session {id} has an active run"
-            )));
-        }
-        session.snapshot.status = SessionStatus::Archived;
-        session.snapshot.updated_at = timestamp()?;
-        update_session(&transaction, &session).await?;
-        transaction.commit().await.map_err(sql_error)?;
-        Ok(())
+        let id = id.clone();
+        self.connection
+            .call(move |connection| Box::pin(archive_session(connection, id)))
+            .await
     }
 
     async fn create_run(&self, spec: RunSpec) -> Result<RunId, MuzenError> {
-        create_run(self, spec).await
+        self.connection
+            .call(move |connection| Box::pin(create_run(connection, spec)))
+            .await
     }
 
     async fn run(&self, id: &RunId) -> Result<StoredRun, MuzenError> {
-        let connection = self.connection.lock().await;
-        run_required(&connection, id)
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move {
+                    run_required(connection, &id)
+                        .await
+                        .map(|record| record.stored)
+                })
+            })
             .await
-            .map(|record| record.stored)
     }
 
     async fn events_after(
@@ -217,31 +214,19 @@ impl AgentStore for SqliteAgentStore {
         after: Option<u64>,
         limit: NonZeroU64,
     ) -> Result<Vec<AgentEvent>, MuzenError> {
-        let connection = self.connection.lock().await;
-        run_required(&connection, id).await?;
-        let limit = i64::try_from(limit.get()).unwrap_or(i64::MAX);
-        let after = i64::try_from(after.unwrap_or(0)).unwrap_or(i64::MAX);
-        let mut rows = connection
-            .query(
-                "SELECT event FROM muzen_agent_events
-                 WHERE run_id = ?1 AND sequence > ?2
-                 ORDER BY sequence ASC LIMIT ?3",
-                params![id.as_str(), after, limit],
-            )
+        let id = id.clone();
+        self.connection
+            .call(move |connection| Box::pin(events_after(connection, id, after, limit)))
             .await
-            .map_err(sql_error)?;
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await.map_err(sql_error)? {
-            events.push(from_json(
-                row.get::<String>(0).map_err(sql_error)?,
-                "event",
-            )?);
-        }
-        Ok(events)
     }
 
     async fn mark_run_running(&self, id: &RunId) -> Result<CommandReceipt, MuzenError> {
-        transition_running(self, id).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { transition_running(connection, &id).await })
+            })
+            .await
     }
 
     async fn set_agent_status(
@@ -250,7 +235,15 @@ impl AgentStore for SqliteAgentStore {
         session_id: &SessionId,
         status: AgentStatus,
     ) -> Result<Option<CommandReceipt>, MuzenError> {
-        set_agent_status(self, id, session_id, status).await
+        let id = id.clone();
+        let session_id = session_id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(
+                    async move { set_agent_status(connection, &id, &session_id, status).await },
+                )
+            })
+            .await
     }
 
     async fn accept_send(
@@ -258,7 +251,12 @@ impl AgentStore for SqliteAgentStore {
         id: &RunId,
         command: SendCommand,
     ) -> Result<CommandReceipt, MuzenError> {
-        accept_send(self, id, command).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { accept_send(connection, &id, command).await })
+            })
+            .await
     }
 
     async fn pending_send(
@@ -266,7 +264,13 @@ impl AgentStore for SqliteAgentStore {
         id: &RunId,
         session_id: &SessionId,
     ) -> Result<Option<PendingSend>, MuzenError> {
-        pending_send(self, id, session_id).await
+        let id = id.clone();
+        let session_id = session_id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { pending_send(connection, &id, &session_id).await })
+            })
+            .await
     }
 
     async fn deliver_send(
@@ -275,7 +279,13 @@ impl AgentStore for SqliteAgentStore {
         session_id: &SessionId,
         delivery: MessageDelivery,
     ) -> Result<bool, MuzenError> {
-        deliver_send(self, id, session_id, delivery).await
+        let id = id.clone();
+        let session_id = session_id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { deliver_send(connection, &id, &session_id, delivery).await })
+            })
+            .await
     }
 
     async fn spawn_agent(
@@ -283,7 +293,12 @@ impl AgentStore for SqliteAgentStore {
         id: &RunId,
         command: SpawnCommand,
     ) -> Result<SessionId, MuzenError> {
-        spawn_agent(self, id, command).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { spawn_agent(connection, &id, command).await })
+            })
+            .await
     }
 
     async fn advance_agent(
@@ -292,7 +307,12 @@ impl AgentStore for SqliteAgentStore {
         output: AgentOutput,
         allow_pending: bool,
     ) -> Result<AgentAdvance, MuzenError> {
-        advance_agent(self, id, output, allow_pending).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { advance_agent(connection, &id, output, allow_pending).await })
+            })
+            .await
     }
 
     async fn append_activity(
@@ -300,15 +320,32 @@ impl AgentStore for SqliteAgentStore {
         id: &RunId,
         activity: RunActivity,
     ) -> Result<CommandReceipt, MuzenError> {
-        append_activity(self, id, activity).await
+        let id = id.clone();
+        #[cfg(test)]
+        let operation_probe = Arc::clone(&self.operation_probe);
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move {
+                    #[cfg(test)]
+                    operation_probe.signal_append_activity();
+                    append_activity(connection, &id, activity).await
+                })
+            })
+            .await
     }
 
     async fn cancel_requested(&self, id: &RunId) -> Result<bool, MuzenError> {
-        let connection = self.connection.lock().await;
-        Ok(run_required(&connection, id)
-            .await?
-            .cancel_sequence
-            .is_some())
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move {
+                    Ok(run_required(connection, &id)
+                        .await?
+                        .cancel_sequence
+                        .is_some())
+                })
+            })
+            .await
     }
 
     async fn request_cancel(
@@ -316,12 +353,156 @@ impl AgentStore for SqliteAgentStore {
         id: &RunId,
         reason: Option<&str>,
     ) -> Result<CommandReceipt, MuzenError> {
-        request_cancel(self, id, reason).await
+        let id = id.clone();
+        let reason = reason.map(str::to_owned);
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { request_cancel(connection, &id, reason.as_deref()).await })
+            })
+            .await
     }
 
     async fn finish_run(&self, id: &RunId, finish: FinishRun) -> Result<RunResult, MuzenError> {
-        finish_run(self, id, finish).await
+        let id = id.clone();
+        self.connection
+            .call(move |connection| {
+                Box::pin(async move { finish_run(connection, &id, finish).await })
+            })
+            .await
     }
+}
+
+async fn create_session(
+    connection: &Connection,
+    spec: SessionSpec,
+    idempotency_key: Option<IdempotencyKey>,
+    digest: [u8; 32],
+) -> Result<SessionId, MuzenError> {
+    let transaction = immediate(connection).await?;
+    if let Some(id) = replay_id(
+        &transaction,
+        "session.create",
+        idempotency_key.as_ref(),
+        digest,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(sql_error)?;
+        return SessionId::new(id).map_err(MuzenError::internal);
+    }
+
+    let id = new_session_id()?;
+    let now = timestamp()?;
+    let stored = StoredSession {
+        spec: spec.clone(),
+        snapshot: SessionSnapshot {
+            id: id.clone(),
+            status: SessionStatus::Open,
+            active_run_id: None,
+            created_at: now.clone(),
+            updated_at: now,
+            metadata: spec.metadata,
+        },
+        run_count: 0,
+        lifetime_usage: Usage::default(),
+    };
+    insert_session(&transaction, &stored).await?;
+    remember_id(
+        &transaction,
+        "session.create",
+        idempotency_key.as_ref(),
+        digest,
+        id.as_str(),
+    )
+    .await?;
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(id)
+}
+
+async fn messages(
+    connection: &Connection,
+    id: SessionId,
+    page: MessagePage,
+) -> Result<Page<AgentMessage>, MuzenError> {
+    session_required(connection, &id).await?;
+    let after = match page.after.as_deref() {
+        None => -1,
+        Some(cursor) => message_ordinal(connection, &id, cursor)
+            .await?
+            .ok_or_else(|| {
+                MuzenError::not_found(format!(
+                    "message cursor {cursor} was not found in agent session {id}"
+                ))
+            })?,
+    };
+    let limit = page.limit.map_or(100_i64, |limit| i64::from(limit.get()));
+    let mut rows = connection
+        .query(
+            "SELECT message FROM muzen_agent_messages
+             WHERE session_id = ?1 AND ordinal > ?2
+             ORDER BY ordinal ASC LIMIT ?3",
+            params![id.as_str(), after, limit + 1],
+        )
+        .await
+        .map_err(sql_error)?;
+    let mut items = Vec::<AgentMessage>::new();
+    while let Some(row) = rows.next().await.map_err(sql_error)? {
+        items.push(from_json(
+            row.get::<String>(0).map_err(sql_error)?,
+            "message",
+        )?);
+    }
+    let has_more = items.len() > limit as usize;
+    if has_more {
+        items.pop();
+    }
+    let next = has_more
+        .then(|| items.last().map(|message| message.id.clone()))
+        .flatten();
+    Ok(Page { items, next })
+}
+
+async fn archive_session(connection: &Connection, id: SessionId) -> Result<(), MuzenError> {
+    let transaction = immediate(connection).await?;
+    let mut session = session_required(&transaction, &id).await?;
+    if session.snapshot.active_run_id.is_some() {
+        return Err(MuzenError::conflict(format!(
+            "agent session {id} has an active run"
+        )));
+    }
+    session.snapshot.status = SessionStatus::Archived;
+    session.snapshot.updated_at = timestamp()?;
+    update_session(&transaction, &session).await?;
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(())
+}
+
+async fn events_after(
+    connection: &Connection,
+    id: RunId,
+    after: Option<u64>,
+    limit: NonZeroU64,
+) -> Result<Vec<AgentEvent>, MuzenError> {
+    run_required(connection, &id).await?;
+    let limit = i64::try_from(limit.get()).unwrap_or(i64::MAX);
+    let after = i64::try_from(after.unwrap_or(0)).unwrap_or(i64::MAX);
+    let mut rows = connection
+        .query(
+            "SELECT event FROM muzen_agent_events
+             WHERE run_id = ?1 AND sequence > ?2
+             ORDER BY sequence ASC LIMIT ?3",
+            params![id.as_str(), after, limit],
+        )
+        .await
+        .map_err(sql_error)?;
+    let mut events = Vec::new();
+    while let Some(row) = rows.next().await.map_err(sql_error)? {
+        events.push(from_json(
+            row.get::<String>(0).map_err(sql_error)?,
+            "event",
+        )?);
+    }
+    Ok(events)
 }
 
 #[derive(Debug)]
@@ -337,11 +518,10 @@ struct PendingSession {
     digest: [u8; 32],
 }
 
-async fn create_run(store: &SqliteAgentStore, spec: RunSpec) -> Result<RunId, MuzenError> {
+async fn create_run(connection: &Connection, spec: RunSpec) -> Result<RunId, MuzenError> {
     validate_run_spec(&spec)?;
     let digest = body_digest(&spec)?;
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     if let Some(id) = replay_id(
         &transaction,
         "run.create",
@@ -510,11 +690,10 @@ async fn create_run(store: &SqliteAgentStore, spec: RunSpec) -> Result<RunId, Mu
 }
 
 async fn transition_running(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
 ) -> Result<CommandReceipt, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     if record.stored.snapshot.status != RunStatus::Queued {
         return Err(MuzenError::conflict(format!(
@@ -562,13 +741,12 @@ async fn transition_running(
 }
 
 async fn set_agent_status(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     session_id: &SessionId,
     status: AgentStatus,
 ) -> Result<Option<CommandReceipt>, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     ensure_live_run(&record, id)?;
     let index = agent_position(&record, id, session_id)?;
@@ -615,14 +793,13 @@ async fn set_agent_status(
 }
 
 async fn accept_send(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     command: SendCommand,
 ) -> Result<CommandReceipt, MuzenError> {
     validate_send_command(&command)?;
     let digest = body_digest(&(id, &command))?;
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     if let Some(sequence) = replay_id(
         &transaction,
         "run.send",
@@ -693,14 +870,13 @@ async fn accept_send(
 }
 
 async fn pending_send(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     session_id: &SessionId,
 ) -> Result<Option<PendingSend>, MuzenError> {
-    let connection = store.connection.lock().await;
-    let record = run_required(&connection, id).await?;
+    let record = run_required(connection, id).await?;
     ensure_tracked(&record, id, session_id)?;
-    pending_send_on(&connection, id, session_id).await
+    pending_send_on(connection, id, session_id).await
 }
 
 async fn pending_send_on(
@@ -720,13 +896,12 @@ async fn pending_send_on(
 }
 
 async fn deliver_send(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     session_id: &SessionId,
     delivery: MessageDelivery,
 ) -> Result<bool, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let record = run_required(&transaction, id).await?;
     ensure_live_run(&record, id)?;
     ensure_tracked(&record, id, session_id)?;
@@ -768,14 +943,13 @@ async fn deliver_send(
 }
 
 async fn spawn_agent(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     command: SpawnCommand,
 ) -> Result<SessionId, MuzenError> {
     validate_spawn_command(&command)?;
     let digest = body_digest(&(id, &command))?;
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     if let Some(child) = replay_id(
         &transaction,
         "run.spawn",
@@ -887,13 +1061,12 @@ async fn spawn_agent(
 }
 
 async fn advance_agent(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     output: AgentOutput,
     allow_pending: bool,
 ) -> Result<AgentAdvance, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     ensure_live_run(&record, id)?;
     let index = agent_position(&record, id, &output.session_id)?;
@@ -927,12 +1100,11 @@ async fn advance_agent(
 }
 
 async fn append_activity(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     activity: RunActivity,
 ) -> Result<CommandReceipt, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     if is_terminal(record.stored.snapshot.status) {
         return Err(MuzenError::conflict(format!(
@@ -1147,12 +1319,11 @@ fn validate_child_authority(
 }
 
 async fn request_cancel(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     reason: Option<&str>,
 ) -> Result<CommandReceipt, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     if let Some(sequence) = record.cancel_sequence {
         transaction.commit().await.map_err(sql_error)?;
@@ -1180,12 +1351,11 @@ async fn request_cancel(
 }
 
 async fn finish_run(
-    store: &SqliteAgentStore,
+    connection: &Connection,
     id: &RunId,
     finish: FinishRun,
 ) -> Result<RunResult, MuzenError> {
-    let connection = store.connection.lock().await;
-    let transaction = immediate(&connection).await?;
+    let transaction = immediate(connection).await?;
     let mut record = run_required(&transaction, id).await?;
     if is_terminal(record.stored.snapshot.status) {
         return Err(MuzenError::conflict(format!(

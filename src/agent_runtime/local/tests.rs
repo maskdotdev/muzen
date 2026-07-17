@@ -13,9 +13,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use base64::Engine as _;
-use futures::{StreamExt, TryStreamExt};
+use futures::{future::join_all, StreamExt, TryStreamExt};
+use libsql::{Builder, TransactionBehavior};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use tokio::sync::Semaphore;
 
 use super::{
     LocalRuntime, LocalRuntimeConfig, ModelProvider, ModelProviderError, ModelRequest, ModelStop,
@@ -214,6 +216,57 @@ impl ModelProvider for ScriptedProvider {
                 Err(error)
             }
         }
+    }
+}
+
+struct GatedDelayedProvider {
+    started: Semaphore,
+    release: Semaphore,
+}
+
+impl GatedDelayedProvider {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            started: Semaphore::new(0),
+            release: Semaphore::new(0),
+        })
+    }
+
+    async fn wait_started(&self, count: u32) {
+        self.started
+            .acquire_many(count)
+            .await
+            .expect("gated provider remains open")
+            .forget();
+    }
+
+    fn release(&self, count: usize) {
+        self.release.add_permits(count);
+    }
+}
+
+#[async_trait]
+impl ModelProvider for GatedDelayedProvider {
+    async fn complete(&self, _request: ModelRequest) -> Result<ModelTurn, ModelProviderError> {
+        self.started.add_permits(1);
+        self.release
+            .acquire()
+            .await
+            .expect("gated provider remains open")
+            .forget();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        Ok(ModelTurn {
+            content: vec![ContentBlock::Text {
+                text: "done".to_owned(),
+            }],
+            tool_calls: Vec::new(),
+            usage: Usage {
+                input_tokens: 2,
+                output_tokens: 1,
+                tool_calls: 0,
+            },
+            stop: ModelStop::EndTurn,
+        })
     }
 }
 
@@ -1002,6 +1055,154 @@ async fn sqlite_events_subscribed_mid_run_reach_terminal_event() {
         "run.completed"
     );
     runtime.close().await.expect("close runtime");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sqlite_slow_event_read_does_not_block_concurrent_result_pollers() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("slow-events-concurrent-runs.db");
+    let provider = GatedDelayedProvider::new();
+    let runtime = Arc::new(
+        LocalRuntime::connect(LocalRuntimeConfig::sqlite(provider.clone(), &path))
+            .await
+            .expect("SQLite local runtime"),
+    );
+    let external_database = Builder::new_local(&path)
+        .build()
+        .await
+        .expect("external database");
+    let external_connection = external_database.connect().expect("external connection");
+
+    let sessions = join_all((0..5).map(|_| {
+        let runtime = Arc::clone(&runtime);
+        async move {
+            runtime
+                .create_session(session_spec(), CreateOptions::default())
+                .await
+                .expect("session")
+        }
+    }))
+    .await;
+    let run_ids = join_all(sessions.into_iter().enumerate().map(|(index, session_id)| {
+        let runtime = Arc::clone(&runtime);
+        async move {
+            runtime
+                .start_run(RunSpec {
+                    roots: vec![RunRoot::Existing(ExistingSessionRoot {
+                        session_id,
+                        input: input(&format!("concurrent run {index}")),
+                    })],
+                    limits: limits(),
+                    idempotency_key: None,
+                    metadata: Default::default(),
+                })
+                .await
+                .expect("run")
+        }
+    }))
+    .await;
+
+    tokio::time::timeout(Duration::from_secs(10), provider.wait_started(5))
+        .await
+        .expect("all five provider calls became active");
+    let writer = external_connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .await
+        .expect("external writer transaction");
+    let mut events = runtime.events(&run_ids[0], EventOptions::default());
+    while events
+        .next()
+        .await
+        .expect("model.started event")
+        .expect("event")
+        .event_type
+        != "model.started"
+    {}
+    assert!(runtime.inner.store.arm_append_activity_probe());
+    provider.release(5);
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        runtime.inner.store.wait_append_activity_started(),
+    )
+    .await
+    .expect("provider completion reached the contended SQLite operation");
+
+    let next_event = events.next();
+    futures::pin_mut!(next_event);
+    assert!(
+        futures::poll!(&mut next_event).is_pending(),
+        "event read waits behind the in-flight SQLite writer"
+    );
+    let (queued_tx, mut queued_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel();
+    let pollers = run_ids
+        .iter()
+        .cloned()
+        .map(|run_id| {
+            let runtime = Arc::clone(&runtime);
+            let queued_tx = queued_tx.clone();
+            let completed_tx = completed_tx.clone();
+            tokio::spawn(async move {
+                let first_result = runtime.run_result(&run_id);
+                futures::pin_mut!(first_result);
+                assert!(
+                    futures::poll!(&mut first_result).is_pending(),
+                    "result request waits behind the contended SQLite operation"
+                );
+                queued_tx.send(()).expect("queued result request");
+                if first_result.await.expect("poll run result").is_some() {
+                    completed_tx.send(()).expect("poll completion");
+                    return;
+                }
+                loop {
+                    if runtime
+                        .run_result(&run_id)
+                        .await
+                        .expect("poll run result")
+                        .is_some()
+                    {
+                        completed_tx.send(()).expect("poll completion");
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    drop(queued_tx);
+    drop(completed_tx);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        for _ in 0..5 {
+            queued_rx.recv().await.expect("queued result request");
+        }
+    })
+    .await
+    .expect("all result requests were polled and queued");
+    writer.commit().await.expect("release external writer");
+
+    let completed_while_subscriber_paused = tokio::time::timeout(Duration::from_secs(10), async {
+        for _ in 0..5 {
+            completed_rx.recv().await.expect("result poller completion");
+        }
+    })
+    .await
+    .is_ok();
+    tokio::time::timeout(Duration::from_secs(10), next_event)
+        .await
+        .expect("slow event read resumed")
+        .expect("slow event after pause")
+        .expect("event");
+    let pollers = tokio::time::timeout(Duration::from_secs(10), join_all(pollers))
+        .await
+        .expect("result pollers stopped");
+    for poller in pollers {
+        poller.expect("result poller task");
+    }
+    runtime.close().await.expect("close runtime");
+    assert!(
+        completed_while_subscriber_paused,
+        "an unpolled event read must not hold the SQLite queue ahead of result requests"
+    );
 }
 
 #[tokio::test]
