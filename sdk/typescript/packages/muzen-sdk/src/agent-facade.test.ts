@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   Agent,
   AgentResult,
   MuzenError,
   discoverLocalRunnerBinary,
+  tool,
   type AgentInputLike,
   type AgentSession,
   type JsonValue,
@@ -151,11 +153,115 @@ test("facade builds instructions, swarm grants, output contract, overrides, and 
   await agent.close();
 });
 
-test("tools are reserved before API key validation", () => {
+test("HTTP transport rejects local tools because the service cannot reach loopback", () => {
+  const lookup = tool<{ query: string }>({
+    name: "lookup",
+    description: "Look up a query.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: ({ query }) => query,
+  });
   assert.throws(
-    () => new Agent({ instructions: "do it", model: "gpt-test", tools: [() => undefined] }),
-    /MCP support is coming/,
+    () => new Agent({
+      instructions: "do it",
+      model: "gpt-test",
+      tools: [lookup],
+      transport: "http",
+      baseUrl: "https://muzen.example",
+    }),
+    (error: unknown) =>
+      error instanceof MuzenError &&
+      error.code === "invalid_input" &&
+      error.message.includes("remote service cannot reach the client's loopback server"),
   );
+});
+
+test("facade composes local tool grants and lazily installs one MCP provider", async () => {
+  const fake = new FakeMuzen();
+  const lookup = tool<{ query: string }>({
+    name: "lookup",
+    description: "Look up a query.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: ({ query }) => query,
+  });
+  const agent = new Agent({
+    client: fake as unknown as Muzen,
+    instructions: "use tools",
+    model: "gpt-test",
+    apiKey: "test",
+    tools: [lookup],
+    canSpawn: true,
+    canMessage: true,
+  });
+  await agent.run("hello");
+  const spec = fake.sessions[0]!.spec;
+  assert.deepEqual(spec.agent.tools, [
+    { provider: "builtin", tool: "agent.spawn", effects: ["agent_spawn"] },
+    { provider: "builtin", tool: "agent.message", effects: ["agent_message"] },
+    { provider: "local_tools", tool: "lookup", effects: [] },
+  ]);
+  assert.deepEqual(spec.toolProviders.map((provider) => [provider.id, provider.kind]), [
+    ["builtin", "builtin"],
+    ["local_tools", "mcp_http"],
+  ]);
+  const localProvider = spec.toolProviders[1];
+  assert.ok(localProvider?.kind === "mcp_http" && localProvider.url.startsWith("http://127.0.0.1:") && localProvider.url.endsWith("/mcp"));
+  const loopbackUrl = localProvider.url;
+  await agent.close();
+  assert.equal(fake.closed, true);
+  await assert.rejects(fetch(loopbackUrl));
+});
+
+test("facade rejects duplicate local names and collisions with model-visible built-ins", () => {
+  const named = (name: string) => tool({
+    name,
+    description: "Test tool.",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    execute: () => undefined,
+  });
+  assert.throws(
+    () => new Agent({ instructions: "use tools", model: "gpt-test", apiKey: "test", tools: [named("same"), named("same")] }),
+    (error: unknown) => error instanceof MuzenError && error.code === "invalid_input" && error.message === "tools must have unique function names",
+  );
+  assert.throws(
+    () => new Agent({ instructions: "use tools", model: "gpt-test", apiKey: "test", tools: [named("agent_spawn")], canSpawn: true }),
+    (error: unknown) => error instanceof MuzenError && error.code === "invalid_input" && error.message === "tools must have unique function names",
+  );
+});
+
+test("failed local-runner connections close the tool server and close remains idempotent", async () => {
+  const previous = process.env.MUZEN_AGENT_RUNNER_BIN;
+  process.env.MUZEN_AGENT_RUNNER_BIN = `/tmp/muzen-missing-runner-${process.pid}`;
+  const lookup = tool({
+    name: "lookup",
+    description: "Look up a query.",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    execute: () => "done",
+  });
+  const agent = new Agent({ instructions: "use tools", model: "gpt-test", apiKey: "test", tools: [lookup] });
+  const server = (agent as unknown as { toolServer: { readonly url: string } }).toolServer;
+  try {
+    await assert.rejects(
+      agent.run("hello"),
+      (error: unknown) => error instanceof MuzenError && error.code === "unavailable",
+    );
+    assert.throws(() => server.url, /has not been started/);
+    await agent.close();
+    await agent.close();
+  } finally {
+    if (previous === undefined) delete process.env.MUZEN_AGENT_RUNNER_BIN;
+    else process.env.MUZEN_AGENT_RUNNER_BIN = previous;
+    await agent.close();
+  }
 });
 
 test("spec and client escape hatches bypass model synthesis", async () => {
@@ -242,6 +348,49 @@ class ModelServer {
   }
 }
 
+class ToolModelServer {
+  readonly requests: Array<Record<string, unknown>> = [];
+  readonly server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      this.requests.push(payload);
+      const hasResult = JSON.stringify(payload.messages).includes('"type":"tool_result"');
+      const reply = hasResult
+        ? {
+            content: [{ type: "text", text: "tool completed" }],
+            usage: { input_tokens: 2, output_tokens: 1 },
+            stop_reason: "end_turn",
+          }
+        : {
+            content: [{
+              type: "tool_use",
+              id: "search-1",
+              name: "search",
+              input: { query: "retry policy", limit: 3 },
+            }],
+            usage: { input_tokens: 2, output_tokens: 1 },
+            stop_reason: "tool_use",
+          };
+      const body = JSON.stringify(reply);
+      response.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+      response.end(body);
+    });
+  });
+
+  async start(): Promise<string> {
+    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    const address = this.server.address();
+    if (address === null || typeof address === "string") throw new Error("model server did not bind TCP");
+    return `http://127.0.0.1:${address.port}`;
+  }
+
+  async close(): Promise<void> {
+    await new Promise<void>((resolve, reject) => this.server.close((error) => error === undefined ? resolve() : reject(error)));
+  }
+}
+
 test("facade local runner supports one-shot, continuity, and structured output", async (t) => {
   const binary = discoverLocalRunnerBinary();
   if (binary === undefined || !existsSync(binary)) {
@@ -278,6 +427,60 @@ test("facade local runner supports one-shot, continuity, and structured output",
     } finally {
       await reviewer.close();
     }
+  } finally {
+    await agent.close();
+    await model.close();
+  }
+});
+
+test("facade local runner executes a TypeScript tool and returns its result to the model transcript", async (t) => {
+  const binary = discoverLocalRunnerBinary();
+  if (binary === undefined || !existsSync(binary)) {
+    return t.skip("muzen-agent-runner is missing; set MUZEN_AGENT_RUNNER_BIN or build target/debug/muzen-agent-runner");
+  }
+  const mcpSource = fileURLToPath(new URL("../../../../../src/agent_runtime/local/mcp.rs", import.meta.url));
+  if (statSync(mcpSource).mtimeMs > statSync(binary).mtimeMs) {
+    return t.skip("built muzen-agent-runner predates MCP HTTP tool support");
+  }
+
+  const calls: Array<{ query: string; limit: number }> = [];
+  const search = tool<{ query: string; limit?: number }>({
+    name: "search",
+    description: "Search the product docs.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" }, limit: { type: "integer" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: ({ query, limit = 5 }) => {
+      calls.push({ query, limit });
+      return "retry three times";
+    },
+  });
+  const model = new ToolModelServer();
+  const baseUrl = await model.start();
+  const agent = new Agent({
+    instructions: "Answer using tools.",
+    model: "claude-test",
+    tools: [search],
+    baseUrl,
+    apiKey: "test",
+  });
+  try {
+    const result = await agent.run("find the retry policy");
+    assert.equal(result.text, "tool completed");
+    assert.deepEqual(calls, [{ query: "retry policy", limit: 3 }]);
+    assert.equal(model.requests.length, 2);
+    assert.deepEqual(model.requests[0]!.tools, [{
+      name: "search",
+      description: "Search the product docs.",
+      input_schema: search.input,
+    }]);
+    assert.ok(
+      JSON.stringify(model.requests[1]!.messages).includes('"type":"tool_result"') &&
+      JSON.stringify(model.requests[1]!.messages).includes("retry three times"),
+    );
   } finally {
     await agent.close();
     await model.close();

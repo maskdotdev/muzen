@@ -20,9 +20,11 @@ import {
   type SessionSpec,
   type Usage,
 } from "./agent.js";
+import { LoopbackToolServer, tool, type Tool } from "./tools.js";
 
 const MODEL_ID = "default";
 const BUILTIN_PROVIDER_ID = "builtin";
+const LOCAL_TOOLS_PROVIDER_ID = "local_tools";
 const DEFAULT_MAX_INPUT_TOKENS = 128_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
 
@@ -32,7 +34,7 @@ export interface AgentOptions {
   output?: JsonObject;
   canSpawn?: boolean;
   canMessage?: boolean;
-  tools?: readonly unknown[];
+  tools?: readonly Tool<any>[];
   spec?: SessionSpec;
   client?: Muzen;
   transport?: "local_runner" | "http";
@@ -85,20 +87,25 @@ export class Agent<TOutput = string> implements AsyncDisposable {
   private readonly serviceBaseUrl: string | undefined;
   private readonly bearerToken: string | undefined;
   private readonly apiKey: string | undefined;
+  private readonly tools: readonly Tool<any>[];
+  private readonly toolServer: LoopbackToolServer | undefined;
   private readonly needsSecret: boolean;
   private readonly hasOutput: boolean;
-  private readonly specTemplate: SessionSpec;
+  private specTemplate: SessionSpec;
   private readonly defaultLimits: RunLimits;
   private readonly tempDirectory: string | undefined;
   private closed = false;
 
   constructor(options: AgentOptions) {
-    if (options.tools !== undefined) {
-      throw new MuzenError("unsupported", "tools is reserved; MCP support is coming", false);
-    }
     this.transport = options.transport ?? "local_runner";
     if (this.transport !== "local_runner" && this.transport !== "http") {
       throw invalid("transport", "must be 'local_runner' or 'http'");
+    }
+    if ((options.tools?.length ?? 0) > 0 && this.transport === "http") {
+      throw invalid(
+        "tools",
+        "require transport='local_runner'; a remote service cannot reach the client's loopback server",
+      );
     }
     if (this.transport === "http" && options.client === undefined && !options.baseUrl) {
       throw invalid("baseUrl", "is required for HTTP transport");
@@ -107,6 +114,16 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     this.client = options.client;
     this.serviceBaseUrl = this.transport === "http" ? options.baseUrl : undefined;
     this.bearerToken = options.bearerToken;
+    this.tools = (options.tools ?? []).map((item) => tool(item));
+    const names = new Set(this.tools.map((item) => item.name));
+    if (
+      names.size !== this.tools.length ||
+      (options.canSpawn === true && names.has("agent_spawn")) ||
+      (options.canMessage === true && names.has("agent_message"))
+    ) {
+      throw invalid("tools", "must have unique function names");
+    }
+    this.toolServer = this.tools.length === 0 ? undefined : new LoopbackToolServer(this.tools);
 
     if (options.spec !== undefined) {
       if (
@@ -118,7 +135,8 @@ export class Agent<TOutput = string> implements AsyncDisposable {
         options.apiKey !== undefined ||
         options.temperature !== undefined ||
         options.maxOutputTokens !== undefined ||
-        options.budget !== undefined
+        options.budget !== undefined ||
+        options.tools !== undefined
       ) {
         throw invalid("spec", "cannot be combined with facade authoring options");
       }
@@ -152,6 +170,11 @@ export class Agent<TOutput = string> implements AsyncDisposable {
       if (options.canMessage === true) {
         tools.push({ provider: BUILTIN_PROVIDER_ID, tool: "agent.message", effects: ["agent_message" as const] });
       }
+      tools.push(...this.tools.map((item) => ({
+        provider: LOCAL_TOOLS_PROVIDER_ID,
+        tool: item.name,
+        effects: [],
+      })));
       this.specTemplate = {
         agent: {
           name: "agent",
@@ -214,11 +237,22 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     if (this.closed) return;
     this.closed = true;
     try {
-      const client = this.client ?? (this.connectionPromise === undefined ? undefined : await this.connectionPromise);
+      let client = this.client;
+      if (client === undefined && this.connectionPromise !== undefined) {
+        try {
+          client = await this.connectionPromise;
+        } catch {
+          // A failed connection still needs the local resources below cleaned up.
+        }
+      }
       await client?.close();
     } finally {
-      if (this.tempDirectory !== undefined) {
-        await rm(this.tempDirectory, { recursive: true, force: true });
+      try {
+        await this.toolServer?.close();
+      } finally {
+        if (this.tempDirectory !== undefined) {
+          await rm(this.tempDirectory, { recursive: true, force: true });
+        }
       }
     }
   }
@@ -258,21 +292,41 @@ export class Agent<TOutput = string> implements AsyncDisposable {
 
   private async connection(): Promise<Muzen> {
     if (this.closed) throw new MuzenError("unavailable", "Agent is closed", false);
-    if (this.client !== undefined) return this.client;
     this.connectionPromise ??= this.connect();
-    this.client = await this.connectionPromise;
-    return this.client;
+    try {
+      this.client = await this.connectionPromise;
+      return this.client;
+    } catch (error) {
+      await this.toolServer?.close();
+      throw error;
+    }
   }
 
   private async connect(): Promise<Muzen> {
+    await this.startToolServer();
+    if (this.closed) throw new MuzenError("unavailable", "Agent is closed", false);
+    if (this.client !== undefined) return this.client;
     if (this.transport === "http") {
       return await connectHttp(this.serviceBaseUrl ?? "", { bearerToken: this.bearerToken });
     }
     return await connectLocalRunner({
       store: "memory",
       binaryPath: discoverLocalRunnerBinary(),
-      allowLoopbackHttp: isLoopbackUrl(this.specTemplate.models[0]?.baseUrl),
+      allowLoopbackHttp: isLoopbackUrl(this.specTemplate.models[0]?.baseUrl) || this.tools.length > 0,
     });
+  }
+
+  private async startToolServer(): Promise<void> {
+    if (this.toolServer === undefined) return;
+    await this.toolServer.start();
+    const provider = { id: LOCAL_TOOLS_PROVIDER_ID, kind: "mcp_http" as const, url: this.toolServer.url };
+    this.specTemplate = {
+      ...this.specTemplate,
+      toolProviders: [
+        ...this.specTemplate.toolProviders.filter((item) => item.id !== LOCAL_TOOLS_PROVIDER_ID),
+        provider,
+      ],
+    };
   }
 }
 

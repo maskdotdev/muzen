@@ -475,3 +475,10 @@ export {
   type AgentOptions,
   type AgentRunOptions,
 } from "./agent-facade.js";
+
+export {
+  tool,
+  type FunctionToolOptions,
+  type Tool,
+  type ToolInputSchema,
+} from "./tools.js";
