@@ -12,9 +12,12 @@ import {
   type AgentInputLike,
   type AgentOutput,
   type AgentSession,
+  type AnswerToolCallOutcome,
   type ContentBlock,
   type JsonObject,
+  type JsonValue,
   type Muzen,
+  type Run,
   type RunLimits,
   type RunResult,
   type SessionSpec,
@@ -27,6 +30,7 @@ const BUILTIN_PROVIDER_ID = "builtin";
 const LOCAL_TOOLS_PROVIDER_ID = "local_tools";
 const DEFAULT_MAX_INPUT_TOKENS = 128_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
+const MAX_EVENT_RESUME_ATTEMPTS = 3;
 
 export interface AgentOptions {
   instructions?: string | ContentBlock | readonly ContentBlock[];
@@ -40,6 +44,7 @@ export interface AgentOptions {
   transport?: "local_runner" | "http";
   apiKey?: string;
   baseUrl?: string;
+  modelBaseUrl?: string;
   bearerToken?: string;
   temperature?: number;
   maxOutputTokens?: number;
@@ -101,12 +106,6 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     if (this.transport !== "local_runner" && this.transport !== "http") {
       throw invalid("transport", "must be 'local_runner' or 'http'");
     }
-    if ((options.tools?.length ?? 0) > 0 && this.transport === "http") {
-      throw invalid(
-        "tools",
-        "require transport='local_runner'; a remote service cannot reach the client's loopback server",
-      );
-    }
     if (this.transport === "http" && options.client === undefined && !options.baseUrl) {
       throw invalid("baseUrl", "is required for HTTP transport");
     }
@@ -123,7 +122,9 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     ) {
       throw invalid("tools", "must have unique function names");
     }
-    this.toolServer = this.tools.length === 0 ? undefined : new LoopbackToolServer(this.tools);
+    this.toolServer = this.tools.length === 0 || this.transport === "http"
+      ? undefined
+      : new LoopbackToolServer(this.tools);
 
     if (options.spec !== undefined) {
       if (
@@ -132,8 +133,9 @@ export class Agent<TOutput = string> implements AsyncDisposable {
         options.output !== undefined ||
         options.canSpawn === true ||
         options.canMessage === true ||
-        options.apiKey !== undefined ||
-        options.temperature !== undefined ||
+          options.apiKey !== undefined ||
+          options.modelBaseUrl !== undefined ||
+          options.temperature !== undefined ||
         options.maxOutputTokens !== undefined ||
         options.budget !== undefined ||
         options.tools !== undefined
@@ -173,6 +175,8 @@ export class Agent<TOutput = string> implements AsyncDisposable {
       tools.push(...this.tools.map((item) => ({
         provider: LOCAL_TOOLS_PROVIDER_ID,
         tool: item.name,
+        description: item.description,
+        inputSchema: item.input,
         effects: [],
       })));
       this.specTemplate = {
@@ -192,14 +196,19 @@ export class Agent<TOutput = string> implements AsyncDisposable {
           credential: "pending",
           maxInputTokens: DEFAULT_MAX_INPUT_TOKENS,
           maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-          ...(this.transport === "local_runner" && options.baseUrl !== undefined
-            ? { baseUrl: options.baseUrl }
+          ...((this.transport === "local_runner" ? options.baseUrl : options.modelBaseUrl) !== undefined
+            ? { baseUrl: this.transport === "local_runner" ? options.baseUrl : options.modelBaseUrl }
             : {}),
           ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
         }],
-        toolProviders: options.canSpawn === true || options.canMessage === true
-          ? [{ id: BUILTIN_PROVIDER_ID, kind: "builtin" }]
-          : [],
+        toolProviders: [
+          ...(options.canSpawn === true || options.canMessage === true
+            ? [{ id: BUILTIN_PROVIDER_ID, kind: "builtin" as const }]
+            : []),
+          ...(this.transport === "http" && this.tools.length > 0
+            ? [{ id: LOCAL_TOOLS_PROVIDER_ID, kind: "client" as const }]
+            : []),
+        ],
         workspace: { base: { kind: "path", root: this.tempDirectory } },
       };
     }
@@ -219,7 +228,7 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     const session = await client.createSession(spec);
     try {
       const run = await session.run(prompt, { limits: options.limits ?? this.defaultLimits });
-      return this.result(await run.wait(), session.id);
+      return this.result(await this.waitForRun(client, run), session.id);
     } finally {
       await archiveBestEffort(session);
     }
@@ -229,6 +238,7 @@ export class Agent<TOutput = string> implements AsyncDisposable {
     return new AgentConversation(
       () => this.ready().then(({ client, spec }) => client.createSession(spec)),
       (raw, sessionId) => this.result(raw, sessionId),
+      (run) => this.connection().then((client) => this.waitForRun(client, run)),
       this.defaultLimits,
     );
   }
@@ -328,6 +338,20 @@ export class Agent<TOutput = string> implements AsyncDisposable {
       ],
     };
   }
+
+  private async waitForRun(client: Muzen, run: Run): Promise<RunResult> {
+    if (this.transport !== "http" || this.tools.length === 0) return await run.wait();
+    const controller = new AbortController();
+    const wait = run.wait();
+    const pump = pumpClientToolRun(client, run, this.tools, controller.signal);
+    try {
+      await Promise.race([wait.then(() => undefined), pump]);
+      return await wait;
+    } finally {
+      controller.abort();
+      await pump.catch(() => undefined);
+    }
+  }
 }
 
 export class AgentConversation<TOutput = string> implements AsyncDisposable {
@@ -338,6 +362,7 @@ export class AgentConversation<TOutput = string> implements AsyncDisposable {
   constructor(
     createSession: () => Promise<AgentSession>,
     private readonly makeResult: (raw: RunResult, sessionId: string) => AgentResult<TOutput>,
+    private readonly waitForRun: (run: Run) => Promise<RunResult>,
     private readonly defaultLimits: RunLimits,
   ) {
     this.sessionPromise = createSession();
@@ -347,7 +372,7 @@ export class AgentConversation<TOutput = string> implements AsyncDisposable {
     if (this.closed) throw new MuzenError("conflict", "Agent session is closed", false);
     const session = await this.sharedSession();
     const run = await session.run(prompt, { limits: options.limits ?? this.defaultLimits });
-    return this.makeResult(await run.wait(), session.id);
+    return this.makeResult(await this.waitForRun(run), session.id);
   }
 
   async close(): Promise<void> {
@@ -365,6 +390,97 @@ export class AgentConversation<TOutput = string> implements AsyncDisposable {
     this.sessionValue = await this.sessionPromise;
     return this.sessionValue;
   }
+}
+
+export async function pumpClientToolRun(
+  client: Muzen,
+  run: Run,
+  tools: readonly Tool<any>[],
+  signal: AbortSignal,
+): Promise<void> {
+  const toolsByName = new Map(tools.map((item) => [item.name, item]));
+  const outcomes = new Map<string, Promise<AnswerToolCallOutcome>>();
+  let after: number | undefined;
+  let resumeFailures = 0;
+
+  while (!signal.aborted) {
+    try {
+      for await (const event of run.events({ after, signal })) {
+        if (event.type === "tool.requested" && event.payload.provider === LOCAL_TOOLS_PROVIDER_ID) {
+          const callId = event.payload.callId;
+          const name = event.payload.tool;
+          if (typeof callId !== "string" || typeof name !== "string") {
+            throw new MuzenError("internal", "tool.requested event is missing callId or tool", false);
+          }
+          let outcome = outcomes.get(callId);
+          if (outcome === undefined) {
+            outcome = executeClientTool(toolsByName.get(name), name, event.payload.arguments);
+            outcomes.set(callId, outcome);
+          }
+          try {
+            await client.answerToolCall(run.id, { callId, outcome: await outcome });
+          } catch (error) {
+            if (!isBenignToolAnswerError(error)) throw error;
+          }
+        }
+        after = event.sequence;
+        resumeFailures = 0;
+        if (TERMINAL_RUN_EVENTS.has(event.type)) return;
+      }
+      if (!signal.aborted) {
+        throw new MuzenError("unavailable", "run event stream ended before a terminal event", true);
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      if (!(error instanceof MuzenError) || !error.retryable || resumeFailures >= MAX_EVENT_RESUME_ATTEMPTS) {
+        throw error;
+      }
+      resumeFailures += 1;
+      await abortableDelay(25 * (2 ** (resumeFailures - 1)), signal);
+    }
+  }
+}
+
+const TERMINAL_RUN_EVENTS = new Set(["run.completed", "run.partial", "run.failed", "run.cancelled"]);
+
+async function executeClientTool(
+  selected: Tool<any> | undefined,
+  name: string,
+  arguments_: unknown,
+): Promise<AnswerToolCallOutcome> {
+  if (selected === undefined) {
+    return { error: { message: `unknown client tool: ${name}`, retryable: false } };
+  }
+  if (!isJsonObject(arguments_)) {
+    return { error: { message: `client tool ${name} arguments must be an object`, retryable: false } };
+  }
+  try {
+    return { result: await selected.execute(arguments_) as JsonValue };
+  } catch (error) {
+    return {
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+        retryable: false,
+      },
+    };
+  }
+}
+
+function isBenignToolAnswerError(error: unknown): boolean {
+  return error instanceof MuzenError && (error.code === "conflict" || error.code === "not_found");
+}
+
+async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, milliseconds);
+    signal.addEventListener("abort", done, { once: true });
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+  });
 }
 
 export function discoverLocalRunnerBinary(): string | undefined {

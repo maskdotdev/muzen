@@ -204,3 +204,40 @@ test("HTTP service auth, SSE wait, and idempotency", async (t) => {
     await stopProcess(process);
   }
 });
+
+test("HTTP client posts raw tool outcomes with auth and encoded identifiers", async () => {
+  let observed: { method?: string; url?: string; authorization?: string | undefined; body?: unknown } = {};
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      observed = {
+        method: request.method,
+        url: request.url,
+        authorization: request.headers.authorization,
+        body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
+      };
+      response.writeHead(204);
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("HTTP test server did not bind TCP");
+  const muzen = await connectHttp(`http://127.0.0.1:${address.port}`, { bearerToken: "test-token" });
+  try {
+    await muzen.answerToolCall("run/1", {
+      callId: "call/1",
+      outcome: { result: { source: "client", count: 2 } },
+    });
+    assert.deepEqual(observed, {
+      method: "POST",
+      url: "/v1/runs/run%2F1/tools/call%2F1/result",
+      authorization: "Bearer test-token",
+      body: { result: { source: "client", count: 2 } },
+    });
+  } finally {
+    await muzen.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+  }
+});

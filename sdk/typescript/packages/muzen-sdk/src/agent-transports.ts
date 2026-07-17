@@ -8,6 +8,7 @@ import {
   type AgentInputLike,
   type AgentMessage,
   type AgentSession,
+  type AnswerToolCallInput,
   type Artifact,
   type ArtifactId,
   type ArtifactRef,
@@ -397,6 +398,15 @@ class MuzenImpl implements Muzen {
   async getSession(id: string): Promise<AgentSession> { const session = new AgentSessionImpl(id, this.transport); await session.snapshot(); return session; }
   async startRun(spec: RunSpec): Promise<Run> { const id = await this.call("run.start", "POST", "/v1/runs", { spec }, spec, spec.idempotencyKey) as string; return new RunImpl(id, this.transport); }
   async getRun(id: string): Promise<Run> { const run = new RunImpl(id, this.transport); await run.snapshot(); return run; }
+  async answerToolCall(runId: string, input: AnswerToolCallInput): Promise<void> {
+    await this.call(
+      "run.answer_tool_call",
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/tools/${encodeURIComponent(input.callId)}/result`,
+      { runId, input },
+      input.outcome,
+    );
+  }
   async close(): Promise<void> { await this.transport.close(); }
   async [Symbol.asyncDispose](): Promise<void> { await this.close(); }
 

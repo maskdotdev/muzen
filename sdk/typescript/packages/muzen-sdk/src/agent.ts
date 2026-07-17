@@ -65,6 +65,7 @@ export type HeaderValue = string | { secret: SecretRef };
 
 export type ToolProvider =
   | { id: ToolProviderId; kind: "builtin" }
+  | { id: ToolProviderId; kind: "client"; timeoutMs?: number }
   | {
       id: ToolProviderId;
       kind: "mcp_http";
@@ -76,8 +77,19 @@ export type ToolProvider =
 export interface ToolGrant {
   provider: ToolProviderId;
   tool: string;
+  description?: string;
+  inputSchema?: JsonObject;
   effects: ToolEffect[];
   maxCalls?: number;
+}
+
+export type AnswerToolCallOutcome =
+  | { result: JsonValue }
+  | { error: { message: string; retryable?: boolean } };
+
+export interface AnswerToolCallInput {
+  callId: string;
+  outcome: AnswerToolCallOutcome;
 }
 
 export type ToolEffect =
@@ -316,7 +328,7 @@ export interface SpawnCommand {
 export interface Capabilities {
   protocolVersion: string;
   workspaceBases: Array<"path" | "git" | "snapshot">;
-  toolProviderKinds: Array<"builtin" | "mcp_http">;
+  toolProviderKinds: Array<"builtin" | "client" | "mcp_http">;
   modelProtocols: Array<"responses" | "chat_completions" | "messages">;
   maxReplayBatch: number;
 }
@@ -329,6 +341,7 @@ export interface Muzen extends AsyncDisposable {
   getSession(id: SessionId): Promise<AgentSession>;
   startRun(spec: RunSpec): Promise<Run>;
   getRun(id: RunId): Promise<Run>;
+  answerToolCall(runId: RunId, input: AnswerToolCallInput): Promise<void>;
   close(): Promise<void>;
 }
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -153,7 +155,7 @@ test("facade builds instructions, swarm grants, output contract, overrides, and 
   await agent.close();
 });
 
-test("HTTP transport rejects local tools because the service cannot reach loopback", () => {
+test("HTTP transport constructs client tools without a loopback server", async () => {
   const lookup = tool<{ query: string }>({
     name: "lookup",
     description: "Look up a query.",
@@ -165,19 +167,26 @@ test("HTTP transport rejects local tools because the service cannot reach loopba
     },
     execute: ({ query }) => query,
   });
-  assert.throws(
-    () => new Agent({
-      instructions: "do it",
-      model: "gpt-test",
-      tools: [lookup],
-      transport: "http",
-      baseUrl: "https://muzen.example",
-    }),
-    (error: unknown) =>
-      error instanceof MuzenError &&
-      error.code === "invalid_input" &&
-      error.message.includes("remote service cannot reach the client's loopback server"),
-  );
+  const fake = new FakeMuzen();
+  const agent = new Agent({
+    client: fake as unknown as Muzen,
+    instructions: "do it",
+    model: "gpt-test",
+    apiKey: "test",
+    tools: [lookup],
+    transport: "http",
+  });
+  const value = agent as unknown as { toolServer?: unknown; specTemplate: SessionSpec };
+  assert.equal(value.toolServer, undefined);
+  assert.deepEqual(value.specTemplate.agent.tools, [{
+    provider: "local_tools",
+    tool: "lookup",
+    description: lookup.description,
+    inputSchema: lookup.input,
+    effects: [],
+  }]);
+  assert.deepEqual(value.specTemplate.toolProviders, [{ id: "local_tools", kind: "client" }]);
+  await agent.close();
 });
 
 test("facade composes local tool grants and lazily installs one MCP provider", async () => {
@@ -207,7 +216,13 @@ test("facade composes local tool grants and lazily installs one MCP provider", a
   assert.deepEqual(spec.agent.tools, [
     { provider: "builtin", tool: "agent.spawn", effects: ["agent_spawn"] },
     { provider: "builtin", tool: "agent.message", effects: ["agent_message"] },
-    { provider: "local_tools", tool: "lookup", effects: [] },
+    {
+      provider: "local_tools",
+      tool: "lookup",
+      description: lookup.description,
+      inputSchema: lookup.input,
+      effects: [],
+    },
   ]);
   assert.deepEqual(spec.toolProviders.map((provider) => [provider.id, provider.kind]), [
     ["builtin", "builtin"],
@@ -359,7 +374,7 @@ class ToolModelServer {
       const hasResult = JSON.stringify(payload.messages).includes('"type":"tool_result"');
       const reply = hasResult
         ? {
-            content: [{ type: "text", text: "tool completed" }],
+            content: [{ type: "text", text: "tool completed: retry three times" }],
             usage: { input_tokens: 2, output_tokens: 1 },
             stop_reason: "end_turn",
           }
@@ -389,6 +404,49 @@ class ToolModelServer {
   async close(): Promise<void> {
     await new Promise<void>((resolve, reject) => this.server.close((error) => error === undefined ? resolve() : reject(error)));
   }
+}
+
+function discoverServiceBinary(): string | undefined {
+  const configured = process.env.MUZEN_AGENT_SERVICE_BIN;
+  if (configured !== undefined) return configured;
+  for (const profile of ["release", "debug"]) {
+    const candidate = fileURLToPath(new URL(`../../../../../target/${profile}/muzen-agent-service`, import.meta.url));
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+async function unusedPort(): Promise<number> {
+  const server = createNetServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("port server did not bind TCP");
+  await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+  return address.port;
+}
+
+async function waitForService(port: number, process: ChildProcess): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (process.exitCode !== null) throw new Error(`muzen-agent-service exited with ${process.exitCode}`);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/v1/capabilities`);
+      if (response.ok) return;
+    } catch {
+      // The service has not bound yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("muzen-agent-service did not listen before timeout");
+}
+
+async function stopProcess(process: ChildProcess): Promise<void> {
+  if (process.exitCode !== null) return;
+  const exited = new Promise<void>((resolve) => process.once("exit", () => resolve()));
+  process.kill("SIGTERM");
+  const timer = setTimeout(() => process.kill("SIGKILL"), 3_000);
+  await exited;
+  clearTimeout(timer);
 }
 
 test("facade local runner supports one-shot, continuity, and structured output", async (t) => {
@@ -438,9 +496,12 @@ test("facade local runner executes a TypeScript tool and returns its result to t
   if (binary === undefined || !existsSync(binary)) {
     return t.skip("muzen-agent-runner is missing; set MUZEN_AGENT_RUNNER_BIN or build target/debug/muzen-agent-runner");
   }
-  const mcpSource = fileURLToPath(new URL("../../../../../src/agent_runtime/local/mcp.rs", import.meta.url));
-  if (statSync(mcpSource).mtimeMs > statSync(binary).mtimeMs) {
-    return t.skip("built muzen-agent-runner predates MCP HTTP tool support");
+  const toolRuntimeSources = [
+    fileURLToPath(new URL("../../../../../src/agent_runtime/local/mcp.rs", import.meta.url)),
+    fileURLToPath(new URL("../../../../../src/agent_runtime/types.rs", import.meta.url)),
+  ];
+  if (toolRuntimeSources.some((source) => statSync(source).mtimeMs > statSync(binary).mtimeMs)) {
+    return t.skip("built muzen-agent-runner predates current tool grant support");
   }
 
   const calls: Array<{ query: string; limit: number }> = [];
@@ -469,7 +530,7 @@ test("facade local runner executes a TypeScript tool and returns its result to t
   });
   try {
     const result = await agent.run("find the retry policy");
-    assert.equal(result.text, "tool completed");
+    assert.equal(result.text, "tool completed: retry three times");
     assert.deepEqual(calls, [{ query: "retry policy", limit: 3 }]);
     assert.equal(model.requests.length, 2);
     assert.deepEqual(model.requests[0]!.tools, [{
@@ -484,5 +545,69 @@ test("facade local runner executes a TypeScript tool and returns its result to t
   } finally {
     await agent.close();
     await model.close();
+  }
+});
+
+test("facade HTTP transport executes a TypeScript tool through the real service", async (t) => {
+  const service = discoverServiceBinary();
+  if (service === undefined || !existsSync(service)) {
+    return t.skip("muzen-agent-service is missing; set MUZEN_AGENT_SERVICE_BIN or build target/release/muzen-agent-service");
+  }
+
+  const calls: Array<{ query: string; limit: number }> = [];
+  const search = tool<{ query: string; limit?: number }>({
+    name: "search",
+    description: "Search the product docs.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" }, limit: { type: "integer" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: ({ query, limit = 5 }) => {
+      calls.push({ query, limit });
+      return "retry three times";
+    },
+  });
+  const model = new ToolModelServer();
+  const modelBaseUrl = await model.start();
+  const port = await unusedPort();
+  const process = spawn(
+    service,
+    ["--listen", `127.0.0.1:${port}`, "--store", "memory", "--allow-loopback-http"],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let agent: Agent | undefined;
+  try {
+    await waitForService(port, process);
+    agent = new Agent({
+      instructions: "Answer using tools.",
+      model: "claude-test",
+      tools: [search],
+      transport: "http",
+      baseUrl: `http://127.0.0.1:${port}`,
+      modelBaseUrl,
+      apiKey: "test",
+    });
+
+    const result = await agent.run("find the retry policy");
+    let conversationResult: AgentResult;
+    {
+      await using conversation = agent.session();
+      conversationResult = await conversation.run("find the retry policy in this session");
+    }
+
+    assert.deepEqual(calls, [
+      { query: "retry policy", limit: 3 },
+      { query: "retry policy", limit: 3 },
+    ]);
+    assert.equal(result.text, "tool completed: retry three times");
+    assert.equal(conversationResult.text, "tool completed: retry three times");
+    assert.ok(JSON.stringify(model.requests[1]!.messages).includes("retry three times"));
+    assert.ok(JSON.stringify(model.requests[3]!.messages).includes("retry three times"));
+  } finally {
+    await agent?.close().catch(() => undefined);
+    await model.close().catch(() => undefined);
+    await stopProcess(process);
   }
 });
