@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::Notify;
 
 use super::*;
 use crate::agent_runtime::{
@@ -641,6 +642,109 @@ async fn http_tool_pump_posts_errors_and_swallows_benign_answer_races() {
     );
 }
 
+#[tokio::test]
+async fn http_tool_pump_recovers_after_two_failures_at_the_same_cursor() {
+    let events = [
+        pump_event(
+            1,
+            "tool.requested",
+            json!({
+                "callId": "recovered-call",
+                "provider": LOCAL_TOOLS_PROVIDER_ID,
+                "tool": "recover",
+                "arguments": { "value": 1 },
+                "timeoutMs": 120_000
+            }),
+        ),
+        pump_event(2, "run.completed", json!({})),
+    ]
+    .concat();
+    let server = FakePumpServer::start_with_event_failures(events, [], 2).await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let run_id = RunId::new("pump-run").expect("run id");
+    let run = client.get_run(&run_id).await.expect("fake run");
+    let tool = value_tool("recover", "recovered");
+
+    result::pump_run_tools(client, run, Arc::new(vec![tool]))
+        .await
+        .expect("pump should recover after two connect failures");
+
+    assert_eq!(server.event_requests(), 3);
+    assert_eq!(
+        server.answers(),
+        vec![(
+            "recovered-call".to_owned(),
+            json!({ "result": "recovered" })
+        )]
+    );
+}
+
+#[tokio::test]
+async fn http_tool_pump_bounds_permanent_retryable_failures() {
+    let server = FakePumpServer::start_with_permanent_event_failure(String::new(), false).await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let run_id = RunId::new("pump-run").expect("run id");
+    let run = client.get_run(&run_id).await.expect("fake run");
+
+    let error = tokio::time::timeout(
+        Duration::from_secs(2),
+        result::pump_run_tools(client, run, Arc::new(vec![value_tool("unused", "unused")])),
+    )
+    .await
+    .expect("pump retries should be bounded")
+    .expect_err("permanent stream failure should surface");
+
+    assert_eq!(server.event_requests(), 6);
+    assert_eq!(error.code(), ErrorCode::Unavailable);
+    assert_eq!(error.message(), "fake event stream unavailable");
+    assert!(error.retryable());
+}
+
+#[tokio::test]
+async fn run_in_session_surfaces_pump_failure_and_cancels_run() {
+    let server = FakePumpServer::start_with_permanent_event_failure(String::new(), true).await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let session_id = crate::agent_runtime::SessionId::new("pump-session").expect("session id");
+    let session = client.get_session(&session_id).await.expect("fake session");
+    let input = AgentInput {
+        content: vec![crate::agent_runtime::ContentBlock::Text {
+            text: "run".to_owned(),
+        }],
+    };
+    let limits = RunLimits {
+        max_active_agents: std::num::NonZeroU32::new(1).expect("non-zero"),
+        max_agents: std::num::NonZeroU32::new(1).expect("non-zero"),
+        max_depth: 0,
+        max_input_bytes: NonZeroU64::new(1024).expect("non-zero"),
+        max_total_tokens: None,
+        max_total_tool_calls: None,
+        deadline_ms: None,
+    };
+
+    let error = tokio::time::timeout(
+        Duration::from_secs(2),
+        result::run_in_session(
+            &session,
+            &client,
+            Arc::new(vec![value_tool("unused", "unused")]),
+            input,
+            limits,
+            false,
+        ),
+    )
+    .await
+    .expect("facade should fail promptly")
+    .expect_err("pump transport failure should fail the facade run");
+
+    assert_eq!(error.code(), ErrorCode::Unavailable);
+    assert_eq!(error.message(), "fake event stream unavailable");
+    assert_eq!(server.event_requests(), 6);
+    assert_eq!(server.cancel_requests(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_facade_tool_round_trips_through_real_service() {
     let Some(binary) = discover_agent_service_binary() else {
@@ -877,6 +981,13 @@ struct FakePumpState {
     events: String,
     statuses: Mutex<VecDeque<StatusCode>>,
     answers: Mutex<Vec<(String, Value)>>,
+    event_failures_remaining: AtomicUsize,
+    fail_events_permanently: bool,
+    event_requests: AtomicUsize,
+    cancel_requests: AtomicUsize,
+    cancelled: AtomicBool,
+    block_result_until_cancel: bool,
+    cancelled_notify: Notify,
 }
 
 struct FakePumpServer {
@@ -887,14 +998,57 @@ struct FakePumpServer {
 
 impl FakePumpServer {
     async fn start(events: String, statuses: impl IntoIterator<Item = StatusCode>) -> Self {
+        Self::start_configured(events, statuses, 0, false, false).await
+    }
+
+    async fn start_with_event_failures(
+        events: String,
+        statuses: impl IntoIterator<Item = StatusCode>,
+        failures: usize,
+    ) -> Self {
+        Self::start_configured(events, statuses, failures, false, false).await
+    }
+
+    async fn start_with_permanent_event_failure(
+        events: String,
+        block_result_until_cancel: bool,
+    ) -> Self {
+        Self::start_configured(
+            events,
+            std::iter::empty(),
+            0,
+            true,
+            block_result_until_cancel,
+        )
+        .await
+    }
+
+    async fn start_configured(
+        events: String,
+        statuses: impl IntoIterator<Item = StatusCode>,
+        event_failures: usize,
+        fail_events_permanently: bool,
+        block_result_until_cancel: bool,
+    ) -> Self {
         let state = Arc::new(FakePumpState {
             events,
             statuses: Mutex::new(statuses.into_iter().collect()),
             answers: Mutex::new(Vec::new()),
+            event_failures_remaining: AtomicUsize::new(event_failures),
+            fail_events_permanently,
+            event_requests: AtomicUsize::new(0),
+            cancel_requests: AtomicUsize::new(0),
+            cancelled: AtomicBool::new(false),
+            block_result_until_cancel,
+            cancelled_notify: Notify::new(),
         });
         let app = Router::new()
+            .route("/v1/sessions/{session}", get(fake_pump_session))
+            .route("/v1/runs", post(fake_pump_start_run))
             .route("/v1/runs/{run}", get(fake_pump_snapshot))
+            .route("/v1/runs/{run}/result", get(fake_pump_result))
             .route("/v1/runs/{run}/events", get(fake_pump_events))
+            .route("/v1/runs/{run}/cancel", post(fake_pump_cancel))
             .route("/v1/runs/{run}/tools/{call}/result", post(fake_pump_answer))
             .with_state(Arc::clone(&state));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -918,6 +1072,14 @@ impl FakePumpServer {
     fn answers(&self) -> Vec<(String, Value)> {
         self.state.answers.lock().clone()
     }
+
+    fn event_requests(&self) -> usize {
+        self.state.event_requests.load(Ordering::SeqCst)
+    }
+
+    fn cancel_requests(&self) -> usize {
+        self.state.cancel_requests.load(Ordering::SeqCst)
+    }
 }
 
 impl Drop for FakePumpServer {
@@ -938,17 +1100,77 @@ async fn fake_pump_snapshot(AxumPath(run): AxumPath<String>) -> Json<Value> {
     }))
 }
 
-async fn fake_pump_events(State(state): State<Arc<FakePumpState>>) -> impl IntoResponse {
-    ([(CONTENT_TYPE, "text/event-stream")], state.events.clone())
+async fn fake_pump_session(AxumPath(session): AxumPath<String>) -> Json<Value> {
+    Json(json!({
+        "id": session,
+        "status": "open",
+        "createdAt": "now",
+        "updatedAt": "now",
+        "metadata": {}
+    }))
+}
+
+async fn fake_pump_start_run() -> Json<Value> {
+    Json(json!("pump-run"))
+}
+
+async fn fake_pump_result(State(state): State<Arc<FakePumpState>>) -> Json<Value> {
+    if state.block_result_until_cancel && !state.cancelled.load(Ordering::SeqCst) {
+        state.cancelled_notify.notified().await;
+    }
+    if state.cancelled.load(Ordering::SeqCst) {
+        Json(json!({
+            "runId": "pump-run",
+            "status": "cancelled",
+            "outputs": [],
+            "usage": { "inputTokens": 0, "outputTokens": 0, "toolCalls": 0 },
+            "artifacts": [],
+            "metadata": {}
+        }))
+    } else {
+        Json(Value::Null)
+    }
+}
+
+async fn fake_pump_events(State(state): State<Arc<FakePumpState>>) -> axum::response::Response {
+    state.event_requests.fetch_add(1, Ordering::SeqCst);
+    let temporary_failure = state
+        .event_failures_remaining
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+            (remaining > 0).then(|| remaining - 1)
+        })
+        .is_ok();
+    if state.fail_events_permanently || temporary_failure {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "code": "unavailable",
+                "message": "fake event stream unavailable",
+                "retryable": true
+            })),
+        )
+            .into_response();
+    }
+    ([(CONTENT_TYPE, "text/event-stream")], state.events.clone()).into_response()
+}
+
+async fn fake_pump_cancel(State(state): State<Arc<FakePumpState>>) -> Json<Value> {
+    state.cancel_requests.fetch_add(1, Ordering::SeqCst);
+    state.cancelled.store(true, Ordering::SeqCst);
+    state.cancelled_notify.notify_waiters();
+    Json(json!({ "sequence": 1 }))
 }
 
 async fn fake_pump_answer(
     State(state): State<Arc<FakePumpState>>,
     AxumPath((_run, call)): AxumPath<(String, String)>,
     Json(body): Json<Value>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     state.answers.lock().push((call, body));
     let status = state.statuses.lock().pop_front().unwrap_or(StatusCode::OK);
+    if status.is_success() {
+        return (status, Json(Value::Null)).into_response();
+    }
     let code = if status == StatusCode::CONFLICT {
         "conflict"
     } else {
@@ -962,6 +1184,7 @@ async fn fake_pump_answer(
             "retryable": false
         })),
     )
+        .into_response()
 }
 
 fn pump_event(sequence: u64, event_type: &str, payload: Value) -> String {

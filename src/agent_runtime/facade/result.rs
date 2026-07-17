@@ -5,14 +5,24 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use tokio::task::JoinHandle;
+use tokio::time::Duration;
 
 use crate::agent_runtime::{
-    AgentInput, AgentSession, AnswerToolCallInput, AnswerToolCallOutcome, ClientToolCallError,
-    ErrorCode, EventOptions, ExecutionErrorCode, Muzen, MuzenError, Run, RunId, RunLimits,
-    RunResult, SessionId, SingleRunOptions, TerminalAgentStatus, Usage,
+    AgentInput, AgentSession, AnswerToolCallInput, AnswerToolCallOutcome, CancelOptions,
+    ClientToolCallError, ErrorCode, EventOptions, ExecutionErrorCode, Muzen, MuzenError, Run,
+    RunId, RunLimits, RunResult, SessionId, SingleRunOptions, TerminalAgentStatus, Usage,
 };
 
 use super::{Tool, LOCAL_TOOLS_PROVIDER_ID};
+
+const MAX_EVENT_RESUME_ATTEMPTS: usize = 5;
+const EVENT_RESUME_BACKOFF: [Duration; MAX_EVENT_RESUME_ATTEMPTS] = [
+    Duration::from_millis(25),
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+];
 
 /// Terminal output for one root agent run.
 #[derive(Debug, Clone)]
@@ -93,10 +103,49 @@ pub(super) async fn run_in_session(
         )
         .await?;
     let mut pump = ToolPump::spawn(client.clone(), run.clone(), tools);
-    let raw = run.wait().await;
-    pump.stop().await;
-    let raw = raw?;
+    let raw = if pump.task.is_some() {
+        let race = {
+            let pump_task = pump.task.as_mut().expect("tool pump task exists");
+            tokio::select! {
+                biased;
+                raw = run.wait() => ToolPumpRace::Run(raw),
+                pump_result = pump_task => ToolPumpRace::Pump(pump_result),
+            }
+        };
+        match race {
+            ToolPumpRace::Run(raw) => {
+                pump.stop().await;
+                raw?
+            }
+            ToolPumpRace::Pump(pump_result) => {
+                pump.task.take();
+                match pump_result {
+                    Ok(Ok(())) => run.wait().await?,
+                    Ok(Err(error)) => {
+                        let _ = run.cancel(CancelOptions::default()).await;
+                        let _ = run.wait().await;
+                        return Err(error);
+                    }
+                    Err(join_error) => {
+                        let error = MuzenError::internal(format!(
+                            "tool pump task stopped unexpectedly: {join_error}"
+                        ));
+                        let _ = run.cancel(CancelOptions::default()).await;
+                        let _ = run.wait().await;
+                        return Err(error);
+                    }
+                }
+            }
+        }
+    } else {
+        run.wait().await?
+    };
     result_from_run(raw, session.id(), has_output)
+}
+
+enum ToolPumpRace {
+    Run(Result<RunResult, MuzenError>),
+    Pump(Result<Result<(), MuzenError>, tokio::task::JoinError>),
 }
 
 struct ToolPump {
@@ -132,7 +181,7 @@ pub(super) async fn pump_run_tools(
     tools: Arc<Vec<Tool>>,
 ) -> Result<(), MuzenError> {
     let mut after = None;
-    let mut retry_cursor = None;
+    let mut resume_attempts = 0;
     loop {
         let mut events = run.events(EventOptions { after });
         let reconnect = loop {
@@ -151,22 +200,23 @@ pub(super) async fn pump_run_tools(
                     != Some(LOCAL_TOOLS_PROVIDER_ID)
             {
                 after = Some(event.sequence);
-                retry_cursor = None;
+                resume_attempts = 0;
                 continue;
             }
             match answer_requested_tool(&client, run.id(), &tools, &event.payload).await {
                 Ok(()) => {
                     after = Some(event.sequence);
-                    retry_cursor = None;
+                    resume_attempts = 0;
                 }
                 Err(error) => break error,
             }
         };
-        if !reconnect.retryable() || retry_cursor == Some(after) {
+        if !reconnect.retryable() || resume_attempts == MAX_EVENT_RESUME_ATTEMPTS {
             return Err(reconnect);
         }
-        retry_cursor = Some(after);
-        tokio::task::yield_now().await;
+        let delay = EVENT_RESUME_BACKOFF[resume_attempts];
+        resume_attempts += 1;
+        tokio::time::sleep(delay).await;
     }
 }
 
