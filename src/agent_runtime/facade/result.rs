@@ -1,12 +1,18 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
+use tokio::task::JoinHandle;
 
 use crate::agent_runtime::{
-    AgentInput, AgentSession, ErrorCode, ExecutionErrorCode, MuzenError, RunId, RunLimits,
+    AgentInput, AgentSession, AnswerToolCallInput, AnswerToolCallOutcome, ClientToolCallError,
+    ErrorCode, EventOptions, ExecutionErrorCode, Muzen, MuzenError, Run, RunId, RunLimits,
     RunResult, SessionId, SingleRunOptions, TerminalAgentStatus, Usage,
 };
+
+use super::{Tool, LOCAL_TOOLS_PROVIDER_ID};
 
 /// Terminal output for one root agent run.
 #[derive(Debug, Clone)]
@@ -70,6 +76,8 @@ impl AgentResult {
 
 pub(super) async fn run_in_session(
     session: &AgentSession,
+    client: &Muzen,
+    tools: Arc<Vec<Tool>>,
     input: AgentInput,
     limits: RunLimits,
     has_output: bool,
@@ -84,8 +92,129 @@ pub(super) async fn run_in_session(
             },
         )
         .await?;
-    let raw = run.wait().await?;
+    let mut pump = ToolPump::spawn(client.clone(), run.clone(), tools);
+    let raw = run.wait().await;
+    pump.stop().await;
+    let raw = raw?;
     result_from_run(raw, session.id(), has_output)
+}
+
+struct ToolPump {
+    task: Option<JoinHandle<Result<(), MuzenError>>>,
+}
+
+impl ToolPump {
+    fn spawn(client: Muzen, run: Run, tools: Arc<Vec<Tool>>) -> Self {
+        let task = (!tools.is_empty())
+            .then(|| tokio::spawn(async move { pump_run_tools(client, run, tools).await }));
+        Self { task }
+    }
+
+    async fn stop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for ToolPump {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+pub(super) async fn pump_run_tools(
+    client: Muzen,
+    run: Run,
+    tools: Arc<Vec<Tool>>,
+) -> Result<(), MuzenError> {
+    let mut after = None;
+    let mut retry_cursor = None;
+    loop {
+        let mut events = run.events(EventOptions { after });
+        let reconnect = loop {
+            let event = match events.next().await {
+                Some(Ok(event)) => event,
+                Some(Err(error)) => break error,
+                None => {
+                    break MuzenError::unavailable("run event stream ended before a terminal event")
+                }
+            };
+            if super::super::client::is_terminal_run_event(&event.event_type) {
+                return Ok(());
+            }
+            if event.event_type != "tool.requested"
+                || event.payload.get("provider").and_then(Value::as_str)
+                    != Some(LOCAL_TOOLS_PROVIDER_ID)
+            {
+                after = Some(event.sequence);
+                retry_cursor = None;
+                continue;
+            }
+            match answer_requested_tool(&client, run.id(), &tools, &event.payload).await {
+                Ok(()) => {
+                    after = Some(event.sequence);
+                    retry_cursor = None;
+                }
+                Err(error) => break error,
+            }
+        };
+        if !reconnect.retryable() || retry_cursor == Some(after) {
+            return Err(reconnect);
+        }
+        retry_cursor = Some(after);
+        tokio::task::yield_now().await;
+    }
+}
+
+async fn answer_requested_tool(
+    client: &Muzen,
+    run_id: &RunId,
+    tools: &[Tool],
+    payload: &BTreeMap<String, Value>,
+) -> Result<(), MuzenError> {
+    let call_id = payload
+        .get("callId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| MuzenError::internal("tool.requested event omitted callId"))?;
+    let name = payload
+        .get("tool")
+        .and_then(Value::as_str)
+        .ok_or_else(|| MuzenError::internal("tool.requested event omitted tool"))?;
+    let arguments = payload.get("arguments").cloned().unwrap_or(Value::Null);
+    let outcome = match tools.iter().find(|tool| tool.name() == name) {
+        Some(tool) => match tool.invoke(arguments).await {
+            Ok(result) => AnswerToolCallOutcome::Result { result },
+            Err(error) => tool_error(error.message().to_owned()),
+        },
+        None => tool_error(format!("unknown local tool: {name}")),
+    };
+    match client
+        .answer_tool_call(
+            run_id,
+            AnswerToolCallInput {
+                call_id: call_id.to_owned(),
+                outcome,
+            },
+        )
+        .await
+    {
+        Ok(()) => Ok(()),
+        Err(error) if matches!(error.code(), ErrorCode::Conflict | ErrorCode::NotFound) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn tool_error(message: String) -> AnswerToolCallOutcome {
+    AnswerToolCallOutcome::Error {
+        error: ClientToolCallError {
+            message,
+            retryable: Some(false),
+        },
+    }
 }
 
 pub(super) fn result_from_run(

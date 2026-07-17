@@ -8,6 +8,7 @@ mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::{NonZeroU32, NonZeroU64};
+use std::sync::Arc;
 
 use base64::Engine as _;
 use serde_json::Value;
@@ -120,6 +121,7 @@ pub struct AgentBuilder {
     transport: String,
     api_key: Option<String>,
     base_url: Option<String>,
+    model_base_url: Option<String>,
     temperature: Option<f64>,
     max_output_tokens: Option<u64>,
     max_total_tokens: Option<u64>,
@@ -141,6 +143,7 @@ impl Default for AgentBuilder {
             transport: "local".to_owned(),
             api_key: None,
             base_url: None,
+            model_base_url: None,
             temperature: None,
             max_output_tokens: None,
             max_total_tokens: None,
@@ -219,6 +222,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Overrides the model endpoint independently of [`Self::base_url`],
+    /// which identifies the Muzen service on the `http` transport. Matches
+    /// Python's `model_base_url` and TypeScript's `modelBaseUrl`.
+    pub fn model_base_url(mut self, model_base_url: impl Into<String>) -> Self {
+        self.model_base_url = Some(model_base_url.into());
+        self
+    }
+
     pub fn temperature(mut self, temperature: f64) -> Self {
         self.temperature = Some(temperature);
         self
@@ -248,13 +259,8 @@ impl AgentBuilder {
         if !matches!(self.transport.as_str(), "local" | "http") {
             return Err(invalid("transport", "must be 'local' or 'http'"));
         }
-        let has_tools = self.tools.as_ref().is_some_and(|tools| !tools.is_empty());
-        if has_tools && self.transport == "http" {
-            return Err(invalid(
-                "tools",
-                "require transport='local'; a remote service cannot reach the client's loopback server",
-            ));
-        }
+        let configured_tools = self.tools.clone().unwrap_or_default();
+        let has_tools = !configured_tools.is_empty();
         if self.transport == "http" && self.client.is_none() && self.base_url.is_none() {
             return Err(invalid("base_url", "is required for HTTP transport"));
         }
@@ -292,6 +298,7 @@ impl AgentBuilder {
                     || self.can_spawn
                     || self.can_message
                     || self.api_key.is_some()
+                    || self.model_base_url.is_some()
                     || self.temperature.is_some()
                     || self.max_output_tokens.is_some()
                     || self.budget.is_some()
@@ -362,6 +369,12 @@ impl AgentBuilder {
                         id: tool_provider_id(BUILTIN_PROVIDER_ID),
                     });
                 }
+                if has_tools && self.transport == "http" {
+                    providers.push(ToolProvider::Client {
+                        id: tool_provider_id(LOCAL_TOOLS_PROVIDER_ID),
+                        timeout_ms: None,
+                    });
+                }
                 let has_output = self.output_schema.is_some();
                 let spec = SessionSpec {
                     agent: AgentDefinition {
@@ -380,9 +393,11 @@ impl AgentBuilder {
                         provider: settings.provider,
                         protocol: settings.protocol,
                         model: settings.name,
-                        base_url: (self.transport == "local")
-                            .then(|| self.base_url.clone())
-                            .flatten(),
+                        base_url: self.model_base_url.clone().or_else(|| {
+                            (self.transport == "local")
+                                .then(|| self.base_url.clone())
+                                .flatten()
+                        }),
                         credential: SecretRef::new("pending").expect("valid constant"),
                         max_input_tokens: NonZeroU64::new(DEFAULT_MAX_INPUT_TOKENS)
                             .expect("non-zero constant"),
@@ -404,11 +419,14 @@ impl AgentBuilder {
                 (spec, Some(api_key), true, has_output, Some(temp_dir))
             };
 
-        let tool_server = self
-            .tools
-            .filter(|tools| !tools.is_empty())
-            .map(LoopbackToolServer::new)
+        let tool_server = (self.transport == "local" && has_tools)
+            .then(|| LoopbackToolServer::new(configured_tools.clone()))
             .transpose()?;
+        let client_tools = if self.transport == "http" {
+            Arc::new(configured_tools)
+        } else {
+            Arc::new(Vec::new())
+        };
         let service_base_url = (self.transport == "http")
             .then_some(self.base_url)
             .flatten();
@@ -424,6 +442,7 @@ impl AgentBuilder {
             spec_template,
             default_limits,
             tool_server,
+            client_tools,
             temp_dir,
         })
     }
@@ -442,6 +461,7 @@ pub struct Agent {
     spec_template: SessionSpec,
     default_limits: RunLimits,
     tool_server: Option<LoopbackToolServer>,
+    client_tools: Arc<Vec<Tool>>,
     temp_dir: Option<tempfile::TempDir>,
 }
 
@@ -480,8 +500,15 @@ impl Agent {
         let session = client
             .create_session(spec, CreateOptions::default())
             .await?;
-        let result =
-            run_in_session(&session, input.into_agent_input(), limits, self.has_output).await;
+        let result = run_in_session(
+            &session,
+            &client,
+            Arc::clone(&self.client_tools),
+            input.into_agent_input(),
+            limits,
+            self.has_output,
+        )
+        .await;
         archive_best_effort(&session).await;
         result
     }
@@ -494,11 +521,14 @@ impl Agent {
             .await?;
         let limits = self.default_limits.clone();
         let has_output = self.has_output;
+        let client_tools = Arc::clone(&self.client_tools);
         Ok(AgentConversation {
             _agent: self,
+            client,
             session: Some(session),
             limits,
             has_output,
+            client_tools,
         })
     }
 
@@ -616,9 +646,11 @@ impl Drop for Agent {
 /// One persistent session created by [`Agent::session`].
 pub struct AgentConversation<'a> {
     _agent: &'a mut Agent,
+    client: Muzen,
     session: Option<AgentSession>,
     limits: RunLimits,
     has_output: bool,
+    client_tools: Arc<Vec<Tool>>,
 }
 
 impl AgentConversation<'_> {
@@ -633,6 +665,8 @@ impl AgentConversation<'_> {
             .ok_or_else(|| MuzenError::new(ErrorCode::Conflict, "Agent conversation is closed"))?;
         run_in_session(
             session,
+            &self.client,
+            Arc::clone(&self.client_tools),
             input.into_agent_input(),
             self.limits.clone(),
             self.has_output,
@@ -649,7 +683,15 @@ impl AgentConversation<'_> {
             .session
             .as_ref()
             .ok_or_else(|| MuzenError::new(ErrorCode::Conflict, "Agent conversation is closed"))?;
-        run_in_session(session, input.into_agent_input(), limits, self.has_output).await
+        run_in_session(
+            session,
+            &self.client,
+            Arc::clone(&self.client_tools),
+            input.into_agent_input(),
+            limits,
+            self.has_output,
+        )
+        .await
     }
 
     pub async fn close(mut self) {

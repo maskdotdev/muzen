@@ -1,9 +1,17 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU64;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use axum::extract::{Path as AxumPath, State};
+use axum::http::header::CONTENT_TYPE;
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use parking_lot::Mutex;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -104,16 +112,40 @@ fn facade_option_validation_matches_python_contract() {
         "base_url is required for HTTP transport",
         "base_url",
     );
-    assert_invalid(
-        Agent::new("do it", "gpt-test")
-            .api_key("test")
-            .transport("http")
-            .base_url("https://muzen.example")
-            .tool(value_tool("lookup", "ok"))
-            .build(),
-        "tools require transport='local'; a remote service cannot reach the client's loopback server",
-        "tools",
-    );
+    let http_tools = Agent::new("do it", "gpt-test")
+        .api_key("test")
+        .transport("http")
+        .base_url("https://muzen.example")
+        .tool(
+            Tool::new("lookup", "Look up a value.", search_schema(), |_| async {
+                Ok(Value::String("ok".to_owned()))
+            })
+            .expect("tool"),
+        )
+        .build()
+        .expect("HTTP facade tools are client-executed");
+    assert!(http_tools.tool_server.is_none());
+    assert_eq!(http_tools.client_tools.len(), 1);
+    assert!(http_tools
+        .spec_template
+        .tool_providers
+        .iter()
+        .any(|provider| {
+            matches!(
+                provider,
+                ToolProvider::Client { id, timeout_ms: None }
+                    if id.as_str() == LOCAL_TOOLS_PROVIDER_ID
+            )
+        }));
+    let grant = http_tools
+        .spec_template
+        .agent
+        .tools
+        .iter()
+        .find(|grant| grant.tool == "lookup")
+        .expect("client tool grant");
+    assert_eq!(grant.description.as_deref(), Some("Look up a value."));
+    assert_eq!(grant.input_schema.as_ref(), Some(&search_schema()));
     assert_invalid(
         Agent::new("do it", "gpt-test")
             .api_key("test")
@@ -539,6 +571,123 @@ async fn conversation_reuses_session_and_one_shot_does_not() {
     agent.close().await.expect("close");
 }
 
+#[tokio::test]
+async fn http_tool_pump_posts_errors_and_swallows_benign_answer_races() {
+    let events = [
+        pump_event(
+            1,
+            "tool.requested",
+            json!({
+                "callId": "failed-call",
+                "provider": LOCAL_TOOLS_PROVIDER_ID,
+                "tool": "fail",
+                "arguments": { "value": 1 },
+                "timeoutMs": 120_000
+            }),
+        ),
+        pump_event(
+            2,
+            "tool.requested",
+            json!({
+                "callId": "unknown-call",
+                "provider": LOCAL_TOOLS_PROVIDER_ID,
+                "tool": "missing",
+                "arguments": {},
+                "timeoutMs": 120_000
+            }),
+        ),
+        pump_event(3, "run.completed", json!({})),
+    ]
+    .concat();
+    let server = FakePumpServer::start(events, [StatusCode::CONFLICT, StatusCode::NOT_FOUND]).await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let run_id = RunId::new("pump-run").expect("run id");
+    let run = client.get_run(&run_id).await.expect("fake run");
+    let fail = Tool::new("fail", "", json!({ "type": "object" }), |_| async {
+        Err(MuzenError::internal("tool exploded"))
+    })
+    .expect("failing tool");
+
+    result::pump_run_tools(client, run, Arc::new(vec![fail]))
+        .await
+        .expect("conflict and not_found are benign");
+
+    assert_eq!(
+        server.answers(),
+        vec![
+            (
+                "failed-call".to_owned(),
+                json!({ "error": { "message": "tool exploded", "retryable": false } }),
+            ),
+            (
+                "unknown-call".to_owned(),
+                json!({
+                    "error": {
+                        "message": "unknown local tool: missing",
+                        "retryable": false
+                    }
+                }),
+            ),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_facade_tool_round_trips_through_real_service() {
+    let Some(binary) = discover_agent_service_binary() else {
+        eprintln!(
+            "skipping real-service facade e2e: muzen-agent-service is missing; set \
+             MUZEN_AGENT_SERVICE_BIN or build target/release/muzen-agent-service"
+        );
+        return;
+    };
+    let model = GoldModelServer::start().await;
+    let service_address = reserve_loopback_address();
+    let _service = ServiceProcess::start(&binary, service_address).await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&calls);
+    let echo = Tool::new(
+        "echo",
+        "Echo the supplied value.",
+        json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        }),
+        move |arguments| {
+            let captured = Arc::clone(&captured);
+            async move {
+                captured.lock().push(arguments.clone());
+                Ok(json!({ "echoed": arguments["value"] }))
+            }
+        },
+    )
+    .expect("echo tool");
+    let mut agent = Agent::new("Use the echo tool once.", "gpt-test")
+        .transport("http")
+        .base_url(format!("http://{service_address}"))
+        .model_base_url(model.base_url())
+        .api_key("test")
+        .tool(echo)
+        .build()
+        .expect("HTTP tool agent");
+
+    let result = agent
+        .run("echo the scripted value")
+        .await
+        .expect("agent run");
+    assert_eq!(calls.lock().as_slice(), &[json!({ "value": "from-model" })]);
+    assert!(
+        result.text.contains(r#"{"echoed":"from-model"}"#),
+        "final model answer did not contain the raw JSON tool result: {}",
+        result.text
+    );
+    assert_eq!(model.request_count(), 2);
+    agent.close().await.expect("close agent");
+}
+
 #[test]
 fn failed_result_is_inspectable_and_status_error_is_opt_in() {
     let session_id = SessionId::new("session-1").expect("session");
@@ -635,6 +784,253 @@ fn text_turn(text: &str) -> ModelTurn {
         },
         stop: ModelStop::EndTurn,
     }
+}
+
+struct FakePumpState {
+    events: String,
+    statuses: Mutex<VecDeque<StatusCode>>,
+    answers: Mutex<Vec<(String, Value)>>,
+}
+
+struct FakePumpServer {
+    address: std::net::SocketAddr,
+    state: Arc<FakePumpState>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl FakePumpServer {
+    async fn start(events: String, statuses: impl IntoIterator<Item = StatusCode>) -> Self {
+        let state = Arc::new(FakePumpState {
+            events,
+            statuses: Mutex::new(statuses.into_iter().collect()),
+            answers: Mutex::new(Vec::new()),
+        });
+        let app = Router::new()
+            .route("/v1/runs/{run}", get(fake_pump_snapshot))
+            .route("/v1/runs/{run}/events", get(fake_pump_events))
+            .route("/v1/runs/{run}/tools/{call}/result", post(fake_pump_answer))
+            .with_state(Arc::clone(&state));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake pump listener");
+        let address = listener.local_addr().expect("fake pump address");
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("fake pump server");
+        });
+        Self {
+            address,
+            state,
+            task,
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+
+    fn answers(&self) -> Vec<(String, Value)> {
+        self.state.answers.lock().clone()
+    }
+}
+
+impl Drop for FakePumpServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn fake_pump_snapshot(AxumPath(run): AxumPath<String>) -> Json<Value> {
+    Json(json!({
+        "id": run,
+        "status": "running",
+        "roots": [],
+        "agents": [],
+        "lastSequence": 3,
+        "createdAt": "now",
+        "updatedAt": "now"
+    }))
+}
+
+async fn fake_pump_events(State(state): State<Arc<FakePumpState>>) -> impl IntoResponse {
+    ([(CONTENT_TYPE, "text/event-stream")], state.events.clone())
+}
+
+async fn fake_pump_answer(
+    State(state): State<Arc<FakePumpState>>,
+    AxumPath((_run, call)): AxumPath<(String, String)>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    state.answers.lock().push((call, body));
+    let status = state.statuses.lock().pop_front().unwrap_or(StatusCode::OK);
+    let code = if status == StatusCode::CONFLICT {
+        "conflict"
+    } else {
+        "not_found"
+    };
+    (
+        status,
+        Json(json!({
+            "code": code,
+            "message": "benign answer race",
+            "retryable": false
+        })),
+    )
+}
+
+fn pump_event(sequence: u64, event_type: &str, payload: Value) -> String {
+    let event = json!({
+        "runId": "pump-run",
+        "sequence": sequence,
+        "type": event_type,
+        "timestamp": "now",
+        "payload": payload
+    });
+    format!("id: {sequence}\nevent: run.event\ndata: {event}\n\n")
+}
+
+struct GoldModelState {
+    requests: Mutex<Vec<Value>>,
+}
+
+struct GoldModelServer {
+    address: std::net::SocketAddr,
+    state: Arc<GoldModelState>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl GoldModelServer {
+    async fn start() -> Self {
+        let state = Arc::new(GoldModelState {
+            requests: Mutex::new(Vec::new()),
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(gold_model_response))
+            .route("/v1/chat/completions", post(gold_model_response))
+            .with_state(Arc::clone(&state));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("gold model listener");
+        let address = listener.local_addr().expect("gold model address");
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("gold model server");
+        });
+        Self {
+            address,
+            state,
+            task,
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+
+    fn request_count(&self) -> usize {
+        self.state.requests.lock().len()
+    }
+}
+
+impl Drop for GoldModelServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn gold_model_response(
+    State(state): State<Arc<GoldModelState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    state.requests.lock().push(body.clone());
+    let tool_result = body["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|message| message["role"] == "tool")
+        .and_then(|message| message["content"].as_str());
+    let message = match tool_result {
+        Some(result) => json!({
+            "role": "assistant",
+            "content": format!("tool result: {result}")
+        }),
+        None => json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "echo-call",
+                "type": "function",
+                "function": {
+                    "name": "echo",
+                    "arguments": "{\"value\":\"from-model\"}"
+                }
+            }]
+        }),
+    };
+    Json(json!({
+        "choices": [{
+            "message": message,
+            "finish_reason": if tool_result.is_some() { "stop" } else { "tool_calls" }
+        }],
+        "usage": { "prompt_tokens": 2, "completion_tokens": 1 }
+    }))
+}
+
+struct ServiceProcess {
+    child: Child,
+}
+
+impl ServiceProcess {
+    async fn start(binary: &Path, address: std::net::SocketAddr) -> Self {
+        let mut child = Command::new(binary)
+            .args([
+                "--listen",
+                &address.to_string(),
+                "--store",
+                "memory",
+                "--allow-loopback-http",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start muzen-agent-service");
+        for _ in 0..100 {
+            if tokio::net::TcpStream::connect(address).await.is_ok() {
+                return Self { child };
+            }
+            if let Some(status) = child.try_wait().expect("poll service process") {
+                panic!("muzen-agent-service exited before listening: {status}");
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("muzen-agent-service did not listen on {address}");
+    }
+}
+
+impl Drop for ServiceProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn discover_agent_service_binary() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("MUZEN_AGENT_SERVICE_BIN") {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    [
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/muzen-agent-service"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/muzen-agent-service"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+fn reserve_loopback_address() -> std::net::SocketAddr {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve service port");
+    listener.local_addr().expect("reserved service address")
 }
 
 struct ScriptedProvider {
