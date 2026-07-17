@@ -140,6 +140,7 @@ class Agent(AbstractAsyncContextManager):
         transport: str = "local_runner",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        bearer_token: Optional[str] = None,
         model_base_url: Optional[str] = None,
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
@@ -155,6 +156,7 @@ class Agent(AbstractAsyncContextManager):
         self._client = client
         self._transport = transport
         self._service_base_url = base_url if transport == "http" else None
+        self._bearer_token = bearer_token
         self._connect_lock = asyncio.Lock()
         self._secret_ref: Optional[str] = None
         self._closed = False
@@ -331,7 +333,9 @@ class Agent(AbstractAsyncContextManager):
         async with self._connect_lock:
             if self._client is None:
                 if self._transport == "http":
-                    self._client = await connect_http(self._service_base_url or "")
+                    self._client = await connect_http(
+                        self._service_base_url or "", self._bearer_token
+                    )
                 else:
                     self._client = await connect_local_runner(
                         binary_path=discover_local_runner_binary(),

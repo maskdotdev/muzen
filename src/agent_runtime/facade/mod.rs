@@ -121,6 +121,7 @@ pub struct AgentBuilder {
     transport: String,
     api_key: Option<String>,
     base_url: Option<String>,
+    bearer_token: Option<String>,
     model_base_url: Option<String>,
     temperature: Option<f64>,
     max_output_tokens: Option<u64>,
@@ -143,6 +144,7 @@ impl Default for AgentBuilder {
             transport: "local".to_owned(),
             api_key: None,
             base_url: None,
+            bearer_token: None,
             model_base_url: None,
             temperature: None,
             max_output_tokens: None,
@@ -219,6 +221,13 @@ impl AgentBuilder {
 
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Bearer token presented to the Muzen service on the `http` transport.
+    /// Matches Python's `bearer_token` and TypeScript's `bearerToken`.
+    pub fn bearer_token(mut self, bearer_token: impl Into<String>) -> Self {
+        self.bearer_token = Some(bearer_token.into());
         self
     }
 
@@ -430,10 +439,14 @@ impl AgentBuilder {
         let service_base_url = (self.transport == "http")
             .then_some(self.base_url)
             .flatten();
+        let bearer_token = (self.transport == "http")
+            .then_some(self.bearer_token)
+            .flatten();
         Ok(Agent {
             client: self.client,
             transport: self.transport,
             service_base_url,
+            bearer_token,
             secret_ref: None,
             closed: false,
             api_key,
@@ -453,6 +466,7 @@ pub struct Agent {
     client: Option<Muzen>,
     transport: String,
     service_base_url: Option<String>,
+    bearer_token: Option<String>,
     secret_ref: Option<SecretRef>,
     closed: bool,
     api_key: Option<String>,
@@ -562,7 +576,9 @@ impl Agent {
         let client = if self.transport == "http" {
             Muzen::http(
                 self.service_base_url.as_deref().unwrap_or_default(),
-                HttpTransportOptions::default(),
+                HttpTransportOptions {
+                    bearer_token: self.bearer_token.clone(),
+                },
             )?
         } else {
             let model_url = self

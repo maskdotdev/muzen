@@ -146,6 +146,14 @@ fn facade_option_validation_matches_python_contract() {
         .expect("client tool grant");
     assert_eq!(grant.description.as_deref(), Some("Look up a value."));
     assert_eq!(grant.input_schema.as_ref(), Some(&search_schema()));
+    let authed = Agent::new("do it", "gpt-test")
+        .api_key("test")
+        .transport("http")
+        .base_url("https://muzen.example")
+        .bearer_token("service-token")
+        .build()
+        .expect("bearer token is a connection option");
+    assert_eq!(authed.bearer_token.as_deref(), Some("service-token"));
     assert_invalid(
         Agent::new("do it", "gpt-test")
             .api_key("test")

@@ -220,6 +220,18 @@ def test_instructions_swarm_grants_defaults_and_lazy_secret():
     asyncio.run(exercise())
 
 
+def test_http_transport_accepts_bearer_token():
+    agent = Agent(
+        instructions="do it",
+        model="gpt-test",
+        api_key="test",
+        transport="http",
+        base_url="https://muzen.example",
+        bearer_token="service-token",
+    )
+    assert agent._bearer_token == "service-token"
+
+
 def test_builtin_grant_rejects_model_visible_tool_name_collision():
     @tool
     def agent_spawn(query: str) -> str:
