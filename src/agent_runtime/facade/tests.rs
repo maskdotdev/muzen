@@ -696,6 +696,76 @@ async fn http_facade_tool_round_trips_through_real_service() {
     agent.close().await.expect("close agent");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_facade_pumps_spawned_child_client_tool_through_real_service() {
+    let Some(binary) = discover_agent_service_binary() else {
+        eprintln!(
+            "skipping real-service facade e2e: muzen-agent-service is missing; set \
+             MUZEN_AGENT_SERVICE_BIN or build target/release/muzen-agent-service"
+        );
+        return;
+    };
+    let model = SwarmModelServer::start().await;
+    let service_address = reserve_loopback_address();
+    let _service = ServiceProcess::start(&binary, service_address).await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&calls);
+    let echo = Tool::new(
+        "echo",
+        "Echo the supplied value.",
+        echo_schema(),
+        move |arguments| {
+            let captured = Arc::clone(&captured);
+            async move {
+                captured.lock().push(arguments.clone());
+                Ok(json!({ "echoed": arguments["value"] }))
+            }
+        },
+    )
+    .expect("echo tool");
+    let mut agent = Agent::new(SWARM_ROOT_INSTRUCTIONS, "gpt-test")
+        .transport("http")
+        .base_url(format!("http://{service_address}"))
+        .model_base_url(model.base_url())
+        .api_key("test")
+        .can_spawn(true)
+        .tool(echo)
+        .build()
+        .expect("HTTP swarm tool agent");
+
+    let result = agent
+        .run("spawn the scripted child")
+        .await
+        .expect("swarm agent run");
+    assert_eq!(
+        calls.lock().as_slice(),
+        &[json!({ "value": "from-swarm-child" })]
+    );
+    assert_eq!(result.status, TerminalAgentStatus::Completed);
+    assert_eq!(result.raw.status, TerminalRunStatus::Completed);
+    assert_eq!(result.text, "root finished after spawning child");
+    assert_eq!(result.raw.outputs.len(), 2);
+    assert!(result
+        .raw
+        .outputs
+        .iter()
+        .all(|output| output.status == TerminalAgentStatus::Completed));
+    let child = result
+        .raw
+        .outputs
+        .iter()
+        .find(|output| output.session_id != result.session_id)
+        .expect("spawned child output");
+    assert_eq!(
+        child.output.clone(),
+        Some(json!(
+            "child tool result: {\"echoed\":\"from-swarm-child\"}"
+        ))
+    );
+    assert_eq!(model.request_count(), 4);
+    agent.close().await.expect("close agent");
+}
+
 #[test]
 fn failed_result_is_inspectable_and_status_error_is_opt_in() {
     let session_id = SessionId::new("session-1").expect("session");
@@ -764,6 +834,15 @@ fn search_schema() -> Value {
         },
         "additionalProperties": false,
         "required": ["query", "limit"]
+    })
+}
+
+fn echo_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "value": { "type": "string" } },
+        "required": ["value"],
+        "additionalProperties": false
     })
 }
 
@@ -977,6 +1056,145 @@ async fn gold_model_response(
         "choices": [{
             "message": message,
             "finish_reason": if tool_result.is_some() { "stop" } else { "tool_calls" }
+        }],
+        "usage": { "prompt_tokens": 2, "completion_tokens": 1 }
+    }))
+}
+
+const SWARM_ROOT_INSTRUCTIONS: &str = "Spawn one child that uses echo, then finish.";
+const SWARM_CHILD_INSTRUCTIONS: &str = "Use echo once, then report its result.";
+
+struct SwarmModelServer {
+    address: std::net::SocketAddr,
+    state: Arc<GoldModelState>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl SwarmModelServer {
+    async fn start() -> Self {
+        let state = Arc::new(GoldModelState {
+            requests: Mutex::new(Vec::new()),
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(swarm_model_response))
+            .route("/v1/chat/completions", post(swarm_model_response))
+            .with_state(Arc::clone(&state));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("swarm model listener");
+        let address = listener.local_addr().expect("swarm model address");
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("swarm model server");
+        });
+        Self {
+            address,
+            state,
+            task,
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+
+    fn request_count(&self) -> usize {
+        self.state.requests.lock().len()
+    }
+}
+
+impl Drop for SwarmModelServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn swarm_model_response(
+    State(state): State<Arc<GoldModelState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    state.requests.lock().push(body.clone());
+    let messages = body["messages"].as_array().expect("model messages");
+    let system = messages
+        .first()
+        .and_then(|message| message["content"].as_str())
+        .expect("system instructions");
+    let tool_result = messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .and_then(|message| message["content"].as_str());
+
+    let (message, finish_reason) = match (system, tool_result) {
+        (SWARM_ROOT_INSTRUCTIONS, None) => {
+            let child = json!({
+                "name": "echo-child",
+                "instructions": [SWARM_CHILD_INSTRUCTIONS],
+                "model": "default",
+                "tools": [{
+                    "provider": LOCAL_TOOLS_PROVIDER_ID,
+                    "tool": "echo",
+                    "description": "Echo the supplied value.",
+                    "inputSchema": echo_schema(),
+                    "effects": []
+                }]
+            });
+            let arguments = json!({
+                "agent": child,
+                "input": "echo the scripted child value"
+            });
+            (
+                json!({
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "spawn-child-call",
+                        "type": "function",
+                        "function": {
+                            "name": "agent_spawn",
+                            "arguments": arguments.to_string()
+                        }
+                    }]
+                }),
+                "tool_calls",
+            )
+        }
+        (SWARM_ROOT_INSTRUCTIONS, Some(_)) => (
+            json!({
+                "role": "assistant",
+                "content": "root finished after spawning child"
+            }),
+            "stop",
+        ),
+        (SWARM_CHILD_INSTRUCTIONS, None) => (
+            json!({
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "child-echo-call",
+                    "type": "function",
+                    "function": {
+                        "name": "echo",
+                        "arguments": "{\"value\":\"from-swarm-child\"}"
+                    }
+                }]
+            }),
+            "tool_calls",
+        ),
+        (SWARM_CHILD_INSTRUCTIONS, Some(result)) => (
+            json!({
+                "role": "assistant",
+                "content": format!("child tool result: {result}")
+            }),
+            "stop",
+        ),
+        (instructions, _) => panic!("unexpected model instructions: {instructions}"),
+    };
+
+    Json(json!({
+        "choices": [{
+            "message": message,
+            "finish_reason": finish_reason
         }],
         "usage": { "prompt_tokens": 2, "completion_tokens": 1 }
     }))

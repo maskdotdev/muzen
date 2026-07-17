@@ -2098,6 +2098,162 @@ async fn model_tool_spawn_creates_and_runs_path_ordered_child() {
 }
 
 #[tokio::test]
+async fn spawned_child_uses_inherited_client_tool_provider() {
+    let mut root_spec = session_spec();
+    root_spec.agent.tools.clear();
+    root_spec.tool_providers.clear();
+    grant(
+        &mut root_spec,
+        "builtin",
+        "agent.spawn",
+        Some(ToolEffect::AgentSpawn),
+    );
+    grant(&mut root_spec, "local_tools", "echo", None);
+    root_spec.tool_providers.extend([
+        ToolProvider::Builtin {
+            id: ToolProviderId::new("builtin").expect("provider"),
+        },
+        ToolProvider::Client {
+            id: ToolProviderId::new("local_tools").expect("provider"),
+            timeout_ms: NonZeroU64::new(5_000),
+        },
+    ]);
+
+    let mut child_agent = root_spec.agent.clone();
+    child_agent.name = AgentName::new("client-child").expect("agent name");
+    child_agent.instructions = vec![ContentBlock::Text {
+        text: "Use the inherited echo tool.".to_owned(),
+    }];
+    child_agent
+        .tools
+        .retain(|grant| grant.provider.as_str() == "local_tools");
+
+    let provider = ScriptedProvider::named([
+        (
+            "builder".to_owned(),
+            vec![
+                tool_turn(vec![tool_call(
+                    "spawn-client-child",
+                    "builtin",
+                    "agent.spawn",
+                    json!({ "agent": child_agent, "input": input("echo from child") }),
+                )]),
+                turn("root completed", 1, 1),
+            ],
+        ),
+        (
+            "client-child".to_owned(),
+            vec![
+                tool_turn(vec![tool_call(
+                    "child-echo-call",
+                    "local_tools",
+                    "echo",
+                    json!({ "value": "from-child" }),
+                )]),
+                turn("child received echoed from-child", 1, 1),
+            ],
+        ),
+    ]);
+    let muzen = memory_runtime(Arc::clone(&provider)).await;
+    let session = muzen
+        .create_session(root_spec, CreateOptions::default())
+        .await
+        .expect("root session");
+    let mut run_limits = limits();
+    run_limits.max_depth = 1;
+    run_limits.max_total_tool_calls = None;
+    let run = session
+        .run(
+            input("spawn the client-tool child"),
+            SingleRunOptions {
+                limits: run_limits,
+                idempotency_key: None,
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .expect("run");
+
+    let requested = wait_for_event(&run, "tool.requested").await;
+    let child_session_id = requested.session_id.clone().expect("child session id");
+    assert_ne!(child_session_id, *session.id());
+    assert_eq!(
+        requested.payload,
+        BTreeMap::from([
+            ("arguments".to_owned(), json!({ "value": "from-child" })),
+            ("callId".to_owned(), json!("child-echo-call")),
+            ("provider".to_owned(), json!("local_tools")),
+            ("timeoutMs".to_owned(), json!(5_000)),
+            ("tool".to_owned(), json!("echo")),
+        ])
+    );
+    let answer = || AnswerToolCallInput {
+        call_id: "child-echo-call".to_owned(),
+        outcome: AnswerToolCallOutcome::Result {
+            result: json!({ "echoed": "from-child" }),
+        },
+    };
+    muzen
+        .answer_tool_call(run.id(), answer())
+        .await
+        .expect("answer child client tool");
+    assert_eq!(
+        muzen
+            .answer_tool_call(run.id(), answer())
+            .await
+            .expect_err("duplicate child tool answer")
+            .code(),
+        ErrorCode::Conflict
+    );
+
+    let result = run.wait().await.expect("run result");
+    assert_eq!(result.status, TerminalRunStatus::Completed);
+    assert_eq!(result.outputs.len(), 2);
+    assert!(result
+        .outputs
+        .iter()
+        .all(|output| output.status == TerminalAgentStatus::Completed));
+    assert_eq!(
+        result
+            .outputs
+            .iter()
+            .find(|output| output.session_id == child_session_id)
+            .expect("child output")
+            .output,
+        Some(json!("child received echoed from-child"))
+    );
+    assert_eq!(
+        result
+            .outputs
+            .iter()
+            .find(|output| output.session_id == *session.id())
+            .expect("root output")
+            .output,
+        Some(json!("root completed"))
+    );
+
+    let child_follow_up = provider
+        .requests()
+        .into_iter()
+        .find(|request| {
+            request.agent.name.as_str() == "client-child"
+                && request
+                    .transcript
+                    .iter()
+                    .any(|message| message.role == MessageRole::Tool)
+        })
+        .expect("child follow-up request");
+    let tool_message = child_follow_up
+        .transcript
+        .iter()
+        .find(|message| message.role == MessageRole::Tool)
+        .expect("child tool result");
+    assert!(serde_json::to_string(&tool_message.content)
+        .expect("child tool result JSON")
+        .contains(r#"\"echoed\":\"from-child\""#));
+}
+
+#[tokio::test]
 async fn model_tool_message_follow_up_extends_target() {
     let provider = ScriptedProvider::new([]);
     let muzen = memory_runtime(Arc::clone(&provider)).await;
