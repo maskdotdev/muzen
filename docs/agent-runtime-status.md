@@ -17,15 +17,25 @@ against it.
 | Python SDK transports | `4d4a8601` | `connect_local_runner` / `connect_http`, stdlib-only, asyncio |
 | TypeScript SDK transports | `fcb5fc84` | `connectLocalRunner` / `connectHttp`, no runtime deps, Node 22 |
 | Live-run hardening | `14829e21` | Fixes from the first real-model run (argument normalization, grant-cap semantics, honest budget errors, envelope hygiene, IPv6 loopback) |
+| Ergonomic Agent facades | `cc900b95` (Py), `ca90cc5d` (TS) | `Agent(instructions=..., model=..., output=...)` front door; wire spec demoted to escape hatch; env-key model synthesis, session continuity, swarm sugar |
+| Structured outputs | `50b86ab8` | OutputContract enforced: strict schema formats on the wire + engine-side validation; parsed JSON in outputs |
+| MCP HTTP tools + @tool | `78ef4ab0`, `f3872ec3` | Streamable-HTTP MCP client (schemas to models, tools/call, egress policy); Python `@tool` functions hosted on a per-Agent loopback MCP shim |
+| Concurrency fixes | `636dbe10`, `544b81f5` | Two unpolled-waiter deadlocks (select-starved agents → JoinSet; backpressured SSE reserving the fair mutex → SQLite connection actor) found by live/concurrency probing |
 
 ## Verification
 
-- Rust: 484 tests passing (72 in agent_runtime, both store backends under the
-  shared conformance suite). Python SDK: 26. TypeScript SDK: 49.
+- Rust: 503 tests passing (91 in agent_runtime, both store backends under the
+  shared conformance suite). Python SDK: 44. TypeScript SDK: 57.
 - Live-verified against the real OpenAI API through the Python SDK and the
-  `muzen-agent-runner` binary: plain completion, and a model-driven swarm
-  where a gpt-4o-mini root agent spawned a child via the `agent_spawn` tool
-  and both completed with gap-free event sequences.
+  `muzen-agent-runner` binary: plain completion; a model-driven swarm where a
+  gpt-4o-mini root agent spawned a child via the `agent_spawn` tool; and the
+  facade trio in one script — custom instructions, a decorated `@tool`
+  function executed through the loopback MCP shim, and a TypedDict output
+  returned as validated parsed JSON.
+- Benchmarked: 5 concurrent agents on one `muzen-agent-service` process
+  (SQLite store) complete each wave in 0.37s against a 0.3s-latency model;
+  RSS 15MB idle, ~19.9MB after 5 waves (~25KB retained per run, peak equals
+  settled).
 
 ## Known v1 limitations (deliberate)
 
@@ -33,15 +43,18 @@ against it.
   `secret_unavailable` by design.
 - No automatic retries on retryable provider errors (classification only).
 - Input-side token limits are delegated to the provider APIs.
-- Artifacts, workspaces, and MCP HTTP tool execution are contract-defined but
-  not implemented (`unsupported`).
+- Artifacts and workspaces are contract-defined but not implemented
+  (`unsupported`).
 - Crash recovery replays durable state, but an interrupted tool batch does
   not resume mid-batch.
-- Single-connection SQLite store; a shared-database adapter is required
-  before multi-host workers (per the Adapter Seams section).
+- Single-connection SQLite store (behind an always-polled connection actor);
+  a shared-database adapter is required before multi-host workers (per the
+  Adapter Seams section).
 
 ## Remaining roadmap
 
+- TypeScript `tool()` parity (the loopback MCP shim exists in Python only).
+- Automatic retries on retryable provider errors.
 - Removal of the old review-specific product surface — deferred: that
   surface is under active concurrent development; sequence the removal after
   that workstream lands.
