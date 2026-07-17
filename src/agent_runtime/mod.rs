@@ -6,6 +6,7 @@
 
 mod client;
 mod errors;
+pub mod facade;
 pub mod http;
 mod ids;
 mod local;
@@ -18,6 +19,10 @@ mod validation;
 
 pub use client::{AgentSession, Artifact, EventStream, Muzen, Run, RuntimeTransport};
 pub use errors::{ErrorCode, MuzenError};
+pub use facade::{
+    Agent, AgentBuilder, AgentConversation, AgentInstructions, AgentResult, IntoAgentInput,
+    LoopbackToolServer, Tool, TypedToolHandler,
+};
 pub use http::{HttpServiceConfig, HttpTransport, HttpTransportOptions};
 pub use ids::{
     AgentName, ArtifactId, IdempotencyKey, ModelProfileId, RunId, SecretRef, SessionId,

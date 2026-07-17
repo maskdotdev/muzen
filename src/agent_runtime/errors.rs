@@ -94,6 +94,16 @@ impl MuzenError {
             details: None,
         }
     }
+
+    pub(crate) fn with_retryable(mut self, retryable: bool) -> Self {
+        self.retryable = retryable;
+        self
+    }
+
+    pub(crate) fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
+    }
 }
 
 impl From<SpecValidationError> for MuzenError {
