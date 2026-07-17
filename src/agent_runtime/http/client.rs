@@ -103,6 +103,16 @@ impl HttpTransport {
 
 #[async_trait]
 impl RuntimeTransport for HttpTransport {
+    fn isolated_clone(&self) -> Option<Arc<dyn RuntimeTransport>> {
+        Some(Arc::new(Self {
+            client: reqwest::Client::new(),
+            base_url: self.base_url.clone(),
+            bearer_token: self.bearer_token.clone(),
+            sse_idle_timeout: self.sse_idle_timeout,
+            artifact_runs: Arc::new(Mutex::new(BTreeMap::new())),
+        }))
+    }
+
     async fn capabilities(&self) -> Result<Capabilities, MuzenError> {
         self.json(self.request(Method::GET, self.endpoint(["v1", "capabilities"])))
             .await

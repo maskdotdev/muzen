@@ -23,6 +23,12 @@ pub(crate) const CLIENT_TOOL_ANSWER_MAX_BYTES: usize = 1024 * 1024;
 
 #[async_trait]
 pub trait RuntimeTransport: Send + Sync {
+    /// Returns a clone whose I/O resources are independent of any runtime the
+    /// original transport has been used on.
+    fn isolated_clone(&self) -> Option<Arc<dyn RuntimeTransport>> {
+        None
+    }
+
     async fn capabilities(&self) -> Result<Capabilities, MuzenError>;
     async fn put_secret(&self, input: PutSecretInput) -> Result<SecretRef, MuzenError>;
     async fn delete_secret(&self, secret: &SecretRef) -> Result<(), MuzenError>;
@@ -151,6 +157,16 @@ impl Muzen {
         input: AnswerToolCallInput,
     ) -> Result<(), MuzenError> {
         self.transport.answer_tool_call(run_id, input).await
+    }
+
+    pub(crate) fn isolated_clone(&self) -> Option<Self> {
+        self.transport
+            .isolated_clone()
+            .map(|transport| Self { transport })
+    }
+
+    pub(crate) fn run_handle(&self, id: &RunId) -> Run {
+        Run::new(id.clone(), Arc::clone(&self.transport))
     }
 
     pub async fn close(&self) -> Result<(), MuzenError> {

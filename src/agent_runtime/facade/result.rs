@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::thread::{self, JoinHandle as ThreadJoinHandle};
+use std::time::Duration;
 
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
+use tokio::runtime::RuntimeFlavor;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
 
 use crate::agent_runtime::{
     AgentInput, AgentSession, AnswerToolCallInput, AnswerToolCallOutcome, CancelOptions,
@@ -103,13 +106,16 @@ pub(super) async fn run_in_session(
         )
         .await?;
     let mut pump = ToolPump::spawn(client.clone(), run.clone(), tools);
-    let raw = if pump.task.is_some() {
+    let raw = if pump.finished.is_some() {
         let race = {
-            let pump_task = pump.task.as_mut().expect("tool pump task exists");
+            let finished = pump
+                .finished
+                .as_mut()
+                .expect("tool pump completion receiver exists");
             tokio::select! {
                 biased;
                 raw = run.wait() => ToolPumpRace::Run(raw),
-                pump_result = pump_task => ToolPumpRace::Pump(pump_result),
+                pump_result = finished => ToolPumpRace::Pump(pump_result),
             }
         };
         match race {
@@ -118,7 +124,8 @@ pub(super) async fn run_in_session(
                 raw?
             }
             ToolPumpRace::Pump(pump_result) => {
-                pump.task.take();
+                pump.finished.take();
+                pump.stop().await;
                 match pump_result {
                     Ok(Ok(())) => run.wait().await?,
                     Ok(Err(error)) => {
@@ -126,9 +133,9 @@ pub(super) async fn run_in_session(
                         let _ = run.wait().await;
                         return Err(error);
                     }
-                    Err(join_error) => {
+                    Err(receive_error) => {
                         let error = MuzenError::internal(format!(
-                            "tool pump task stopped unexpectedly: {join_error}"
+                            "tool pump task stopped unexpectedly: {receive_error}"
                         ));
                         let _ = run.cancel(CancelOptions::default()).await;
                         let _ = run.wait().await;
@@ -145,33 +152,146 @@ pub(super) async fn run_in_session(
 
 enum ToolPumpRace {
     Run(Result<RunResult, MuzenError>),
-    Pump(Result<Result<(), MuzenError>, tokio::task::JoinError>),
+    Pump(Result<Result<(), MuzenError>, oneshot::error::RecvError>),
 }
 
-struct ToolPump {
-    task: Option<JoinHandle<Result<(), MuzenError>>>,
+enum ToolPumpWorker {
+    Thread(ThreadJoinHandle<()>),
+    Task(JoinHandle<()>),
+}
+
+pub(super) struct ToolPump {
+    cancel: Option<oneshot::Sender<()>>,
+    pub(super) finished: Option<oneshot::Receiver<Result<(), MuzenError>>>,
+    worker: Option<ToolPumpWorker>,
 }
 
 impl ToolPump {
-    fn spawn(client: Muzen, run: Run, tools: Arc<Vec<Tool>>) -> Self {
-        let task = (!tools.is_empty())
-            .then(|| tokio::spawn(async move { pump_run_tools(client, run, tools).await }));
-        Self { task }
+    pub(super) fn spawn(client: Muzen, run: Run, tools: Arc<Vec<Tool>>) -> Self {
+        if tools.is_empty() {
+            return Self {
+                cancel: None,
+                finished: None,
+                worker: None,
+            };
+        }
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let (finished_tx, finished_rx) = oneshot::channel();
+        let worker = match client.isolated_clone() {
+            Some(isolated_client) => {
+                let isolated_run = isolated_client.run_handle(run.id());
+                let thread = thread::Builder::new()
+                    .name("muzen-tool-pump".to_owned())
+                    .spawn(move || {
+                        let result = match tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                        {
+                            Ok(runtime) => runtime.block_on(run_tool_pump(
+                                cancel_rx,
+                                isolated_client,
+                                isolated_run,
+                                tools,
+                            )),
+                            Err(error) => Err(MuzenError::internal(format!(
+                                "failed to build isolated tool pump runtime: {error}"
+                            ))),
+                        };
+                        let _ = finished_tx.send(result);
+                    })
+                    .expect("failed to spawn isolated tool pump thread");
+                ToolPumpWorker::Thread(thread)
+            }
+            None => {
+                let task = tokio::spawn(async move {
+                    let result = run_tool_pump(cancel_rx, client, run, tools).await;
+                    let _ = finished_tx.send(result);
+                });
+                ToolPumpWorker::Task(task)
+            }
+        };
+        Self {
+            cancel: Some(cancel_tx),
+            finished: Some(finished_rx),
+            worker: Some(worker),
+        }
     }
 
-    async fn stop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-            let _ = task.await;
+    pub(super) async fn stop(&mut self) {
+        self.cancel();
+        match self.worker.take() {
+            Some(ToolPumpWorker::Thread(thread)) => join_pump_thread(thread),
+            Some(ToolPumpWorker::Task(task)) => {
+                task.abort();
+                let _ = task.await;
+            }
+            None => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_thread_mode(&self) -> bool {
+        matches!(self.worker, Some(ToolPumpWorker::Thread(_)))
+    }
+
+    #[cfg(test)]
+    pub(super) fn worker_is_finished(&self) -> bool {
+        match self.worker.as_ref() {
+            Some(ToolPumpWorker::Thread(thread)) => thread.is_finished(),
+            Some(ToolPumpWorker::Task(task)) => task.is_finished(),
+            None => true,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn has_worker(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    fn cancel(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.send(());
         }
     }
 }
 
 impl Drop for ToolPump {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
+        self.cancel();
+        match self.worker.take() {
+            Some(ToolPumpWorker::Thread(thread)) => {
+                // The private current-thread runtime observes cancellation on
+                // its next poll, so joining here is bounded and avoids leaks.
+                let _ = thread.join();
+            }
+            Some(ToolPumpWorker::Task(task)) => task.abort(),
+            None => {}
         }
+    }
+}
+
+async fn run_tool_pump(
+    mut cancel: oneshot::Receiver<()>,
+    client: Muzen,
+    run: Run,
+    tools: Arc<Vec<Tool>>,
+) -> Result<(), MuzenError> {
+    tokio::select! {
+        biased;
+        _ = &mut cancel => Ok(()),
+        result = pump_run_tools(client, run, tools) => result,
+    }
+}
+
+fn join_pump_thread(thread: ThreadJoinHandle<()>) {
+    let on_multi_thread_runtime = tokio::runtime::Handle::try_current()
+        .is_ok_and(|handle| handle.runtime_flavor() == RuntimeFlavor::MultiThread);
+    if on_multi_thread_runtime {
+        tokio::task::block_in_place(|| {
+            let _ = thread.join();
+        });
+    } else {
+        let _ = thread.join();
     }
 }
 

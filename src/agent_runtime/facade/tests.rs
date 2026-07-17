@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::convert::Infallible;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -7,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use axum::body::Body;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
@@ -22,7 +24,7 @@ use super::*;
 use crate::agent_runtime::{
     AgentOutput, ExecutionError, ExecutionErrorCode, MessageRole, ModelProvider,
     ModelProviderError, ModelRequest, ModelStop, ModelToolCall, ModelTurn, RunId, RunResult,
-    TerminalAgentStatus, TerminalRunStatus, Usage,
+    SingleRunOptions, TerminalAgentStatus, TerminalRunStatus, Usage,
 };
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -642,6 +644,101 @@ async fn http_tool_pump_posts_errors_and_swallows_benign_answer_races() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_tool_pump_thread_exits_and_is_joined_after_completion() {
+    let events = pump_event(1, "run.completed", json!({}));
+    let server = FakePumpServer::start(events, []).await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let run_id = RunId::new("pump-run").expect("run id");
+    let run = client.get_run(&run_id).await.expect("fake run");
+    let mut pump =
+        result::ToolPump::spawn(client, run, Arc::new(vec![value_tool("unused", "unused")]));
+
+    assert!(pump.is_thread_mode());
+    pump.finished
+        .as_mut()
+        .expect("tool pump completion receiver")
+        .await
+        .expect("tool pump completion channel")
+        .expect("tool pump completion");
+    pump.stop().await;
+
+    assert!(pump.worker_is_finished());
+    assert!(!pump.has_worker());
+}
+
+#[tokio::test]
+async fn http_tool_pump_stop_joins_active_thread_promptly() {
+    let server = FakePumpServer::start_with_open_event_stream().await;
+    let client =
+        Muzen::http(server.base_url(), HttpTransportOptions::default()).expect("HTTP client");
+    let run_id = RunId::new("pump-run").expect("run id");
+    let run = client.get_run(&run_id).await.expect("fake run");
+    let mut pump =
+        result::ToolPump::spawn(client, run, Arc::new(vec![value_tool("unused", "unused")]));
+
+    assert!(pump.is_thread_mode());
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while server.event_requests() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("pump should open its event stream");
+
+    tokio::time::timeout(Duration::from_secs(2), pump.stop())
+        .await
+        .expect("stopping an active isolated pump should be prompt");
+    pump.finished
+        .as_mut()
+        .expect("tool pump completion receiver")
+        .try_recv()
+        .expect("cancelled pump should report completion")
+        .expect("pump cancellation is successful");
+    assert!(!pump.has_worker());
+}
+
+#[tokio::test]
+async fn local_tool_pump_uses_ambient_task_fallback() {
+    let provider = ScriptedProvider::new([text_turn("done")]);
+    let client = Muzen::local(LocalRuntimeConfig::memory(provider))
+        .await
+        .expect("local runtime");
+    let agent = Agent::new("Answer.", "gpt-test")
+        .client(client.clone())
+        .api_key("test")
+        .build()
+        .expect("agent");
+    let session = client
+        .create_session(agent.spec_template.clone(), CreateOptions::default())
+        .await
+        .expect("session");
+    let run = session
+        .run(
+            "run".into_agent_input(),
+            SingleRunOptions {
+                limits: agent.default_limits.clone(),
+                idempotency_key: None,
+                metadata: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("run");
+    let mut pump =
+        result::ToolPump::spawn(client, run, Arc::new(vec![value_tool("unused", "unused")]));
+
+    assert!(!pump.is_thread_mode());
+    pump.finished
+        .as_mut()
+        .expect("tool pump completion receiver")
+        .await
+        .expect("tool pump completion channel")
+        .expect("tool pump completion");
+    pump.stop().await;
+    assert!(!pump.has_worker());
+}
+
 #[tokio::test]
 async fn http_tool_pump_recovers_after_two_failures_at_the_same_cursor() {
     let events = [
@@ -666,9 +763,15 @@ async fn http_tool_pump_recovers_after_two_failures_at_the_same_cursor() {
     let run = client.get_run(&run_id).await.expect("fake run");
     let tool = value_tool("recover", "recovered");
 
-    result::pump_run_tools(client, run, Arc::new(vec![tool]))
+    let mut pump = result::ToolPump::spawn(client, run, Arc::new(vec![tool]));
+    assert!(pump.is_thread_mode());
+    pump.finished
+        .as_mut()
+        .expect("tool pump completion receiver")
         .await
+        .expect("tool pump completion channel")
         .expect("pump should recover after two connect failures");
+    pump.stop().await;
 
     assert_eq!(server.event_requests(), 3);
     assert_eq!(
@@ -688,13 +791,20 @@ async fn http_tool_pump_bounds_permanent_retryable_failures() {
     let run_id = RunId::new("pump-run").expect("run id");
     let run = client.get_run(&run_id).await.expect("fake run");
 
+    let mut pump =
+        result::ToolPump::spawn(client, run, Arc::new(vec![value_tool("unused", "unused")]));
+    assert!(pump.is_thread_mode());
     let error = tokio::time::timeout(
         Duration::from_secs(2),
-        result::pump_run_tools(client, run, Arc::new(vec![value_tool("unused", "unused")])),
+        pump.finished
+            .as_mut()
+            .expect("tool pump completion receiver"),
     )
     .await
     .expect("pump retries should be bounded")
+    .expect("tool pump completion channel")
     .expect_err("permanent stream failure should surface");
+    pump.stop().await;
 
     assert_eq!(server.event_requests(), 6);
     assert_eq!(error.code(), ErrorCode::Unavailable);
@@ -987,6 +1097,7 @@ struct FakePumpState {
     cancel_requests: AtomicUsize,
     cancelled: AtomicBool,
     block_result_until_cancel: bool,
+    hold_events_open: bool,
     cancelled_notify: Notify,
 }
 
@@ -998,7 +1109,7 @@ struct FakePumpServer {
 
 impl FakePumpServer {
     async fn start(events: String, statuses: impl IntoIterator<Item = StatusCode>) -> Self {
-        Self::start_configured(events, statuses, 0, false, false).await
+        Self::start_configured(events, statuses, 0, false, false, false).await
     }
 
     async fn start_with_event_failures(
@@ -1006,7 +1117,7 @@ impl FakePumpServer {
         statuses: impl IntoIterator<Item = StatusCode>,
         failures: usize,
     ) -> Self {
-        Self::start_configured(events, statuses, failures, false, false).await
+        Self::start_configured(events, statuses, failures, false, false, false).await
     }
 
     async fn start_with_permanent_event_failure(
@@ -1019,8 +1130,13 @@ impl FakePumpServer {
             0,
             true,
             block_result_until_cancel,
+            false,
         )
         .await
+    }
+
+    async fn start_with_open_event_stream() -> Self {
+        Self::start_configured(String::new(), std::iter::empty(), 0, false, false, true).await
     }
 
     async fn start_configured(
@@ -1029,6 +1145,7 @@ impl FakePumpServer {
         event_failures: usize,
         fail_events_permanently: bool,
         block_result_until_cancel: bool,
+        hold_events_open: bool,
     ) -> Self {
         let state = Arc::new(FakePumpState {
             events,
@@ -1040,6 +1157,7 @@ impl FakePumpServer {
             cancel_requests: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
             block_result_until_cancel,
+            hold_events_open,
             cancelled_notify: Notify::new(),
         });
         let app = Router::new()
@@ -1150,6 +1268,14 @@ async fn fake_pump_events(State(state): State<Arc<FakePumpState>>) -> axum::resp
             })),
         )
             .into_response();
+    }
+    if state.hold_events_open {
+        let body = Body::from_stream(futures::stream::pending::<Result<String, Infallible>>());
+        return axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "text/event-stream")
+            .body(body)
+            .expect("open SSE response");
     }
     ([(CONTENT_TYPE, "text/event-stream")], state.events.clone()).into_response()
 }

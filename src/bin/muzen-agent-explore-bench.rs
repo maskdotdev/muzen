@@ -49,8 +49,7 @@ struct Counts {
     grep: AtomicUsize,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     if std::env::args().nth(1).as_deref() == Some("--sample-processes") {
         match sample_processes() {
             Ok(rows) => println!("{}", Value::Array(rows)),
@@ -61,7 +60,18 @@ async fn main() {
         }
         return;
     }
-    if let Err(error) = run().await {
+    // MUZEN_EXPLORE_RT=current_thread isolates scheduler-dependent stalls when
+    // diagnosing concurrency incidents; the default matches #[tokio::main].
+    let runtime = match std::env::var("MUZEN_EXPLORE_RT").as_deref() {
+        Ok("current_thread") => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build(),
+        _ => tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build(),
+    }
+    .expect("build tokio runtime");
+    if let Err(error) = runtime.block_on(run()) {
         eprintln!("muzen agent explore Rust driver: {error}");
         std::process::exit(1);
     }
