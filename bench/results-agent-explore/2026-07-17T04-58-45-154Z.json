@@ -1,0 +1,168 @@
+{
+  "schema": "muzen.agent-explore-benchmark.v2",
+  "runstamp": "2026-07-17T04-58-45-154Z",
+  "generatedAt": "2026-07-17T04:58:54.398Z",
+  "complete": true,
+  "config": {
+    "languages": [
+      "rust"
+    ],
+    "transports": [
+      "http"
+    ],
+    "concurrency": 5,
+    "waves": 3,
+    "repoRoot": "/Users/mask/code/muzen",
+    "latencyMs": 300,
+    "readFiles": 5,
+    "store": "sqlite",
+    "modelTurnsPerRun": 8,
+    "sequentialEstimateTurnsPerRun": 7
+  },
+  "binaries": {
+    "service": "/Users/mask/code/muzen/target/release/muzen-agent-service",
+    "runner": "/Users/mask/code/muzen/target/release/muzen-agent-runner",
+    "rustDriver": "/Users/mask/code/muzen/target/release/muzen-agent-explore-bench"
+  },
+  "cells": [
+    {
+      "language": "rust",
+      "transport": "http",
+      "store": "sqlite",
+      "modelTurnsPerRun": 8,
+      "sequentialEstimateTurnsPerRun": 7,
+      "toolCallsPerRun": 7,
+      "initialServiceRssBytes": 11059200,
+      "finalServiceRssBytes": 25526272,
+      "retainedPerRunBytes": 964471.4666666667,
+      "waves": [
+        {
+          "wave": 1,
+          "runs": [
+            {
+              "durationMs": 2666.79225,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2665.1193749999998,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2665.678708,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2666.229583,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2666.83425,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            }
+          ],
+          "wallMs": 2674.3238340000003,
+          "theoreticalSequentialMs": 10500,
+          "speedup": 3.926226086201047,
+          "servicePeakRssBytes": 22740992,
+          "serviceSettledRssBytes": 22740992,
+          "driverPeakRssBytes": 61030400,
+          "processTreePeakRssBytes": 61030400
+        },
+        {
+          "wave": 2,
+          "runs": [
+            {
+              "durationMs": 2665.003125,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2664.255667,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2663.1771249999997,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2664.5005,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2662.943084,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            }
+          ],
+          "wallMs": 2673.0834160000004,
+          "theoreticalSequentialMs": 10500,
+          "speedup": 3.9280480126999517,
+          "servicePeakRssBytes": 24461312,
+          "serviceSettledRssBytes": 24461312,
+          "driverPeakRssBytes": 61210624,
+          "processTreePeakRssBytes": 61210624
+        },
+        {
+          "wave": 3,
+          "runs": [
+            {
+              "durationMs": 2672.916917,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2672.8073750000003,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2672.421708,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2670.885792,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            },
+            {
+              "durationMs": 2671.5027080000004,
+              "summaryText": "Explored 5 files and 84285 bytes; grep found 3133 matches.",
+              "toolCalls": 7,
+              "turns": 8
+            }
+          ],
+          "wallMs": 2681.4651249999997,
+          "theoreticalSequentialMs": 10500,
+          "speedup": 3.915769741737738,
+          "servicePeakRssBytes": 25526272,
+          "serviceSettledRssBytes": 25526272,
+          "driverPeakRssBytes": 60964864,
+          "processTreePeakRssBytes": 60964864
+        }
+      ]
+    }
+  ]
+}
